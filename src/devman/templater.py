@@ -168,7 +168,7 @@ class DevEnvTemplater(BaseModel):
     """DevEnv project templater with Jinja2 integration."""
 
     templates_dir: Path = Field(
-        default_factory=lambda: Path("~/.devenv-templates").expanduser(),
+        default_factory=lambda: Path(__file__).parent / "templates/",
         description="Custom templates directory",
     )
     registry: TemplateRegistry = Field(default_factory=lambda: TEMPLATE_REGISTRY)

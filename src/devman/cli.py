@@ -20,10 +20,11 @@ app = typer.Typer(
     name="devenv-templater",
     help="🚀 Generate NixOS devenv projects from templates",
     rich_markup_mode="rich",
+    no_args_is_help=True,
 )
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def new(
     name: Annotated[str, typer.Argument(help="Project name")],
     project_type: Annotated[
@@ -125,7 +126,7 @@ def new(
     )
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def update(
     name: Annotated[str, typer.Argument(help="Project name")],
     project_type: Annotated[
@@ -230,6 +231,7 @@ def config() -> None:
     console.print(table)
 
 
+'''
 @app.command()
 def init_templates(
     force: Annotated[
@@ -256,7 +258,7 @@ def init_templates(
     console.print(
         f"✅ Templates initialized at {templater.templates_dir}", style="green"
     )
-
+'''
 
 if __name__ == "__main__":
     app()
