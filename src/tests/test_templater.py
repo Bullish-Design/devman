@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from devman.config import ProjectConfig
+from devman.devman_config import DevmanConfig
 from devman.templater import DevEnvTemplater, ProjectGenerator, ProjectStructure
 from devman.templates import TemplateRegistry
 
@@ -91,42 +92,37 @@ class TestProjectGenerator:
     """Test ProjectGenerator functionality."""
 
     def test_get_files_to_generate_basic(self) -> None:
-        """Test basic files to generate."""
-        config = ProjectConfig(name="test", container_type="none")
+        """Test basic files to generate from devman config."""
+        project_config = ProjectConfig(name="test", container_type="none")
+        devman_config = DevmanConfig.create_from_project_config(project_config)
+
         generator = ProjectGenerator(
-            config=config, target_path=Path("/tmp"), registry=Mock()
+            devman_config=devman_config, target_path=Path("/tmp"), registry=Mock()
         )
 
         files = generator.get_files_to_generate()
-        expected = ["devenv.nix", "justfile", "pyproject.toml", ".envrc"]
+        expected = ["devenv.nix.j2", "justfile.j2", "pyproject.toml.j2", ".envrc.j2"]
         assert files == expected
 
     def test_get_files_to_generate_docker(self) -> None:
-        """Test files for Docker container."""
-        config = ProjectConfig(name="test", container_type="docker")
+        """Test files for Docker container from devman config."""
+        project_config = ProjectConfig(name="test", container_type="docker")
+        devman_config = DevmanConfig.create_from_project_config(project_config)
+
         generator = ProjectGenerator(
-            config=config, target_path=Path("/tmp"), registry=Mock()
+            devman_config=devman_config, target_path=Path("/tmp"), registry=Mock()
         )
 
         files = generator.get_files_to_generate()
-        assert "Dockerfile" in files
-        assert "docker-compose.yml" in files
-
-    def test_get_files_to_generate_nixos(self) -> None:
-        """Test files for NixOS container."""
-        config = ProjectConfig(name="test", container_type="nixos")
-        generator = ProjectGenerator(
-            config=config, target_path=Path("/tmp"), registry=Mock()
-        )
-
-        files = generator.get_files_to_generate()
-        assert "container.nix" in files
+        assert "Dockerfile.j2" in files
+        assert "docker-compose.yml.j2" in files
 
     def test_generate_files(self) -> None:
-        """Test file generation from templates."""
+        """Test file generation from devman config."""
         with TemporaryDirectory() as temp_dir:
             target_path = Path(temp_dir)
-            config = ProjectConfig(name="test-project")
+            project_config = ProjectConfig(name="test-project")
+            devman_config = DevmanConfig.create_from_project_config(project_config)
 
             # Mock registry
             registry = Mock()
@@ -134,16 +130,16 @@ class TestProjectGenerator:
             registry.render_template.return_value = "# Generated content"
 
             generator = ProjectGenerator(
-                config=config, target_path=target_path, registry=registry
+                devman_config=devman_config, target_path=target_path, registry=registry
             )
 
-            generator.generate_files()
+            generated_files = generator.generate_files()
 
             # Check that files were created
+            assert "devenv.nix" in generated_files
+            assert "justfile" in generated_files
             assert (target_path / "devenv.nix").exists()
             assert (target_path / "justfile").exists()
-            assert (target_path / "pyproject.toml").exists()
-            assert (target_path / ".envrc").exists()
 
             # Check content
             content = (target_path / "devenv.nix").read_text()
@@ -154,17 +150,18 @@ class TestProjectGenerator:
         """Test successful Python project initialization."""
         with TemporaryDirectory() as temp_dir:
             target_path = Path(temp_dir)
-            config = ProjectConfig(name="test")
+            project_config = ProjectConfig(name="test", python_version="3.12")
+            devman_config = DevmanConfig.create_from_project_config(project_config)
 
             generator = ProjectGenerator(
-                config=config, target_path=target_path, registry=Mock()
+                devman_config=devman_config, target_path=target_path, registry=Mock()
             )
 
             mock_run.return_value = Mock()
             generator.initialize_python_project()
 
             mock_run.assert_called_once_with(
-                ["uv", "init", "--python", "3.11"],
+                ["uv", "init", "--python", "3.12"],
                 cwd=target_path,
                 check=True,
                 capture_output=True,
@@ -175,10 +172,11 @@ class TestProjectGenerator:
         """Test Python project initialization failure handling."""
         with TemporaryDirectory() as temp_dir:
             target_path = Path(temp_dir)
-            config = ProjectConfig(name="test")
+            project_config = ProjectConfig(name="test")
+            devman_config = DevmanConfig.create_from_project_config(project_config)
 
             generator = ProjectGenerator(
-                config=config, target_path=target_path, registry=Mock()
+                devman_config=devman_config, target_path=target_path, registry=Mock()
             )
 
             # Simulate subprocess failure
@@ -214,11 +212,45 @@ class TestDevEnvTemplater:
 
     @patch("devman.templater.ProjectGenerator")
     @patch("devman.templater.ProjectStructure")
-    def test_generate_project(self, mock_structure: Mock, mock_generator: Mock) -> None:
-        """Test complete project generation."""
+    def test_generate_from_config(
+        self, mock_structure: Mock, mock_generator: Mock
+    ) -> None:
+        """Test project generation from DevmanConfig."""
         with TemporaryDirectory() as temp_dir:
             target_path = Path(temp_dir)
-            config = ProjectConfig(name="test-project")
+            project_config = ProjectConfig(name="test-project")
+            devman_config = DevmanConfig.create_from_project_config(project_config)
+
+            # Mock generator to return files
+            mock_generator_instance = Mock()
+            mock_generator_instance.generate_files.return_value = [
+                "devenv.nix",
+                "justfile",
+            ]
+            mock_generator.return_value = mock_generator_instance
+
+            templater = DevEnvTemplater()
+            generated_files = templater.generate_from_config(devman_config, target_path)
+
+            # Check that directory was created
+            assert target_path.exists()
+
+            # Check that components were called
+            mock_structure.assert_called_once()
+            mock_generator.assert_called_once()
+
+            # Check return value
+            assert generated_files == ["devenv.nix", "justfile"]
+
+    @patch("devman.templater.ProjectGenerator")
+    @patch("devman.templater.ProjectStructure")
+    def test_generate_project_legacy(
+        self, mock_structure: Mock, mock_generator: Mock
+    ) -> None:
+        """Test legacy generate_project method."""
+        with TemporaryDirectory() as temp_dir:
+            target_path = Path(temp_dir)
+            config = ProjectConfig(name="legacy-test")
 
             templater = DevEnvTemplater()
             templater.generate_project(config, target_path)
@@ -240,4 +272,3 @@ class TestDevEnvTemplater:
 
         assert result == "rendered content"
         registry.render_template.assert_called_once_with("test.j2", {"key": "value"})
-

@@ -1,7 +1,7 @@
 # pyproject.toml
 [project]
 name = "devman"
-version = "0.1.1"
+version = "0.2.1"
 description = "DevEnv project templating system for NixOS development environments"
 authors = [
     {name = "Bullish Design", email = "BullishDesignEngineering@gmail.com"}
@@ -12,6 +12,7 @@ dependencies = [
     "pathlib-abc>=0.1.0",
     "jinja2>=3.1.0",
     "pydantic>=2.5.0",
+    "tomli-w>=1.0.0",
 ]
 requires-python = ">=3.11"
 readme = "README.md"
@@ -55,7 +56,7 @@ packages = ["src/devman"]
 
 [tool.ruff]
 target-version = "py311"
-line-length = 88
+line-length = 159
 src = ["src"]
 
 [tool.ruff.lint]
@@ -74,8 +75,8 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
-addopts = "-v --cov=src/devman --cov-report=html"
-python_files = ["test_*.py", "*_test.py"]
+addopts = "-v --cov=src/devman" #" --cov-report=html"
+python_files = ["test_*.py"]
 
 [tool.coverage.report]
 exclude_lines = [

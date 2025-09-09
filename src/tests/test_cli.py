@@ -20,84 +20,26 @@ class TestCLI:
         """Setup test runner."""
         self.runner = CliRunner()
 
-    def test_new_command_basic(self) -> None:
-        """Test basic new project command."""
+    def test_init_command_basic(self) -> None:
+        """Test basic init command."""
         with TemporaryDirectory() as temp_dir:
-            target_dir = Path(temp_dir) / "test-project"
-
-            with patch("devman.cli.DevEnvTemplater") as mock_templater:
-                mock_instance = Mock()
-                mock_templater.return_value = mock_instance
-
-                result = self.runner.invoke(
-                    app, ["new", "test-project", "--dir", str(target_dir)]
-                )
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                result = self.runner.invoke(app, ["init", "test-project"])
 
                 assert result.exit_code == 0
-                assert "created successfully" in result.stdout
-                mock_instance.generate_project.assert_called_once()
+                assert "Configuration created" in result.stdout
 
-    def test_new_command_invalid_project_type(self) -> None:
-        """Test new command with invalid project type."""
-        result = self.runner.invoke(app, ["new", "test-project", "--type", "invalid"])
+                config_path = Path(temp_dir) / ".devman" / "devman.toml"
+                assert config_path.exists()
 
-        assert result.exit_code == 1
-        assert "Invalid project type" in result.stdout
-
-    def test_new_command_invalid_container_type(self) -> None:
-        """Test new command with invalid container type."""
-        result = self.runner.invoke(
-            app, ["new", "test-project", "--containers", "invalid"]
-        )
-
-        assert result.exit_code == 1
-        assert "Invalid container type" in result.stdout
-
-    def test_new_command_existing_directory(self) -> None:
-        """Test new command with existing non-empty directory."""
+    def test_init_command_with_options(self) -> None:
+        """Test init command with various options."""
         with TemporaryDirectory() as temp_dir:
-            target_dir = Path(temp_dir) / "existing"
-            target_dir.mkdir()
-            (target_dir / "existing_file.txt").write_text("content")
-
-            result = self.runner.invoke(
-                app, ["new", "test-project", "--dir", str(target_dir)]
-            )
-
-            assert result.exit_code == 1
-            assert "already exists" in result.stdout
-
-    def test_new_command_force_overwrite(self) -> None:
-        """Test new command with force overwrite."""
-        with TemporaryDirectory() as temp_dir:
-            target_dir = Path(temp_dir) / "existing"
-            target_dir.mkdir()
-            (target_dir / "existing_file.txt").write_text("content")
-
-            with patch("devman.cli.DevEnvTemplater") as mock_templater:
-                mock_instance = Mock()
-                mock_templater.return_value = mock_instance
-
-                result = self.runner.invoke(
-                    app, ["new", "test-project", "--dir", str(target_dir), "--force"]
-                )
-
-                assert result.exit_code == 0
-                mock_instance.generate_project.assert_called_once()
-
-    def test_new_command_with_options(self) -> None:
-        """Test new command with various options."""
-        with TemporaryDirectory() as temp_dir:
-            target_dir = Path(temp_dir) / "api-project"
-
-            with patch("devman.cli.DevEnvTemplater") as mock_templater:
-                mock_instance = Mock()
-                mock_templater.return_value = mock_instance
-
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
                 result = self.runner.invoke(
                     app,
                     [
-                        "new",
+                        "init",
                         "api-project",
                         "--type",
                         "api",
@@ -113,56 +55,261 @@ class TestCLI:
                         "black",
                         "--local-deps",
                         "my-lib",
-                        "--dir",
-                        str(target_dir),
                     ],
                 )
 
                 assert result.exit_code == 0
 
-                # Check config was passed correctly
-                call_args = mock_instance.generate_project.call_args
-                config = call_args[0][0]
+                config_path = Path(temp_dir) / ".devman" / "devman.toml"
+                config_content = config_path.read_text()
 
-                assert config.name == "api-project"
-                assert config.project_type == "api"
-                assert config.python_version == "3.12"
-                assert config.container_type == "docker"
-                assert config.use_database is True
-                assert config.database_type == "postgresql"
-                assert "requests" in config.dependencies
-                assert "black" in config.dev_dependencies
-                assert "my-lib" in config.local_dependencies
+                assert "api-project" in config_content
+                assert "3.12" in config_content
+                assert "docker" in config_content
+                assert "requests" in config_content
 
-    def test_update_command_no_pyproject(self) -> None:
-        """Test update command when not in project directory."""
+    def test_init_command_invalid_project_type(self) -> None:
+        """Test init command with invalid project type."""
         with TemporaryDirectory() as temp_dir:
             with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
                 result = self.runner.invoke(
-                    app, ["update", "test-project", "--no-format"]
+                    app, ["init", "test-project", "--type", "invalid"]
                 )
-                assert result.exit_code == 1
-                assert "No pyproject.toml found" in result.stdout
 
-    def test_update_command_success(self) -> None:
-        """Test successful update command."""
+                assert result.exit_code == 1
+                assert "Invalid project type" in result.stdout
+
+    def test_init_command_existing_config(self) -> None:
+        """Test init command with existing config file."""
         with TemporaryDirectory() as temp_dir:
-            # Create pyproject.toml
-            pyproject_path = Path(temp_dir) / "pyproject.toml"
-            pyproject_path.write_text("[project]\nname = 'test'\n")
+            config_path = Path(temp_dir) / ".devman" / "devman.toml"
+            config_path.parent.mkdir()
+            config_path.write_text("existing config")
+
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                result = self.runner.invoke(app, ["init", "test-project"])
+
+                assert result.exit_code == 1
+                assert "already exists" in result.stdout
+
+    def test_init_command_force_overwrite(self) -> None:
+        """Test init command with force overwrite."""
+        with TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / ".devman" / "devman.toml"
+            config_path.parent.mkdir()
+            config_path.write_text("existing config")
+
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                result = self.runner.invoke(app, ["init", "test-project", "--force"])
+
+                assert result.exit_code == 0
+                assert "Configuration created" in result.stdout
+
+    def test_generate_command_no_config(self) -> None:
+        """Test generate command without config file."""
+        with TemporaryDirectory() as temp_dir:
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                result = self.runner.invoke(app, ["generate"])
+
+                assert result.exit_code == 1
+                assert "No devman.toml found" in result.stdout
+
+    def test_generate_command_success(self) -> None:
+        """Test successful generate command."""
+        with TemporaryDirectory() as temp_dir:
+            # Create config file first
+            config_path = Path(temp_dir) / ".devman" / "devman.toml"
+            config_path.parent.mkdir()
+            config_content = """[devman]
+version = "0.2.0"
+created_at = "2025-01-15T10:30:00"
+updated_at = "2025-01-15T10:30:00"
+
+[project]
+name = "test-project"
+python_version = "3.11"
+project_type = "api"
+container_type = "devenv"
+dependencies = []
+dev_dependencies = []
+local_dependencies = []
+use_database = false
+database_type = "postgresql"
+use_redis = false
+use_celery = false
+
+[templates]
+files = ["devenv.nix.j2", "justfile.j2"]
+
+[generation]
+generated_files = []
+"""
+            config_path.write_text(config_content)
 
             with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
                 with patch("devman.cli.DevEnvTemplater") as mock_templater:
                     mock_instance = Mock()
+                    mock_instance.generate_from_config.return_value = [
+                        "devenv.nix",
+                        "justfile",
+                    ]
                     mock_templater.return_value = mock_instance
 
-                    # Mock confirmation
-                    with patch("typer.confirm", return_value=True):
-                        result = self.runner.invoke(app, ["update", "test-project"])
+                    result = self.runner.invoke(app, ["generate"])
 
                     assert result.exit_code == 0
-                    assert "updated" in result.stdout
-                    mock_instance.generate_project.assert_called_once()
+                    assert "Project generated successfully" in result.stdout
+                    mock_instance.generate_from_config.assert_called_once()
+
+    def test_generate_command_existing_files(self) -> None:
+        """Test generate command with existing files."""
+        with TemporaryDirectory() as temp_dir:
+            # Create config and existing file
+            config_path = Path(temp_dir) / ".devman" / "devman.toml"
+            config_path.parent.mkdir()
+            config_content = """[devman]
+version = "0.2.0"
+created_at = "2025-01-15T10:30:00"
+updated_at = "2025-01-15T10:30:00"
+
+[project]
+name = "test-project"
+python_version = "3.11"
+project_type = "api"
+container_type = "devenv"
+dependencies = []
+dev_dependencies = []
+local_dependencies = []
+use_database = false
+database_type = "postgresql"
+use_redis = false
+use_celery = false
+
+[templates]
+files = ["devenv.nix.j2"]
+
+[generation]
+generated_files = []
+"""
+            config_path.write_text(config_content)
+
+            # Create existing file
+            (Path(temp_dir) / "devenv.nix").write_text("existing")
+
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                with patch("devman.cli.DevEnvTemplater") as mock_templater:
+                    mock_instance = Mock()
+                    mock_instance.generate_from_config.return_value = [
+                        "devenv.nix",
+                        "justfile",
+                    ]
+                    mock_templater.return_value = mock_instance
+
+                    result = self.runner.invoke(app, ["generate", "--no-format"])
+                    print(f"Result output: {result.stdout}")
+
+                    assert result.exit_code == 0
+                    assert "Project generated successfully" in result.stdout
+                    mock_instance.generate_from_config.assert_called_once()
+
+    def test_update_command_no_config(self) -> None:
+        """Test update command without config file."""
+        with TemporaryDirectory() as temp_dir:
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                result = self.runner.invoke(app, ["update", "--type", "cli"])
+
+                assert result.exit_code == 1
+                assert "No devman.toml found" in result.stdout
+
+    def test_update_command_success(self) -> None:
+        """Test successful update command."""
+        with TemporaryDirectory() as temp_dir:
+            # Create initial config
+            config_path = Path(temp_dir) / ".devman" / "devman.toml"
+            config_path.parent.mkdir()
+            config_content = """[devman]
+version = "0.2.0"
+created_at = "2025-01-15T10:30:00"
+updated_at = "2025-01-15T10:30:00"
+
+[project]
+name = "test-project"
+python_version = "3.11"
+project_type = "api"
+container_type = "devenv"
+dependencies = []
+dev_dependencies = []
+local_dependencies = []
+use_database = false
+database_type = "postgresql"
+use_redis = false
+use_celery = false
+
+[templates]
+files = []
+
+[generation]
+generated_files = []
+"""
+            config_path.write_text(config_content)
+
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                with patch("typer.confirm", return_value=True):
+                    result = self.runner.invoke(
+                        app, ["update", "--type", "cli", "--force"]
+                    )
+
+                    assert result.exit_code == 0
+                    assert "Configuration updated" in result.stdout
+
+    def test_status_command(self) -> None:
+        """Test status command."""
+        with TemporaryDirectory() as temp_dir:
+            # Create config file
+            config_path = Path(temp_dir) / ".devman" / "devman.toml"
+            config_path.parent.mkdir()
+            config_content = """[devman]
+version = "0.2.0"
+created_at = "2025-01-15T10:30:00"
+updated_at = "2025-01-15T10:30:00"
+
+[project]
+name = "status-test"
+python_version = "3.11"
+project_type = "api"
+container_type = "devenv"
+dependencies = []
+dev_dependencies = []
+local_dependencies = []
+use_database = false
+database_type = "postgresql"
+use_redis = false
+use_celery = false
+
+[templates]
+files = []
+
+[generation]
+generated_files = []
+"""
+            config_path.write_text(config_content)
+
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                result = self.runner.invoke(app, ["status"])
+
+                assert result.exit_code == 0
+                assert "Project Status" in result.stdout
+                assert "status-test" in result.stdout
+                assert "0.2.0" in result.stdout
+
+    def test_status_command_no_config(self) -> None:
+        """Test status command without config."""
+        with TemporaryDirectory() as temp_dir:
+            with patch("pathlib.Path.cwd", return_value=Path(temp_dir)):
+                result = self.runner.invoke(app, ["status"])
+
+                assert result.exit_code == 1
+                assert "No devman.toml found" in result.stdout
 
     def test_list_templates_command(self) -> None:
         """Test list templates command."""
@@ -173,46 +320,3 @@ class TestCLI:
         assert "api" in result.stdout
         assert "web" in result.stdout
         assert "cli" in result.stdout
-
-    def test_config_command(self) -> None:
-        """Test config command."""
-        with patch("devman.cli.DevEnvTemplater") as mock_templater:
-            mock_instance = Mock()
-            mock_instance.templates_dir = Path("/test/templates")
-            mock_instance.registry = Mock()
-            mock_instance.registry.templates = {"test.j2": "content"}
-            mock_templater.return_value = mock_instance
-
-            result = self.runner.invoke(app, ["config"])
-
-            assert result.exit_code == 0
-            assert "Configuration" in result.stdout
-            assert "/test/templates" in result.stdout
-
-    def test_init_templates_command(self) -> None:
-        """Test init templates command."""
-        with patch("devman.cli.DevEnvTemplater") as mock_templater:
-            mock_instance = Mock()
-            mock_instance.templates_dir = Path("/test/templates")
-            mock_templater.return_value = mock_instance
-
-            result = self.runner.invoke(app, ["init-templates", "--force"])
-
-            assert result.exit_code == 0
-            assert "initialized" in result.stdout
-            mock_instance.ensure_templates_exist.assert_called_once()
-
-    def test_init_templates_confirm_overwrite(self) -> None:
-        """Test init templates with confirmation."""
-        with patch("devman.cli.DevEnvTemplater") as mock_templater:
-            mock_instance = Mock()
-            mock_instance.templates_dir.exists.return_value = True
-            mock_templater.return_value = mock_instance
-
-            # Test declining confirmation
-            with patch("typer.confirm", return_value=False):
-                result = self.runner.invoke(app, ["init-templates"])
-
-                assert result.exit_code == 0
-                mock_instance.ensure_templates_exist.assert_not_called()
-

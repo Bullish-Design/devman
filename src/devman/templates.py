@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from jinja2 import BaseLoader, Environment, TemplateNotFound
@@ -15,9 +16,7 @@ class TemplateLoader(BaseLoader):
     def __init__(self, registry: TemplateRegistry) -> None:
         self.registry = registry
 
-    def get_source(
-        self, environment: Environment, template: str
-    ) -> tuple[str, str | None, callable[[], bool] | None]:
+    def get_source(self, environment: Environment, template: str) -> tuple[str, str | None, callable[[], bool] | None]:
         """Load template source from registry."""
         source = self.registry.get_template_source(template)
         if source is None:
@@ -30,9 +29,7 @@ class TemplateLoader(BaseLoader):
 class TemplateRegistry(BaseModel):
     """Registry for project templates with Jinja2 integration."""
 
-    templates: dict[str, str] = Field(
-        default_factory=dict, description="Template name to content mapping"
-    )
+    templates: dict[str, str] = Field(default_factory=dict, description="Template name to content mapping")
     templates_dir: Path = Field(
         default_factory=lambda: Path(__file__).parent / "templates",
         description="Directory containing template files",
@@ -53,9 +50,7 @@ class TemplateRegistry(BaseModel):
         for template_file in self.templates_dir.glob("*.j2"):
             template_name = template_file.name
             try:
-                self.templates[template_name] = template_file.read_text(
-                    encoding="utf-8"
-                )
+                self.templates[template_name] = template_file.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 # Skip files that can't be read
                 continue

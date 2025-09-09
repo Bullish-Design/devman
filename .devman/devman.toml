@@ -1,0 +1,33 @@
+devman_dir = "/home/andrew/Documents/Projects/devman/.devman"
+config_file = "/home/andrew/Documents/Projects/devman/.devman/devman.toml"
+
+[devman]
+version = "0.2.0"
+created_at = "2025-09-09T16:09:03.638138"
+updated_at = "2025-09-09T16:09:03.638141"
+
+[project]
+name = "devman"
+python_version = "3.11"
+project_type = "api"
+container_type = "devenv"
+dependencies = []
+dev_dependencies = []
+local_dependencies = []
+use_database = false
+database_type = "postgresql"
+use_redis = false
+use_celery = false
+use_containers = true
+python_version_short = "311"
+
+[templates]
+files = [
+    "devenv.nix.j2",
+    "justfile.j2",
+    "pyproject.toml.j2",
+    ".envrc.j2",
+]
+
+[generation]
+generated_files = []

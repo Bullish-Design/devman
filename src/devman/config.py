@@ -13,12 +13,8 @@ class ProjectConfig(BaseModel):
 
     name: str = Field(..., description="Project name")
     python_version: str = Field(default="3.11", description="Python version")
-    project_type: Literal["api", "web", "cli", "ml", "lib"] = Field(
-        default="api", description="Project type"
-    )
-    container_type: Literal["devenv", "docker", "nixos", "none"] = Field(
-        default="devenv", description="Container type"
-    )
+    project_type: Literal["api", "web", "cli", "ml", "lib"] = Field(default="api", description="Project type")
+    container_type: Literal["devenv", "docker", "nixos", "none"] = Field(default="devenv", description="Container type")
 
     # Dependencies
     dependencies: list[str] = Field(default_factory=list, description="Runtime dependencies")
@@ -27,9 +23,7 @@ class ProjectConfig(BaseModel):
 
     # Features
     use_database: bool = Field(default=False, description="Enable database integration")
-    database_type: Literal["postgresql", "sqlite"] = Field(
-        default="postgresql", description="Database type"
-    )
+    database_type: Literal["postgresql", "sqlite"] = Field(default="postgresql", description="Database type")
     use_redis: bool = Field(default=False, description="Enable Redis integration")
     use_celery: bool = Field(default=False, description="Enable Celery integration")
 
@@ -56,12 +50,14 @@ class ProjectConfig(BaseModel):
         elif self.project_type == "cli":
             deps.extend(["typer[all]>=0.12.0", "rich>=13.0.0"])
         elif self.project_type == "ml":
-            deps.extend([
-                "numpy>=1.24.0",
-                "pandas>=2.0.0",
-                "scikit-learn>=1.3.0",
-                "matplotlib>=3.7.0",
-            ])
+            deps.extend(
+                [
+                    "numpy>=1.24.0",
+                    "pandas>=2.0.0",
+                    "scikit-learn>=1.3.0",
+                    "matplotlib>=3.7.0",
+                ]
+            )
 
         if self.use_database:
             if self.database_type == "postgresql":
@@ -114,3 +110,4 @@ class ProjectConfig(BaseModel):
             "dev_dependencies": all_dev_deps,
             "local_dependencies": self.local_dependencies,
         }
+

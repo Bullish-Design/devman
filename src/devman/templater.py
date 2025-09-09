@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ConfigDict, SkipValidation, field_validator
 
 from .config import ProjectConfig
+from .devman_config import DevmanConfig
 from .templates import TEMPLATE_REGISTRY, TemplateRegistry
 
 
@@ -106,7 +107,7 @@ if __name__ == "__main__":
 class ProjectGenerator(BaseModel):
     """Generates project files from templates."""
 
-    config: ProjectConfig = Field(..., description="Project configuration")
+    devman_config: DevmanConfig = Field(..., description="Devman configuration")
     target_path: Path = Field(..., description="Target project path")
     registry: TemplateRegistry = Field(..., description="Template registry")
 
@@ -124,38 +125,38 @@ class ProjectGenerator(BaseModel):
         return handler(v)
 
     def get_files_to_generate(self) -> list[str]:
-        """Get list of template files to generate."""
-        files = ["devenv.nix", "justfile", "pyproject.toml", ".envrc"]
+        """Get list of template files to generate from devman config."""
+        return self.devman_config.templates.files.copy()
 
-        if self.config.use_containers:
-            if self.config.container_type == "docker":
-                files.extend(["Dockerfile", "docker-compose.yml"])
-            elif self.config.container_type == "nixos":
-                files.append("container.nix")
-
-        return files
-
-    def generate_files(self) -> None:
+    def generate_files(self) -> list[str]:
         """Generate all project files from templates."""
-        context = self.config.get_template_context()
+        context = self.devman_config.get_template_context()
+        generated_files = []
 
-        for file_name in self.get_files_to_generate():
-            template_name = f"{file_name}.j2"
-
-            if self.registry.has_template(template_name):
+        for template_file in self.get_files_to_generate():
+            if self.registry.has_template(template_file):
                 try:
-                    rendered = self.registry.render_template(template_name, context)
-                    (self.target_path / file_name).write_text(rendered)
+                    rendered = self.registry.render_template(template_file, context)
+                    output_file = template_file.replace(".j2", "")
+                    (self.target_path / output_file).write_text(rendered)
+                    generated_files.append(output_file)
                 except Exception:
                     # Skip templates that fail to render
                     continue
+
+        return generated_files
 
     def initialize_python_project(self) -> None:
         """Initialize Python project with uv if available."""
         if not (self.target_path / "pyproject.toml").exists():
             try:
                 subprocess.run(
-                    ["uv", "init", "--python", self.config.python_version],
+                    [
+                        "uv",
+                        "init",
+                        "--python",
+                        self.devman_config.project.python_version,
+                    ],
                     cwd=self.target_path,
                     check=True,
                     capture_output=True,
@@ -194,22 +195,28 @@ class DevEnvTemplater(BaseModel):
             template_file = self.templates_dir / name
             template_file.write_text(content)
 
-    def generate_project(self, config: ProjectConfig, target_dir: Path | str) -> None:
-        """Generate project files from templates."""
+    def generate_from_config(self, devman_config: DevmanConfig, target_dir: Path | str) -> list[str]:
+        """Generate project files from DevmanConfig."""
         target_path = Path(target_dir)
         target_path.mkdir(parents=True, exist_ok=True)
 
         # Create project structure
-        structure = ProjectStructure(target_path=target_path, config=config)
+        structure = ProjectStructure(target_path=target_path, config=devman_config.project)
         structure.create_directories()
         structure.create_starter_files()
 
         # Generate files from templates
-        generator = ProjectGenerator(
-            config=config, target_path=target_path, registry=self.registry
-        )
-        generator.generate_files()
+        generator = ProjectGenerator(devman_config=devman_config, target_path=target_path, registry=self.registry)
+        generated_files = generator.generate_files()
         generator.initialize_python_project()
+
+        return generated_files
+
+    def generate_project(self, config: ProjectConfig, target_dir: Path | str) -> None:
+        """Generate project files from ProjectConfig (legacy method)."""
+        # Convert ProjectConfig to DevmanConfig for backward compatibility
+        devman_config = DevmanConfig.create_from_project_config(config)
+        self.generate_from_config(devman_config, target_dir)
 
     def render_template(self, template_name: str, context: dict[str, Any]) -> str:
         """Render a template with given context using Jinja2."""

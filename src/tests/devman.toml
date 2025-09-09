@@ -1,0 +1,54 @@
+# .devman/devman.toml
+[devman]
+version = "0.2.0"
+created_at = "2025-01-15T10:30:00"
+updated_at = "2025-01-15T10:30:00"
+
+[project]
+name = "my-api"
+python_version = "3.11"
+project_type = "api"
+container_type = "docker"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "psycopg2-binary>=2.9.0",
+    "sqlalchemy>=2.0.0",
+    "requests>=2.28.0"
+]
+dev_dependencies = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "httpx>=0.25.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=22.0.0"
+]
+local_dependencies = ["../my-lib"]
+use_database = true
+database_type = "postgresql"
+use_redis = false
+use_celery = false
+
+[templates]
+files = [
+    "devenv.nix.j2",
+    "justfile.j2", 
+    "pyproject.toml.j2",
+    ".envrc.j2",
+    "Dockerfile.j2",
+    "docker-compose.yml.j2"
+]
+custom_templates_dir = null
+
+[generation]
+last_generated = "2025-01-15T10:35:00"
+generated_files = [
+    "devenv.nix",
+    "justfile",
+    "pyproject.toml", 
+    ".envrc",
+    "Dockerfile",
+    "docker-compose.yml"
+]

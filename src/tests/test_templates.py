@@ -159,7 +159,9 @@ dependencies = [
 
     def test_list_templates(self) -> None:
         """Test listing available templates."""
-        registry = TemplateRegistry()
+        registry = TemplateRegistry(
+            templates_dir=Path("nonexistent")
+        )  # Avoid loading defaults
         registry.add_template("a.j2", "content")
         registry.add_template("b.j2", "content")
 
@@ -177,4 +179,3 @@ dependencies = [
         assert env.trim_blocks is True
         assert env.lstrip_blocks is True
         assert env.keep_trailing_newline is True
-
