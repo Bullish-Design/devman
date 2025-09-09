@@ -1,0 +1,3 @@
+# src/devman/templates/.envrc.j2
+# .envrc - Automatic devenv activation
+use devenv

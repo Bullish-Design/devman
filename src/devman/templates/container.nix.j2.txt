@@ -1,0 +1,25 @@
+# src/devman/templates/container.nix.j2
+# container.nix - NixOS container for {{name}}
+{ config, pkgs, ... }: {
+  containers.{{name}} = {
+    autoStart = true;
+    privateNetwork = true;
+    hostAddress = "192.168.100.10";
+    localAddress = "192.168.100.11";
+    
+    config = { config, pkgs, ... }: {
+      services.openssh.enable = true;
+      users.users.root.openssh.authorizedKeys.keys = [
+        # Add your SSH public key here
+      ];
+      
+      environment.systemPackages = with pkgs; [
+        python{{python_version_short}}
+        git
+        uv
+      ];
+      
+      networking.firewall.allowedTCPPorts = [ {%if project_type == "api"%}8000{%endif%}{%if project_type == "web"%}5000{%endif%} ];
+    };
+  };
+}

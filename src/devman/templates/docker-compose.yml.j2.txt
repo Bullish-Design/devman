@@ -1,0 +1,63 @@
+# src/devman/templates/docker-compose.yml.j2
+# docker-compose.yml - {{name}}
+services:
+  app:
+    build: .
+    ports:
+{%if project_type == "api"%}
+      - "8000:8000"
+{%endif%}
+{%if project_type == "web"%}
+      - "5000:5000"
+{%endif%}
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONPATH=/app/src
+{%if use_database%}
+      - DATABASE_URL={{database_type}}://user:pass@{{database_type}}:5432/{{name}}
+{%endif%}
+{%if use_redis%}
+      - REDIS_URL=redis://redis:6379
+{%endif%}
+{%if use_database or use_redis%}
+    depends_on:
+{%if use_database%}
+      - {{database_type}}
+{%endif%}
+{%if use_redis%}
+      - redis
+{%endif%}
+{%endif%}
+
+{%if use_database and database_type == "postgresql"%}
+  postgresql:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: {{name}}
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+{%endif%}
+
+{%if use_redis%}
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+{%endif%}
+
+{%if use_database or use_redis%}
+volumes:
+{%if use_database%}
+  postgres_data:
+{%endif%}
+{%if use_redis%}
+  redis_data:
+{%endif%}
+{%endif%}

@@ -1,0 +1,30 @@
+# src/devman/templates/Dockerfile.j2
+# Dockerfile - {{name}}
+FROM python:{{python_version}}-slim
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Environment optimization
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONPATH=/app/src
+
+WORKDIR /app
+
+# Install dependencies
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen
+
+# Copy application
+COPY . .
+
+{%if project_type == "api"%}
+EXPOSE 8000
+CMD ["uvicorn", "{{name}}.main:app", "--host", "0.0.0.0", "--port", "8000"]
+{%endif%}
+{%if project_type == "web"%}
+EXPOSE 5000
+CMD ["flask", "--app", "{{name}}.app:app", "run", "--host", "0.0.0.0"]
+{%endif%}

@@ -1,384 +1,117 @@
-# src/devenv_templater/templates.py
-"""Template definitions for devenv projects."""
+# src/devman/templates.py
+"""Template registry for devman project templates with Jinja2 integration."""
 
-DEVENV_NIX_TEMPLATE = '''# devenv.nix - {{name}}
-{ pkgs, config, lib, ... }: {
-  name = "{{name}}";
-  
-  languages.python = {
-    enable = true;
-    version = "{{python_version}}";
-    uv.enable = true;
-  };
-  
-  packages = with pkgs; [
-    just
-    git
-{%if use_containers%}
-    docker-compose
-    skopeo
-{%endif%}
-{%if project_type == "ml"%}
-    jupyter
-{%endif%}
-  ];
+from __future__ import annotations
 
-{%if container_type == "devenv"%}
-  # Container generation via devenv
-  containers.{{name}} = {
-    name = "{{name}}";
-    registry = "localhost:5000";
-    copyToRoot = pkgs.buildEnv {
-      name = "container-root";
-      paths = with pkgs; [ python{{python_version_short}} git uv ];
-    };
-    config = {
-{%if project_type == "api"%}
-      Cmd = [ "uvicorn" "{{name}}.main:app" "--host" "0.0.0.0" "--reload" ];
-      ExposedPorts = { "8000/tcp" = {}; };
-{%endif%}
-{%if project_type == "web"%}
-      Cmd = [ "flask" "--app" "{{name}}.app:app" "run" "--host" "0.0.0.0" ];
-      ExposedPorts = { "5000/tcp" = {}; };
-{%endif%}
-      Env = [
-        "PYTHONPATH=/app/src"
-        "UV_COMPILE_BYTECODE=1"
-      ];
-    };
-  };
-{%endif%}
+from pathlib import Path
 
-  env = {
-    PYTHONPATH = "${config.env.DEVENV_ROOT}/src";
-{%if use_containers%}
-    REGISTRY_URL = "localhost:5000";
-{%endif%}
-{%if use_database%}
-    DATABASE_URL = "{{database_type}}://user:pass@localhost:5432/{{name}}";
-{%endif%}
-  };
-  
-  enterShell = ''
-    echo "🚀 {{name}} development environment"
-    
-    # Install dependencies
-    if [ -f "pyproject.toml" ]; then
-      uv sync
-    fi
-    
-    echo "Available commands: just --list"
-  '';
-  
-{%if use_database%}
-  services.{{database_type}} = {
-    enable = true;
-    initialScript = "CREATE DATABASE IF NOT EXISTS {{name}};";
-  };
-{%endif%}
+from jinja2 import BaseLoader, Environment, TemplateNotFound
+from pydantic import BaseModel, Field, ConfigDict
 
-{%if use_redis%}
-  services.redis.enable = true;
-{%endif%}
 
-{%if project_type == "api"%}
-  processes.api.exec = "uv run fastapi dev src/{{name}}/main.py --host 0.0.0.0";
-{%endif%}
-{%if project_type == "web"%}
-  processes.web.exec = "uv run flask --app src/{{name}}/app.py run --debug";
-{%endif%}
-{%if project_type == "ml"%}
-  processes.jupyter.exec = "uv run jupyter lab --ip=0.0.0.0 --no-browser";
-{%endif%}
-}'''
+class TemplateLoader(BaseLoader):
+    """Custom Jinja2 loader for template registry."""
 
-JUSTFILE_TEMPLATE = '''# justfile - {{name}}
-set dotenv-load
+    def __init__(self, registry: TemplateRegistry) -> None:
+        self.registry = registry
 
-# List available commands
-default:
-    @just --list
+    def get_source(
+        self, environment: Environment, template: str
+    ) -> tuple[str, str | None, callable[[], bool] | None]:
+        """Load template source from registry."""
+        source = self.registry.get_template_source(template)
+        if source is None:
+            raise TemplateNotFound(template)
 
-# Enter development shell
-shell:
-    devenv shell
+        # Return (source, filename, uptodate_func)
+        return source, template, lambda: True
 
-# Start development server
-dev:
-{%if project_type == "api"%}
-    uv run fastapi dev src/{{name}}/main.py --host 0.0.0.0 --reload
-{%endif%}
-{%if project_type == "web"%}
-    uv run flask --app src/{{name}}/app.py run --debug
-{%endif%}
-{%if project_type == "cli"%}
-    uv run python -m {{name}}.cli
-{%endif%}
-{%if project_type == "ml"%}
-    uv run jupyter lab --ip=0.0.0.0 --no-browser
-{%endif%}
 
-# Run tests
-test:
-    uv run pytest tests/ -v
+class TemplateRegistry(BaseModel):
+    """Registry for project templates with Jinja2 integration."""
 
-# Run tests with coverage
-test-cov:
-    uv run pytest tests/ --cov=src/{{name}} --cov-report=html
+    templates: dict[str, str] = Field(
+        default_factory=dict, description="Template name to content mapping"
+    )
+    templates_dir: Path = Field(
+        default_factory=lambda: Path(__file__).parent / "templates",
+        description="Directory containing template files",
+    )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-# Lint and format
-lint:
-    uv run ruff format src/ tests/
-    uv run ruff check src/ tests/ --fix
+    def __init__(self, **data: object) -> None:
+        super().__init__(**data)
+        self._environment: Environment | None = None
+        self._load_templates()
+        self._setup_environment()
 
-# Type check
-check:
-    uv run mypy src/
+    def _load_templates(self) -> None:
+        """Load all .j2 templates from the templates directory."""
+        if not self.templates_dir.exists():
+            return
 
-# Security audit
-audit:
-    uv run pip-audit
+        for template_file in self.templates_dir.glob("*.j2"):
+            template_name = template_file.name
+            try:
+                self.templates[template_name] = template_file.read_text(
+                    encoding="utf-8"
+                )
+            except (OSError, UnicodeDecodeError):
+                # Skip files that can't be read
+                continue
 
-# Install local dependency
-install-local dep:
-    uv add --editable ../{{dep}}
+    def _setup_environment(self) -> None:
+        """Setup Jinja2 environment with custom loader."""
+        loader = TemplateLoader(self)
+        self._environment = Environment(
+            loader=loader,
+            trim_blocks=True,
+            lstrip_blocks=True,
+            keep_trailing_newline=True,
+        )
 
-# Update dependencies  
-update:
-    uv lock --upgrade
-    uv sync
+    @property
+    def environment(self) -> Environment:
+        """Get Jinja2 environment."""
+        if self._environment is None:
+            self._setup_environment()
+        return self._environment
 
-{%if container_type == "devenv"%}
-# Build devenv container
-build:
-    devenv container build {{name}}
+    def get_template_source(self, name: str) -> str | None:
+        """Get template source by name."""
+        return self.templates.get(name)
 
-# Run container
-run:
-    docker run --rm -p {%if project_type == "api"%}8000:8000{%endif%}{%if project_type == "web"%}5000:5000{%endif%} localhost:5000/{{name}}
+    def get_template(self, name: str) -> str | None:
+        """Get a template by name (for backward compatibility)."""
+        return self.get_template_source(name)
 
-# Push to registry
-push:
-    devenv container build {{name}}
-    docker push localhost:5000/{{name}}
-{%endif%}
+    def render_template(self, name: str, context: dict[str, object]) -> str:
+        """Render a template with given context using Jinja2."""
+        template = self.environment.get_template(name)
+        return template.render(context)
 
-{%if container_type == "docker"%}
-# Build docker container
-build:
-    docker compose build
+    def list_templates(self) -> list[str]:
+        """List available template names."""
+        return list(self.templates.keys())
 
-# Start all services
-up:
-    docker compose up -d
+    def has_template(self, name: str) -> bool:
+        """Check if template exists."""
+        return name in self.templates
 
-# Stop all services
-down:
-    docker compose down
+    def add_template(self, name: str, content: str) -> None:
+        """Add a template to the registry."""
+        self.templates[name] = content
+        # Invalidate environment to force reload
+        self._environment = None
+        self._setup_environment()
 
-# View logs
-logs:
-    docker compose logs -f
-{%endif%}
+    def reload(self) -> None:
+        """Reload templates from disk."""
+        self.templates.clear()
+        self._load_templates()
+        self._setup_environment()
 
-{%if use_database%}
-# Database migration
-migrate:
-    uv run alembic upgrade head
 
-# Create migration
-migrate-create message:
-    uv run alembic revision --autogenerate -m "{{message}}"
-{%endif%}
+# Global template registry instance
+TEMPLATE_REGISTRY = TemplateRegistry()
 
-# Clean artifacts
-clean:
-    rm -rf .pytest_cache __pycache__ .coverage htmlcov/
-    find . -type d -name "__pycache__" -delete
-'''
-
-PYPROJECT_TEMPLATE = '''[project]
-name = "{{name}}"
-version = "0.1.0"
-description = "{{name}} - A Python project"
-authors = [
-    {name = "Your Name", email = "your.email@example.com"}
-]
-dependencies = [
-{%for dep in dependencies%}
-    "{{dep}}",
-{%endfor%}
-]
-requires-python = ">={{python_version}}"
-
-[project.optional-dependencies]
-dev = [
-{%for dep in dev_dependencies%}
-    "{{dep}}",
-{%endfor%}
-]
-
-{%if project_type == "cli"%}
-[project.scripts]
-{{name}} = "{{name}}.cli:main"
-{%endif%}
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.ruff]
-target-version = "py{{python_version_short}}"
-line-length = 88
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
-
-[tool.mypy]
-python_version = "{{python_version}}"
-strict = true
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-v"
-
-{%for dep in local_dependencies%}
-[tool.uv.sources]
-{{dep}} = { path = "../{{dep}}" }
-
-{%endfor%}
-'''
-
-ENVRC_TEMPLATE = '''# .envrc - Automatic devenv activation
-use devenv
-'''
-
-DOCKERFILE_TEMPLATE = '''# Dockerfile - {{name}}
-FROM python:{{python_version}}-slim
-
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
-
-# Environment optimization
-ENV UV_COMPILE_BYTECODE=1 \\
-    UV_LINK_MODE=copy \\
-    PYTHONPATH=/app/src
-
-WORKDIR /app
-
-# Install dependencies
-COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \\
-    uv sync --frozen
-
-# Copy application
-COPY . .
-
-{%if project_type == "api"%}
-EXPOSE 8000
-CMD ["uvicorn", "{{name}}.main:app", "--host", "0.0.0.0", "--port", "8000"]
-{%endif%}
-{%if project_type == "web"%}
-EXPOSE 5000
-CMD ["flask", "--app", "{{name}}.app:app", "run", "--host", "0.0.0.0"]
-{%endif%}
-'''
-
-DOCKER_COMPOSE_TEMPLATE = '''# docker-compose.yml - {{name}}
-services:
-  app:
-    build: .
-    ports:
-{%if project_type == "api"%}
-      - "8000:8000"
-{%endif%}
-{%if project_type == "web"%}
-      - "5000:5000"
-{%endif%}
-    volumes:
-      - .:/app
-    environment:
-      - PYTHONPATH=/app/src
-{%if use_database%}
-      - DATABASE_URL={{database_type}}://user:pass@{{database_type}}:5432/{{name}}
-{%endif%}
-{%if use_redis%}
-      - REDIS_URL=redis://redis:6379
-{%endif%}
-{%if use_database or use_redis%}
-    depends_on:
-{%if use_database%}
-      - {{database_type}}
-{%endif%}
-{%if use_redis%}
-      - redis
-{%endif%}
-{%endif%}
-
-{%if use_database and database_type == "postgresql"%}
-  postgresql:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: {{name}}
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-{%endif%}
-
-{%if use_redis%}
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-{%endif%}
-
-{%if use_database or use_redis%}
-volumes:
-{%if use_database%}
-  postgres_data:
-{%endif%}
-{%if use_redis%}
-  redis_data:
-{%endif%}
-{%endif%}
-'''
-
-NIXOS_CONTAINER_TEMPLATE = '''# container.nix - NixOS container for {{name}}
-{ config, pkgs, ... }: {
-  containers.{{name}} = {
-    autoStart = true;
-    privateNetwork = true;
-    hostAddress = "192.168.100.10";
-    localAddress = "192.168.100.11";
-    
-    config = { config, pkgs, ... }: {
-      services.openssh.enable = true;
-      users.users.root.openssh.authorizedKeys.keys = [
-        # Add your SSH public key here
-      ];
-      
-      environment.systemPackages = with pkgs; [
-        python{{python_version_short}}
-        git
-        uv
-      ];
-      
-      networking.firewall.allowedTCPPorts = [ {%if project_type == "api"%}8000{%endif%}{%if project_type == "web"%}5000{%endif%} ];
-    };
-  };
-}'''
-
-TEMPLATES = {
-    "devenv.nix.j2": DEVENV_NIX_TEMPLATE,
-    "justfile.j2": JUSTFILE_TEMPLATE,
-    "pyproject.toml.j2": PYPROJECT_TEMPLATE,
-    ".envrc.j2": ENVRC_TEMPLATE,
-    "Dockerfile.j2": DOCKERFILE_TEMPLATE,
-    "docker-compose.yml.j2": DOCKER_COMPOSE_TEMPLATE,
-    "container.nix.j2": NIXOS_CONTAINER_TEMPLATE,
-}

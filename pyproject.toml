@@ -1,7 +1,7 @@
 # pyproject.toml
 [project]
 name = "devman"
-version = "0.1.0"
+version = "0.1.1"
 description = "DevEnv project templating system for NixOS development environments"
 authors = [
     {name = "Bullish Design", email = "BullishDesignEngineering@gmail.com"}
@@ -10,6 +10,8 @@ dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
     "pathlib-abc>=0.1.0",
+    "jinja2>=3.1.0",
+    "pydantic>=2.5.0",
 ]
 requires-python = ">=3.11"
 readme = "README.md"
@@ -32,6 +34,7 @@ Issues = "https://github.com/Bullish-Design/devman/issues"
 
 [project.scripts]
 devman = "devman.cli:app"
+dev = "devman.cli:app"
 dt = "devman.cli:app"
 
 [project.optional-dependencies]
@@ -70,7 +73,7 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/tests"]
 addopts = "-v --cov=src/devman --cov-report=html"
 python_files = ["test_*.py", "*_test.py"]
 
@@ -80,4 +83,4 @@ exclude_lines = [
     "def __repr__",
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
-]
+  ]
