@@ -1,22 +1,36 @@
+# pyproject.toml
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "devman"
-version = "0.1.0"
-description = "Copier-powered project scaffolder (Python lib, CLI, FastAPI) with Nix/Docker/Just"
+version = "0.3.0"
+description = "UV-powered project scaffolder using Copier templates"
 authors = [{name="Your Name", email="you@example.com"}]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12.0",
-    "rich>=13.0.0",
+    "rich>=13.0.0", 
     "copier>=9.2.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.scripts]
 devman = "devman.cli:app"
 
-[tool.black]
-line-length = 100
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.1", 
+    "mypy>=1.7",
+    "uv>=0.1.0",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

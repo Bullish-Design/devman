@@ -12,6 +12,10 @@ __pycache__/
 **.db
 **archive**
 .tmuxp*
+Notes.md
+Tasks.md
+
+
 
 # C extensions
 *.so
