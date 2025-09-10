@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{{ project_slug }}"
+version = "0.1.0"
+description = "{{ project_name }} - Typer CLI"
+requires-python = ">={{ python_version }}"
+dependencies = [
+  "typer>=0.12.0"
+]
+
+[project.scripts]
+{{ project_slug }} = "{{ package_name }}.cli:app"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.1", "mypy>=1.7"]

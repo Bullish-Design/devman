@@ -1,0 +1,24 @@
+{% raw %}{% if use_just %}{% endraw %}
+default: dev
+
+dev:
+	uvicorn {{ package_name }}.main:app --reload
+
+test:
+	pytest -q
+
+fmt:
+	ruff format .
+
+lint:
+	ruff check .
+
+docker/build:
+	docker build -t { '{ project_slug }' } .
+
+docker/up:
+	docker compose up -d
+
+docker/down:
+	docker compose down
+{% raw %}{% endif %}{% endraw %}

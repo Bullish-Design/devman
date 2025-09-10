@@ -1,0 +1,10 @@
+        {% raw %}{% if use_docker %}{% endraw %}
+        services:
+          app:
+            build: .
+            volumes:
+              - .:/app
+            working_dir: /app
+            command: uvicorn {{ package_name }}.main:app --host 0.0.0.0 --port 8000
+                  - 8000:8000
+{% raw %}{% endif %}{% endraw %}

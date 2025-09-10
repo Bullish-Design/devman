@@ -1,0 +1,12 @@
+{% raw %}{% if use_nix %}{% endraw %}
+{ pkgs, ... }:
+{
+  # Minimal devenv; adjust to your needs.
+  languages.python.enable = true;
+  # Note: map {{ '{{ python_version }}' }} to a nixpkgs python if needed.
+  packages = with pkgs; [ just ];
+  enterShell = ''
+    echo "Entering dev env for {{ '{{ project_name }}' }}"
+  '';
+}
+{% raw %}{% endif %}{% endraw %}

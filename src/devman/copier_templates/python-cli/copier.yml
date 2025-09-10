@@ -1,0 +1,37 @@
+_min_copier_version: "9.0.0"
+_templates_suffix: ".j2"
+_answers_file: .devman/devman_config.yml
+_message_after_copy: |
+  {% if use_nix %}✔ Nix dev environment ready (devenv.nix). Enable direnv to auto-activate.{% endif %}
+  {% if use_docker %}✔ Docker files generated. Run `docker compose up -d` to start.{% endif %}
+  ✔ Happy hacking in { '{ project_name }' }!
+
+project_name:
+  type: str
+  help: "Human-friendly project name"
+
+project_slug:
+  type: str
+  default: "{{ project_name|lower|replace(' ', '-') }}"
+
+package_name:
+  type: str
+  default: "{{ project_slug|replace('-', '_') }}"
+
+python_version:
+  type: str
+  default: "3.11"
+
+# core infra defaults ON
+use_nix:
+  type: bool
+  default: true
+
+use_docker:
+  type: bool
+  default: true
+
+use_just:
+  type: bool
+  default: true
+

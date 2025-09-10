@@ -1,0 +1,7 @@
+import subprocess, sys
+
+def test_cli_help():
+    # ensure the CLI loads
+    subprocess.run([sys.executable, "-m", "pip", "install", "-e", "."], check=False)
+    out = subprocess.check_output(["{{ project_slug }}", "--help"], text=True)
+    assert "Usage:" in out or "Usage" in out

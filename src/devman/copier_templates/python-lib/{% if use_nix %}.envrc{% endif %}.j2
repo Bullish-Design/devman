@@ -1,0 +1,6 @@
+{% raw %}{% if use_nix %}{% endraw %}
+# direnv will load your Nix dev environment.
+# If you use flakes, uncomment the first line; otherwise the second line works with classic nix.
+# use flake
+use nix
+{% raw %}{% endif %}{% endraw %}

@@ -1,86 +1,22 @@
-# pyproject.toml
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "devman"
-version = "0.1.1"
-description = "DevEnv project templating system for NixOS development environments"
-authors = [
-    {name = "Bullish Design", email = "BullishDesignEngineering@gmail.com"}
-]
+version = "0.1.0"
+description = "Copier-powered project scaffolder (Python lib, CLI, FastAPI) with Nix/Docker/Just"
+authors = [{name="Your Name", email="you@example.com"}]
+readme = "README.md"
+requires-python = ">=3.10"
 dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
-    "pathlib-abc>=0.1.0",
-    "jinja2>=3.1.0",
-    "pydantic>=2.5.0",
+    "copier>=9.2.0",
 ]
-requires-python = ">=3.11"
-readme = "README.md"
-license = {text = "MIT"}
-keywords = ["nix", "devenv", "templating", "development", "containers"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Build Tools",
-    "Topic :: System :: Software Distribution",
-]
-
-[project.urls]
-Homepage = "https://github.com/Bullish-Design/devman"
-Repository = "https://github.com/Bullish-Design/devman"
-Issues = "https://github.com/Bullish-Design/devman/issues"
 
 [project.scripts]
 devman = "devman.cli:app"
-dev = "devman.cli:app"
-dt = "devman.cli:app"
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "ruff>=0.1.0",
-    "mypy>=1.7.0",
-    "pre-commit>=3.5.0",
-]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/devman"]
-
-[tool.ruff]
-target-version = "py311"
-line-length = 88
-src = ["src"]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
-ignore = ["E501"]  # Line too long handled by formatter
-
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
-
-[tool.mypy]
-python_version = "3.11"
-strict = true
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-
-[tool.pytest.ini_options]
-testpaths = ["src/tests"]
-addopts = "-v --cov=src/devman --cov-report=html"
-python_files = ["test_*.py", "*_test.py"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if __name__ == .__main__.:",
-    "raise NotImplementedError",
-  ]
+[tool.black]
+line-length = 100

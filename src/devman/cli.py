@@ -1,265 +1,214 @@
 # src/devman/cli.py
-"""Command line interface for devenv-templater."""
-
 from __future__ import annotations
 
 import os
+import json
+import re
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
+from rich.panel import Panel
 
-from .config import ProjectConfig
-from .templater import DevEnvTemplater
-
-console = Console()
-app = typer.Typer(
-    name="devenv-templater",
-    help="🚀 Generate NixOS devenv projects from templates",
-    rich_markup_mode="rich",
-    no_args_is_help=True,
+from .copier_engine import (
+    generate_from_template,
+    DEFAULT_ANSWERS_FILE,
+    snapshot_render_to_memory,
+    plan_against_destination,
 )
+
+app = typer.Typer(
+    name="devman", no_args_is_help=True, help="Generate Python projects with Copier"
+)
+console = Console()
+
+BUILTINS = {"python-lib", "python-cli", "fastapi-api"}
+
+
+_slug_re = re.compile(r"[^a-z0-9_-]+")
+
+
+def _slugify(s: str) -> str:
+    s = s.strip().lower()
+    s = _slug_re.sub("-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s or "project"
+
+
+def answers_dict(
+    name: str, python: str, package, nix: bool, docker: bool, just: bool
+) -> dict:
+    base = Path(name).name  # "mylib" from "/home/.../mylib"
+    slug = _slugify(base)  # "mylib"
+    pkg = (package or slug.replace("-", "_")).lstrip(".")
+    return {
+        "project_name": base,
+        "project_slug": slug,
+        "package_name": pkg,
+        "python_version": python,
+        "use_nix": nix,
+        "use_docker": docker,
+        "use_just": just,
+    }
+
+
+@app.command("list-templates")
+def list_templates() -> None:
+    """List built-in templates bundled with devman."""
+    table = Table(title="Built-in Templates")
+    table.add_column("Slug", style="bold")
+    table.add_column("Description")
+    table.add_row("python-lib", "Minimal Python library project")
+    table.add_row("python-cli", "Typer-based CLI application")
+    table.add_row("fastapi-api", "FastAPI web service")
+    console.print(table)
 
 
 @app.command(no_args_is_help=True)
-def new(
-    name: Annotated[str, typer.Argument(help="Project name")],
-    project_type: Annotated[
-        str, typer.Option("--type", "-t", help="Project type")
-    ] = "api",
-    python_version: Annotated[
-        str, typer.Option("--python", "-p", help="Python version")
-    ] = "3.11",
-    container_type: Annotated[
-        Optional[str], typer.Option("--containers", "-c", help="Container type")
-    ] = "devenv",
-    database: Annotated[
-        Optional[str], typer.Option("--database", "-d", help="Database type")
-    ] = None,
-    dependencies: Annotated[
-        Optional[list[str]], typer.Option("--deps", help="Additional dependencies")
-    ] = None,
-    dev_dependencies: Annotated[
-        Optional[list[str]], typer.Option("--dev-deps", help="Development dependencies")
-    ] = None,
-    local_dependencies: Annotated[
-        Optional[list[str]],
-        typer.Option("--local-deps", help="Local path dependencies"),
-    ] = None,
-    directory: Annotated[
-        Optional[str], typer.Option("--dir", "-D", help="Target directory")
-    ] = None,
-    force: Annotated[
-        bool, typer.Option("--force", "-f", help="Overwrite existing files")
-    ] = False,
-    no_format: Annotated[
-        bool, typer.Option("--no-format", help="Disable rich formatting")
-    ] = False,
+def generate(
+    name: str = typer.Argument(..., help="Project name / target directory"),
+    template: str = typer.Option(
+        "python-lib",
+        "--template",
+        "-t",
+        help="Built-in slug (python-lib|python-cli|fastapi-api) or a local path or a Git URL",
+    ),
+    python: str = typer.Option(
+        "3.11", "--python", "-p", help="Python version for the project"
+    ),
+    package: Optional[str] = typer.Option(
+        None, "--package", "-k", help="Package import name"
+    ),
+    nix: bool = typer.Option(True, "--nix/--no-nix", help="Include Nix devenv files"),
+    docker: bool = typer.Option(
+        True, "--docker/--no-docker", help="Include Docker files"
+    ),
+    just: bool = typer.Option(True, "--just/--no-just", help="Include Justfile"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
+    non_interactive: bool = typer.Option(
+        True, "--no-input/--input", help="Run without prompts"
+    ),
+    vcs_ref: Optional[str] = typer.Option(
+        None, "--ref", help="Git tag/branch/commit for remote templates"
+    ),
+    subdir: Optional[str] = typer.Option(
+        None, "--subdir", help="Template subdirectory"
+    ),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output"),
+    demo: bool = typer.Option(
+        False,
+        "--demo",
+        "--no-output",
+        "--test",
+        help="Do not write to disk. Render to a sandbox, snapshot in-memory, and show the plan.",
+    ),
+    plan_json: Optional[Path] = typer.Option(
+        None, "--plan-json", help="Write the demo plan as JSON to this file"
+    ),
+    preview_lines: int = typer.Option(
+        15,
+        "--preview-lines",
+        min=0,
+        max=200,
+        help="Number of lines to preview per file in demo mode",
+    ),
 ) -> None:
-    """Create a new devenv project from templates."""
-    if no_format:
+    """Generate a new Python project from a template."""
+    if no_color:
         os.environ["NO_COLOR"] = "1"
 
-    target_dir = Path(directory) if directory else Path(name)
+    dst = Path.cwd() / name
+    if template in BUILTINS:
+        src = Path(__file__).parent / "copier_templates" / template
+    else:
+        src = template  # path or Git URL
 
-    if target_dir.exists() and any(target_dir.iterdir()) and not force:
+    answers = answers_dict(name, python, package, nix, docker, just)
+
+    if demo:
+        # DEMO path: simulate generation
+        with console.status("[bold blue]Simulating generation in a sandbox..."):
+            snapshot = snapshot_render_to_memory(
+                template_path=src,
+                data=answers if non_interactive else None,
+                vcs_ref=vcs_ref,
+                subdirectory=subdir,
+            )
+            plan = plan_against_destination(snapshot, dst, force=force)
+
+        # Show plan
+        table = Table(title="Generation plan (demo mode)")
+        table.add_column("Status", style="bold")
+        table.add_column("Path")
+        table.add_column("Size")
+        table.add_column("Note", no_wrap=True)
+        for item in plan:
+            table.add_row(
+                item["status"], item["path"], str(item["size"]), item.get("note", "")
+            )
+        console.print(table)
+
+        # Previews
+        if preview_lines > 0:
+            console.print(
+                Panel.fit(
+                    f"Showing up to {preview_lines} lines per file", title="Previews"
+                )
+            )
+            for rel, meta in sorted(snapshot.items()):
+                if meta.get("type") == "text":
+                    lines = meta["text"].splitlines()
+                    preview = "\n".join(lines[:preview_lines])
+                    console.print(Panel(preview, title=rel, border_style="cyan"))
+                else:
+                    console.print(
+                        Panel(
+                            f"<binary file> {rel} ({meta['size']} bytes)",
+                            title=rel,
+                            border_style="cyan",
+                        )
+                    )
+
+        if plan_json:
+            data = {
+                "destination": str(dst),
+                "template": str(src),
+                "force": force,
+                "plan": plan,
+                # omit binary payloads from JSON for brevity
+                "files": {
+                    rel: {k: v for k, v in meta.items() if k != "b64"}
+                    for rel, meta in snapshot.items()
+                },
+            }
+            plan_json.parent.mkdir(parents=True, exist_ok=True)
+            plan_json.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            console.print(f"[green]Wrote plan JSON to[/green] {plan_json}")
+
         console.print(
-            f"❌ Directory {target_dir} already exists and is not empty. Use --force to overwrite.",
-            style="red",
+            "[bold yellow]Demo complete. No files were written to the destination.[/bold yellow]"
         )
-        raise typer.Exit(1)
+        return
 
-    # Validate project type
-    valid_types = ["api", "web", "cli", "ml", "lib"]
-    if project_type not in valid_types:
-        console.print(
-            f"❌ Invalid project type. Choose from: {', '.join(valid_types)}",
-            style="red",
+    # NORMAL generation
+    with console.status("[bold blue]Generating project..."):
+        generate_from_template(
+            template_path=src,
+            dst_path=dst,
+            data=answers if non_interactive else None,
+            force=force,
+            vcs_ref=vcs_ref,
+            subdirectory=subdir,
         )
-        raise typer.Exit(1)
-
-    # Validate container type
-    valid_containers = ["devenv", "docker", "nixos", "none"]
-    if container_type and container_type not in valid_containers:
-        console.print(
-            f"❌ Invalid container type. Choose from: {', '.join(valid_containers)}",
-            style="red",
-        )
-        raise typer.Exit(1)
-
-    try:
-        config = ProjectConfig(
-            name=name,
-            python_version=python_version,
-            project_type=project_type,
-            container_type=container_type or "none",
-            dependencies=dependencies or [],
-            dev_dependencies=dev_dependencies or [],
-            local_dependencies=local_dependencies or [],
-            use_database=bool(database),
-            database_type=database or "postgresql",
-        )
-    except Exception as e:
-        console.print(f"❌ Configuration error: {e}", style="red")
-        raise typer.Exit(1)
-
-    templater = DevEnvTemplater()
-
-    with console.status(f"[bold blue]Creating project {name}..."):
-        templater.generate_project(config, target_dir)
-
-    # Success output
     console.print(
         Panel.fit(
-            f"[bold green]✅ Project '{name}' created successfully![/bold green]\n\n"
-            f"[bold]Next steps:[/bold]\n"
-            f"1. [cyan]cd {target_dir}[/cyan]\n"
-            f"2. [cyan]just shell[/cyan] (enter development environment)\n"
-            f"3. [cyan]just dev[/cyan] (start development server)\n\n"
-            f"[dim]View all commands: [cyan]just --list[/cyan][/dim]",
-            title="🚀 Ready to develop!",
+            f"[bold green]✅ Project generated![/bold green]\n"
+            f"[bold]Location:[/bold] {dst}\n"
+            f"[bold]Template:[/bold] {template}\n"
+            f"[bold]Answers file:[/bold] {dst / DEFAULT_ANSWERS_FILE}",
+            title="🚀 Ready",
             border_style="green",
         )
     )
-
-
-@app.command(no_args_is_help=True)
-def update(
-    name: Annotated[str, typer.Argument(help="Project name")],
-    project_type: Annotated[
-        Optional[str], typer.Option("--type", "-t", help="Project type")
-    ] = None,
-    python_version: Annotated[
-        Optional[str], typer.Option("--python", "-p", help="Python version")
-    ] = None,
-    container_type: Annotated[
-        Optional[str], typer.Option("--containers", "-c", help="Container type")
-    ] = None,
-    force: Annotated[
-        bool, typer.Option("--force", "-f", help="Overwrite existing files")
-    ] = False,
-    no_format: Annotated[
-        bool, typer.Option("--no-format", help="Disable rich formatting")
-    ] = False,
-) -> None:
-    """Update existing project files from templates."""
-
-    if no_format:
-        os.environ["NO_COLOR"] = "1"
-
-    # if not Path("pyproject.toml").exists():
-    if not (Path.cwd() / "pyproject.toml").exists():
-        console.print(
-            "❌ No pyproject.toml found. Are you in a project directory?", style="red"
-        )
-        raise typer.Exit(1)
-
-    # Then create config and ask for confirmation
-
-    try:
-        config = ProjectConfig(
-            name=name,
-            python_version=python_version or "3.11",
-            project_type=project_type or "api",
-            container_type=container_type or "none",
-        )
-    except Exception as e:
-        console.print(f"❌ Configuration error: {e}", style="red")
-        raise typer.Exit(1)
-
-    templater = DevEnvTemplater()
-
-    if not force:
-        console.print(
-            "⚠️ This will overwrite configuration files. Continue?", style="yellow"
-        )
-        if not typer.confirm(""):
-            console.print("❌ Update cancelled.")
-            raise typer.Exit(0)
-
-    with console.status("[bold blue]Updating project files..."):
-        templater.generate_project(config, Path("."))
-
-    console.print("✅ Project files updated!", style="green")
-
-
-@app.command()
-def list_templates() -> None:
-    """List available project templates."""
-    table = Table(title="📋 Available Templates")
-    table.add_column("Type", style="cyan")
-    table.add_column("Description", style="white")
-    table.add_column("Features", style="dim")
-
-    templates = [
-        ("api", "FastAPI REST API", "FastAPI, uvicorn, async"),
-        ("web", "Flask web application", "Flask, templates, static files"),
-        ("cli", "Command line interface", "Click/Typer, entry points"),
-        ("ml", "Machine learning project", "scikit-learn, jupyter, data tools"),
-        ("lib", "Python library", "Publishing ready, minimal deps"),
-    ]
-
-    for template_type, desc, features in templates:
-        table.add_row(template_type, desc, features)
-
-    console.print(table)
-
-
-@app.command()
-def config() -> None:
-    """Show current configuration and status."""
-    templater = DevEnvTemplater()
-
-    table = Table(title="⚙️ Configuration")
-    table.add_column("Setting", style="cyan")
-    table.add_column("Value", style="white")
-
-    table.add_row("Templates directory", str(templater.templates_dir))
-    table.add_row(
-        "Templates exist", "✅ Yes" if templater.templates_dir.exists() else "❌ No"
-    )
-
-    if templater.templates_dir.exists():
-        template_files = list(templater.templates_dir.glob("*.j2"))
-        table.add_row("Template count", str(len(template_files)))
-
-    table.add_row("Registry templates", str(len(templater.registry.templates)))
-
-    console.print(table)
-
-
-'''
-@app.command()
-def init_templates(
-    force: Annotated[
-        bool, typer.Option("--force", "-f", help="Overwrite existing templates")
-    ] = False,
-    no_format: Annotated[
-        bool, typer.Option("--no-format", help="Disable rich formatting")
-    ] = False,
-) -> None:
-    """Initialize or update template files."""
-    if no_format:
-        os.environ["NO_COLOR"] = "1"
-
-    templater = DevEnvTemplater()
-
-    if templater.templates_dir.exists() and not force:
-        console.print(f"Templates already exist at {templater.templates_dir}")
-        if not typer.confirm("Overwrite existing templates?"):
-            raise typer.Exit(0)
-
-    with console.status("[bold blue]Creating template files..."):
-        templater.ensure_templates_exist()
-
-    console.print(
-        f"✅ Templates initialized at {templater.templates_dir}", style="green"
-    )
-'''
-
-if __name__ == "__main__":
-    app()
-
