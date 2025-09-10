@@ -9,6 +9,7 @@
     git
     ruff
     just
+    #uv
   ];
 
   # https://devenv.sh/languages/
@@ -39,9 +40,9 @@
     git --version
     #echo
     # Create a wrapper script to ensure Nix ruff is used
-    export PATH="${pkgs.ruff}/bin:$PATH"
+    # export PATH="${pkgs.ruff}/bin:$PATH"
     # Remove any pip-installed ruff from the environment
-    unset VIRTUAL_ENV_RUFF
+    # unset VIRTUAL_ENV_RUFF
     #echo
 
   '';
