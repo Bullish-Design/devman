@@ -33,6 +33,19 @@
     echo hello from $GREET
   '';
 
+  scripts.bootstrap.exec = ''
+    echo "Bootstrapping the environment"
+    echo ""
+    git --version
+    ruff --version
+    just --version
+    python --version
+    pip --version
+    uv --version
+    echo ""
+    bash scripts/bootstrap-devman.sh
+  '';
+
   
 
   enterShell = ''
