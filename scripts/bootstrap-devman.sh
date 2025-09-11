@@ -23,8 +23,9 @@ if ! git diff-index --quiet HEAD -- 2>/dev/null; then
     exit 1
 fi
 
-# Store current branch
+# Store current branch and working directory
 ORIGINAL_BRANCH=$(git branch --show-current)
+WORKING_DIR=$(pwd)
 
 echo "📦 Current project: $PROJECT_NAME"
 echo "🌿 Creating branch: $BRANCH_NAME"
@@ -37,26 +38,23 @@ git checkout -b "$BRANCH_NAME" 2>/dev/null || {
     git checkout "$BRANCH_NAME"
 }
 
-# Backup current files list
-echo "📋 Cataloging existing files..."
-find . -type f -not -path './.git/*' > /tmp/original_files.txt
-
 # Generate devman template in temp directory
 TEMP_DIR=$(mktemp -d)
-echo "🏗️  Generating devman template..."
-cd "$TEMP_DIR"
+echo "🏗️  Generating devman template to $TEMP_DIR..."
 
-#devman generate "$PROJECT_NAME" \
-#uv sync
-#uv tool install .
-#devman generate "$PROJECT_NAME" \
+python -m devman.cli generate "$PROJECT_NAME" \
+    --template "$TEMPLATE" \
+    --python "$PYTHON_VERSION" \
+    --security \
+    --force \
+    --demo \
+    > /dev/null
+
 python -m devman.cli generate "$PROJECT_NAME" \
     --template "$TEMPLATE" \
     --python "$PYTHON_VERSION" \
     --security \
     --force
-
-cd - > /dev/null
 
 # Store original project metadata
 echo "📊 Extracting project metadata..."
@@ -70,34 +68,23 @@ else
     OLD_VERSION="0.1.0"
 fi
 
-# Copy devman structure over current project
-echo "🔄 Applying devman structure..."
-cp -r "$TEMP_DIR/$PROJECT_NAME"/* .
-cp -r "$TEMP_DIR/$PROJECT_NAME"/.[^.]* . 2>/dev/null || true
+# Copy non-template files to generated project
+echo "📁 Copying original files to template..."
+GENERATED_DIR="$WORKING_DIR/$PROJECT_NAME"
 
-# Restore project metadata
-if [ -f "pyproject.toml" ]; then
-    sed -i "s/^name = .*/name = \"$OLD_NAME\"/" pyproject.toml
-    sed -i "s/^description = .*/description = \"$OLD_DESC\"/" pyproject.toml
-    sed -i "s/^version = .*/version = \"$OLD_VERSION\"/" pyproject.toml
+# Copy back original source files
+if [ -d "src/" ]; then
+    rm -rf "$GENERATED_DIR/src/"
+    cp -r "src/" "$GENERATED_DIR/"
 fi
 
-# Copy back original source files, preserving devman structure
-echo "📁 Restoring original source files..."
-
-# Restore src/ directory if it exists in original
-if [ -d .git ] && git show HEAD:src > /dev/null 2>&1; then
-    rm -rf src/
-    git checkout HEAD -- src/ 2>/dev/null || echo "⚠️  No src/ in original"
+# Copy tests
+if [ -d "tests/" ]; then
+    rm -rf "$GENERATED_DIR/tests/"
+    cp -r "tests/" "$GENERATED_DIR/"
 fi
 
-# Restore tests/ if it exists
-if [ -d .git ] && git show HEAD:tests > /dev/null 2>&1; then
-    rm -rf tests/
-    git checkout HEAD -- tests/ 2>/dev/null || echo "⚠️  No tests/ in original"
-fi
-
-# Restore other important files
+# Copy other important files
 PRESERVE_FILES=(
     "README.md"
     "CHANGELOG.md" 
@@ -105,44 +92,39 @@ PRESERVE_FILES=(
     "docs/"
     "scripts/"
     "data/"
-    ".gitignore"
 )
 
 for file in "${PRESERVE_FILES[@]}"; do
-    if [ -d .git ] && git show HEAD:"$file" > /dev/null 2>&1; then
-        rm -rf "$file" 2>/dev/null || true
-        git checkout HEAD -- "$file" 2>/dev/null && echo "✅ Restored $file"
+    if [ -e "$file" ]; then
+        cp -r "$file" "$GENERATED_DIR/" && echo "✅ Copied $file"
     fi
 done
 
-# Merge dependencies if needed
-if [ -f pyproject.toml ]; then
-    echo "🔗 Syncing dependencies..."
-    # Try to merge old dependencies via git
-    if git show HEAD:pyproject.toml > /tmp/old_pyproject.toml 2>/dev/null; then
-        echo "📦 Found old pyproject.toml, manual dependency review recommended"
-    fi
+# Update project metadata in generated version
+if [ -f "$GENERATED_DIR/pyproject.toml" ]; then
+    sed -i "s/^name = .*/name = \"$OLD_NAME\"/" "$GENERATED_DIR/pyproject.toml"
+    sed -i "s/^description = .*/description = \"$OLD_DESC\"/" "$GENERATED_DIR/pyproject.toml"
+    sed -i "s/^version = .*/version = \"$OLD_VERSION\"/" "$GENERATED_DIR/pyproject.toml"
 fi
 
-# Clean up temp directory
-rm -rf "$TEMP_DIR"
+# Test the generated project
+echo "🧪 Testing generated project..."
+cd "$GENERATED_DIR"
 
-# Install dependencies and run tests
-echo "⚙️  Setting up development environment..."
+# Setup environment
 if command -v direnv > /dev/null && [ -f .envrc ]; then
     direnv allow
 fi
 
+# Install dependencies
 if command -v uv > /dev/null; then
     uv sync
 elif command -v pip > /dev/null; then
     pip install -e ".[dev]"
 fi
 
-# Run test suite
-echo "🧪 Running test suite..."
+# Run tests
 TEST_PASSED=false
-
 if [ -f justfile ] && command -v just > /dev/null; then
     if just test; then
         TEST_PASSED=true
@@ -160,37 +142,52 @@ elif [ -f pyproject.toml ] && command -v python > /dev/null; then
     fi
 fi
 
-# Run security checks if available
+# Run security checks
 if [ -f justfile ] && command -v just > /dev/null; then
     echo "🔒 Running security checks..."
     just security/check 2>/dev/null && echo "✅ Security checks passed" || echo "⚠️  Security checks failed or not available"
 fi
 
-# Summary
-echo ""
-echo "🎯 Migration Summary:"
-echo "   Branch: $BRANCH_NAME"
-echo "   Template: $TEMPLATE"
-echo "   Tests: $([ "$TEST_PASSED" = true ] && echo "✅ PASSED" || echo "❌ FAILED")"
-echo ""
+cd "$WORKING_DIR"
 
+# Apply changes to working directory if tests passed
 if [ "$TEST_PASSED" = true ]; then
+    echo "🔄 Applying devman structure to working directory..."
+    
+    # Copy generated files back to working directory
+    cp -r "$GENERATED_DIR"/* .
+    cp -r "$GENERATED_DIR"/.[^.]* . 2>/dev/null || true
+    
+    # Clean up generated directory
+    rm -rf "$GENERATED_DIR"
+    
     echo "✅ Migration successful! Review changes and commit:"
     echo "   git add ."
     echo "   git commit -m 'Migrate to devman structure'"
     echo ""
     echo "📋 Next steps:"
     echo "   1. Review pyproject.toml dependencies"
-    echo "   2. Update README.md with new workflow"
+    echo "   2. Update README.md with new workflow" 
     echo "   3. Test devenv setup: direnv allow"
     echo "   4. Merge to main when ready"
 else
-    echo "❌ Migration completed but tests failed."
-    echo "   Review test failures and fix before committing."
+    echo "❌ Tests failed. Generated project available at: $GENERATED_DIR"
+    echo "   Review and fix issues, then manually copy if desired"
     echo "   Return to original: git checkout $ORIGINAL_BRANCH"
 fi
 
+# Clean up temp directory
+rm -rf "$TEMP_DIR"
+
 echo ""
-echo "🔍 Files changed:"
-git status --porcelain | head -10
-[ $(git status --porcelain | wc -l) -gt 10 ] && echo "   ... and $(( $(git status --porcelain | wc -l) - 10 )) more"
+echo "🎯 Migration Summary:"
+echo "   Branch: $BRANCH_NAME"
+echo "   Template: $TEMPLATE"
+echo "   Tests: $([ "$TEST_PASSED" = true ] && echo "✅ PASSED" || echo "❌ FAILED")"
+
+if [ "$TEST_PASSED" = true ]; then
+    echo ""
+    echo "🔍 Files changed:"
+    git status --porcelain | head -10
+    [ $(git status --porcelain | wc -l) -gt 10 ] && echo "   ... and $(( $(git status --porcelain | wc -l) - 10 )) more"
+fi
