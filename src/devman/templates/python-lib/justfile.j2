@@ -1,4 +1,4 @@
-{% raw %}{% if use_just %}{% endraw %}
+{% if use_just %}
 default: dev
 
 dev:
@@ -21,4 +21,4 @@ docker/up:
 
 docker/down:
 	docker compose down
-{% raw %}{% endif %}{% endraw %}
+{% endif %}
