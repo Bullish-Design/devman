@@ -188,36 +188,36 @@ class SecurityManager:
         if self.config.enable_pre_commit:
             commands.update(
                 {
-                    "security/install-hooks": "pre-commit install",
-                    "security/run-hooks": "pre-commit run --all-files",
+                    "security-install-hooks": "pre-commit install",
+                    "security-run-hooks": "pre-commit run --all-files",
                 }
             )
 
         if self.config.bandit_enabled:
-            commands["security/bandit"] = "bandit -r src/ -f json -o bandit-report.json"
+            commands["security-bandit"] = "bandit -r src/ -f json -o bandit-report.json"
 
         if self.config.safety_enabled:
-            commands["security/safety"] = "safety check --json --output safety-report.json"
+            commands["security-safety"] = "safety check --json --output safety-report.json"
 
         if self.config.enable_dependency_scan:
             commands.update(
                 {
-                    "security/dep-scan": "uv pip check",
-                    "security/audit": "pip-audit --format=json --output=audit-report.json",
+                    "security-dep-scan": "uv pip check",
+                    "security-audit": "pip-audit --format=json --output=audit-report.json",
                 }
             )
 
         if self.config.enable_vulnerability_scan:
-            commands["security/vuln-scan"] = "python -m pip_audit --format=json --output=vulnerability-report.json"
+            commands["security-vuln-scan"] = "python -m pip_audit --format=json --output=vulnerability-report.json"
 
         # Comprehensive security check
-        commands["security/check"] = (
+        commands["security-check"] = (
             " && ".join(
                 [
-                    "just security/bandit" if self.config.bandit_enabled else "",
-                    "just security/safety" if self.config.safety_enabled else "",
-                    "just security/dep-scan" if self.config.enable_dependency_scan else "",
-                    "just security/run-hooks" if self.config.enable_pre_commit else "",
+                    "just security-bandit" if self.config.bandit_enabled else "",
+                    "just security-safety" if self.config.safety_enabled else "",
+                    "just security-dep-scan" if self.config.enable_dependency_scan else "",
+                    "just security-run-hooks" if self.config.enable_pre_commit else "",
                 ]
             )
             .replace(" &&  && ", " && ")
