@@ -1,0 +1,9 @@
+{% if use_docker %}
+services:
+  app:
+    build: .
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: bash -lc "sleep infinity"
+    {% endif %}

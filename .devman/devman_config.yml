@@ -1,0 +1,10 @@
+# .devman/devman_config.yml.j2
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_src_path: /home/andrew/Documents/Projects/devman/src/devman/templates/python-lib
+package_name: devman
+project_name: devman
+project_slug: devman
+python_version: '3.11'
+use_docker: true
+use_just: true
+use_nix: true
