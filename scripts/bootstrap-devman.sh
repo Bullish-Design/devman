@@ -48,9 +48,9 @@ cd "$TEMP_DIR"
 
 #devman generate "$PROJECT_NAME" \
 #uv sync
-uv tool install .
-devman generate "$PROJECT_NAME" \
-#uv run python -m devman.cli generate "$PROJECT_NAME" \
+#uv tool install .
+#devman generate "$PROJECT_NAME" \
+python -m devman.cli generate "$PROJECT_NAME" \
     --template "$TEMPLATE" \
     --python "$PYTHON_VERSION" \
     --security \
