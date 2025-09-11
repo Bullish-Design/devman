@@ -2,10 +2,10 @@
 default: dev
 
 dev:
-	pytest -q
+	uv run pytest -q
 
 test:
-	pytest -q
+	uv run pytest -q
 
 fmt:
 	ruff format .
