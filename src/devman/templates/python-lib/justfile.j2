@@ -13,12 +13,12 @@ fmt:
 lint:
 	ruff check .
 
-docker/build:
+"docker/build":
 	docker build -t { '{ project_slug }' } .
 
-docker/up:
+"docker/up":
 	docker compose up -d
 
-docker/down:
+"docker/down":
 	docker compose down
 {% endif %}
