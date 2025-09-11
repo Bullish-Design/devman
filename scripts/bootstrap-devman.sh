@@ -39,18 +39,10 @@ git checkout -b "$BRANCH_NAME" 2>/dev/null || {
 }
 
 # Generate devman template in temp directory
-TEMP_DIR=$(mktemp -d)
-echo "🏗️  Generating devman template to $TEMP_DIR..."
+echo "🏗️  Generating devman template..."
 
-python -m devman.cli generate "$PROJECT_NAME" \
-    --template "$TEMPLATE" \
-    --python "$PYTHON_VERSION" \
-    --security \
-    --force \
-    --demo \
-    > /dev/null
-
-python -m devman.cli generate "$PROJECT_NAME" \
+# Use uv run to ensure dependencies are available
+uv run python -m devman.cli generate "$PROJECT_NAME" \
     --template "$TEMPLATE" \
     --python "$PYTHON_VERSION" \
     --security \
@@ -175,9 +167,6 @@ else
     echo "   Review and fix issues, then manually copy if desired"
     echo "   Return to original: git checkout $ORIGINAL_BRANCH"
 fi
-
-# Clean up temp directory
-rm -rf "$TEMP_DIR"
 
 echo ""
 echo "🎯 Migration Summary:"
