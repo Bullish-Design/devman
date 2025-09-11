@@ -1,89 +1,50 @@
-# justfile
-# Development tasks for devman
 
-default: test
+default: dev
 
-# Install dependencies
-install:
-    uv sync
+dev:
+	uv run pytest -q
 
-# Run all tests
 test:
-    uv run pytest -v
+	uv run pytest -q
 
-# Run tests with coverage
-test-cov:
-    uv run pytest --cov=src/devman --cov-report=html --cov-report=term-missing
-
-# Run specific test file
-test-file file:
-    uv run pytest tests/{{file}} -v
-
-# Run tests matching a pattern
-test-match pattern:
-    uv run pytest -k "{{pattern}}" -v
-
-# Format code
 fmt:
-    uv run ruff format src tests
-    uv run ruff check --fix src tests
+	ruff format .
 
-# Lint code
 lint:
-    uv run ruff check src tests
-    uv run mypy src
+	ruff check .
 
-# Type check only
-check:
-    uv run mypy src
+docker-build:
+	docker build -t { '{ project_slug }' } .
 
-# Run all quality checks
-qa: lint test
+docker-up:
+	docker compose up -d
 
-# Clean up temporary files
-clean:
-    rm -rf .pytest_cache
-    rm -rf __pycache__
-    rm -rf htmlcov
-    rm -rf .coverage
-    find . -name "*.pyc" -delete
-    find . -name "__pycache__" -type d -exec rm -rf {} +
+docker-down:
+	docker compose down
 
-# Build package
-build:
-    uv build
 
-# Install package in development mode
-dev-install:
-    uv pip install -e .
+# Security commands
+security-install-hooks:
+	pre-commit install
 
-# Test the CLI directly
-test-cli *args:
-    uv run python -m devman.cli {{args}}
+security-run-hooks:
+	pre-commit run --all-files
 
-# Generate a test project
-test-generate name="test-project":
-    uv run python -m devman.cli generate {{name}} --demo
+security-bandit:
+	bandit -r src/ -f json -o bandit-report.json
 
-# Show CLI help
-help-cli:
-    uv run python -m devman.cli --help
+security-safety:
+	safety check --json --output safety-report.json
 
-# Run tests in watch mode (requires pytest-xdist)
-test-watch:
-    uv run pytest --looponfail
+security-dep-scan:
+	uv pip check
 
-# Create test coverage badge
-coverage-badge:
-    uv run coverage-badge -o coverage.svg
+security-audit:
+	pip-audit --format=json --output=audit-report.json
 
-# Profile test performance
-test-profile:
-    uv run pytest --profile-svg
+security-vuln-scan:
+	python -m pip_audit --format=json --output=vulnerability-report.json
 
-# Setup development environment
-setup: install dev-install
-    @echo "✅ Development environment ready!"
-    @echo "🧪 Run 'just test' to run tests"
-    @echo "🎨 Run 'just fmt' to format code"
-    @echo "🔍 Run 'just lint' to check code quality"
+security-check:
+	just security-bandit && just security-safety && just security-dep-scan && just security-run-hooks
+
