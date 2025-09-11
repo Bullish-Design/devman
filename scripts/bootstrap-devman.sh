@@ -45,7 +45,9 @@ find . -type f -not -path './.git/*' > /tmp/original_files.txt
 TEMP_DIR=$(mktemp -d)
 echo "🏗️  Generating devman template..."
 cd "$TEMP_DIR"
-devman generate "$PROJECT_NAME" \
+
+#devman generate "$PROJECT_NAME" \
+uv run python -m devman.cli generate "$PROJECT_NAME" \
     --template "$TEMPLATE" \
     --python "$PYTHON_VERSION" \
     --security \
