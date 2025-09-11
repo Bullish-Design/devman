@@ -111,6 +111,7 @@ fi
 # Install dependencies
 if command -v uv > /dev/null; then
     uv sync
+    uv pip install -e ".[dev]"
 elif command -v pip > /dev/null; then
     pip install -e ".[dev]"
 fi
