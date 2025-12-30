@@ -10,6 +10,8 @@ inputs:
     url: github:rrbutani/nix-mk-shell-bin
   codex-cli:
     url: "github:sadjow/codex-cli-nix?ref=v0.1.0"
+  claude-code:
+    url: "github:sadjow/claude-code-nix?ref=v0.1.0"
 
 # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true
