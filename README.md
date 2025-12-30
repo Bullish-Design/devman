@@ -17,6 +17,38 @@ Minimal workspace orchestrator for tmuxp + OpenCode + Neovim.
 ./cli/llm-core
 ```
 
+## NixOS + Home Manager (flakes)
+
+Use a flake input pinned with `git+` to avoid GitHub API rate limits.
+
+```nix
+inputs.llm-core.url = "git+https://github.com/<org>/<repo>?ref=<branch>&rev=<commit>";
+# Optional: add &dir=path/to/subdir if the flake isn't at the repo root.
+```
+
+Home Manager:
+
+```nix
+home.packages = [
+  inputs.llm-core.packages.${pkgs.system}.default
+];
+```
+
+NixOS:
+
+```nix
+environment.systemPackages = [
+  inputs.llm-core.packages.${pkgs.system}.default
+];
+```
+
+Usage:
+
+```bash
+llm-core index rebuild
+llm-core
+```
+
 ## Development
 
 Use `devenv` + `uv` for local development.
