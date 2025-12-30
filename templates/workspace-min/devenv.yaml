@@ -2,6 +2,6 @@ inputs:
   llm-core:
     url: "github:YOURORG/llm-core"
   codex-cli:
-    url: "github:sadjow/codex-cli-nix?ref=v0.1.0"
+    url: "github:sadjow/codex-cli-nix?ref=main"
   claude-code:
-    url: "github:sadjow/claude-code-nix?ref=v0.1.0"
+    url: "github:sadjow/claude-code-nix?ref=main"
