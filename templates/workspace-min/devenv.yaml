@@ -1,3 +1,5 @@
 inputs:
   llm-core:
     url: "github:YOURORG/llm-core"
+  codex-cli:
+    url: "github:sadjow/codex-cli-nix?ref=v0.1.0"
