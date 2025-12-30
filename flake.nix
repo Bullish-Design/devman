@@ -84,11 +84,15 @@
       devShells = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          inputs = {
+            inherit nixpkgs devenv codex-cli claude-code;
+          };
         in
         {
           default = devenv.lib.mkShell {
-            inherit inputs pkgs;
+            inherit pkgs;
             modules = [
+              { _module.args = { inherit inputs; }; }
               ./devenv.nix
             ];
           };
