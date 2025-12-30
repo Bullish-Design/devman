@@ -9,9 +9,9 @@ inputs:
   mk-shell-bin:
     url: github:rrbutani/nix-mk-shell-bin
   codex-cli:
-    url: "github:sadjow/codex-cli-nix?ref=v0.1.0"
+    url: "github:sadjow/codex-cli-nix?ref=main"
   claude-code:
-    url: "github:sadjow/claude-code-nix?ref=v0.1.0"
+    url: "github:sadjow/claude-code-nix?ref=main"
 
 # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true

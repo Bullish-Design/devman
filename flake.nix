@@ -8,11 +8,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     codex-cli = {
-      url = "github:sadjow/codex-cli-nix?ref=v0.1.0";
+      url = "github:sadjow/codex-cli-nix?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     claude-code = {
-      url = "github:sadjow/claude-code-nix?ref=v0.1.0";
+      url = "github:sadjow/claude-code-nix?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
