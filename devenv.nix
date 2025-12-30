@@ -9,6 +9,7 @@
     pkgs.git
     pkgs.ruff
     inputs.codex-cli.packages.${pkgs.system}.default
+    inputs.claude-code.packages.${pkgs.system}.default
   ];
 
   # https://devenv.sh/languages/
