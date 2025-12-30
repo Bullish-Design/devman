@@ -15,9 +15,13 @@
       url = "github:sadjow/claude-code-nix?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    opencode = {
+      url = "github:sst/opencode?ref=v1.0.217";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, devenv, codex-cli, claude-code }:
+  outputs = { self, nixpkgs, devenv, codex-cli, claude-code, opencode }:
     let
       systems = [
         "x86_64-linux"
@@ -70,14 +74,16 @@
               devman-core
               codex-cli.packages.${system}.default
               claude-code.packages.${system}.default
+              opencode.packages.${system}.default
             ];
             meta = {
-              description = "devman with codex-cli and claude-code";
+              description = "devman with codex-cli, claude-code, and opencode";
               mainProgram = "devman";
             };
           };
           codex-cli = codex-cli.packages.${system}.default;
           claude-code = claude-code.packages.${system}.default;
+          opencode = opencode.packages.${system}.default;
         }
       );
 
@@ -85,7 +91,7 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
           inputs = {
-            inherit nixpkgs devenv codex-cli claude-code;
+            inherit nixpkgs devenv codex-cli claude-code opencode;
           };
         in
         {
