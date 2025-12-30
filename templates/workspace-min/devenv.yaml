@@ -1,0 +1,3 @@
+inputs:
+  llm-core:
+    url: "github:YOURORG/llm-core"
