@@ -6,12 +6,14 @@ from pathlib import Path
 
 import typer
 
+from devman.claude_code import CLAUDE_INSTALL_MESSAGE, ClaudeCodeWorkspace
 from devman.commands.up import _ensure_tmux
 from devman.integrations import ClaudeIntegration, NvimIntegration
 from devman.llm_core import state, workspace
 
 
 CLAUDE = ClaudeIntegration()
+CLAUDE_WORKSPACE = ClaudeCodeWorkspace()
 NVIM = NvimIntegration()
 
 
@@ -21,6 +23,9 @@ def bootstrap(root: str | None = None) -> None:
     devman_dir = workspace.find_devman_dir(workspace_root)
     if not devman_dir:
         raise typer.Exit("No workspace detected.")
+
+    if not CLAUDE_WORKSPACE.is_available():
+        raise typer.Exit(CLAUDE_INSTALL_MESSAGE)
 
     missing_files = validate_required_files(devman_dir)
     for missing in missing_files:

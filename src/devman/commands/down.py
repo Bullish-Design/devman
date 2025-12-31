@@ -14,7 +14,7 @@ TMUX = TmuxIntegration()
 
 
 def down() -> None:
-    """Stop services started by llm-core."""
+    """Stop services started by devman."""
     devman_dir = workspace.find_devman_dir(Path.cwd())
     if not devman_dir:
         raise typer.Exit("No workspace detected.")

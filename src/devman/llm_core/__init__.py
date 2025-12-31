@@ -1,4 +1,4 @@
-"""Core models and helpers for llm-core workspaces."""
+"""Core models and helpers for devman workspaces."""
 
 from .models import WorkspaceConfig
 from .state import read_state, write_state

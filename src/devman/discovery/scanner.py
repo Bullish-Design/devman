@@ -14,7 +14,7 @@ from devman.models import WorkspaceEntry
 
 
 DEV_MAN_DIRNAME = ".devman"
-ENV_ROOTS = "LLM_CORE_ROOTS"
+ENV_ROOTS = "DEVMAN_ROOTS"
 SKIP_DIRS = {".git", ".hg", ".svn", ".direnv", ".venv", "node_modules"}
 
 

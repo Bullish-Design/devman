@@ -1,5 +1,5 @@
 # src/devman/commands/index.py
-"""Index command helpers for llm-core."""
+"""Index command helpers for devman."""
 
 from __future__ import annotations
 

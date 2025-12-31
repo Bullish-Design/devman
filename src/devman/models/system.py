@@ -1,5 +1,5 @@
 # src/devman/models/system.py
-"""System configuration models for llm-core."""
+"""System configuration models for devman."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Iterable
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 DEFAULT_SYSTEM_CONFIG_PATH = (
-    Path.home() / ".config" / "llm-core" / "system.toml"
+    Path.home() / ".config" / "devman" / "system.toml"
 )
 
 
@@ -18,7 +18,7 @@ def _expand_paths(values: Iterable[Path]) -> list[Path]:
 
 
 class SystemConfig(BaseModel):
-    """Configuration persisted for llm-core system settings."""
+    """Configuration persisted for devman system settings."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -40,8 +40,8 @@ class SystemConfig(BaseModel):
     @computed_field
     @property
     def cache_dir(self) -> Path:
-        """Default cache directory for llm-core."""
-        return Path.home() / ".cache" / "llm-core"
+        """Default cache directory for devman."""
+        return Path.home() / ".cache" / "devman"
 
     @computed_field
     @property

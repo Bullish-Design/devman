@@ -4,18 +4,14 @@ from __future__ import annotations
 
 from typing import Dict
 
-from devman.integrations import (
-    ClaudeIntegration,
-    NvimIntegration,
-    TmuxIntegration,
-    TmuxpIntegration,
-)
+from devman.claude_code import ClaudeCodeWorkspace
+from devman.integrations import NvimIntegration, TmuxIntegration, TmuxpIntegration
 
 
 TMUX = TmuxIntegration()
 TMUXP = TmuxpIntegration()
 NVIM = NvimIntegration()
-CLAUDE = ClaudeIntegration()
+CLAUDE_WORKSPACE = ClaudeCodeWorkspace()
 
 
 def run() -> Dict[str, bool]:
@@ -24,7 +20,7 @@ def run() -> Dict[str, bool]:
         "tmux": TMUX.is_available(),
         "tmuxp": TMUXP.is_available(),
         "nvim": NVIM.is_available(),
-        "claude": CLAUDE.is_available(),
+        "claude": CLAUDE_WORKSPACE.is_available(),
     }
 
 

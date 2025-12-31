@@ -1,4 +1,4 @@
-"""Command handlers for llm-core operations."""
+"""Command handlers for devman operations."""
 
 from .bootstrap import bootstrap
 from .doctor import doctor

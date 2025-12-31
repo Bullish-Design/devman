@@ -1,5 +1,5 @@
 # src/devman/models/workspace.py
-"""Workspace configuration model for llm-core."""
+"""Workspace configuration model for devman."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Any, Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ENV_TMUXP_WORKSPACE = "LLM_CORE_TMUXP_WORKSPACE"
-ENV_TMUX_SESSION = "LLM_CORE_SESSION_NAME"
+ENV_TMUXP_WORKSPACE = "DEVMAN_TMUXP_WORKSPACE"
+ENV_TMUX_SESSION = "DEVMAN_SESSION_NAME"
 
 REQUIRED_FILES = (
     Path("devman.toml"),

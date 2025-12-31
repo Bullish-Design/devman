@@ -1,5 +1,5 @@
 # src/devman/models/session.py
-"""Runtime session state models for llm-core."""
+"""Runtime session state models for devman."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class SessionConfig(BaseModel):
-    """Runtime session state persisted by llm-core."""
+    """Runtime session state persisted by devman."""
 
     model_config = ConfigDict(extra="ignore")
 

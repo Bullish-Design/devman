@@ -1,20 +1,20 @@
-# llm-core
+# devman
 
 Minimal workspace orchestrator for tmuxp + Claude Code + Neovim.
 
 ## Features
 
 - Discover `.devman/` workspaces under configured roots.
-- Cache index at `~/.cache/llm-core/index.json`.
+- Cache index at `~/.cache/devman/index.json`.
 - Launch tmuxp sessions with Claude Code + Neovim windows.
 - Switch workspaces and load Neovim sessions via remote commands.
-- Claude Code support is optional if the `claude` binary is available.
+- Claude Code requires the `claude` CLI to be installed.
 
 ## Quick start
 
 ```bash
-./cli/llm-core index rebuild
-./cli/llm-core
+./cli/devman index rebuild
+./cli/devman
 ```
 
 ## NixOS + Home Manager (flakes)
@@ -22,7 +22,7 @@ Minimal workspace orchestrator for tmuxp + Claude Code + Neovim.
 Use a flake input pinned with `git+` to avoid GitHub API rate limits.
 
 ```nix
-inputs.llm-core.url = "git+https://github.com/<org>/<repo>?ref=<branch>&rev=<commit>";
+inputs.devman.url = "git+https://github.com/<org>/<repo>?ref=<branch>&rev=<commit>";
 # Optional: add &dir=path/to/subdir if the flake isn't at the repo root.
 ```
 
@@ -30,7 +30,7 @@ Home Manager:
 
 ```nix
 home.packages = [
-  inputs.llm-core.packages.${pkgs.system}.default
+  inputs.devman.packages.${pkgs.system}.default
 ];
 ```
 
@@ -38,15 +38,15 @@ NixOS:
 
 ```nix
 environment.systemPackages = [
-  inputs.llm-core.packages.${pkgs.system}.default
+  inputs.devman.packages.${pkgs.system}.default
 ];
 ```
 
 Usage:
 
 ```bash
-llm-core index rebuild
-llm-core
+devman index rebuild
+devman
 ```
 
 ## Development
@@ -55,7 +55,7 @@ Use `devenv` + `uv` for local development.
 
 ```bash
 uv sync
-uv run ./cli/llm-core --help
+uv run ./cli/devman --help
 ```
 
 ## Config validation helper

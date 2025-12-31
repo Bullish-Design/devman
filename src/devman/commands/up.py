@@ -5,9 +5,13 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 
+import typer
+
+from devman.claude_code import CLAUDE_INSTALL_MESSAGE, ClaudeCodeWorkspace
 from devman.integrations import (
     ClaudeIntegration,
     NvimIntegration,
@@ -19,6 +23,7 @@ from devman.core.paths import find_devman_dir, index_cache_path, resolve_roots
 
 
 CLAUDE = ClaudeIntegration()
+CLAUDE_WORKSPACE = ClaudeCodeWorkspace()
 NVIM = NvimIntegration()
 TMUX = TmuxIntegration()
 TMUXP = TmuxpIntegration()
@@ -73,6 +78,9 @@ def run(root: Optional[Path] = None) -> WorkspaceConfig:
     if not devman_dir:
         raise ValueError("No workspace found.")
 
+    if not CLAUDE_WORKSPACE.is_available():
+        raise typer.Exit(CLAUDE_INSTALL_MESSAGE)
+
     config = load_workspace_config(devman_dir)
     CLAUDE.setup(
         config.root,
@@ -105,7 +113,7 @@ def load_workspace_config(devman_dir: Path) -> WorkspaceConfig:
     name = str(workspace_data.get("name") or workspace_root.name)
 
     tmuxp_workspace_value = tmuxp_data.get("workspace") or env.get(
-        "LLM_CORE_TMUXP_WORKSPACE"
+        "DEVMAN_TMUXP_WORKSPACE"
     )
     tmuxp_workspace = _resolve_optional_path(
         tmuxp_workspace_value,
@@ -117,7 +125,7 @@ def load_workspace_config(devman_dir: Path) -> WorkspaceConfig:
             tmuxp_workspace = default_tmuxp
 
     tmuxp_session_name = tmuxp_data.get("session_name") or env.get(
-        "LLM_CORE_SESSION_NAME"
+        "DEVMAN_SESSION_NAME"
     )
     claude_interaction = _resolve_optional_path(
         claude_data.get("interaction"),

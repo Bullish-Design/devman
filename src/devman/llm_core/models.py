@@ -1,4 +1,4 @@
-"""Data models for llm-core."""
+"""Data models for devman."""
 
 from __future__ import annotations
 

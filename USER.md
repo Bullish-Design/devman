@@ -1,8 +1,8 @@
-# USER.md — llm-core quickstart & user guide
+# USER.md — devman quickstart & user guide
 
 ## Overview
 
-llm-core is a minimal workspace orchestrator for tmuxp + Claude Code + Neovim that
+devman is a minimal workspace orchestrator for tmuxp + Claude Code + Neovim that
 finds `.devman/` workspaces, indexes them, and launches the matching tmux sessions
 and editor setup. This repo also ships the `devman` CLI for generating
 Nix-based project templates.
@@ -12,10 +12,10 @@ Nix-based project templates.
 - **Python 3.11+** (use `uv` for environments).
 - **tmux** + **tmuxp** for session management.
 - **Neovim** (`nvim`) if you want session bootstrapping.
-- **Claude Code** (`claude`) is optional.
+- **Claude Code** (`claude`) is required.
 - **devenv + Nix** if you plan to use Nix-based templates.
 
-## Quickstart (llm-core)
+## Quickstart (devman)
 
 1. **Create or copy a `.devman/` workspace**
    - Use the starter template in `templates/workspace-min/`.
@@ -24,24 +24,24 @@ Nix-based project templates.
 2. **Build the workspace index**
 
    ```bash
-   ./cli/llm-core index rebuild
+   ./cli/devman index rebuild
    ```
 
-3. **Launch llm-core from a workspace**
+3. **Launch devman from a workspace**
 
    ```bash
-   ./cli/llm-core
+   ./cli/devman
    ```
 
 4. **Switch workspaces by name, tag, or path**
 
    ```bash
-   ./cli/llm-core switch <query>
+   ./cli/devman switch <query>
    ```
 
 ## Workspace configuration
 
-llm-core looks for `.devman/devman.toml` plus supporting assets like tmuxp and
+devman looks for `.devman/devman.toml` plus supporting assets like tmuxp and
 Neovim session files. See the full schema in `spec/workspace_schema.md`. The
 minimum requirement is a `.devman/` directory in the workspace root.
 
@@ -56,16 +56,16 @@ Common optional files:
 ## Useful commands
 
 ```bash
-./cli/llm-core index list
-./cli/llm-core index status
-./cli/llm-core doctor
-./cli/llm-core down
+./cli/devman index list
+./cli/devman index status
+./cli/devman doctor
+./cli/devman down
 ```
 
 ## Project templating (devman CLI)
 
 The `devman` CLI generates a Python project scaffold with Nix/devenv support.
-It is separate from llm-core’s workspace orchestration, but pairs well with
+It is separate from devman’s workspace orchestration, but pairs well with
 `.devman/` workspaces.
 
 ```bash
@@ -89,8 +89,8 @@ uv run ./cli/setup_config.py validate .env.example
 
 ## Troubleshooting
 
-- Run `./cli/llm-core doctor` to confirm external tools are installed.
-- If llm-core can’t find workspaces, confirm `.devman/` exists in the project
+- Run `./cli/devman doctor` to confirm external tools are installed.
+- If devman can’t find workspaces, confirm `.devman/` exists in the project
   root and rebuild the index.
 - For tmuxp sessions, ensure the `workspace.tmuxp.yaml` path in
   `.devman/devman.toml` is correct.

@@ -8,7 +8,7 @@ from typing import Iterable
 
 from devman.models.workspace import WorkspaceConfig
 
-ENV_ROOTS = "LLM_CORE_ROOTS"
+ENV_ROOTS = "DEVMAN_ROOTS"
 
 
 def find_devman_dir(start: Path) -> Path | None:
