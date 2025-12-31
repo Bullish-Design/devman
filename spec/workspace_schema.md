@@ -20,7 +20,7 @@ group = "client-x"       # optional
 workspace = "workspace.tmuxp.yaml" # optional
 session_name = "my-app"            # optional
 
-[opencode]
+[claude_code]
 interaction = "interaction.md"     # optional
 emit_project_config = false         # optional
 

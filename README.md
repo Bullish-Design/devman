@@ -1,14 +1,14 @@
 # llm-core
 
-Minimal workspace orchestrator for tmuxp + OpenCode + Neovim.
+Minimal workspace orchestrator for tmuxp + Claude Code + Neovim.
 
 ## Features
 
 - Discover `.devman/` workspaces under configured roots.
 - Cache index at `~/.cache/llm-core/index.json`.
-- Launch tmuxp sessions with OpenCode + Neovim windows.
+- Launch tmuxp sessions with Claude Code + Neovim windows.
 - Switch workspaces and load Neovim sessions via remote commands.
-- OpenCode support is optional if the `opencode` binary is available.
+- Claude Code support is optional if the `claude` binary is available.
 
 ## Quick start
 
