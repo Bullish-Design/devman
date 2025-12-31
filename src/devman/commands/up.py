@@ -112,7 +112,8 @@ def load_workspace_config(devman_dir: Path) -> WorkspaceConfig:
 
     nvim_listen_value = nvim_data.get("listen")
     if nvim_listen_value:
-        nvim_listen = workspace_root / nvim_listen_value
+        listen_path = Path(nvim_listen_value)
+        nvim_listen = listen_path if listen_path.is_absolute() else workspace_root / listen_path
     else:
         nvim_listen = workspace_root / ".devman" / ".state" / "nvim.sock"
 
@@ -159,14 +160,20 @@ def _load_env(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        data[key.strip()] = value.strip().strip("\"").strip("'")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key.replace("export ", "", 1).strip()
+        data[key] = value.strip().strip("\"").strip("'")
     return data
 
 
 def _resolve_optional_path(value: Optional[str], base: Path) -> Optional[Path]:
     if not value:
         return None
-    return (base / value).resolve()
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate
+    return (base / candidate).resolve()
 
 
 def _load_nvim_session(config: WorkspaceConfig) -> None:

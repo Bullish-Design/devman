@@ -48,12 +48,18 @@ def _build_settings(
     }
 
     if interaction_path is not None:
-        settings["project"]["interaction"] = _relative_path(interaction_path, workspace_root)
+        settings["project"]["interaction"] = _relative_path(
+            interaction_path,
+            workspace_root,
+        )
 
     if emit_project_config:
         settings["project"]["instructions"] = "CLAUDE.md"
     elif interaction_path is not None:
-        settings["project"]["instructions"] = _relative_path(interaction_path, workspace_root)
+        settings["project"]["instructions"] = _relative_path(
+            interaction_path,
+            workspace_root,
+        )
 
     return settings
 
@@ -78,7 +84,9 @@ def _render_claude_markdown(
     ]
 
     if interaction_path is not None:
-        lines.append(f"- Interaction guide: `{_relative_path(interaction_path, workspace_root)}`")
+        lines.append(
+            f"- Interaction guide: `{_relative_path(interaction_path, workspace_root)}`"
+        )
 
     lines.append("")
     lines.append("Follow the interaction guide for workspace-specific workflows and norms.")
