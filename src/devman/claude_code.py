@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 
-from devman.workspace_config import WorkspaceConfig
+from devman.models.workspace import WorkspaceConfig
 
 
 def check_claude_code() -> bool:
@@ -17,8 +17,8 @@ def generate_claude_code_settings(config: WorkspaceConfig) -> dict[str, object]:
     settings: dict[str, object] = {
         "workspace_name": config.name,
         "workspace_root": str(config.root),
-        "emit_project_config": config.claude_code_emit_project_config,
+        "emit_project_config": config.claude_emit_project_config,
     }
-    if config.claude_code_interaction:
-        settings["interaction_file"] = str(config.claude_code_interaction)
+    if config.claude_interaction:
+        settings["interaction_file"] = str(config.claude_interaction)
     return settings

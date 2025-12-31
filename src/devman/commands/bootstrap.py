@@ -22,6 +22,10 @@ def bootstrap(root: str | None = None) -> None:
     if not devman_dir:
         raise typer.Exit("No workspace detected.")
 
+    missing_files = validate_required_files(devman_dir)
+    for missing in missing_files:
+        typer.echo(f"Missing required file: {missing}", err=True)
+
     config_data = workspace.load_workspace_config(devman_dir)
     _ensure_tmux(config_data)
 
