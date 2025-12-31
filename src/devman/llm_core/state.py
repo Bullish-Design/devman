@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .models import WorkspaceConfig
+from devman.models.workspace import WorkspaceConfig
 
 
 def state_path(config: WorkspaceConfig) -> Path:

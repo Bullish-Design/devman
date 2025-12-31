@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from devman.claude_code import check_claude_code, generate_claude_code_settings
-from devman.workspace_config import WorkspaceConfig
+from devman.models.workspace import WorkspaceConfig
 
 
 def test_generate_claude_code_settings(tmp_path: Path) -> None:
@@ -24,8 +24,8 @@ def test_generate_claude_code_settings(tmp_path: Path) -> None:
         group=None,
         tmuxp_workspace=None,
         tmuxp_session_name=None,
-        claude_code_interaction=devman_dir / "interaction.md",
-        claude_code_emit_project_config=True,
+        claude_interaction=devman_dir / "interaction.md",
+        claude_emit_project_config=True,
         nvim_init=None,
         nvim_listen=None,
         nvim_sessions_dir=None,
