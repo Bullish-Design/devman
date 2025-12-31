@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 
-class SessionConfig(BaseModel):
+class SessionState(BaseModel):
     """Runtime session state persisted by devman."""
 
     model_config = ConfigDict(extra="ignore")

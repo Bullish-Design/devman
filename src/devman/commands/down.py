@@ -9,10 +9,11 @@ import typer
 from devman.discovery import find_devman_dir
 from devman.integrations import TmuxIntegration
 from devman.loaders import load_workspace_config
-from devman.state import read_state
+from devman.state import StateManager
 
 
 TMUX = TmuxIntegration()
+STATE_MANAGER = StateManager()
 
 
 def run() -> None:
@@ -21,7 +22,7 @@ def run() -> None:
     if not devman_dir:
         raise typer.Exit("No workspace detected.")
     config_data = load_workspace_config(devman_dir)
-    current_state = read_state(config_data)
+    current_state = STATE_MANAGER.read(config_data)
     session_name = current_state.tmux_session
     if isinstance(session_name, str):
         typer.echo(f"Stopping tmux session {session_name}...")
