@@ -17,6 +17,13 @@ Minimal workspace orchestrator for tmuxp + Claude Code + Neovim.
 ./cli/devman
 ```
 
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [Workspace schema](docs/workspace-schema.md)
+- [Claude integration](docs/claude-integration.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
 ## NixOS + Home Manager (flakes)
 
 Use a flake input pinned with `git+` to avoid GitHub API rate limits.
@@ -66,9 +73,3 @@ Use `cli/setup_config.py` to validate `.env.example`, `.toml.example`, or
 ```bash
 uv run ./cli/setup_config.py validate .env.example
 ```
-
-## Templates
-
-- `templates/workspace-min`: starter `.devman/` layout for a single repo.
-- `templates/workspace-nixos-collection`: example multi-repo NixOS workspace
-  with tmuxp + mini.sessions defaults.

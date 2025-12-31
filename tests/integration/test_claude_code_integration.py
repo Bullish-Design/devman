@@ -9,6 +9,8 @@ import pytest
 from devman.claude_code import check_claude_code, generate_claude_code_settings
 from devman.models.workspace import WorkspaceConfig
 
+pytestmark = pytest.mark.integration
+
 
 def test_generate_claude_code_settings(tmp_path: Path) -> None:
     """Generate settings payload for Claude Code."""

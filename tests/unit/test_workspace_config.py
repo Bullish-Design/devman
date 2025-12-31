@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from devman.models.workspace import WorkspaceConfig
+
+pytestmark = pytest.mark.unit
 
 
 def test_minimal_workspace_config(tmp_path: Path) -> None:

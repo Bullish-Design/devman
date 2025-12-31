@@ -1,4 +1,4 @@
-# tests/test_config.py
+# tests/unit/test_config.py
 """Test configuration models."""
 
 from __future__ import annotations
@@ -7,6 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from devman.config import ProjectConfig
+
+pytestmark = pytest.mark.unit
 
 
 class TestProjectConfig:

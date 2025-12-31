@@ -72,9 +72,13 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
-testpaths = ["src/tests"]
+testpaths = ["tests/unit", "tests/integration"]
 addopts = "-v --cov=src/devman --cov-report=html"
 python_files = ["test_*.py", "*_test.py"]
+markers = [
+    "unit: fast, isolated tests",
+    "integration: integration or external dependency coverage",
+]
 
 [tool.coverage.report]
 exclude_lines = [
