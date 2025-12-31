@@ -11,14 +11,15 @@ from devman.commands.up import _ensure_tmux
 from devman.discovery import find_devman_dir
 from devman.integrations import ClaudeIntegration, NvimIntegration
 from devman.loaders import load_workspace_config
-from devman.models import SessionConfig
+from devman.models import SessionState
 from devman.models.workspace import validate_required_files
-from devman.state import read_state, write_state
+from devman.state import StateManager
 
 
 CLAUDE = ClaudeIntegration()
 CLAUDE_WORKSPACE = ClaudeCodeWorkspace()
 NVIM = NvimIntegration()
+STATE_MANAGER = StateManager()
 
 
 def run(root: str | None = None) -> None:
@@ -49,12 +50,12 @@ def run(root: str | None = None) -> None:
 
     if listen:
         NVIM.launch(config_data.root, listen, init)
-        current_state = read_state(config_data)
-        updated_state = SessionConfig(
+        current_state = STATE_MANAGER.read(config_data)
+        updated_state = SessionState(
             tmux_session=current_state.tmux_session,
             nvim_listen=listen,
         )
-        write_state(config_data, updated_state)
+        STATE_MANAGER.write(config_data, updated_state)
 
 
 def bootstrap(root: str | None = None) -> None:

@@ -16,8 +16,8 @@ from devman.integrations import (
     TmuxpIntegration,
 )
 from devman.loaders import load_workspace_config
-from devman.models import SessionConfig, WorkspaceConfig, WorkspaceEntry
-from devman.state import read_state, write_state
+from devman.models import SessionState, WorkspaceConfig, WorkspaceEntry
+from devman.state import StateManager
 
 
 CLAUDE = ClaudeIntegration()
@@ -25,6 +25,7 @@ CLAUDE_WORKSPACE = ClaudeCodeWorkspace()
 NVIM = NvimIntegration()
 TMUX = TmuxIntegration()
 TMUXP = TmuxpIntegration()
+STATE_MANAGER = StateManager()
 
 SelectCallback = Callable[[list[WorkspaceEntry]], WorkspaceEntry]
 
@@ -96,12 +97,12 @@ def _record_state(config: WorkspaceConfig, session_name: str | None) -> None:
     if session_name is None:
         return
 
-    current_state = read_state(config)
-    updated_state = SessionConfig(
+    current_state = STATE_MANAGER.read(config)
+    updated_state = SessionState(
         tmux_session=session_name,
         nvim_listen=current_state.nvim_listen,
     )
-    write_state(config, updated_state)
+    STATE_MANAGER.write(config, updated_state)
 
 
 def _load_nvim_session(config: WorkspaceConfig) -> None:
