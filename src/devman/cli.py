@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import typer
 
-from devman.commands import doctor, down, init, index, switch, template, up
+from devman.commands import doctor, down, init, index, switch, up
 
 app = typer.Typer(
     name="devman",
-    help="🧰 Manage devman workspaces and templates",
+    help="🧰 Manage devman workspaces",
     rich_markup_mode="rich",
 )
 
@@ -28,7 +28,6 @@ app.command(name="doctor")(doctor.run)
 app.command(name="init")(init.run)
 
 app.add_typer(index.app, name="index")
-app.add_typer(template.app, name="template")
 
 if __name__ == "__main__":
     app()

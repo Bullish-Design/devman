@@ -10,7 +10,6 @@ from typing import Iterator
 import pytest
 
 from devman.config import ProjectConfig
-from devman.templates import TemplateRegistry
 
 
 @pytest.fixture
@@ -65,62 +64,6 @@ def ml_config() -> ProjectConfig:
 
 
 @pytest.fixture
-def sample_templates() -> dict[str, str]:
-    """Sample templates for testing."""
-    return {
-        "test.j2": "Hello {{ name }}! Type: {{ project_type }}",
-        "conditional.j2": """
-{%- if use_database -%}
-Database: {{ database_type }}
-{%- endif -%}
-""".strip(),
-        "loop.j2": """
-dependencies = [
-{%- for dep in dependencies %}
-    "{{ dep }}",
-{%- endfor %}
-]
-""".strip(),
-        "devenv.nix.j2": """
-{ pkgs, ... }: {
-  name = "{{ name }}";
-  languages.python.version = "{{ python_version }}";
-}
-""".strip(),
-        "pyproject.toml.j2": """
-[project]
-name = "{{ name }}"
-dependencies = [
-{%- for dep in dependencies %}
-    "{{ dep }}",
-{%- endfor %}
-]
-""".strip(),
-    }
-
-
-@pytest.fixture
-def mock_registry(sample_templates: dict[str, str]) -> TemplateRegistry:
-    """Create mock template registry with sample templates."""
-    registry = TemplateRegistry(templates={})
-    for name, content in sample_templates.items():
-        registry.add_template(name, content)
-    return registry
-
-
-@pytest.fixture
-def templates_dir(temp_dir: Path, sample_templates: dict[str, str]) -> Path:
-    """Create temporary templates directory with sample files."""
-    templates_path = temp_dir / "templates"
-    templates_path.mkdir()
-
-    for name, content in sample_templates.items():
-        (templates_path / name).write_text(content)
-
-    return templates_path
-
-
-@pytest.fixture
 def project_dir(temp_dir: Path) -> Path:
     """Create temporary project directory with structure."""
     project_path = temp_dir / "test-project"
@@ -144,18 +87,3 @@ version = "0.1.0"
 
     return project_path
 
-
-@pytest.fixture(autouse=True)
-def reset_global_registry() -> Iterator[None]:
-    """Reset global template registry after each test."""
-    from devman.templates import TEMPLATE_REGISTRY
-
-    # Store original state
-    original_templates = TEMPLATE_REGISTRY.templates.copy()
-
-    yield
-
-    # Restore original state
-    TEMPLATE_REGISTRY.templates.clear()
-    TEMPLATE_REGISTRY.templates.update(original_templates)
-    TEMPLATE_REGISTRY._setup_environment()

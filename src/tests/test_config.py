@@ -113,34 +113,3 @@ class TestProjectConfig:
         # API-specific dev deps
         assert "httpx>=0.25.0" in dev_deps
         assert "pytest-asyncio>=0.21.0" in dev_deps
-
-    def test_get_template_context(self) -> None:
-        """Test template context generation."""
-        config = ProjectConfig(
-            name="my-project",
-            python_version="3.12",
-            project_type="api",
-            dependencies=["requests"],
-            dev_dependencies=["black"],
-            use_database=True,
-            use_redis=True,
-        )
-
-        context = config.get_template_context()
-
-        assert context["name"] == "my-project"
-        assert context["python_version"] == "3.12"
-        assert context["python_version_short"] == "312"
-        assert context["project_type"] == "api"
-        assert context["use_database"] is True
-        assert context["use_redis"] is True
-
-        # Check dependencies are combined
-        deps = context["dependencies"]
-        assert "requests" in deps
-        assert "fastapi>=0.104.0" in deps  # default API dep
-
-        dev_deps = context["dev_dependencies"]
-        assert "black" in dev_deps
-        assert "pytest>=7.4.0" in dev_deps  # default dev dep
-
