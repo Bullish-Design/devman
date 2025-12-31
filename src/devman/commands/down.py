@@ -6,8 +6,11 @@ from pathlib import Path
 
 import typer
 
+from devman.integrations import TmuxIntegration
 from devman.llm_core import state, workspace
-from devman.llm_core.integrations import tmux
+
+
+TMUX = TmuxIntegration()
 
 
 def down() -> None:
@@ -20,6 +23,6 @@ def down() -> None:
     session_name = current_state.get("tmux_session")
     if isinstance(session_name, str):
         typer.echo(f"Stopping tmux session {session_name}...")
-        tmux.kill_session(session_name)
+        TMUX.kill_session(session_name)
     else:
         typer.echo("No recorded tmux session to stop.")

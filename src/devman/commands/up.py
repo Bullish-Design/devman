@@ -8,10 +8,20 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
-from devman.discovery import IndexManager, build_entry, find_devman_dir, resolve_roots
-from devman.integrations import claude_code, nvim, tmux, tmuxp
-from devman.models import WorkspaceEntry
+from devman.integrations import (
+    ClaudeIntegration,
+    NvimIntegration,
+    TmuxIntegration,
+    TmuxpIntegration,
+)
+from devman.core.index import IndexManager, WorkspaceEntry
+from devman.core.paths import find_devman_dir, index_cache_path, resolve_roots
 
+
+CLAUDE = ClaudeIntegration()
+NVIM = NvimIntegration()
+TMUX = TmuxIntegration()
+TMUXP = TmuxpIntegration()
 
 SelectCallback = Callable[[list[WorkspaceEntry]], WorkspaceEntry]
 
@@ -38,26 +48,43 @@ def resolve_active_workspace(
 
     return index.entries[0]
 
-def run(root: Path | None = None) -> WorkspaceConfig:
+
+@dataclass(frozen=True)
+class WorkspaceConfig:
+    """Resolved workspace configuration."""
+
+    root: Path
+    devman_dir: Path
+    name: str
+    tmuxp_workspace: Optional[Path]
+    tmuxp_session_name: Optional[str]
+    claude_interaction: Optional[Path]
+    claude_emit_project_config: bool
+    nvim_init: Optional[Path]
+    nvim_listen: Optional[Path]
+    nvim_sessions_dir: Optional[Path]
+    nvim_default_session: Optional[str]
+
+
+def run(root: Optional[Path] = None) -> WorkspaceConfig:
     """Ensure workspace dependencies are configured."""
     workspace_root = root or Path.cwd()
     devman_dir = find_devman_dir(workspace_root)
     if not devman_dir:
         raise ValueError("No workspace found.")
 
-    missing_files = validate_required_files(devman_dir)
-    if missing_files:
-        for missing in missing_files:
-            print(f"Missing required file: {missing}", file=sys.stderr)
-
-    config = WorkspaceConfig.load(devman_dir)
-    claude_code.ensure_workspace_settings(
+    config = load_workspace_config(devman_dir)
+    CLAUDE.setup(
         config.root,
         config.claude_interaction,
         config.claude_emit_project_config,
     )
 
-    _ensure_tmux(config)
+    if config.tmuxp_workspace and config.tmuxp_workspace.exists():
+        TMUXP.setup(config.tmuxp_workspace, config.tmuxp_session_name)
+    else:
+        session_name = config.tmuxp_session_name or config.name
+        TMUX.setup(session_name, config.root)
 
     _load_nvim_session(config)
 
@@ -130,5 +157,5 @@ def _load_nvim_session(config: WorkspaceConfig) -> None:
     if not config.nvim_listen.exists():
         return
 
-    for command in nvim.build_session_commands(session_path):
-        nvim.remote_send(config.nvim_listen, command)
+    for command in NVIM.build_session_commands(config.root, session_path):
+        NVIM.remote_send(config.nvim_listen, command)
