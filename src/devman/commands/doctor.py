@@ -30,3 +30,8 @@ def render_report(status: Dict[str, bool]) -> list[str]:
     for tool, available in status.items():
         lines.append(f"{tool}: {'ok' if available else 'missing'}")
     return lines
+
+
+def doctor() -> Dict[str, bool]:
+    """Backward-compatible alias for run."""
+    return run()

@@ -40,14 +40,6 @@ class WorkspaceConfig(BaseModel):
     nvim_default_session: str | None = None
 
     @classmethod
-    def find_and_load(cls, start: Path) -> "WorkspaceConfig | None":
-        """Find the nearest .devman directory and load config."""
-        devman_dir = _find_devman_dir(start)
-        if not devman_dir:
-            return None
-        return cls.load(devman_dir)
-
-    @classmethod
     def load(cls, devman_dir: Path) -> "WorkspaceConfig":
         """Load workspace configuration from the devman directory."""
         devman_dir = devman_dir.resolve()
@@ -132,17 +124,6 @@ def validate_required_files(devman_dir: Path) -> list[Path]:
         for relative in REQUIRED_FILES
         if not (devman_dir / relative).exists()
     ]
-
-
-def _find_devman_dir(start: Path) -> Path | None:
-    candidate = start.resolve()
-    if candidate.is_file():
-        candidate = candidate.parent
-    for current in [candidate, *candidate.parents]:
-        devman_dir = current / ".devman"
-        if devman_dir.is_dir():
-            return devman_dir
-    return None
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
