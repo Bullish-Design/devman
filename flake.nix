@@ -21,8 +21,72 @@
     };
   };
 
-  outputs = { self, nixpkgs, devenv, codex-cli, claude-code, opencode }:
+  outputs = inputs@{ self, nixpkgs, devenv, codex-cli, claude-code, ... }:
     let
+      lib = nixpkgs.lib;
+      opencodeInput = if inputs ? opencode then inputs.opencode else null;
+      mkDevmanCore = system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          python = pkgs.python313;
+        in
+        python.pkgs.buildPythonApplication {
+          pname = "devman";
+          version = "0.1.1";
+          format = "pyproject";
+          src = ./.;
+
+          nativeBuildInputs = with python.pkgs; [
+            hatchling
+          ];
+
+          propagatedBuildInputs = with python.pkgs; [
+            typer
+            rich
+            pathlib-abc
+            jinja2
+            pydantic
+            pyyaml
+          ];
+
+          doCheck = false;
+
+          meta = with pkgs.lib; {
+            description = "DevEnv project templating system for NixOS development environments";
+            homepage = "https://github.com/Bullish-Design/devman";
+            license = licenses.mit;
+            maintainers = [ ];
+            mainProgram = "devman";
+          };
+        };
+      mkDevmanEnv = {
+        system,
+        withCodexCli ? true,
+        withClaudeCode ? true,
+        withOpencode ? false,
+      }:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          devman-core = mkDevmanCore system;
+          toolPaths = [
+            devman-core
+          ]
+          ++ lib.optional withCodexCli codex-cli.packages.${system}.default
+          ++ lib.optional withClaudeCode claude-code.packages.${system}.default
+          ++ lib.optional (withOpencode && opencodeInput != null) opencodeInput.packages.${system}.default;
+          description = if withOpencode && opencodeInput != null then
+            "devman with codex-cli, claude-code, and opencode"
+          else
+            "devman with codex-cli and claude-code";
+        in
+        pkgs.buildEnv {
+          name = "devman-env";
+          paths = toolPaths;
+          meta = {
+            inherit description;
+            mainProgram = "devman";
+          };
+        };
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -34,64 +98,27 @@
     {
       packages = forAllSystems (system:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
-          python = pkgs.python313;
-          devman-core = python.pkgs.buildPythonApplication {
-            pname = "devman";
-            version = "0.1.1";
-            format = "pyproject";
-            src = ./.;
-
-            nativeBuildInputs = with python.pkgs; [
-              hatchling
-            ];
-
-            propagatedBuildInputs = with python.pkgs; [
-              typer
-              rich
-              pathlib-abc
-              jinja2
-              pydantic
-              pyyaml
-            ];
-
-            doCheck = false;
-
-            meta = with pkgs.lib; {
-              description = "DevEnv project templating system for NixOS development environments";
-              homepage = "https://github.com/Bullish-Design/devman";
-              license = licenses.mit;
-              maintainers = [ ];
-              mainProgram = "devman";
-            };
-          };
+          devman-core = mkDevmanCore system;
         in
-        {
+        ({
           devman = devman-core;
-          default = pkgs.buildEnv {
-            name = "devman-full";
-            paths = [
-              devman-core
-              codex-cli.packages.${system}.default
-              claude-code.packages.${system}.default
-              opencode.packages.${system}.default
-            ];
-            meta = {
-              description = "devman with codex-cli, claude-code, and opencode";
-              mainProgram = "devman";
-            };
-          };
+          devman-tools = mkDevmanEnv { inherit system; };
+          devman-full = mkDevmanEnv { inherit system; withOpencode = true; };
+          default = mkDevmanEnv { inherit system; withOpencode = true; };
           codex-cli = codex-cli.packages.${system}.default;
           claude-code = claude-code.packages.${system}.default;
-          opencode = opencode.packages.${system}.default;
-        }
+        } // lib.optionalAttrs (opencodeInput != null) {
+          opencode = opencodeInput.packages.${system}.default;
+        })
       );
 
       devShells = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
           inputs = {
-            inherit nixpkgs devenv codex-cli claude-code opencode;
+            inherit nixpkgs devenv codex-cli claude-code;
+          } // lib.optionalAttrs (opencodeInput != null) {
+            opencode = opencodeInput;
           };
         in
         {
@@ -114,5 +141,7 @@
           home.packages = [ self.packages.${pkgs.system}.default ];
         };
       };
+
+      lib.mkDevmanEnv = mkDevmanEnv;
     };
 }
