@@ -1,33 +1,59 @@
-"""Index commands for llm-core."""
+# src/devman/commands/index.py
+"""Index command helpers for llm-core."""
 
 from __future__ import annotations
 
-import json
 from typing import Iterable
 
-import typer
-
-from devman.llm_core import index, workspace
-
-
-def index_status() -> None:
-    """Show index cache status."""
-    payload = index.load_index()
-    if not payload:
-        typer.echo("Index cache missing.")
-        raise typer.Exit(code=1)
-    typer.echo(json.dumps(payload, indent=2))
+from devman.core.index import IndexManager, WorkspaceEntry, WorkspaceIndex
+from devman.core.paths import index_cache_path, resolve_roots
 
 
-def index_rebuild(cli_roots: Iterable[str] | None = None) -> None:
-    """Force rebuild the index."""
-    entries = index.rebuild_index(workspace.resolve_roots(cli_roots or []))
-    for line in index.list_entries(entries):
-        typer.echo(line)
+def _manager(manager: IndexManager | None = None) -> IndexManager:
+    return manager or IndexManager(index_cache_path())
 
 
-def index_list(cli_roots: Iterable[str] | None = None) -> None:
-    """List indexed workspaces."""
-    entries = index.refresh_index(workspace.resolve_roots(cli_roots or []))
-    for line in index.list_entries(entries):
-        typer.echo(line)
+def load_index(manager: IndexManager | None = None) -> WorkspaceIndex | None:
+    """Load the cached workspace index."""
+    return _manager(manager).load()
+
+
+def refresh_index(
+    roots: Iterable[str],
+    manager: IndexManager | None = None,
+) -> WorkspaceIndex:
+    """Refresh the index based on resolved roots."""
+    resolved = resolve_roots(roots)
+    return _manager(manager).refresh(resolved)
+
+
+def rebuild_index(
+    roots: Iterable[str],
+    manager: IndexManager | None = None,
+) -> WorkspaceIndex:
+    """Rebuild the index for the provided roots."""
+    resolved = resolve_roots(roots)
+    return _manager(manager).rebuild(resolved)
+
+
+def list_entries(entries: Iterable[WorkspaceEntry]) -> list[str]:
+    """Return human-friendly lines for each workspace entry."""
+    lines: list[str] = []
+    for entry in entries:
+        extras: list[str] = []
+        if entry.group:
+            extras.append(entry.group)
+        if entry.tags:
+            extras.append(", ".join(entry.tags))
+        suffix = f" ({'; '.join(extras)})" if extras else ""
+        lines.append(f"{entry.name} - {entry.workspace_root}{suffix}")
+    return lines
+
+
+def find_entry(
+    entries: Iterable[WorkspaceEntry],
+    query: str,
+    manager: IndexManager | None = None,
+) -> WorkspaceEntry | None:
+    """Find a workspace entry matching the provided query."""
+    return _manager(manager).find_entry(entries, query)
