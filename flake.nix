@@ -15,16 +15,11 @@
       url = "github:sadjow/claude-code-nix?ref=main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    opencode = {
-      url = "github:sst/opencode?ref=v1.0.217";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs = inputs@{ self, nixpkgs, devenv, codex-cli, claude-code, ... }:
     let
       lib = nixpkgs.lib;
-      opencodeInput = if inputs ? opencode then inputs.opencode else null;
       mkDevmanCore = system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
@@ -63,7 +58,6 @@
         system,
         withCodexCli ? true,
         withClaudeCode ? true,
-        withOpencode ? false,
       }:
         let
           pkgs = nixpkgs.legacyPackages.${system};
@@ -72,12 +66,8 @@
             devman-core
           ]
           ++ lib.optional withCodexCli codex-cli.packages.${system}.default
-          ++ lib.optional withClaudeCode claude-code.packages.${system}.default
-          ++ lib.optional (withOpencode && opencodeInput != null) opencodeInput.packages.${system}.default;
-          description = if withOpencode && opencodeInput != null then
-            "devman with codex-cli, claude-code, and opencode"
-          else
-            "devman with codex-cli and claude-code";
+          ++ lib.optional withClaudeCode claude-code.packages.${system}.default;
+          description = "devman with codex-cli and claude-code";
         in
         pkgs.buildEnv {
           name = "devman-env";
@@ -103,12 +93,9 @@
         ({
           devman = devman-core;
           devman-tools = mkDevmanEnv { inherit system; };
-          devman-full = mkDevmanEnv { inherit system; withOpencode = true; };
-          default = mkDevmanEnv { inherit system; withOpencode = true; };
+          default = mkDevmanEnv { inherit system; };
           codex-cli = codex-cli.packages.${system}.default;
           claude-code = claude-code.packages.${system}.default;
-        } // lib.optionalAttrs (opencodeInput != null) {
-          opencode = opencodeInput.packages.${system}.default;
         })
       );
 
@@ -117,8 +104,6 @@
           pkgs = nixpkgs.legacyPackages.${system};
           inputs = {
             inherit nixpkgs devenv codex-cli claude-code;
-          } // lib.optionalAttrs (opencodeInput != null) {
-            opencode = opencodeInput;
           };
         in
         {
