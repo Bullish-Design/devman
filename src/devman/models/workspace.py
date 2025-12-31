@@ -1,103 +1,43 @@
 # src/devman/models/workspace.py
-"""Workspace configuration models for llm-core."""
+"""Workspace configuration model for llm-core."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field
 
+ENV_TMUXP_WORKSPACE = "LLM_CORE_TMUXP_WORKSPACE"
+ENV_TMUX_SESSION = "LLM_CORE_SESSION_NAME"
 
-class TmuxpConfig(BaseModel):
-    """tmuxp configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    workspace: Path | None = None
-    session_name: str | None = None
-
-
-class ClaudeCodeConfig(BaseModel):
-    """Claude Code interaction configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    interaction: Path | None = None
-    emit_project_config: bool = False
-
-
-class NvimConfig(BaseModel):
-    """Neovim integration configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    init: Path | None = None
-    listen: Path | None = None
-    sessions_dir: Path | None = None
-    default_session: str | None = None
+REQUIRED_FILES = (
+    Path("devman.toml"),
+    Path("interaction.md"),
+    Path("workspace.tmuxp.yaml"),
+    Path("nvim/init.lua"),
+    Path("sessions/home.vim"),
+)
 
 
 class WorkspaceConfig(BaseModel):
     """Workspace configuration loaded from .devman/devman.toml."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    root: Path
+    devman_dir: Path
     name: str
     tags: list[str] = Field(default_factory=list)
     group: str | None = None
-    tmuxp: TmuxpConfig = Field(default_factory=TmuxpConfig)
-    claude_code: ClaudeCodeConfig = Field(default_factory=ClaudeCodeConfig)
-    nvim: NvimConfig = Field(default_factory=NvimConfig)
-    devman_dir: Path = Field(exclude=True)
-
-    @computed_field
-    @property
-    def root(self) -> Path:
-        """Workspace root directory."""
-        return self.devman_dir.parent
-
-    @computed_field
-    @property
-    def tmuxp_workspace(self) -> Path | None:
-        """Absolute path to the tmuxp workspace file."""
-        return _resolve_relative_path(self.tmuxp.workspace, self.devman_dir)
-
-    @computed_field
-    @property
-    def tmuxp_session_name(self) -> str:
-        """tmux session name (defaults to workspace name)."""
-        return self.tmuxp.session_name or self.name
-
-    @computed_field
-    @property
-    def claude_interaction(self) -> Path | None:
-        """Absolute path to the Claude Code interaction file."""
-        return _resolve_relative_path(self.claude_code.interaction, self.devman_dir)
-
-    @computed_field
-    @property
-    def nvim_init(self) -> Path | None:
-        """Absolute path to the Neovim init file."""
-        return _resolve_relative_path(self.nvim.init, self.devman_dir)
-
-    @computed_field
-    @property
-    def nvim_listen(self) -> Path | None:
-        """Absolute path to the Neovim listen socket."""
-        return _resolve_relative_path(self.nvim.listen, self.root)
-
-    @computed_field
-    @property
-    def nvim_sessions_dir(self) -> Path | None:
-        """Absolute path to the Neovim sessions directory."""
-        return _resolve_relative_path(self.nvim.sessions_dir, self.devman_dir)
-
-    @computed_field
-    @property
-    def nvim_default_session(self) -> str:
-        """Default Neovim session name."""
-        return self.nvim.default_session or "home.vim"
+    tmuxp_workspace: Path | None = None
+    tmuxp_session_name: str | None = None
+    claude_interaction: Path | None = None
+    claude_emit_project_config: bool = False
+    nvim_init: Path | None = None
+    nvim_listen: Path | None = None
+    nvim_sessions_dir: Path | None = None
+    nvim_default_session: str | None = None
 
     @classmethod
     def find_and_load(cls, start: Path) -> "WorkspaceConfig | None":
@@ -110,22 +50,88 @@ class WorkspaceConfig(BaseModel):
     @classmethod
     def load(cls, devman_dir: Path) -> "WorkspaceConfig":
         """Load workspace configuration from the devman directory."""
+        devman_dir = devman_dir.resolve()
+        root = devman_dir.parent
         data = _load_toml(devman_dir / "devman.toml")
         _apply_legacy_tables(data)
-        _apply_env_overrides(data, devman_dir)
+        env = _load_env(devman_dir / ".env")
 
         workspace_table = data.get("workspace", {})
-        name = workspace_table.get("name") or devman_dir.parent.name
-        payload = {
-            "name": name,
-            "tags": workspace_table.get("tags", []),
-            "group": workspace_table.get("group"),
-            "tmuxp": data.get("tmuxp", {}),
-            "claude_code": data.get("claude_code", {}),
-            "nvim": data.get("nvim", {}),
-            "devman_dir": devman_dir,
-        }
-        return cls.model_validate(payload)
+        tmuxp_table = data.get("tmuxp", {})
+        claude_table = data.get("claude_code", {})
+        nvim_table = data.get("nvim", {})
+
+        name = _as_str(workspace_table.get("name")) or root.name
+        tags = _as_list(workspace_table.get("tags"))
+        group = _as_str(workspace_table.get("group"))
+
+        tmuxp_workspace = _as_str(tmuxp_table.get("workspace"))
+        tmuxp_session_name = _as_str(tmuxp_table.get("session_name"))
+
+        if not tmuxp_workspace and env.get(ENV_TMUXP_WORKSPACE):
+            tmuxp_workspace = env[ENV_TMUXP_WORKSPACE]
+        if not tmuxp_session_name and env.get(ENV_TMUX_SESSION):
+            tmuxp_session_name = env[ENV_TMUX_SESSION]
+
+        tmuxp_workspace_path = _resolve_path(devman_dir, tmuxp_workspace)
+        if tmuxp_workspace_path is None:
+            tmuxp_workspace_path = _default_file(devman_dir, "workspace.tmuxp.yaml")
+
+        claude_interaction = _as_str(claude_table.get("interaction"))
+        claude_interaction_path = _resolve_path(devman_dir, claude_interaction)
+        if claude_interaction_path is None:
+            claude_interaction_path = _default_file(devman_dir, "interaction.md")
+
+        claude_emit = bool(claude_table.get("emit_project_config", False))
+
+        nvim_init = _as_str(nvim_table.get("init"))
+        nvim_init_path = _resolve_path(devman_dir, nvim_init)
+        if nvim_init_path is None:
+            nvim_init_path = _default_file(devman_dir, "nvim/init.lua")
+
+        nvim_listen_value = _as_str(nvim_table.get("listen"))
+        if nvim_listen_value:
+            nvim_listen_path = _resolve_path(root, nvim_listen_value)
+        else:
+            nvim_listen_path = root / ".devman" / ".state" / "nvim.sock"
+
+        nvim_sessions = _as_str(nvim_table.get("sessions_dir"))
+        nvim_sessions_path = _resolve_path(devman_dir, nvim_sessions)
+        if nvim_sessions_path is None:
+            nvim_sessions_path = _default_dir(devman_dir, "sessions")
+
+        nvim_default_session = _as_str(nvim_table.get("default_session"))
+        if not nvim_default_session and nvim_sessions_path:
+            default_session = nvim_sessions_path / "home.vim"
+            if default_session.exists():
+                nvim_default_session = "home.vim"
+
+        return cls(
+            root=root,
+            devman_dir=devman_dir,
+            name=name,
+            tags=tags,
+            group=group,
+            tmuxp_workspace=tmuxp_workspace_path,
+            tmuxp_session_name=tmuxp_session_name,
+            claude_interaction=claude_interaction_path,
+            claude_emit_project_config=claude_emit,
+            nvim_init=nvim_init_path,
+            nvim_listen=nvim_listen_path,
+            nvim_sessions_dir=nvim_sessions_path,
+            nvim_default_session=nvim_default_session,
+        )
+
+
+def validate_required_files(devman_dir: Path) -> list[Path]:
+    """Return missing required files for a workspace."""
+    if not devman_dir.exists():
+        return [devman_dir]
+    return [
+        devman_dir / relative
+        for relative in REQUIRED_FILES
+        if not (devman_dir / relative).exists()
+    ]
 
 
 def _find_devman_dir(start: Path) -> Path | None:
@@ -152,22 +158,6 @@ def _apply_legacy_tables(data: dict[str, Any]) -> None:
         data["claude_code"] = data["opencode"]
 
 
-def _apply_env_overrides(data: dict[str, Any], devman_dir: Path) -> None:
-    env_path = devman_dir / ".env"
-    env = _load_env(env_path)
-    tmuxp_table = data.setdefault("tmuxp", {})
-
-    if not tmuxp_table.get("workspace"):
-        env_workspace = env.get("LLM_CORE_TMUXP_WORKSPACE")
-        if env_workspace:
-            tmuxp_table["workspace"] = env_workspace
-
-    if not tmuxp_table.get("session_name"):
-        env_session = env.get("LLM_CORE_SESSION_NAME")
-        if env_session:
-            tmuxp_table["session_name"] = env_session
-
-
 def _load_env(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
@@ -179,13 +169,32 @@ def _load_env(path: Path) -> dict[str, str]:
         if "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        values[key.strip()] = value.strip()
+        values[key.strip()] = value.strip().strip('"').strip("'")
     return values
 
 
-def _resolve_relative_path(value: Path | None, base: Path) -> Path | None:
+def _resolve_path(base: Path, value: str | Path | None) -> Path | None:
     if value is None:
         return None
-    if value.is_absolute():
-        return value
-    return base / value
+    candidate = value if isinstance(value, Path) else Path(value).expanduser()
+    return candidate if candidate.is_absolute() else base / candidate
+
+
+def _default_file(devman_dir: Path, relative: str) -> Path | None:
+    candidate = devman_dir / relative
+    return candidate if candidate.exists() else None
+
+
+def _default_dir(devman_dir: Path, relative: str) -> Path | None:
+    candidate = devman_dir / relative
+    return candidate if candidate.is_dir() else None
+
+
+def _as_str(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _as_list(value: Any) -> list[str]:
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+        return [str(item) for item in value]
+    return []

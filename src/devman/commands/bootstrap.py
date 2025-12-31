@@ -9,6 +9,7 @@ import typer
 from devman.commands.up import _ensure_tmux
 from devman.llm_core import state, workspace
 from devman.llm_core.integrations import claude, nvim
+from devman.models.workspace import validate_required_files
 
 
 def bootstrap(root: str | None = None) -> None:
@@ -17,6 +18,10 @@ def bootstrap(root: str | None = None) -> None:
     devman_dir = workspace.find_devman_dir(workspace_root)
     if not devman_dir:
         raise typer.Exit("No workspace detected.")
+
+    missing_files = validate_required_files(devman_dir)
+    for missing in missing_files:
+        typer.echo(f"Missing required file: {missing}", err=True)
 
     config_data = workspace.load_workspace_config(devman_dir)
     _ensure_tmux(config_data)
