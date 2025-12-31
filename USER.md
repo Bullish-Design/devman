@@ -2,7 +2,7 @@
 
 ## Overview
 
-llm-core is a minimal workspace orchestrator for tmuxp + OpenCode + Neovim that
+llm-core is a minimal workspace orchestrator for tmuxp + Claude Code + Neovim that
 finds `.devman/` workspaces, indexes them, and launches the matching tmux sessions
 and editor setup. This repo also ships the `devman` CLI for generating
 Nix-based project templates.
@@ -12,7 +12,7 @@ Nix-based project templates.
 - **Python 3.11+** (use `uv` for environments).
 - **tmux** + **tmuxp** for session management.
 - **Neovim** (`nvim`) if you want session bootstrapping.
-- **OpenCode** (`opencode`) is optional.
+- **Claude Code** (`claude`) is optional.
 - **devenv + Nix** if you plan to use Nix-based templates.
 
 ## Quickstart (llm-core)

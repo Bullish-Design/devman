@@ -67,7 +67,7 @@ uv run devman new demo-app --type api --python 3.11
 ## Tips for agent operation
 
 - Use `templates/workspace-min/` when you need a minimal `.devman/` scaffold.
-- Confirm external dependencies (tmux, tmuxp, nvim, opencode) via
+- Confirm external dependencies (tmux, tmuxp, nvim, claude) via
   `./cli/llm-core doctor`.
 - When updating workspace metadata, prefer editing `.devman/devman.toml` instead
   of relying on `.env` overrides.
