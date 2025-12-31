@@ -4,36 +4,58 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 
-def is_available() -> bool:
-    """Return True when tmux is installed."""
-    return shutil.which("tmux") is not None
+@dataclass(frozen=True)
+class TmuxIntegration:
+    """Class-based tmux integration."""
 
+    def is_available(self) -> bool:
+        """Return True when tmux is installed."""
+        return shutil.which("tmux") is not None
 
-def session_exists(session_name: str) -> bool:
-    """Check if a tmux session already exists."""
-    tmux_bin = shutil.which("tmux")
-    if not tmux_bin:
-        return False
-    result = subprocess.run(
-        [tmux_bin, "has-session", "-t", session_name],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return result.returncode == 0
+    def setup(self, session_name: str, root: Path) -> None:
+        """Ensure a tmux session exists for the workspace."""
+        self.ensure_session(session_name, root)
 
+    def launch(self, session_name: str, root: Path) -> None:
+        """Launch (or ensure) a tmux session for the workspace."""
+        self.ensure_session(session_name, root)
 
-def ensure_session(session_name: str, cwd: Path) -> None:
-    """Ensure a tmux session exists for the workspace."""
-    tmux_bin = shutil.which("tmux")
-    if not tmux_bin:
-        return
-    if session_exists(session_name):
-        return
-    subprocess.run(
-        [tmux_bin, "new-session", "-d", "-s", session_name, "-c", str(cwd)],
-        check=False,
-    )
+    def session_exists(self, session_name: str) -> bool:
+        """Check if a tmux session already exists."""
+        if not self.is_available():
+            return False
+        result = subprocess.run(
+            ["tmux", "has-session", "-t", session_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return result.returncode == 0
+
+    def ensure_session(self, session_name: str, root: Path) -> None:
+        """Ensure a tmux session exists for the workspace."""
+        if not self.is_available() or self.session_exists(session_name):
+            return
+        subprocess.run(
+            ["tmux", "new-session", "-d", "-s", session_name, "-c", str(root)],
+            check=False,
+        )
+
+    def ensure_windows(self, session_name: str, root: Path) -> None:
+        """Ensure the first tmux window matches the workspace name."""
+        if not self.is_available() or not self.session_exists(session_name):
+            return
+        subprocess.run(
+            ["tmux", "rename-window", "-t", f"{session_name}:0", root.name],
+            check=False,
+        )
+
+    def kill_session(self, session_name: str) -> None:
+        """Kill a tmux session if it exists."""
+        if not self.is_available():
+            return
+        subprocess.run(["tmux", "kill-session", "-t", session_name], check=False)

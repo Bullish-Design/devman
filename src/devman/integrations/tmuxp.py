@@ -4,23 +4,30 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
-def is_available() -> bool:
-    """Return True when tmuxp is installed."""
-    return shutil.which("tmuxp") is not None
+@dataclass(frozen=True)
+class TmuxpIntegration:
+    """Class-based tmuxp integration."""
 
+    def is_available(self) -> bool:
+        """Return True when tmuxp is installed."""
+        return shutil.which("tmuxp") is not None
 
-def load_workspace(config_path: Path, session_name: Optional[str] = None) -> None:
-    """Load a tmuxp workspace configuration."""
-    tmuxp_bin = shutil.which("tmuxp")
-    if not tmuxp_bin:
-        return
+    def setup(self, workspace: Path, session_name: str | None = None) -> None:
+        """Load a tmuxp workspace configuration."""
+        if not self.is_available():
+            return
 
-    command = [tmuxp_bin, "load", "-d", str(config_path)]
-    if session_name:
-        command.extend(["--session-name", session_name])
+        command = ["tmuxp", "load", "-d", "-y"]
+        if session_name:
+            command.extend(["-s", session_name])
+        command.append(str(workspace))
 
-    subprocess.run(command, check=False)
+        subprocess.run(command, check=False)
+
+    def launch(self, workspace: Path, session_name: str | None = None) -> None:
+        """Launch (or ensure) a tmuxp workspace."""
+        self.setup(workspace, session_name)

@@ -9,10 +9,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Callable, Iterable
 
-from devman.integrations import claude_code, nvim, tmux, tmuxp
+from devman.integrations import (
+    ClaudeIntegration,
+    NvimIntegration,
+    TmuxIntegration,
+    TmuxpIntegration,
+)
 from devman.core.index import IndexManager, WorkspaceEntry
 from devman.core.paths import find_devman_dir, index_cache_path, resolve_roots
 
+
+CLAUDE = ClaudeIntegration()
+NVIM = NvimIntegration()
+TMUX = TmuxIntegration()
+TMUXP = TmuxpIntegration()
 
 SelectCallback = Callable[[list[WorkspaceEntry]], WorkspaceEntry]
 
@@ -39,6 +49,7 @@ def resolve_active_workspace(
 
     return index.entries[0]
 
+
 @dataclass(frozen=True)
 class WorkspaceConfig:
     """Resolved workspace configuration."""
@@ -64,17 +75,17 @@ def run(root: Optional[Path] = None) -> WorkspaceConfig:
         raise ValueError("No workspace found.")
 
     config = load_workspace_config(devman_dir)
-    claude_code.ensure_workspace_settings(
+    CLAUDE.setup(
         config.root,
         config.claude_interaction,
         config.claude_emit_project_config,
     )
 
     if config.tmuxp_workspace and config.tmuxp_workspace.exists():
-        tmuxp.load_workspace(config.tmuxp_workspace, config.tmuxp_session_name)
+        TMUXP.setup(config.tmuxp_workspace, config.tmuxp_session_name)
     else:
         session_name = config.tmuxp_session_name or config.name
-        tmux.ensure_session(session_name, config.root)
+        TMUX.setup(session_name, config.root)
 
     _load_nvim_session(config)
 
@@ -217,5 +228,5 @@ def _load_nvim_session(config: WorkspaceConfig) -> None:
     if not config.nvim_listen.exists():
         return
 
-    for command in nvim.build_session_commands(session_path):
-        nvim.remote_send(config.nvim_listen, command)
+    for command in NVIM.build_session_commands(config.root, session_path):
+        NVIM.remote_send(config.nvim_listen, command)

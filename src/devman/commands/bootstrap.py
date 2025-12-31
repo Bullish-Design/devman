@@ -7,8 +7,12 @@ from pathlib import Path
 import typer
 
 from devman.commands.up import _ensure_tmux
+from devman.integrations import ClaudeIntegration, NvimIntegration
 from devman.llm_core import state, workspace
-from devman.llm_core.integrations import claude, nvim
+
+
+CLAUDE = ClaudeIntegration()
+NVIM = NvimIntegration()
 
 
 def bootstrap(root: str | None = None) -> None:
@@ -22,7 +26,10 @@ def bootstrap(root: str | None = None) -> None:
     _ensure_tmux(config_data)
 
     if config_data.claude_emit_project_config:
-        claude.emit_project_config(config_data.root, config_data.claude_interaction)
+        CLAUDE.emit_project_config(
+            config_data.root,
+            config_data.claude_interaction,
+        )
 
     if config_data.nvim_listen:
         listen = config_data.nvim_listen
@@ -33,5 +40,5 @@ def bootstrap(root: str | None = None) -> None:
     else:
         init = None
     if listen:
-        nvim.launch(config_data.root, listen, init)
+        NVIM.launch(config_data.root, listen, init)
         state.write_state(config_data, {"nvim_listen": str(listen)})

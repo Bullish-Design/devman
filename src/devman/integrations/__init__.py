@@ -1,5 +1,8 @@
 """Integration helpers for external tooling."""
 
-from . import claude_code, nvim, tmux, tmuxp
+from .claude import ClaudeIntegration
+from .nvim import NvimIntegration
+from .tmux import TmuxIntegration
+from .tmuxp import TmuxpIntegration
 
-__all__ = ["claude_code", "nvim", "tmux", "tmuxp"]
+__all__ = ["ClaudeIntegration", "NvimIntegration", "TmuxIntegration", "TmuxpIntegration"]

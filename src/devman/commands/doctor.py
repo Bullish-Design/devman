@@ -4,16 +4,27 @@ from __future__ import annotations
 
 from typing import Dict
 
-from devman.integrations import claude_code, nvim, tmux, tmuxp
+from devman.integrations import (
+    ClaudeIntegration,
+    NvimIntegration,
+    TmuxIntegration,
+    TmuxpIntegration,
+)
+
+
+TMUX = TmuxIntegration()
+TMUXP = TmuxpIntegration()
+NVIM = NvimIntegration()
+CLAUDE = ClaudeIntegration()
 
 
 def run() -> Dict[str, bool]:
     """Return availability of external tools."""
     return {
-        "tmux": tmux.is_available(),
-        "tmuxp": tmuxp.is_available(),
-        "nvim": nvim.is_available(),
-        "claude": claude_code.is_available(),
+        "tmux": TMUX.is_available(),
+        "tmuxp": TMUXP.is_available(),
+        "nvim": NVIM.is_available(),
+        "claude": CLAUDE.is_available(),
     }
 
 
