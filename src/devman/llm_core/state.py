@@ -9,7 +9,7 @@ from devman.models.workspace import WorkspaceConfig
 
 
 def state_path(config: WorkspaceConfig) -> Path:
-    return config.devman_dir / ".state" / "llm-core.json"
+    return config.devman_dir / ".state" / "devman.json"
 
 
 def read_state(config: WorkspaceConfig) -> dict[str, object]:

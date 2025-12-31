@@ -1,5 +1,5 @@
 # src/devman/models/__init__.py
-"""Pydantic models for llm-core."""
+"""Pydantic models for devman."""
 
 from .index import WorkspaceEntry, WorkspaceIndex
 from .session import SessionConfig

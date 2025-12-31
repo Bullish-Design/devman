@@ -12,7 +12,7 @@ from devman.models import WorkspaceEntry, WorkspaceIndex
 from . import scanner
 
 
-DEFAULT_CACHE_DIRNAME = "llm-core"
+DEFAULT_CACHE_DIRNAME = "devman"
 
 
 def cache_dir() -> Path:

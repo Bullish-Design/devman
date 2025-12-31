@@ -1,4 +1,4 @@
-# Interaction Design Document (llm-core)
+# Interaction Design Document (devman)
 
 This document defines how Claude Code should shape the interaction layer for a
 workspace. It is designed to be copied into `.devman/interaction.md` and
@@ -7,7 +7,7 @@ customized per repository.
 ## Scope and ownership
 
 - Claude Code must only edit files under `.devman/` unless explicitly requested.
-- llm-core never ships global Neovim configuration. Any editor changes must live
+- devman never ships global Neovim configuration. Any editor changes must live
   under `.devman/nvim/`.
 - Sessions are stored in `.devman/sessions/` and should be mini.sessions
   compatible.
@@ -34,7 +34,7 @@ customized per repository.
 
 ## Multi-workspace behavior
 
-- llm-core can load multiple workspaces into its index.
+- devman can load multiple workspaces into its index.
 - When switching, Claude Code should:
   1. Ensure Neovim is in the target workspace directory.
   2. Load the target workspace session (`:source .devman/sessions/home.vim`).
@@ -47,6 +47,6 @@ customized per repository.
 
 - Homepage: `.devman/sessions/home.vim`
 - Keymaps: keep workspace-specific mappings in `.devman/nvim/init.lua`
-- Switching: `llm-core switch <workspace>` should load the session and update
+- Switching: `devman switch <workspace>` should load the session and update
   working directory.
 ```

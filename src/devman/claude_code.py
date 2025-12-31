@@ -4,7 +4,22 @@ from __future__ import annotations
 
 import shutil
 
+from dataclasses import dataclass
+
 from devman.models.workspace import WorkspaceConfig
+
+CLAUDE_INSTALL_MESSAGE = (
+    "Claude Code is required. Install it from https://claude.ai/code."
+)
+
+
+@dataclass(frozen=True)
+class ClaudeCodeWorkspace:
+    """Claude Code availability and workspace helpers."""
+
+    def is_available(self) -> bool:
+        """Return True when the Claude Code CLI is available."""
+        return check_claude_code()
 
 
 def check_claude_code() -> bool:

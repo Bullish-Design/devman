@@ -1,6 +1,6 @@
 # workspace-nixos-collection
 
-Example llm-core workspace for a NixOS configuration split across multiple repos.
+Example devman workspace for a NixOS configuration split across multiple repos.
 
 ## Layout
 
@@ -19,4 +19,4 @@ Rename or remove repos as needed; update `.devman/workspace.tmuxp.yaml` and
 
 1. Copy this template into a new project.
 2. Populate the `repos/` directory.
-3. Launch `llm-core` from the project root.
+3. Launch `devman` from the project root.

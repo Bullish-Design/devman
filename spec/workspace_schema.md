@@ -1,6 +1,6 @@
-# Workspace schema (llm-core)
+# Workspace schema (devman)
 
-This document defines the `.devman/devman.toml` schema used by llm-core.
+This document defines the `.devman/devman.toml` schema used by devman.
 
 ## Overview
 
@@ -35,8 +35,8 @@ default_session = "home.vim"        # optional
 
 1. `.devman/devman.toml` is the primary configuration source.
 2. `.devman/.env` may supply environment toggles for:
-   - `LLM_CORE_TMUXP_WORKSPACE`
-   - `LLM_CORE_SESSION_NAME`
+   - `DEVMAN_TMUXP_WORKSPACE`
+   - `DEVMAN_SESSION_NAME`
 3. If TOML fields are present they always override `.env` values.
 
 ## Required files

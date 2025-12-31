@@ -1,6 +1,6 @@
 { inputs, ... }:
 {
   imports = [
-    inputs.llm-core.devenvModules.base
+    inputs.devman.devenvModules.base
   ];
 }

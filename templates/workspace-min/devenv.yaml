@@ -1,6 +1,6 @@
 inputs:
-  llm-core:
-    url: "github:YOURORG/llm-core"
+  devman:
+    url: "github:YOURORG/devman"
   codex-cli:
     url: "github:sadjow/codex-cli-nix?ref=main"
   claude-code:
