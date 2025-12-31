@@ -51,14 +51,6 @@ def _ensure_tmux(config_data: config.WorkspaceConfig) -> None:
     config.write_state(config_data, {"tmux_session": session_name})
 
 
-def _ensure_opencode_state(config_data: config.WorkspaceConfig) -> None:
-    state = config.read_state(config_data)
-    state["opencode"] = {
-        "last_used": config_data.root.as_posix(),
-    }
-    config.write_state(config_data, state)
-
-
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -80,7 +72,6 @@ def up(
     config_data = _load_active_workspace(root or [])
     index.refresh_index(config.resolve_roots(root or []))
     _ensure_tmux(config_data)
-    _ensure_opencode_state(config_data)
 
 
 @app.command()
@@ -175,7 +166,7 @@ def index_list(
 @app.command()
 def doctor() -> None:
     """Check external dependencies."""
-    tools = ["tmux", "tmuxp", "nvim", "opencode"]
+    tools = ["tmux", "tmuxp", "nvim"]
     for tool in tools:
         if shutil.which(tool):
             typer.echo(f"{tool}: ok")
