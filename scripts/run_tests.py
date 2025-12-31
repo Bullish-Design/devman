@@ -10,7 +10,7 @@
 # ]
 # ///
 
-# tests/run_tests.py
+# scripts/run_tests.py
 """Test runner script for devman library."""
 
 from __future__ import annotations
@@ -22,8 +22,9 @@ from pathlib import Path
 
 def main() -> None:
     """Run pytest with coverage and formatting."""
-    test_dir = Path(__file__).parent
-    src_dir = test_dir.parent / "src"
+    repo_root = Path(__file__).resolve().parent.parent
+    test_dir = repo_root / "tests"
+    src_dir = repo_root / "src"
 
     cmd = [
         sys.executable,
