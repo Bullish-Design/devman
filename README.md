@@ -69,4 +69,6 @@ uv run ./cli/setup_config.py validate .env.example
 
 ## Templates
 
-The `templates/workspace-min` directory provides a starter `.devman/` layout.
+- `templates/workspace-min`: starter `.devman/` layout for a single repo.
+- `templates/workspace-nixos-collection`: example multi-repo NixOS workspace
+  with tmuxp + mini.sessions defaults.
