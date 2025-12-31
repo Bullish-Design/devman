@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from devman.core.index import IndexManager, WorkspaceEntry, WorkspaceIndex
-from devman.core.paths import index_cache_path, resolve_roots
+from devman.discovery import IndexManager, resolve_roots
+from devman.models import WorkspaceEntry, WorkspaceIndex
 
 
 def _manager(manager: IndexManager | None = None) -> IndexManager:
-    return manager or IndexManager(index_cache_path())
+    return manager or IndexManager()
 
 
 def load_index(manager: IndexManager | None = None) -> WorkspaceIndex | None:

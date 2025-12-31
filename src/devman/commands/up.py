@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Callable, Iterable
 
+from devman.discovery import IndexManager, build_entry, find_devman_dir, resolve_roots
 from devman.integrations import claude_code, nvim, tmux, tmuxp
-from devman.core.index import IndexManager, WorkspaceEntry
-from devman.core.paths import find_devman_dir, index_cache_path, resolve_roots
+from devman.models import WorkspaceEntry
 
 
 SelectCallback = Callable[[list[WorkspaceEntry]], WorkspaceEntry]
@@ -27,9 +27,9 @@ def resolve_active_workspace(
     current_path = start_path or Path.cwd()
     devman_dir = find_devman_dir(current_path)
     if devman_dir:
-        return WorkspaceEntry.from_workspace(devman_dir.parent, devman_dir)
+        return build_entry(devman_dir.parent, devman_dir)
 
-    index_manager = manager or IndexManager(index_cache_path())
+    index_manager = manager or IndexManager()
     index = index_manager.refresh(resolve_roots(roots))
     if not index.entries:
         raise ValueError("No workspaces found.")
@@ -79,19 +79,6 @@ def run(root: Optional[Path] = None) -> WorkspaceConfig:
     _load_nvim_session(config)
 
     return config
-
-
-def find_devman_dir(start: Path) -> Optional[Path]:
-    """Find the nearest .devman directory starting from the given path."""
-    current = start.resolve()
-    if current.is_file():
-        current = current.parent
-
-    for parent in [current, *current.parents]:
-        candidate = parent / ".devman"
-        if candidate.is_dir():
-            return candidate
-    return None
 
 
 def load_workspace_config(devman_dir: Path) -> WorkspaceConfig:

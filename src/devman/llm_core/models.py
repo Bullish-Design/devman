@@ -26,13 +26,3 @@ class WorkspaceConfig(BaseModel):
     nvim_sessions_dir: Path | None = None
     nvim_default_session: str | None = None
 
-
-class WorkspaceEntry(BaseModel):
-    """Cached index entry for a workspace."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    name: str
-    root: Path
-    tags: list[str] = Field(default_factory=list)
-    group: str | None = None
