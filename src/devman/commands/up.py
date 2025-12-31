@@ -1,25 +1,23 @@
-# src/devman/commands/up.py
-"""Workspace selection helpers for the up command."""
 """Workspace bootstrap command."""
 
 from __future__ import annotations
 
-import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable
 
 import typer
 
 from devman.claude_code import CLAUDE_INSTALL_MESSAGE, ClaudeCodeWorkspace
+from devman.discovery import IndexManager, build_entry, find_devman_dir, resolve_roots
 from devman.integrations import (
     ClaudeIntegration,
     NvimIntegration,
     TmuxIntegration,
     TmuxpIntegration,
 )
-from devman.core.index import IndexManager, WorkspaceEntry
-from devman.core.paths import find_devman_dir, index_cache_path, resolve_roots
+from devman.loaders import load_workspace_config
+from devman.models import SessionConfig, WorkspaceConfig, WorkspaceEntry
+from devman.state import read_state, write_state
 
 
 CLAUDE = ClaudeIntegration()
@@ -54,103 +52,56 @@ def resolve_active_workspace(
     return index.entries[0]
 
 
-@dataclass(frozen=True)
-class WorkspaceConfig:
-    """Resolved workspace configuration."""
-
-    root: Path
-    devman_dir: Path
-    name: str
-    tmuxp_workspace: Optional[Path]
-    tmuxp_session_name: Optional[str]
-    claude_interaction: Optional[Path]
-    claude_emit_project_config: bool
-    nvim_init: Optional[Path]
-    nvim_listen: Optional[Path]
-    nvim_sessions_dir: Optional[Path]
-    nvim_default_session: Optional[str]
-
-
-def run(root: Optional[Path] = None) -> WorkspaceConfig:
+def run(root: Path | None = None) -> WorkspaceConfig:
     """Ensure workspace dependencies are configured."""
+    config = _resolve_workspace_config(root)
+    _ensure_claude(config)
+    session_name = _ensure_tmux(config)
+    _record_state(config, session_name)
+    _load_nvim_session(config)
+    return config
+
+
+def _resolve_workspace_config(root: Path | None = None) -> WorkspaceConfig:
     workspace_root = root or Path.cwd()
     devman_dir = find_devman_dir(workspace_root)
     if not devman_dir:
         raise ValueError("No workspace found.")
+    return load_workspace_config(devman_dir)
 
+
+def _ensure_claude(config: WorkspaceConfig) -> None:
     if not CLAUDE_WORKSPACE.is_available():
         raise typer.Exit(CLAUDE_INSTALL_MESSAGE)
 
-    config = load_workspace_config(devman_dir)
     CLAUDE.setup(
         config.root,
         config.claude_interaction,
         config.claude_emit_project_config,
     )
 
+
+def _ensure_tmux(config: WorkspaceConfig) -> str | None:
+    session_name = config.tmuxp_session_name or config.name
     if config.tmuxp_workspace and config.tmuxp_workspace.exists():
         TMUXP.setup(config.tmuxp_workspace, config.tmuxp_session_name)
-    else:
-        session_name = config.tmuxp_session_name or config.name
-        TMUX.setup(session_name, config.root)
+        return session_name
 
-    _load_nvim_session(config)
-
-    return config
+    TMUX.setup(session_name, config.root)
+    TMUX.ensure_windows(session_name, config.root)
+    return session_name
 
 
-def load_workspace_config(devman_dir: Path) -> WorkspaceConfig:
-    """Load workspace configuration from devman.toml and .env."""
-    workspace_root = devman_dir.parent
-    data = _load_toml(devman_dir / "devman.toml")
-    env = _load_env(devman_dir / ".env")
+def _record_state(config: WorkspaceConfig, session_name: str | None) -> None:
+    if session_name is None:
+        return
 
-    workspace_data = data.get("workspace", {})
-    tmuxp_data = data.get("tmuxp", {})
-    claude_data = data.get("claude_code", {})
-    nvim_data = data.get("nvim", {})
-
-    name = str(workspace_data.get("name") or workspace_root.name)
-
-    tmuxp_workspace_value = tmuxp_data.get("workspace") or env.get(
-        "DEVMAN_TMUXP_WORKSPACE"
+    current_state = read_state(config)
+    updated_state = SessionConfig(
+        tmux_session=session_name,
+        nvim_listen=current_state.nvim_listen,
     )
-    tmuxp_workspace = _resolve_optional_path(
-        tmuxp_workspace_value,
-        devman_dir,
-    )
-    if tmuxp_workspace is None:
-        default_tmuxp = devman_dir / "workspace.tmuxp.yaml"
-        if default_tmuxp.exists():
-            tmuxp_workspace = default_tmuxp
-
-    tmuxp_session_name = tmuxp_data.get("session_name") or env.get(
-        "DEVMAN_SESSION_NAME"
-    )
-    claude_interaction = _resolve_optional_path(
-        claude_data.get("interaction"),
-        devman_dir,
-    )
-    if claude_interaction is None:
-        default_interaction = devman_dir / "interaction.md"
-        if default_interaction.exists():
-            claude_interaction = default_interaction
-
-    claude_emit_project_config = bool(claude_data.get("emit_project_config", False))
-
-    nvim_init = _resolve_optional_path(nvim_data.get("init"), devman_dir)
-    if nvim_init is None:
-        default_init = devman_dir / "nvim" / "init.lua"
-        if default_init.exists():
-            nvim_init = default_init
-
-    nvim_listen_value = nvim_data.get("listen")
-    if nvim_listen_value:
-        listen_path = Path(nvim_listen_value)
-        nvim_listen = listen_path if listen_path.is_absolute() else workspace_root / listen_path
-    else:
-        session_name = config.tmuxp_session_name or config.name
-        tmux.ensure_session(session_name, config.root)
+    write_state(config, updated_state)
 
 
 def _load_nvim_session(config: WorkspaceConfig) -> None:

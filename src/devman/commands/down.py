@@ -6,23 +6,30 @@ from pathlib import Path
 
 import typer
 
+from devman.discovery import find_devman_dir
 from devman.integrations import TmuxIntegration
-from devman.llm_core import state, workspace
+from devman.loaders import load_workspace_config
+from devman.state import read_state
 
 
 TMUX = TmuxIntegration()
 
 
-def down() -> None:
+def run() -> None:
     """Stop services started by devman."""
-    devman_dir = workspace.find_devman_dir(Path.cwd())
+    devman_dir = find_devman_dir(Path.cwd())
     if not devman_dir:
         raise typer.Exit("No workspace detected.")
-    config_data = workspace.load_workspace_config(devman_dir)
-    current_state = state.read_state(config_data)
-    session_name = current_state.get("tmux_session")
+    config_data = load_workspace_config(devman_dir)
+    current_state = read_state(config_data)
+    session_name = current_state.tmux_session
     if isinstance(session_name, str):
         typer.echo(f"Stopping tmux session {session_name}...")
         TMUX.kill_session(session_name)
     else:
         typer.echo("No recorded tmux session to stop.")
+
+
+def down() -> None:
+    """Backward-compatible alias for run."""
+    run()
