@@ -1,155 +1,75 @@
-# devenv-templater
+# devman
 
-🚀 Generate NixOS devenv projects from templates with container support.
-
-## Installation
-
-```bash
-# Install with uv
-uv tool install devenv-templater
-
-# Or install from source
-git clone https://github.com/example/devenv-templater
-cd devenv-templater
-uv sync --all-extras
-uv run devenv-templater --help
-```
-
-## Quick Start
-
-```bash
-# Create FastAPI project
-devenv-templater new myapi --type api --database postgresql
-
-# Create web app with local dependencies
-devenv-templater new webapp --type web --local-deps shared-utils
-
-# Create CLI tool (no containers)
-devenv-templater new mytool --type cli --containers none
-
-# List available templates
-devenv-templater list-templates
-
-# Update existing project
-cd myproject
-devenv-templater update myproject --type api
-```
-
-## Project Types
-
-- **api**: FastAPI + uvicorn, async-ready
-- **web**: Flask web application  
-- **cli**: Typer-based command line tool
-- **ml**: Machine learning with jupyter, pandas, scikit-learn
-- **lib**: Python library for publishing
-
-## Container Types
-
-- **devenv**: Native devenv container generation (default)
-- **docker**: Dockerfile + docker-compose.yml
-- **nixos**: NixOS containers configuration
-- **none**: No containers
+Minimal workspace orchestrator for tmuxp + Claude Code + Neovim.
 
 ## Features
 
-- ✅ **devenv.nix** generation with Python, uv, containers
-- ✅ **justfile** with project-specific tasks
-- ✅ **pyproject.toml** with dependencies and tooling
-- ✅ Local dependency support via uv sources
-- ✅ Database integration (PostgreSQL/SQLite)
-- ✅ Container generation (devenv/Docker/NixOS)
-- ✅ Rich CLI with validation and help
+- Discover `.devman/` workspaces under configured roots.
+- Cache index at `~/.cache/devman/index.json`.
+- Launch tmuxp sessions with Claude Code + Neovim windows.
+- Switch workspaces and load Neovim sessions via remote commands.
+- Claude Code requires the `claude` CLI to be installed.
 
-## Generated Structure
-
-```
-myproject/
-├── devenv.nix              # Development environment
-├── justfile                # Task automation
-├── pyproject.toml          # Python project config
-├── .envrc                  # Direnv activation
-├── docker-compose.yml      # Services (if containers)
-├── src/myproject/          # Source code
-├── tests/                  # Test files
-└── README.md               # Project documentation
-```
-
-## Workflow
+## Quick start
 
 ```bash
-# 1. Create project
-devenv-templater new myapi --type api
-
-# 2. Enter development
-cd myapi
-just shell                 # Enter devenv (or automatic with direnv)
-
-# 3. Start development
-just dev                   # Start dev server
-just test                  # Run tests
-just lint                  # Format and lint
-
-# 4. Container workflow (if enabled)
-just build                 # Build container
-just run                   # Run containerized app
-just push                  # Push to registry
+./cli/devman index rebuild
+./cli/devman
 ```
 
-## Local Dependencies
+## Documentation
 
-For shared libraries across projects:
+- [Getting started](docs/getting-started.md)
+- [Workspace schema](docs/workspace-schema.md)
+- [Claude integration](docs/claude-integration.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
+## NixOS + Home Manager (flakes)
+
+Use a flake input pinned with `git+` to avoid GitHub API rate limits.
+
+```nix
+inputs.devman.url = "git+https://github.com/<org>/<repo>?ref=<branch>&rev=<commit>";
+# Optional: add &dir=path/to/subdir if the flake isn't at the repo root.
+```
+
+Home Manager:
+
+```nix
+home.packages = [
+  inputs.devman.packages.${pkgs.system}.default
+];
+```
+
+NixOS:
+
+```nix
+environment.systemPackages = [
+  inputs.devman.packages.${pkgs.system}.default
+];
+```
+
+Usage:
 
 ```bash
-# Create workspace structure
-workspace/
-├── shared-lib/           # Shared library
-├── project-a/           # Uses ../shared-lib  
-└── project-b/           # Uses ../shared-lib
-
-# Generate with local deps
-devenv-templater new project-a --local-deps shared-lib
+devman index rebuild
+devman
 ```
 
-Auto-generates in `pyproject.toml`:
-```toml
-[tool.uv.sources]
-shared-lib = { path = "../shared-lib" }
-```
+## Development
 
-## CLI Reference
+Use `devenv` + `uv` for local development.
 
 ```bash
-devenv-templater new <name>                    # Create project
-  --type {api,web,cli,ml,lib}                  # Project type
-  --python 3.11                               # Python version
-  --containers {devenv,docker,nixos,none}      # Container type  
-  --database {postgresql,sqlite}              # Database
-  --deps package1 package2                    # Extra dependencies
-  --local-deps lib1 lib2                      # Local dependencies
-  --force                                     # Overwrite existing
-
-devenv-templater update <name>                 # Update project files
-devenv-templater list-templates                # Show available types
-devenv-templater config                        # Show configuration
-devenv-templater init-templates                # Reset templates
+uv sync
+uv run ./cli/devman --help
 ```
 
-## Template Customization
+## Config validation helper
 
-Templates stored in `~/.devenv-templates/`:
+Use `cli/setup_config.py` to validate `.env.example`, `.toml.example`, or
+`.yaml.example` files against their target configs.
 
 ```bash
-# Edit templates
-$EDITOR ~/.devenv-templates/devenv.nix.j2
-$EDITOR ~/.devenv-templates/justfile.j2
-
-# Reinitialize defaults
-devenv-templater init-templates --force
+uv run ./cli/setup_config.py validate .env.example
 ```
-
-## Requirements
-
-- NixOS with devenv
-- uv for Python package management
-- Docker (if using containers)
-- just command runner

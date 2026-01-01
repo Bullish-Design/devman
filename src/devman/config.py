@@ -1,5 +1,5 @@
 # src/devman/config.py
-"""Configuration models for devenv templater."""
+"""Configuration models for devman projects."""
 
 from __future__ import annotations
 
@@ -93,24 +93,3 @@ class ProjectConfig(BaseModel):
             deps.extend(["jupyter>=1.0.0", "ipykernel>=6.25.0"])
 
         return deps
-
-    def get_template_context(self) -> dict[str, object]:
-        """Get template context dictionary for Jinja2 rendering."""
-        all_deps = self.get_default_dependencies() + self.dependencies
-        all_dev_deps = self.get_default_dev_dependencies() + self.dev_dependencies
-
-        return {
-            "name": self.name,
-            "python_version": self.python_version,
-            "python_version_short": self.python_version_short,
-            "project_type": self.project_type,
-            "container_type": self.container_type,
-            "use_containers": self.use_containers,
-            "use_database": self.use_database,
-            "database_type": self.database_type,
-            "use_redis": self.use_redis,
-            "use_celery": self.use_celery,
-            "dependencies": all_deps,
-            "dev_dependencies": all_dev_deps,
-            "local_dependencies": self.local_dependencies,
-        }
