@@ -119,3 +119,8 @@ def _load_nvim_session(config: WorkspaceConfig) -> None:
 
     for command in NVIM.build_session_commands(config.root, session_path):
         NVIM.remote_send(config.nvim_listen, command)
+
+
+def up(root: Path | None = None) -> WorkspaceConfig:
+    """Backward-compatible alias for run."""
+    return run(root=root)
