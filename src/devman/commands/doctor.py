@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Dict
-
 from devman.claude_code import ClaudeCodeWorkspace
 from devman.integrations import NvimIntegration, TmuxIntegration, TmuxpIntegration
 
@@ -14,7 +12,7 @@ NVIM = NvimIntegration()
 CLAUDE_WORKSPACE = ClaudeCodeWorkspace()
 
 
-def run() -> Dict[str, bool]:
+def run() -> dict[str, bool]:
     """Return availability of external tools."""
     return {
         "tmux": TMUX.is_available(),
@@ -24,7 +22,7 @@ def run() -> Dict[str, bool]:
     }
 
 
-def render_report(status: Dict[str, bool]) -> list[str]:
+def render_report(status: dict[str, bool]) -> list[str]:
     """Render a human-readable report."""
     lines = []
     for tool, available in status.items():
@@ -32,6 +30,6 @@ def render_report(status: Dict[str, bool]) -> list[str]:
     return lines
 
 
-def doctor() -> Dict[str, bool]:
+def doctor() -> dict[str, bool]:
     """Backward-compatible alias for run."""
     return run()

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import typer
 
-from devman.commands import doctor, down, init, index, switch, up
+from devman.commands import bootstrap, doctor, down, init, index, switch, up
 
 app = typer.Typer(
     name="devman",
@@ -24,6 +24,7 @@ def main(ctx: typer.Context) -> None:
 app.command(name="up")(up.run)
 app.command(name="down")(down.run)
 app.command(name="switch")(switch.run)
+app.command(name="bootstrap")(bootstrap.run)
 app.command(name="doctor")(doctor.run)
 app.command(name="init")(init.run)
 

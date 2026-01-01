@@ -30,10 +30,11 @@ def run(root: str | None = None, force: bool = False) -> Path:
 
     (target_devman / "nvim").mkdir(parents=True, exist_ok=True)
     (target_devman / "devman.toml").write_text(
-        render_workspace_toml(target_root.name)
+        render_workspace_toml(target_root.name),
+        encoding="utf-8"
     )
-    (target_devman / "interaction.md").write_text(DEFAULT_INTERACTION_MD)
-    (target_devman / "nvim" / "init.lua").write_text(DEFAULT_NVIM_INIT_LUA)
+    (target_devman / "interaction.md").write_text(DEFAULT_INTERACTION_MD, encoding="utf-8")
+    (target_devman / "nvim" / "init.lua").write_text(DEFAULT_NVIM_INIT_LUA, encoding="utf-8")
 
     return target_devman
 

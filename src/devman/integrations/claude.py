@@ -6,7 +6,7 @@ import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ class ClaudeIntegration:
     def setup(
         self,
         workspace_root: Path,
-        interaction_path: Optional[Path],
+        interaction_path: Path | None,
         emit_project_config: bool,
     ) -> Path:
         """Write Claude Code settings and optional project config assets."""
@@ -36,7 +36,7 @@ class ClaudeIntegration:
     def launch(
         self,
         workspace_root: Path,
-        interaction_path: Optional[Path],
+        interaction_path: Path | None,
         emit_project_config: bool,
     ) -> Path:
         """Launch Claude Code integration setup."""
@@ -45,7 +45,7 @@ class ClaudeIntegration:
     def ensure_workspace_settings(
         self,
         workspace_root: Path,
-        interaction_path: Optional[Path],
+        interaction_path: Path | None,
         emit_project_config: bool,
     ) -> Path:
         """Write Claude Code settings and optional CLAUDE.md instructions."""
@@ -80,13 +80,13 @@ class ClaudeIntegration:
             "workspace": str(workspace_root),
             "interaction": str(interaction) if interaction else None,
         }
-        config_path.write_text(json.dumps(payload, indent=2))
+        config_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return config_path
 
     def _build_settings(
         self,
         workspace_root: Path,
-        interaction_path: Optional[Path],
+        interaction_path: Path | None,
         emit_project_config: bool,
     ) -> dict[str, Any]:
         settings: dict[str, Any] = {
@@ -120,7 +120,7 @@ class ClaudeIntegration:
     def _render_claude_markdown(
         self,
         workspace_root: Path,
-        interaction_path: Optional[Path],
+        interaction_path: Path | None,
     ) -> str:
         lines = [
             "# Claude Code Workspace",

@@ -45,7 +45,7 @@ def resolve_active_workspace(
     index_manager = manager or IndexManager()
     index = index_manager.refresh(resolve_roots(roots))
     if not index.entries:
-        raise ValueError("No workspaces found.")
+        raise typer.Exit("No workspaces found.")
 
     if selector:
         return selector(index.entries)
@@ -67,7 +67,7 @@ def _resolve_workspace_config(root: Path | None = None) -> WorkspaceConfig:
     workspace_root = root or Path.cwd()
     devman_dir = find_devman_dir(workspace_root)
     if not devman_dir:
-        raise ValueError("No workspace found.")
+        raise typer.Exit("No workspace found.")
     return load_workspace_config(devman_dir)
 
 
@@ -106,7 +106,7 @@ def _record_state(config: WorkspaceConfig, session_name: str | None) -> None:
 
 
 def _load_nvim_session(config: WorkspaceConfig) -> None:
-    if not config.nvim_sessions_dir or not config.nvim_listen:
+    if not config.nvim_sessions_dir or config.nvim_listen is None:
         return
 
     session_name = config.nvim_default_session or "home.vim"

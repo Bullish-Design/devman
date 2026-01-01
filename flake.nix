@@ -39,7 +39,6 @@
             typer
             rich
             pathlib-abc
-            jinja2
             pydantic
             pyyaml
             tomli-w
