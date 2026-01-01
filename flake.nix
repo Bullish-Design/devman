@@ -42,7 +42,7 @@
             jinja2
             pydantic
             pyyaml
-            tomli-w
+            tomli_w
           ];
 
           doCheck = false;
