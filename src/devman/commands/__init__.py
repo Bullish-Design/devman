@@ -6,7 +6,7 @@ from .down import down
 from . import index
 from .init import init
 from .switch import switch
-from .up import up
+from . import up
 
 __all__ = [
     "bootstrap",
