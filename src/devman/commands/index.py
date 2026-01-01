@@ -3,10 +3,15 @@
 
 from __future__ import annotations
 
+import json
 from typing import Iterable
+
+import typer
 
 from devman.discovery import IndexManager, resolve_roots
 from devman.models import WorkspaceEntry, WorkspaceIndex
+
+app = typer.Typer(help="Manage workspace index")
 
 
 def _manager(manager: IndexManager | None = None) -> IndexManager:
@@ -57,3 +62,49 @@ def find_entry(
 ) -> WorkspaceEntry | None:
     """Find a workspace entry matching the provided query."""
     return _manager(manager).find_entry(entries, query)
+
+
+@app.command(name="status")
+def index_status() -> None:
+    """Show index cache status."""
+    payload = load_index()
+    if not payload:
+        typer.echo("Index cache missing.")
+        raise typer.Exit(code=1)
+
+    # Convert to dict for JSON serialization
+    index_dict = {
+        "entries": [
+            {
+                "name": entry.name,
+                "workspace_root": str(entry.workspace_root),
+                "devman_dir": str(entry.devman_dir),
+                "group": entry.group,
+                "tags": entry.tags,
+            }
+            for entry in payload.entries
+        ]
+    }
+    typer.echo(json.dumps(index_dict, indent=2))
+
+
+@app.command(name="rebuild")
+def index_rebuild(
+    roots: list[str] = typer.Argument(None, help="Roots to index")
+) -> None:
+    """Force rebuild the index."""
+    resolved_roots = roots or []
+    index = rebuild_index(resolved_roots)
+    for line in list_entries(index.entries):
+        typer.echo(line)
+
+
+@app.command(name="list")
+def index_list(
+    roots: list[str] = typer.Argument(None, help="Roots to index")
+) -> None:
+    """List indexed workspaces."""
+    resolved_roots = roots or []
+    index = refresh_index(resolved_roots)
+    for line in list_entries(index.entries):
+        typer.echo(line)
