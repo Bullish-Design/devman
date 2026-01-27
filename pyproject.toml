@@ -1,28 +1,27 @@
 # pyproject.toml
 [project]
 name = "devman"
-version = "0.1.1"
+version = "0.1.0"
 description = "DevEnv project templating system for NixOS development environments"
-authors = [
-    {name = "Bullish Design", email = "BullishDesignEngineering@gmail.com"}
-]
-dependencies = [
-    "typer>=0.12.0",
-    "rich>=13.0.0",
-    "pathlib-abc>=0.1.0",
-    "jinja2>=3.1.0",
-    "pydantic>=2.5.0",
-]
-requires-python = ">=3.11"
 readme = "README.md"
-license = {text = "MIT"}
-keywords = ["nix", "devenv", "templating", "development", "containers"]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Bullish Design", email = "contact@bullishdesign.com" }
+]
+
+dependencies = [
+    "typer>=0.9.0",
+    "pyyaml>=6.0.0",
+]
+
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Build Tools",
     "Topic :: System :: Software Distribution",
 ]
@@ -33,17 +32,17 @@ Repository = "https://github.com/Bullish-Design/devman"
 Issues = "https://github.com/Bullish-Design/devman/issues"
 
 [project.scripts]
-devman = "devman.cli:app"
-dev = "devman.cli:app"
-dt = "devman.cli:app"
+devman = "devman.cli:main"
+dev = "devman.cli:main"
+dt = "devman.cli:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
+    "pytest-watch>=4.2.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
-    "pre-commit>=3.5.0",
 ]
 
 [build-system]
@@ -55,15 +54,16 @@ packages = ["src/devman"]
 
 [tool.ruff]
 target-version = "py311"
-line-length = 88
-src = ["src"]
+line-length = 120
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
-ignore = ["E501"]  # Line too long handled by formatter
+ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"tests/*" = ["S101"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -73,9 +73,9 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
-testpaths = ["src/tests"]
-addopts = "-v --cov=src/devman --cov-report=html"
-python_files = ["test_*.py", "*_test.py"]
+testpaths = ["tests"]
+addopts = "-v --cov=src/devman --cov-report=html --cov-report=term-missing"
+python_files = ["test_*.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -83,4 +83,5 @@ exclude_lines = [
     "def __repr__",
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
-  ]
+    "if TYPE_CHECKING:",
+]

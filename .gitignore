@@ -348,3 +348,11 @@ cython_debug/
 
 # VS Code
 .vscode/
+
+# DevMan specific
+.devman/.devenv/
+.devman/.direnv/
+.devman/test-results/
+
+# Allow .devman/.envrc (exception to global .envrc ignore)
+!.devman/.envrc

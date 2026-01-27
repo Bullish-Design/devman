@@ -1,0 +1,69 @@
+# .devman/justfile - Container operations for devman project
+
+# Default devman directory for devman's own development
+DEVMAN_DIR := ".devman"
+
+# Show available commands
+help:
+    @just --list
+
+# Create and start container
+container-create branch revision:
+    nixos-container create devman-{{branch}}-{{revision}} \
+        --config-file {{DEVMAN_DIR}}/devenv.nix \
+        --bind-mount {{DEVMAN_DIR}}:/mnt/project/.devman
+    nixos-container start devman-{{branch}}-{{revision}}
+
+# Run tests in container
+container-test name:
+    nixos-container run {{name}} -- \
+        bash -c 'cd /mnt/project/.devman && just test'
+    # Copy test results out
+    nixos-container run {{name}} -- \
+        bash -c 'cp -r /mnt/project/.devman/test-results /mnt/project/.devman/' || true
+
+# Stop and destroy container
+container-clean name:
+    -nixos-container stop {{name}}
+    -nixos-container destroy {{name}}
+
+# Interactive shell in container
+container-shell name:
+    nixos-container root-login {{name}}
+
+# List all devman containers
+container-list:
+    @nixos-container list | grep '^devman-' || echo "No devman containers found"
+
+# Clean all devman containers
+container-clean-all:
+    #!/usr/bin/env bash
+    containers=$(nixos-container list | grep '^devman-' || true)
+    if [ -z "$containers" ]; then
+        echo "No devman containers to clean"
+    else
+        for container in $containers; do
+            echo "Cleaning $container..."
+            just container-clean $container
+        done
+    fi
+
+# Development commands (for devman project itself)
+setup:
+    uv sync --dev
+
+test:
+    uv run pytest -v
+
+test-watch:
+    uv run pytest-watch
+
+lint:
+    uv run ruff check src tests
+
+format:
+    uv run ruff format src tests
+
+clean:
+    rm -rf .pytest_cache .ruff_cache htmlcov .coverage
+    find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
