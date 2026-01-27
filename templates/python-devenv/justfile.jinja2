@@ -1,0 +1,18 @@
+set dotenv-load := true
+
+project := "{{ project_name }}"
+
+setup:
+    uv sync
+
+test:
+    uv run pytest
+
+lint:
+    uv run ruff check .
+
+format:
+    uv run ruff format .
+
+clean:
+    rm -rf .venv .pytest_cache .ruff_cache

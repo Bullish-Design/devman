@@ -1,0 +1,26 @@
+{ pkgs, ... }:
+
+{
+  packages = [ pkgs.uv ];
+
+  languages.python = {
+    enable = true;
+    version = "{{ python_version }}";
+  };
+
+  {% if include_postgres %}
+  services.postgres = {
+    enable = true;
+  };
+  {% endif %}
+
+  {% if include_redis %}
+  services.redis = {
+    enable = true;
+  };
+  {% endif %}
+
+  enterShell = ''
+    echo "Welcome to {{ project_name }}'s dev environment."
+  '';
+}
