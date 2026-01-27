@@ -387,22 +387,59 @@ def test(
 
 @app.command()
 def clean(
+    devman_dir: Path = typer.Option(
+        Path(".devman"),
+        help="Path to .devman directory",
+    ),
     all: bool = typer.Option(
         False,
         "--all",
         "-a",
         help="Remove all generated artifacts, including caches.",
     ),
-    dry_run: bool = typer.Option(
+    container_name: Optional[str] = typer.Option(
+        None,
+        "--container-name",
+        help="Override container name",
+    ),
+    all_containers: bool = typer.Option(
         False,
-        "--dry-run",
-        help="Show what would be removed without deleting anything.",
+        "--all-containers",
+        help="Remove all DevMan containers",
     ),
 ) -> None:
     """Remove DevMan-generated artifacts from the working tree."""
-    typer.echo("Clean command (skeleton)")
-    typer.echo(f"All: {all}")
-    typer.echo(f"Dry run: {dry_run}")
+    justfile_path = Path(__file__).parent / "justfile"
+    if not justfile_path.exists():
+        typer.echo(f"Error: justfile not found at '{justfile_path}'.", err=True)
+        raise typer.Exit(1)
+
+    if all_containers:
+        subprocess.run(
+            ["just", "-f", str(justfile_path), "container-clean-all"],
+            check=False,
+        )
+    else:
+        if container_name:
+            name = container_name
+        else:
+            jj_info = get_jj_info()
+            branch = jj_info.get("bookmark") or "unknown"
+            revision = jj_info.get("change_id") or "unknown"
+            name = f"devman-{branch}-{revision}"
+        subprocess.run(
+            ["just", "-f", str(justfile_path), "container-clean", name],
+            check=False,
+        )
+
+    test_results = devman_dir / "test-results"
+    shutil.rmtree(test_results, ignore_errors=True)
+
+    if all:
+        shutil.rmtree(devman_dir / ".devenv", ignore_errors=True)
+        shutil.rmtree(devman_dir / ".direnv", ignore_errors=True)
+
+    typer.echo("✓ Cleanup complete")
 
 
 if __name__ == "__main__":
