@@ -1,7 +1,10 @@
 { pkgs, ... }:
 
 {
-  packages = [ pkgs.uv ];
+  packages = [
+    pkgs.uv
+    pkgs.just
+  ];
 
   languages.python = {
     enable = true;
@@ -22,5 +25,6 @@
 
   enterShell = ''
     echo "Welcome to {{ project_name }}'s dev environment."
+    echo "Python {{ python_version }} | uv $(uv --version | cut -d' ' -f2) | just $(just --version | cut -d' ' -f2)"
   '';
 }

@@ -1,5 +1,5 @@
 _min_copier_version: "8.0.0"
-_templates_suffix: .jinja2
+_templates_suffix: .j2
 
 project_name:
   type: str
