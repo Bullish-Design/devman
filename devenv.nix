@@ -2,7 +2,7 @@
 
 {
   # https://devenv.sh/basics/
-  env.GREET = "devenv";
+  env.GREET = "DevMan";
 
   # https://devenv.sh/packages/
   packages = [
@@ -18,8 +18,8 @@
     venv.enable = true;
     uv.enable = true;
     #ruff.enable = true;
-
   };
+
   # https://devenv.sh/processes/
   # processes.cargo-watch.exec = "cargo-watch";
 
@@ -32,15 +32,14 @@
   '';
 
   
-
   enterShell = ''
     hello
     git --version
-    #echo
+    echo
     # Create a wrapper script to ensure Nix ruff is used
     export PATH="${pkgs.ruff}/bin:$PATH"
     # Remove any pip-installed ruff from the environment
-    unset VIRTUAL_ENV_RUFF
+    # unset VIRTUAL_ENV_RUFF
     #echo
 
   '';
