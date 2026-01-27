@@ -1,5 +1,27 @@
 _min_copier_version: "8.0.0"
+_templates_suffix: .jinja2
+
 project_name:
   type: str
   help: "Name of the generated project."
   default: "devman-project"
+
+python_version:
+  type: str
+  help: "Python version to use."
+  choices:
+    - "3.10"
+    - "3.11"
+    - "3.12"
+    - "3.13"
+  default: "3.12"
+
+include_postgres:
+  type: bool
+  help: "Include a Postgres service."
+  default: false
+
+include_redis:
+  type: bool
+  help: "Include a Redis service."
+  default: false
