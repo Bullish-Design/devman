@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
+import datetime
+import shutil
 import subprocess
+import sys
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -39,19 +43,47 @@ def get_jj_info() -> dict[str, Optional[str]]:
     return {"bookmark": bookmark, "change_id": change_id}
 
 
+def resolve_template_path(template: str, script_dir: Path) -> Path:
+    """Resolve the copier template path from a name or filesystem path."""
+    if "/" in template or template.startswith("."):
+        template_path = Path(template).expanduser()
+        if template_path.exists():
+            return template_path.resolve()
+        raise ValueError(f"Template path '{template}' does not exist.")
+
+    bundled_template = script_dir / "templates" / template
+    if bundled_template.exists():
+        return bundled_template.resolve()
+
+    raise ValueError(
+        "Unknown template. Provide a filesystem path like "
+        f"./templates/{template}."
+    )
+
+
 @app.command()
 def init(
+    devman_dir: Path = typer.Option(
+        Path("devman"),
+        "--devman-dir",
+        "-d",
+        help="Directory where the DevMan project should be created.",
+    ),
     template: str = typer.Option(
         "python-devenv",
         "--template",
         "-t",
         help="Copier template name or path.",
     ),
-    output: str = typer.Option(
-        ".",
-        "--output",
-        "-o",
-        help="Output directory for the generated project.",
+    python_version: str = typer.Option(
+        "3.12",
+        "--python-version",
+        help="Python version to configure in the project.",
+    ),
+    project_name: Optional[str] = typer.Option(
+        None,
+        "--project-name",
+        help="Project name to use in the generated files.",
     ),
     force: bool = typer.Option(
         False,
@@ -61,10 +93,63 @@ def init(
     ),
 ) -> None:
     """Initialize a new DevMan project using a Copier template."""
-    typer.echo("Init command (skeleton)")
-    typer.echo(f"Template: {template}")
-    typer.echo(f"Output: {output}")
-    typer.echo(f"Force: {force}")
+    if devman_dir.exists() and not force:
+        typer.echo(
+            f"Error: '{devman_dir}' already exists. Use --force to overwrite.",
+            err=True,
+        )
+        sys.exit(1)
+
+    script_dir = Path(__file__).resolve().parent
+    try:
+        template_path = resolve_template_path(template, script_dir)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        sys.exit(1)
+
+    if not project_name:
+        project_name = Path.cwd().name
+
+    data = {
+        "project_name": project_name,
+        "python_version": python_version,
+        "include_postgres": False,
+        "include_redis": False,
+    }
+
+    devman_dir.mkdir(parents=True, exist_ok=True)
+
+    def format_value(value: object) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return str(value)
+
+    data_payload = "\n".join(f"{key}={format_value(value)}" for key, value in data.items())
+
+    result = subprocess.run(
+        [
+            "copier",
+            str(template_path),
+            str(devman_dir),
+            "--data-file",
+            "-",
+            "--defaults",
+        ],
+        input=data_payload,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        typer.echo(result.stderr or "Copier failed.", err=True)
+        shutil.rmtree(devman_dir, ignore_errors=True)
+        sys.exit(result.returncode or 1)
+
+    typer.echo("DevMan project initialized.")
+    typer.echo(f"Template: {template_path}")
+    typer.echo(f"Project: {project_name}")
+    typer.echo(f"Python: {python_version}")
 
 
 @app.command()
