@@ -239,23 +239,58 @@ def init(
 
 @app.command()
 def validate(
-    config: str = typer.Option(
-        "devman.yaml",
-        "--config",
-        "-c",
-        help="Path to the DevMan config file.",
-    ),
-    strict: bool = typer.Option(
-        False,
-        "--strict",
-        "-s",
-        help="Enable strict validation checks.",
+    devman_dir: Path = typer.Option(
+        Path(".devman"),
+        help="Path to .devman directory",
     ),
 ) -> None:
     """Validate the current DevMan project configuration."""
-    typer.echo("Validate command (skeleton)")
-    typer.echo(f"Config: {config}")
-    typer.echo(f"Strict: {strict}")
+    if not devman_dir.exists():
+        typer.echo(f"Error: '{devman_dir}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    errors: list[str] = []
+    required_files = ["devenv.nix", "justfile", "state.yaml"]
+    for file_name in required_files:
+        file_path = devman_dir / file_name
+        if not file_path.exists():
+            errors.append(f"Missing required file: {file_path}")
+
+    devenv_path = devman_dir / "devenv.nix"
+    if devenv_path.exists():
+        try:
+            validate_nix_syntax(devenv_path)
+            typer.echo("devenv.nix syntax is valid.")
+        except ValueError as exc:
+            errors.append(str(exc))
+
+    state_path = devman_dir / "state.yaml"
+    if state_path.exists():
+        try:
+            state_data = yaml.safe_load(state_path.read_text())
+        except yaml.YAMLError as exc:
+            errors.append(f"Invalid YAML in {state_path}: {exc}")
+        else:
+            if not isinstance(state_data, dict):
+                errors.append(f"{state_path} must contain a mapping at the root.")
+            else:
+                missing_keys = [
+                    key for key in ("template", "variables") if key not in state_data
+                ]
+                if missing_keys:
+                    errors.append(
+                        f"{state_path} is missing keys: {', '.join(missing_keys)}"
+                    )
+                else:
+                    typer.echo("state.yaml contains required keys.")
+
+    if errors:
+        typer.echo("Validation failed:")
+        for error in errors:
+            typer.echo(f"- {error}")
+        raise typer.Exit(1)
+
+    typer.echo("Validation successful.")
 
 
 @app.command()
