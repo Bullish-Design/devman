@@ -6,11 +6,11 @@ from __future__ import annotations
 import datetime
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Optional
 
 import typer
+import yaml
 
 app = typer.Typer(help="DevMan CLI for managing local development environments.")
 
@@ -61,6 +61,83 @@ def resolve_template_path(template: str, script_dir: Path) -> Path:
     )
 
 
+def format_data_payload(data: dict[str, object]) -> str:
+    def format_value(value: object) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        return str(value)
+
+    return "\n".join(f"{key}={format_value(value)}" for key, value in data.items())
+
+
+def validate_template_pretend(template_path: Path, dest: Path, data: dict[str, object]) -> None:
+    """Run copier in pretend mode to check template."""
+    result = subprocess.run(
+        [
+            "copier",
+            "copy",
+            "--pretend",
+            "--data-file",
+            "-",
+            "--defaults",
+            str(template_path),
+            str(dest),
+        ],
+        input=format_data_payload(data),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise ValueError(f"Template validation failed: {result.stderr}")
+
+
+def validate_nix_syntax(devenv_file: Path) -> None:
+    """Validate devenv.nix syntax using nix-instantiate."""
+    result = subprocess.run(
+        ["nix-instantiate", "--parse", str(devenv_file)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise ValueError(f"Invalid Nix syntax: {result.stderr}")
+
+
+def create_state_file(devman_dir: Path, template_source: str | Path, data: dict[str, object]) -> None:
+    """Create state.yaml with template metadata."""
+    jj_info = get_jj_info()
+    branch = jj_info.get("bookmark")
+    revision = jj_info.get("change_id")
+
+    timestamp = datetime.datetime.now().isoformat()
+    state = {
+        "template": {
+            "name": data["project_name"],
+            "source": str(template_source),
+            "version": revision,
+            "applied_at": timestamp,
+        },
+        "variables": data,
+        "history": [
+            {
+                "timestamp": timestamp,
+                "action": "init",
+                "template": data["project_name"],
+                "source": str(template_source),
+                "jj_branch": branch,
+                "jj_revision": revision,
+            }
+        ],
+    }
+
+    state_file = devman_dir / "state.yaml"
+    with open(state_file, "w") as file:
+        yaml.dump(state, file, default_flow_style=False)
+
+
 @app.command()
 def init(
     devman_dir: Path = typer.Option(
@@ -98,14 +175,14 @@ def init(
             f"Error: '{devman_dir}' already exists. Use --force to overwrite.",
             err=True,
         )
-        sys.exit(1)
+        raise typer.Exit(1)
 
     script_dir = Path(__file__).resolve().parent
     try:
         template_path = resolve_template_path(template, script_dir)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
-        sys.exit(1)
+        raise typer.Exit(1) from exc
 
     if not project_name:
         project_name = Path.cwd().name
@@ -119,37 +196,45 @@ def init(
 
     devman_dir.mkdir(parents=True, exist_ok=True)
 
-    def format_value(value: object) -> str:
-        if isinstance(value, bool):
-            return "true" if value else "false"
-        return str(value)
+    try:
+        typer.echo("Validating template...")
+        validate_template_pretend(template_path, devman_dir, data)
 
-    data_payload = "\n".join(f"{key}={format_value(value)}" for key, value in data.items())
+        typer.echo("Generating files...")
+        result = subprocess.run(
+            [
+                "copier",
+                "copy",
+                "--data-file",
+                "-",
+                "--defaults",
+                str(template_path),
+                str(devman_dir),
+            ],
+            input=format_data_payload(data),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
 
-    result = subprocess.run(
-        [
-            "copier",
-            str(template_path),
-            str(devman_dir),
-            "--data-file",
-            "-",
-            "--defaults",
-        ],
-        input=data_payload,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+        if result.returncode != 0:
+            raise ValueError(f"Copier failed: {result.stderr}")
 
-    if result.returncode != 0:
-        typer.echo(result.stderr or "Copier failed.", err=True)
-        shutil.rmtree(devman_dir, ignore_errors=True)
-        sys.exit(result.returncode or 1)
+        typer.echo("Validating generated devenv.nix...")
+        validate_nix_syntax(devman_dir / "devenv.nix")
 
-    typer.echo("DevMan project initialized.")
-    typer.echo(f"Template: {template_path}")
-    typer.echo(f"Project: {project_name}")
-    typer.echo(f"Python: {python_version}")
+        typer.echo("Creating state file...")
+        create_state_file(devman_dir, template_path, data)
+
+        typer.echo("DevMan project initialized.")
+        typer.echo(f"Template: {template_path}")
+        typer.echo(f"Project: {project_name}")
+        typer.echo(f"Python: {python_version}")
+    except Exception as exc:
+        if devman_dir.exists():
+            shutil.rmtree(devman_dir, ignore_errors=True)
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
 
 @app.command()
