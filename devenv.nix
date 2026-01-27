@@ -7,7 +7,10 @@
   # https://devenv.sh/packages/
   packages = [
     pkgs.git
+    pkgs.jujutsu
+    pkgs.just
     pkgs.ruff
+    pkgs.uv
   ];
 
   # https://devenv.sh/languages/
