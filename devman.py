@@ -295,26 +295,94 @@ def validate(
 
 @app.command()
 def test(
-    container_prefix: str = typer.Option(
-        "devman-test",
-        "--container-prefix",
-        "-p",
-        help="Prefix to use when naming the test container.",
+    devman_dir: Path = typer.Option(
+        Path(".devman"),
+        help="Path to .devman directory",
     ),
-    reuse: bool = typer.Option(
+    keep_container: bool = typer.Option(
         False,
-        "--reuse",
-        "-r",
-        help="Reuse an existing test container if available.",
+        "--keep-container",
+        help="Don't remove container",
+    ),
+    container_name: Optional[str] = typer.Option(
+        None,
+        help="Override container name",
     ),
 ) -> None:
     """Run the DevMan test container for the current repository."""
+    if not devman_dir.exists():
+        typer.echo(f"Error: '{devman_dir}' does not exist.", err=True)
+        raise typer.Exit(1)
+
     jj_info = get_jj_info()
-    suffix = jj_info.get("bookmark") or jj_info.get("change_id") or "unknown"
-    container_name = f"{container_prefix}-{suffix}"
-    typer.echo("Test command (skeleton)")
-    typer.echo(f"Container: {container_name}")
-    typer.echo(f"Reuse: {reuse}")
+    branch = jj_info.get("bookmark") or "unknown"
+    revision = jj_info.get("change_id") or "unknown"
+    name = container_name or f"devman-{branch}-{revision}"
+
+    justfile_path = Path(__file__).parent / "justfile"
+    if not justfile_path.exists():
+        typer.echo(f"Error: justfile not found at '{justfile_path}'.", err=True)
+        raise typer.Exit(1)
+
+    devman_dir_path = str(devman_dir.absolute())
+    cleaned = False
+
+    def clean_container() -> None:
+        nonlocal cleaned
+        if cleaned:
+            return
+        result = subprocess.run(
+            ["just", "-f", str(justfile_path), "container-clean", name, devman_dir_path],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            typer.echo(result.stderr, err=True)
+        cleaned = True
+
+    try:
+        create_result = subprocess.run(
+            [
+                "just",
+                "-f",
+                str(justfile_path),
+                "container-create",
+                branch,
+                revision,
+                devman_dir_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if create_result.returncode != 0:
+            typer.echo(create_result.stderr, err=True)
+            raise typer.Exit(1)
+
+        test_result = subprocess.run(
+            [
+                "just",
+                "-f",
+                str(justfile_path),
+                "container-test",
+                name,
+                devman_dir_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if test_result.stdout:
+            typer.echo(test_result.stdout)
+        if test_result.returncode != 0:
+            typer.echo(test_result.stderr, err=True)
+            if not keep_container:
+                clean_container()
+            raise typer.Exit(1)
+    finally:
+        if not keep_container:
+            clean_container()
 
 
 @app.command()
