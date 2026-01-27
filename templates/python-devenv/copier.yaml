@@ -1,0 +1,5 @@
+_min_copier_version: "8.0.0"
+project_name:
+  type: str
+  help: "Name of the generated project."
+  default: "devman-project"
