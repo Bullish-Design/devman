@@ -20,8 +20,8 @@
     devman "$@"
   '';
 
-  scripts.devenv-devman.exec = ''
-    (cd .. && uv sync)
-    devman "$@"
+  scripts.test.exec = ''
+    (cd .. && uv sync --extra dev)
+    (cd .. && pytest)
   '';
 }
