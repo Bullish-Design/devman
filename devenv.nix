@@ -1,0 +1,1 @@
+.devman/devenv.nix

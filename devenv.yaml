@@ -9,7 +9,11 @@ inputs:
   mk-shell-bin:
     url: github:rrbutani/nix-mk-shell-bin
 
-# If you're using non-OSS software, you can set allowUnfree to true.
+imports:
+  - ./.devman/devenv.nix
+
+
+  # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true
 
 # If you're willing to use a package that's vulnerable
