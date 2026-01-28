@@ -15,7 +15,13 @@
     uv.enable = true;
   };
 
-  scripts.hello.exec = ''
-    python ${../hello.py} "$@"
+  scripts.devman.exec = ''
+    (cd .. && uv sync)
+    devman "$@"
+  '';
+
+  scripts.devenv-devman.exec = ''
+    (cd .. && uv sync)
+    devman "$@"
   '';
 }
