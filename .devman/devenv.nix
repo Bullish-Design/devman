@@ -31,11 +31,5 @@ in
     cd "${root}"
     just test "$@"
   '';
-  # processes.test.exec = {
-  #   exec = ''
-  #     set -euo pipefail
-  #     test-run
-  #   '';
-  #   cwd = root;
-  # };
+  
 }
