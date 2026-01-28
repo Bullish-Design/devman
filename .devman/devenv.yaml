@@ -29,11 +29,11 @@ inputs:
         follows: pyproject-nix
       uv2nix:
         follows: uv2nix
-  devenv-py2nix:
-    url: github:Bullish-Design/devenv-py2nix
+  #devenv-py2nix:
+  #  url: github:Bullish-Design/devenv-py2nix
 
-imports:
-  - devenv-py2nix
+#imports:
+#  - devenv-py2nix
 
 
   # If you're using non-OSS software, you can set allowUnfree to true.
