@@ -10,11 +10,9 @@
   languages.python = {
     enable = true;
     version = "3.13";
+    directory = "../";
     venv.enable = true;
-    uv = {
-      enable = true;
-      projectDir = ../src/devman;
-    };
+    uv.enable = true;
   };
 
   scripts.hello.exec = ''
