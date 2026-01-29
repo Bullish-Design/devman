@@ -1,7 +1,6 @@
 # src/devman/schemas/tasks.py
 from __future__ import annotations
 
-from typing import Literal
 
 from pydantic import BaseModel
 
@@ -28,15 +27,13 @@ class TaskList(BaseModel):
         result = []
         for task in self.tasks:
             if task.when is None:
-                # Simple string format
-                if isinstance(task.command, str):
-                    result.append(task.command)
-                else:
-                    result.append(task.command)
+                result.append(task.command)
             else:
                 # Dict format with when condition
-                result.append({
-                    "command": task.command,
-                    "when": task.when,
-                })
+                result.append(
+                    {
+                        "command": task.command,
+                        "when": task.when,
+                    }
+                )
         return result

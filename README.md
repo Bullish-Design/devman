@@ -90,6 +90,46 @@ See `tests/fixtures/example_copier.yaml` for a complete example.
 - `devman version`: Print the current devman version.
 - `devman hello NAME`: Print a greeting.
 
+## Architecture
+
+devman follows a layered architecture:
+
+### Domain Layer (`src/devman/domain/`)
+Pure business logic with no framework dependencies:
+- **Models**: Value objects (`ProjectRoot`, `DevmanDirectory`, `ValidationResult`)
+- **Errors**: Structured error types for all failure cases
+- **Services**: `DevmanFinder` for .devman directory location
+- **Protocols**: Interfaces for dependency inversion
+
+### Application Layer (`src/devman/application/`)
+Use cases orchestrating domain objects:
+- `FindDevmanUseCase`: Locate .devman directory
+- `RunDevenvUseCase`: Execute devenv commands
+- `ValidateTemplateUseCase`: Validate template structure
+
+### Infrastructure Layer
+- **CLI** (`cli.py`): Typer-based command interface
+- **Schemas** (`schemas/`): Pydantic models for copier.yaml
+- **Templates** (`templates.py`): Template reference and validation
+
+### Error Handling
+Uses Railway-Oriented Programming with `Result` types:
+- `Ok(value)` for success
+- `Err(error)` for failures
+- No exceptions in business logic
+- All errors are typed domain objects
+
+Example:
+```python
+result = ProjectRoot.create(path)
+if result.is_ok():
+    root = result.unwrap()
+    # ... use root
+else:
+    error = result.unwrap_err()
+    print(f"Failed: {error}")
+```
+
 ## Development
 ```bash
 # Install dev dependencies

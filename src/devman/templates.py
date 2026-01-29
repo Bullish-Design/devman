@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import re
-import tempfile
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, model_validator
+from result import Err, Ok, Result
 
+from devman.domain.errors import (
+    InvalidGitUrlError,
+    PathNotDirectoryError,
+    PathNotFoundError,
+)
+from devman.domain.models import ValidationResult
 from devman.schemas import CopierConfig
 
 
@@ -20,19 +26,17 @@ class TemplateReference(BaseModel):
     source_type: TemplateSource
     location: str
 
-    @field_validator("location")
-    @classmethod
-    def validate_location(cls, v: str, info) -> str:
-        source_type = info.data.get("source_type")
-
-        if source_type == "file":
-            path = Path(v).expanduser()
+    @model_validator(mode="after")
+    def validate_reference(self) -> TemplateReference:
+        """Validate template reference after construction."""
+        if self.source_type == "file":
+            path = Path(self.location).expanduser()
             if not path.exists():
-                raise ValueError(f"Template path does not exist: {v}")
+                raise ValueError(f"Template path does not exist: {self.location}")
             if not path.is_dir():
-                raise ValueError(f"Template path is not a directory: {v}")
+                raise ValueError(f"Template path is not a directory: {self.location}")
 
-        elif source_type == "git":
+        elif self.source_type == "git":
             # Basic git URL validation
             git_patterns = [
                 r"^https?://",
@@ -41,18 +45,55 @@ class TemplateReference(BaseModel):
                 r"^gh:",
                 r"^gl:",
             ]
-            if not any(re.match(p, v) for p in git_patterns):
-                raise ValueError(f"Invalid git URL format: {v}")
+            if not any(re.match(p, self.location) for p in git_patterns):
+                raise ValueError(f"Invalid git URL format: {self.location}")
 
-        return v
+        return self
+
+    @classmethod
+    def create(
+        cls, source_type: TemplateSource, location: str
+    ) -> Result[
+        TemplateReference,
+        PathNotFoundError | PathNotDirectoryError | InvalidGitUrlError,
+    ]:
+        """
+        Factory method using Result type for error handling.
+
+        Replaces exception-based validation with Railway-Oriented Programming.
+        """
+        try:
+            return Ok(cls(source_type=source_type, location=location))
+        except ValueError as e:
+            error_msg = str(e)
+
+            if source_type == "file":
+                if "does not exist" in error_msg:
+                    return Err(
+                        PathNotFoundError(message=error_msg, path=Path(location))
+                    )
+                else:
+                    return Err(
+                        PathNotDirectoryError(message=error_msg, path=Path(location))
+                    )
+            else:  # git
+                return Err(InvalidGitUrlError(message=error_msg, url=location))
 
     @classmethod
     def from_string(cls, source: str) -> TemplateReference:
-        """Parse a template source string into a TemplateReference."""
+        """
+        Parse a template source string into a TemplateReference.
+
+        Note: This is kept for backward compatibility but raises on error.
+        Prefer using create() for Result-based error handling.
+        """
         source = source.strip()
 
         # Check for git-like URLs
-        if any(source.startswith(prefix) for prefix in ["http://", "https://", "git@", "git://", "gh:", "gl:"]):
+        if any(
+            source.startswith(prefix)
+            for prefix in ["http://", "https://", "git@", "git://", "gh:", "gl:"]
+        ):
             return cls(source_type="git", location=source)
 
         # Default to file path
@@ -64,7 +105,6 @@ class TemplateReference(BaseModel):
             return Path(self.location).expanduser().resolve()
 
         # For git sources, copier handles cloning
-        # Return location as-is for copier to handle
         raise NotImplementedError("Git resolution handled by copier directly")
 
 
@@ -72,39 +112,71 @@ class TemplateValidator:
     """Validates copier templates."""
 
     @staticmethod
-    def validate_structure(template_path: Path) -> dict[str, list[str]]:
-        """Check template directory structure for common issues."""
-        issues = {
-            "errors": [],
-            "warnings": [],
-        }
+    def validate_structure_typed(template_path: Path) -> ValidationResult:
+        """
+        Check template directory structure for common issues.
+
+        Returns structured ValidationResult.
+        """
+        result = ValidationResult()
 
         # Check for copier.yaml or copier.yml
         yaml_files = list(template_path.glob("copier.y*ml"))
         if not yaml_files:
-            issues["errors"].append("No copier.yaml or copier.yml found")
-            return issues
+            result.add_error("No copier.yaml or copier.yml found")
+            return result
 
         if len(yaml_files) > 1:
-            issues["warnings"].append("Multiple copier.yaml files found")
+            result.add_warning("Multiple copier.yaml files found")
 
         # Try to parse the config
         try:
             config = CopierConfig.from_yaml_file(yaml_files[0])
-            validation_errors = config.validate_questions()
+            validation_result = config.validate_questions_structured()
 
-            if validation_errors:
-                for name, error in validation_errors.items():
-                    issues["errors"].append(f"Question '{name}': {error}")
+            # Merge validation results
+            result.errors.extend(validation_result.errors)
+            result.warnings.extend(validation_result.warnings)
 
         except Exception as e:
-            issues["errors"].append(f"Failed to parse copier.yaml: {e}")
+            result.add_error(f"Failed to parse copier.yaml: {e}")
 
-        return issues
+        return result
+
+    @staticmethod
+    def validate_structure(template_path: Path) -> dict[str, list[str]]:
+        """
+        Check template directory structure for common issues.
+
+        Legacy method for backward compatibility.
+        Deprecated: Use validate_structure_typed() instead.
+        """
+        typed_result = TemplateValidator.validate_structure_typed(template_path)
+
+        return {
+            "errors": [issue.message for issue in typed_result.errors],
+            "warnings": [issue.message for issue in typed_result.warnings],
+        }
+
+    @staticmethod
+    def validate_typed(reference: TemplateReference) -> ValidationResult:
+        """Validate a template reference, returning structured result."""
+        if reference.source_type == "file":
+            return TemplateValidator.validate_structure_typed(reference.resolve_path())
+
+        # Git sources can't be validated without cloning
+        result = ValidationResult()
+        result.add_warning("Git sources not validated until use")
+        return result
 
     @staticmethod
     def validate(reference: TemplateReference) -> dict[str, list[str]]:
-        """Validate a template reference."""
+        """
+        Validate a template reference.
+
+        Legacy method for backward compatibility.
+        Deprecated: Use validate_typed() instead.
+        """
         if reference.source_type == "file":
             return TemplateValidator.validate_structure(reference.resolve_path())
 
