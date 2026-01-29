@@ -2,7 +2,7 @@
 from pathlib import Path
 import pytest
 
-from devman.templates import TemplateReference, TemplateValidator
+from devman.domain.templates import TemplateReference, TemplateValidator
 
 
 def test_template_reference_from_file_path(tmp_path: Path):
@@ -53,21 +53,20 @@ def test_template_reference_resolve_file_path(tmp_path: Path):
 
 def test_template_validator_valid_structure():
     fixture = Path("tests/fixtures")
-    ref = TemplateReference(source_type="file", location=str(fixture))
 
-    issues = TemplateValidator.validate(ref)
+    result = TemplateValidator.validate(fixture)
 
-    assert len(issues["errors"]) == 0
+    assert result.is_valid
 
 
 def test_template_validator_missing_copier_yaml(tmp_path: Path):
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
 
-    issues = TemplateValidator.validate_structure(empty_dir)
+    result = TemplateValidator.validate(empty_dir)
 
-    assert len(issues["errors"]) > 0
-    assert any("copier.yaml" in err for err in issues["errors"])
+    assert not result.is_valid
+    assert any("copier.yaml" in e.message for e in result.errors)
 
 
 def test_template_validator_malformed_yaml(tmp_path: Path):
@@ -79,9 +78,9 @@ def test_template_validator_malformed_yaml(tmp_path: Path):
 invalid yaml content [[[
     """)
 
-    issues = TemplateValidator.validate_structure(template_dir)
+    result = TemplateValidator.validate(template_dir)
 
-    assert len(issues["errors"]) > 0
+    assert not result.is_valid
 
 
 # --- Result-based API tests ---
@@ -117,9 +116,18 @@ def test_template_reference_create_handles_invalid_git_url():
 
 def test_template_validator_returns_structured_result():
     fixture = Path("tests/fixtures")
-    result = TemplateValidator.validate_structure_typed(fixture)
+    result = TemplateValidator.validate(fixture)
 
     from devman.domain.models import ValidationResult
 
     assert isinstance(result, ValidationResult)
+    assert result.is_valid
+
+
+def test_template_validator_validate_reference():
+    fixture = Path("tests/fixtures")
+    ref = TemplateReference(source_type="file", location=str(fixture))
+
+    result = TemplateValidator.validate_reference(ref)
+
     assert result.is_valid

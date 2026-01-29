@@ -6,55 +6,18 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
-from copier import run_copy
 
 from devman import __version__
 from devman.application.use_cases import (
+    CreateProjectCommand,
+    CreateProjectUseCase,
     FindDevmanCommand,
     FindDevmanUseCase,
     RunDevenvCommand,
     RunDevenvUseCase,
-    ValidateTemplateCommand,
-    ValidateTemplateUseCase,
 )
-from devman.config import load_config
+from devman.config import ConfigRepository, load_config
 from devman.domain.models import ProjectRoot
-from devman.templates import TemplateReference
-
-
-# Re-export domain DevmanFinder for backward compatibility
-from devman.domain.finder import DevmanFinder as _DomainFinder  # noqa: F401
-
-
-class DevmanFinder:
-    """Locate the nearest devman configuration directory.
-
-    Legacy wrapper for backward compatibility.
-    Prefer using devman.domain.finder.DevmanFinder directly.
-    """
-
-    def __init__(self, projects_root: Path | None = None) -> None:
-        self.projects_root = projects_root
-
-    @classmethod
-    def from_config(cls) -> DevmanFinder:
-        config = load_config()
-        return cls(projects_root=config.projects_root)
-
-    def find(self, start_path: Path | None = None) -> Path | None:
-        """Find .devman directory, returning Path or None for backward compat."""
-        root = None
-        if self.projects_root is not None:
-            root_result = ProjectRoot.create(self.projects_root)
-            if root_result.is_ok():
-                root = root_result.unwrap()
-
-        domain_finder = _DomainFinder(projects_root=root)
-        result = domain_finder.find(start_path=start_path)
-
-        if result.is_ok():
-            return result.unwrap().path
-        return None
 
 
 app = typer.Typer()
@@ -86,7 +49,7 @@ def run(
 
     # Execute find use case
     find_use_case = FindDevmanUseCase()
-    find_command = FindDevmanCommand(projects_root=root)
+    find_command = FindDevmanCommand(start_path=Path.cwd(), projects_root=root)
     find_result = find_use_case.execute(find_command)
 
     if find_result.is_err():
@@ -125,38 +88,8 @@ def new(
     ),
 ) -> None:
     """Create a new project from a copier template."""
-    # Parse template reference
-    try:
-        template_ref = TemplateReference.from_string(template_source)
-    except ValueError as e:
-        typer.echo(f"Invalid template source: {e}", err=True)
-        raise typer.Exit(1)
-
-    # Validate if requested
-    if validate:
-        typer.echo("Validating template...")
-
-        validate_use_case = ValidateTemplateUseCase()
-        validate_command = ValidateTemplateCommand(template_reference=template_ref)
-        validate_result = validate_use_case.execute(validate_command)
-
-        vr = validate_result.validation_result
-
-        if not vr.is_valid:
-            typer.echo("Template validation errors:", err=True)
-            for error in vr.errors:
-                loc = f" ({error.location})" if error.location else ""
-                typer.echo(f"  - {error.message}{loc}", err=True)
-            raise typer.Exit(1)
-
-        if vr.warnings:
-            typer.echo("Template warnings:")
-            for warning in vr.warnings:
-                loc = f" ({warning.location})" if warning.location else ""
-                typer.echo(f"  - {warning.message}{loc}")
-
     # Parse data overrides
-    data_dict = {}
+    data_dict: dict[str, str] = {}
     for item in data:
         if "=" not in item:
             typer.echo(f"Invalid data format: {item} (expected key=value)", err=True)
@@ -164,26 +97,42 @@ def new(
         key, value = item.split("=", 1)
         data_dict[key] = value
 
-    # Run copier
-    try:
-        typer.echo(f"Creating project at {destination}...")
+    # Execute use case
+    use_case = CreateProjectUseCase()
+    command = CreateProjectCommand(
+        template_source=template_source,
+        destination=destination,
+        data=data_dict,
+        validate=validate,
+    )
 
-        source = template_ref.location
-        if template_ref.source_type == "file":
-            source = str(template_ref.resolve_path())
+    typer.echo(f"Creating project at {destination}...")
+    result = use_case.execute(command)
 
-        run_copy(
-            src_path=source,
-            dst_path=str(destination),
-            data=data_dict if data_dict else None,
-            unsafe=True,
-        )
+    if result.is_err():
+        error = result.unwrap_err()
 
-        typer.echo(f"Project created successfully at {destination}")
+        # Show validation errors if present
+        if error.validation_result and not error.validation_result.is_valid:
+            typer.echo("Template validation errors:", err=True)
+            for issue in error.validation_result.errors:
+                loc = f" ({issue.location})" if issue.location else ""
+                typer.echo(f"  - {issue.message}{loc}", err=True)
+        else:
+            typer.echo(error.message, err=True)
 
-    except Exception as e:
-        typer.echo(f"Failed to create project: {e}", err=True)
         raise typer.Exit(1)
+
+    success = result.unwrap()
+
+    # Show warnings if any
+    if success.validation_result and success.validation_result.warnings:
+        typer.echo("Template warnings:")
+        for warning in success.validation_result.warnings:
+            loc = f" ({warning.location})" if warning.location else ""
+            typer.echo(f"  - {warning.message}{loc}")
+
+    typer.echo(f"Project created successfully at {destination}")
 
 
 @app.command()
@@ -199,8 +148,10 @@ def config(
         typer.echo("No configuration changes provided.", err=True)
         raise typer.Exit(1)
 
+    repo = ConfigRepository()
+
     if show:
-        current_config = load_config()
+        current_config = repo.load()
         typer.echo("Current configuration:")
         if current_config.projects_root is None:
             typer.echo("  projects_root: (not set)")
@@ -208,14 +159,9 @@ def config(
             typer.echo(f"  projects_root: {current_config.projects_root}")
 
     if projects_root is not None:
-        config_path = Path("~/.config/devman/config.env").expanduser()
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        resolved_root = projects_root.expanduser().resolve()
-        config_path.write_text(
-            f"DEVMAN_PROJECTS_ROOT={resolved_root}\n",
-            encoding="utf-8",
-        )
-        typer.echo(f"Updated projects root to {resolved_root}.")
+        repo.save_projects_root(projects_root)
+        resolved = projects_root.expanduser().resolve()
+        typer.echo(f"Updated projects root to {resolved}.")
 
 
 @app.command()

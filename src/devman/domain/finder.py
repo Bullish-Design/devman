@@ -5,6 +5,7 @@ from pathlib import Path
 
 from result import Err, Result
 
+from devman.constants import DEVMAN_DIR_NAME
 from devman.domain.errors import DevmanNotFoundError
 from devman.domain.models import DevmanDirectory, ProjectRoot
 
@@ -22,24 +23,24 @@ class DevmanFinder:
         self.projects_root = projects_root
 
     def find(
-        self, start_path: Path | None = None
+        self, start_path: Path
     ) -> Result[DevmanDirectory, DevmanNotFoundError]:
         """
         Locate nearest .devman directory by traversing up from start_path.
 
         Args:
-            start_path: Starting point for search (defaults to cwd)
+            start_path: Starting point for search
 
         Returns:
             Ok(DevmanDirectory) if found, Err(DevmanNotFoundError) otherwise
         """
-        current = (start_path or Path.cwd()).resolve()
+        current = start_path.resolve()
         search_root = current
 
         projects_root_path = self.projects_root.path if self.projects_root else None
 
         while True:
-            candidate = current / ".devman"
+            candidate = current / DEVMAN_DIR_NAME
 
             if candidate.is_dir():
                 return DevmanDirectory.create(candidate)
@@ -48,7 +49,7 @@ class DevmanFinder:
             if projects_root_path is not None and current == projects_root_path:
                 return Err(
                     DevmanNotFoundError(
-                        message=f"No .devman found within projects root: {projects_root_path}",
+                        message=f"No {DEVMAN_DIR_NAME} found within projects root: {projects_root_path}",
                         search_root=search_root,
                     )
                 )
@@ -57,7 +58,7 @@ class DevmanFinder:
             if current.parent == current:
                 return Err(
                     DevmanNotFoundError(
-                        message=f"No .devman found in tree: {search_root}",
+                        message=f"No {DEVMAN_DIR_NAME} found in tree: {search_root}",
                         search_root=search_root,
                     )
                 )
