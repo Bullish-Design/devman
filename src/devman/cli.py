@@ -38,10 +38,24 @@ class DevmanFinder:
 app = typer.Typer()
 
 
-@app.command()
-def hello(name: str = typer.Argument("world")) -> None:
-    """Say hello."""
-    typer.echo(f"Hello, {name}!")
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def run(
+    ctx: typer.Context,
+    projects_root: Path | None = typer.Option(None, "--projects-root"),
+) -> None:
+    """Run a command within the nearest devman project."""
+    if projects_root is None:
+        finder = DevmanFinder.from_config()
+    else:
+        finder = DevmanFinder(projects_root=projects_root)
+
+    devman_dir = finder.find()
+    if devman_dir is None:
+        typer.echo("No .devman directory found.", err=True)
+        raise typer.Exit(1)
+
+    result = subprocess.run(["devenv", *ctx.args], cwd=devman_dir)
+    raise typer.Exit(result.returncode)
 
 
 @app.command()
