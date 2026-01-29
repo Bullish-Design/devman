@@ -1,0 +1,25 @@
+_subdirectory: template
+_templates_suffix: .jinja
+_skip_if_exists:
+  - README.md
+
+project_name:
+  type: str
+  help: What is your project name?
+
+use_docker:
+  type: bool
+  help: Include Docker configuration?
+  default: false
+
+python_version:
+  type: str
+  help: Python version
+  default: "3.13"
+  choices:
+    - "3.11"
+    - "3.12"
+    - "3.13"
+
+_tasks:
+  - echo "Template copied successfully"
