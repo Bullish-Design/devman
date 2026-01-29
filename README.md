@@ -1,41 +1,104 @@
 # devman
 
-devman is a small CLI for working with projects that contain a `.devman` directory. It locates the nearest `.devman` directory (optionally rooted at a configured projects directory) and runs `devenv` commands there.
+devman is a CLI for managing devenv-based projects and creating new projects from copier templates.
+
+## Features
+
+- **Project Finder**: Locate and run commands in the nearest `.devman` directory
+- **Template System**: Create new projects from copier templates (local or git)
+- **Configuration**: Store project root directory for scoped searches
+- **Validation**: Validate copier templates before use
 
 ## Installation
 
-1. Ensure you have Python 3.11+ and `devenv` installed.
-2. Clone this repository.
-3. Install the project dependencies (for example, with `pip install -e .`).
-
-## Configuration
-
-Use `devman config --projects-root` to store a default projects root in `~/.config/devman/config.env`. This value is used by `devman run` to stop searching for `.devman` once it reaches that directory.
-
+### As UV Tool (Recommended)
 ```bash
-# Set the projects root directory
-$ devman config --projects-root ~/projects
+uv tool install git+https://github.com/Bullish-Design/devman.git
+```
 
-# Show the current configuration
-$ devman config --show
+### From Source
+```bash
+git clone https://github.com/Bullish-Design/devman.git
+cd devman
+uv sync
 ```
 
 ## Usage
 
-`devman run` finds the nearest `.devman` directory from your current working directory (or from the configured projects root) and executes `devenv` with any additional arguments.
-
+### Create New Project
 ```bash
-# Run a devenv command from within the nearest .devman project
-$ devman run up
+# From local template
+devman new ./my-template ./new-project
 
-# Show the installed version
-$ devman version
+# From git repository
+devman new https://github.com/user/template.git ./new-project
+
+# With data overrides
+devman new gh:user/template ./project --data project_name=MyApp --data use_docker=true
+
+# Skip validation
+devman new ./template ./project --no-validate
 ```
+
+### Find and Run DevEnv
+```bash
+# Run devenv command in nearest .devman directory
+devman run up
+
+# Set projects root to limit search scope
+devman config --projects-root ~/projects
+devman run shell
+```
+
+### Validate Templates
+```bash
+# Using CLI
+uv run scripts/validate_copier.py ./my-template
+
+# Generate example template
+uv run scripts/generate_example.py ./copier.yaml
+```
+
+## Template Format
+
+Templates use the [copier](https://copier.readthedocs.io/) format:
+```yaml
+_subdirectory: template
+_templates_suffix: .jinja
+
+project_name:
+  type: str
+  help: What is your project name?
+
+use_docker:
+  type: bool
+  default: false
+
+_tasks:
+  - git init
+  - echo 'Done!'
+```
+
+See `tests/fixtures/example_copier.yaml` for a complete example.
 
 ## Available Commands
 
 - `devman run [ARGS...]`: Run `devenv` with the provided arguments in the nearest `.devman` directory.
+- `devman new TEMPLATE DESTINATION`: Create a new project from a copier template.
 - `devman config --projects-root PATH`: Set the default projects root directory.
 - `devman config --show`: Show the current configuration.
 - `devman version`: Print the current devman version.
 - `devman hello NAME`: Print a greeting.
+
+## Development
+```bash
+# Install dev dependencies
+uv sync --all-extras
+
+# Run tests
+pytest
+
+# Run linters
+ruff check src/
+mypy src/
+```
