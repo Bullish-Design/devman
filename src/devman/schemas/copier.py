@@ -5,18 +5,14 @@ import yaml
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from devman.schemas.questions import (
-    StrQuestion,
-    BoolQuestion,
+    BaseQuestion,
     ChoiceQuestion,
-    IntQuestion,
-    FloatQuestion,
-    YamlQuestion,
-    JsonQuestion,
+    parse_question,
 )
-from devman.schemas.tasks import TaskList
+from devman.domain.models import ValidationResult
 
 
 class CopierConfig(BaseModel):
@@ -30,12 +26,12 @@ class CopierConfig(BaseModel):
     migrations: list[dict[str, Any]] = Field(default_factory=list, alias="_migrations")
     jinja_extensions: list[str] = Field(default_factory=list, alias="_jinja_extensions")
 
-    # Question fields (dynamic)
+    # Question fields - accepts both raw dicts and typed Question objects
     questions: dict[str, Any] = Field(default_factory=dict)
 
     model_config = {
         "populate_by_name": True,
-        "extra": "allow",  # Allow extra fields for custom questions
+        "extra": "allow",
     }
 
     @classmethod
@@ -44,21 +40,33 @@ class CopierConfig(BaseModel):
         content = yaml.safe_load(path.read_text())
 
         # Separate metadata fields from questions
-        questions = {}
-        metadata = {}
+        questions_raw: dict[str, Any] = {}
+        metadata: dict[str, Any] = {}
 
         for key, value in content.items():
             if key.startswith("_"):
                 metadata[key] = value
             else:
-                questions[key] = value
+                questions_raw[key] = value
 
-        metadata["questions"] = questions
+        # Parse questions into typed objects where possible
+        questions_typed: dict[str, Any] = {}
+        for name, spec in questions_raw.items():
+            if isinstance(spec, dict):
+                try:
+                    questions_typed[name] = parse_question(name, spec)
+                except Exception:
+                    # Keep as raw dict if parsing fails
+                    questions_typed[name] = spec
+            else:
+                questions_typed[name] = spec
+
+        metadata["questions"] = questions_typed
         return cls(**metadata)
 
     def to_yaml_file(self, path: Path) -> None:
         """Write configuration to copier.yaml format."""
-        output = {}
+        output: dict[str, Any] = {}
 
         # Add metadata fields
         if self.subdirectory:
@@ -74,20 +82,67 @@ class CopierConfig(BaseModel):
         if self.jinja_extensions:
             output["_jinja_extensions"] = self.jinja_extensions
 
-        # Add questions
-        output.update(self.questions)
+        # Add questions - convert typed objects back to dict format
+        for name, question in self.questions.items():
+            if isinstance(question, BaseQuestion):
+                output[name] = question.model_dump(
+                    exclude_none=True, exclude_unset=True, by_alias=False
+                )
+            else:
+                output[name] = question
 
         path.write_text(yaml.dump(output, sort_keys=False))
 
-    def validate_questions(self) -> dict[str, str]:
-        """Validate question structures and return any errors."""
-        errors = {}
+    def validate_questions_structured(self) -> ValidationResult:
+        """
+        Validate question structures with detailed error tracking.
+
+        Returns structured ValidationResult instead of dict[str, str].
+        """
+        result = ValidationResult()
 
         for name, spec in self.questions.items():
+            if isinstance(spec, BaseQuestion):
+                # Already parsed - apply business rules
+                if isinstance(spec, ChoiceQuestion) and not spec.choices:
+                    result.add_warning(
+                        "Choice question has no choices defined",
+                        location=name,
+                        code="EMPTY_CHOICES",
+                    )
+            elif isinstance(spec, dict):
+                # Raw dict - validate structure
+                if "type" not in spec:
+                    result.add_error(
+                        "Question missing 'type' field",
+                        location=name,
+                        code="MISSING_TYPE",
+                    )
+            else:
+                result.add_error(
+                    "Question must be a dictionary",
+                    location=name,
+                    code="INVALID_FORMAT",
+                )
+
+        return result
+
+    def validate_questions(self) -> dict[str, str]:
+        """
+        Validate question structures and return any errors.
+
+        Legacy method for backward compatibility.
+        Deprecated: Use validate_questions_structured() instead.
+        """
+        errors: dict[str, str] = {}
+
+        for name, spec in self.questions.items():
+            if isinstance(spec, BaseQuestion):
+                # Already typed - valid
+                continue
             if not isinstance(spec, dict):
                 errors[name] = "Question must be a dictionary"
                 continue
-
             if "type" not in spec:
                 errors[name] = "Question missing 'type' field"
 

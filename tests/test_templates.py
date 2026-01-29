@@ -82,3 +82,44 @@ invalid yaml content [[[
     issues = TemplateValidator.validate_structure(template_dir)
 
     assert len(issues["errors"]) > 0
+
+
+# --- Result-based API tests ---
+
+
+def test_template_reference_create_returns_result(tmp_path: Path):
+    template_dir = tmp_path / "template"
+    template_dir.mkdir()
+
+    result = TemplateReference.create("file", str(template_dir))
+
+    assert result.is_ok()
+    assert result.unwrap().source_type == "file"
+
+
+def test_template_reference_create_handles_missing_path():
+    result = TemplateReference.create("file", "/nonexistent/path")
+
+    assert result.is_err()
+    from devman.domain.errors import PathNotFoundError
+
+    assert isinstance(result.unwrap_err(), PathNotFoundError)
+
+
+def test_template_reference_create_handles_invalid_git_url():
+    result = TemplateReference.create("git", "not-a-url")
+
+    assert result.is_err()
+    from devman.domain.errors import InvalidGitUrlError
+
+    assert isinstance(result.unwrap_err(), InvalidGitUrlError)
+
+
+def test_template_validator_returns_structured_result():
+    fixture = Path("tests/fixtures")
+    result = TemplateValidator.validate_structure_typed(fixture)
+
+    from devman.domain.models import ValidationResult
+
+    assert isinstance(result, ValidationResult)
+    assert result.is_valid

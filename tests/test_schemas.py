@@ -186,3 +186,63 @@ def test_example_fixture_parsing():
     assert "project_name" in config.questions
     assert "python_version" in config.questions
     assert len(config.tasks) > 0
+
+
+# --- Typed question tests ---
+
+
+def test_task_list_to_yaml_format_command_as_list():
+    """Ensure list commands handled correctly without when clause."""
+    tasks = TaskList(tasks=[Task(command=["pip", "install", "-e", "."])])
+    yaml_format = tasks.to_yaml_format()
+    assert yaml_format == [["pip", "install", "-e", "."]]
+
+
+def test_copier_config_parses_typed_questions(tmp_path: Path):
+    yaml_content = """
+_subdirectory: template
+
+project_name:
+  type: str
+  help: Project name
+
+port:
+  type: int
+  default: 8080
+
+use_docker:
+  type: bool
+  default: false
+"""
+    yaml_file = tmp_path / "copier.yaml"
+    yaml_file.write_text(yaml_content)
+
+    config = CopierConfig.from_yaml_file(yaml_file)
+
+    # Check that questions are now typed objects
+    from devman.schemas.questions import StrQuestion, IntQuestion, BoolQuestion
+
+    assert isinstance(config.questions["project_name"], StrQuestion)
+    assert isinstance(config.questions["port"], IntQuestion)
+    assert isinstance(config.questions["use_docker"], BoolQuestion)
+
+    assert config.questions["port"].default == 8080
+
+
+def test_copier_config_structured_validation():
+    from devman.schemas.questions import ChoiceQuestion
+
+    config = CopierConfig(
+        questions={
+            "license": ChoiceQuestion(
+                type="str",
+                help="License",
+                choices=[],  # Empty choices - should warn
+            ),
+        }
+    )
+
+    result = config.validate_questions_structured()
+
+    assert len(result.warnings) == 1
+    assert result.warnings[0].code == "EMPTY_CHOICES"

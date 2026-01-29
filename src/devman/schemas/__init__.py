@@ -8,6 +8,8 @@ from devman.schemas.questions import (
     FloatQuestion,
     YamlQuestion,
     JsonQuestion,
+    Question,
+    parse_question,
 )
 from devman.schemas.tasks import Task, TaskList
 
@@ -20,6 +22,8 @@ __all__ = [
     "FloatQuestion",
     "YamlQuestion",
     "JsonQuestion",
+    "Question",
+    "parse_question",
     "Task",
     "TaskList",
 ]
