@@ -94,3 +94,9 @@ def config(
 def version() -> None:
     """Show the devman version."""
     typer.echo("devman 0.1.0")
+
+
+@app.command()
+def hello(name: str) -> None:
+    """Say hello to the provided name."""
+    typer.echo(f"Hello, {name}!")
