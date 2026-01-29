@@ -59,6 +59,38 @@ def run(
 
 
 @app.command()
+def config(
+    projects_root: Path | None = typer.Option(
+        None,
+        help="Set projects root directory",
+    ),
+    show: bool = typer.Option(False, "--show", help="Show current configuration"),
+) -> None:
+    """Show or update devman configuration."""
+    if projects_root is None and not show:
+        typer.echo("No configuration changes provided.", err=True)
+        raise typer.Exit(1)
+
+    if show:
+        current_config = load_config()
+        typer.echo("Current configuration:")
+        if current_config.projects_root is None:
+            typer.echo("  projects_root: (not set)")
+        else:
+            typer.echo(f"  projects_root: {current_config.projects_root}")
+
+    if projects_root is not None:
+        config_path = Path("~/.config/devman/config.env").expanduser()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        resolved_root = projects_root.expanduser().resolve()
+        config_path.write_text(
+            f"DEVMAN_PROJECTS_ROOT={resolved_root}\n",
+            encoding="utf-8",
+        )
+        typer.echo(f"Updated projects root to {resolved_root}.")
+
+
+@app.command()
 def version() -> None:
     """Show the devman version."""
     typer.echo("devman 0.1.0")
