@@ -1,23 +1,28 @@
 # src/devman/application/use_cases.py
 from __future__ import annotations
 
-import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from result import Err, Ok, Result
 
-from devman.domain.errors import DomainError, DevmanNotFoundError
+from devman.constants import DEVENV_COMMAND
+from devman.domain.errors import DevmanNotFoundError
 from devman.domain.finder import DevmanFinder
 from devman.domain.models import DevmanDirectory, ProjectRoot, ValidationResult
-from devman.templates import TemplateReference, TemplateValidator
+from devman.domain.protocols import (
+    CommandError,
+    CommandExecutor,
+    SubprocessExecutor,
+)
+from devman.domain.templates import TemplateReference, TemplateValidator
 
 
 @dataclass(frozen=True)
 class FindDevmanCommand:
     """Command to locate .devman directory."""
 
-    start_path: Path | None = None
+    start_path: Path
     projects_root: ProjectRoot | None = None
 
 
@@ -58,47 +63,22 @@ class RunDevenvResult:
     exit_code: int
 
 
-@dataclass(frozen=True)
-class RunDevenvError(DomainError):
-    """Error running devenv command."""
-
-    exit_code: int
-    stderr: str | None = None
-
-
 class RunDevenvUseCase:
     """Use case: Execute devenv command in .devman directory."""
 
+    def __init__(self, executor: CommandExecutor | None = None) -> None:
+        self._executor = executor or SubprocessExecutor()
+
     def execute(
         self, command: RunDevenvCommand
-    ) -> Result[RunDevenvResult, RunDevenvError]:
+    ) -> Result[RunDevenvResult, CommandError]:
         """Execute devenv with provided arguments."""
-        try:
-            result = subprocess.run(
-                ["devenv", *command.devenv_args],
-                cwd=command.devman_directory.path,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            return Ok(RunDevenvResult(exit_code=result.returncode))
+        result = self._executor.execute(
+            args=[DEVENV_COMMAND, *command.devenv_args],
+            cwd=command.devman_directory.path,
+        )
 
-        except subprocess.CalledProcessError as e:
-            return Err(
-                RunDevenvError(
-                    message=f"devenv failed with exit code {e.returncode}",
-                    exit_code=e.returncode,
-                    stderr=e.stderr if e.stderr else None,
-                )
-            )
-
-        except FileNotFoundError:
-            return Err(
-                RunDevenvError(
-                    message="devenv command not found",
-                    exit_code=127,
-                )
-            )
+        return result.map(lambda r: RunDevenvResult(exit_code=r.exit_code))
 
 
 @dataclass(frozen=True)
@@ -124,5 +104,89 @@ class ValidateTemplateUseCase:
 
     def execute(self, command: ValidateTemplateCommand) -> ValidateTemplateResult:
         """Execute validation."""
-        validation_result = TemplateValidator.validate_typed(command.template_reference)
+        validation_result = TemplateValidator.validate_reference(
+            command.template_reference
+        )
         return ValidateTemplateResult(validation_result=validation_result)
+
+
+@dataclass(frozen=True)
+class CreateProjectCommand:
+    """Command to create a new project from a template."""
+
+    template_source: str
+    destination: Path
+    data: dict[str, str] = field(default_factory=dict)
+    validate: bool = True
+
+
+@dataclass(frozen=True)
+class CreateProjectResult:
+    """Result of project creation."""
+
+    destination: Path
+    validation_result: ValidationResult | None = None
+
+
+@dataclass(frozen=True)
+class CreateProjectError:
+    """Error during project creation."""
+
+    message: str
+    validation_result: ValidationResult | None = None
+
+
+class CreateProjectUseCase:
+    """Use case: Create a new project from a copier template."""
+
+    def execute(
+        self, command: CreateProjectCommand
+    ) -> Result[CreateProjectResult, CreateProjectError]:
+        """Execute project creation."""
+        # Parse template reference
+        try:
+            template_ref = TemplateReference.from_string(command.template_source)
+        except ValueError as e:
+            return Err(
+                CreateProjectError(message=f"Invalid template source: {e}")
+            )
+
+        # Validate if requested
+        validation_result: ValidationResult | None = None
+        if command.validate:
+            validation_result = TemplateValidator.validate_reference(template_ref)
+
+            if not validation_result.is_valid:
+                return Err(
+                    CreateProjectError(
+                        message="Template validation failed",
+                        validation_result=validation_result,
+                    )
+                )
+
+        # Resolve source path
+        source = template_ref.location
+        if template_ref.source_type == "file":
+            source = str(template_ref.resolve_path())
+
+        # Run copier
+        try:
+            from copier import run_copy
+
+            run_copy(
+                src_path=source,
+                dst_path=str(command.destination),
+                data=command.data if command.data else None,
+                unsafe=True,
+            )
+        except Exception as e:
+            return Err(
+                CreateProjectError(message=f"Failed to create project: {e}")
+            )
+
+        return Ok(
+            CreateProjectResult(
+                destination=command.destination,
+                validation_result=validation_result,
+            )
+        )

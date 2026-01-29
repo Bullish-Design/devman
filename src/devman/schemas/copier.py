@@ -93,12 +93,8 @@ class CopierConfig(BaseModel):
 
         path.write_text(yaml.dump(output, sort_keys=False))
 
-    def validate_questions_structured(self) -> ValidationResult:
-        """
-        Validate question structures with detailed error tracking.
-
-        Returns structured ValidationResult instead of dict[str, str].
-        """
+    def validate_questions(self) -> ValidationResult:
+        """Validate question structures with detailed error tracking."""
         result = ValidationResult()
 
         for name, spec in self.questions.items():
@@ -126,24 +122,3 @@ class CopierConfig(BaseModel):
                 )
 
         return result
-
-    def validate_questions(self) -> dict[str, str]:
-        """
-        Validate question structures and return any errors.
-
-        Legacy method for backward compatibility.
-        Deprecated: Use validate_questions_structured() instead.
-        """
-        errors: dict[str, str] = {}
-
-        for name, spec in self.questions.items():
-            if isinstance(spec, BaseQuestion):
-                # Already typed - valid
-                continue
-            if not isinstance(spec, dict):
-                errors[name] = "Question must be a dictionary"
-                continue
-            if "type" not in spec:
-                errors[name] = "Question missing 'type' field"
-
-        return errors

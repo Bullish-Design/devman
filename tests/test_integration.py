@@ -35,12 +35,12 @@ def test_full_workflow_local_template(tmp_path: Path):
     (template_content_dir / "README.md.jinja").write_text("# {{ project_name }}")
 
     # Step 2: Validate template
-    from devman.templates import TemplateReference, TemplateValidator
+    from devman.domain.templates import TemplateReference, TemplateValidator
 
     ref = TemplateReference(source_type="file", location=str(template_dir))
-    issues = TemplateValidator.validate(ref)
+    result = TemplateValidator.validate_reference(ref)
 
-    assert len(issues["errors"]) == 0
+    assert result.is_valid
 
     # Step 3: Instantiate via CLI
     dest_dir = tmp_path / "new_project"
@@ -91,8 +91,8 @@ def test_example_fixture_is_valid():
     """Ensure example fixture is valid and can be used."""
     fixture_path = Path("tests/fixtures")
 
-    from devman.templates import TemplateValidator
+    from devman.domain.templates import TemplateValidator
 
-    issues = TemplateValidator.validate_structure(fixture_path)
+    result = TemplateValidator.validate(fixture_path)
 
-    assert len(issues["errors"]) == 0, f"Fixture has errors: {issues['errors']}"
+    assert result.is_valid, f"Fixture has errors: {[e.message for e in result.errors]}"

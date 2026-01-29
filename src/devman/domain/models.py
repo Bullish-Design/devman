@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator
 from result import Err, Ok, Result
 
+from devman.constants import DEVMAN_DIR_NAME
 from devman.domain.errors import PathNotDirectoryError, PathNotFoundError
 
 
@@ -21,7 +22,7 @@ class ValidationIssue(BaseModel):
 
 
 class ValidationResult(BaseModel):
-    """Structured validation result replacing dict[str, list[str]]."""
+    """Structured validation result."""
 
     errors: list[ValidationIssue] = Field(default_factory=list)
     warnings: list[ValidationIssue] = Field(default_factory=list)
@@ -104,10 +105,10 @@ class DevmanDirectory(BaseModel):
         resolved = v.resolve()
 
         if not resolved.exists():
-            raise ValueError(f".devman directory does not exist: {resolved}")
+            raise ValueError(f"{DEVMAN_DIR_NAME} directory does not exist: {resolved}")
 
-        if resolved.name != ".devman":
-            raise ValueError(f"Path must end with .devman: {resolved}")
+        if resolved.name != DEVMAN_DIR_NAME:
+            raise ValueError(f"Path must end with {DEVMAN_DIR_NAME}: {resolved}")
 
         return resolved
 

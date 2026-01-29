@@ -50,7 +50,7 @@ class BoolQuestion(BaseQuestion):
 class ChoiceQuestion(BaseQuestion):
     """Multiple choice question."""
 
-    type: Literal["str"] = "str"
+    type: Literal["choice"] = "choice"
     choices: list[str] | dict[str, str] = Field(default_factory=list)
     default: str | None = None
 
@@ -69,9 +69,7 @@ class JsonQuestion(BaseQuestion):
     default: dict[str, Any] | list[Any] | None = None
 
 
-# Annotated union type for all questions.
-# Note: ChoiceQuestion and StrQuestion share type="str", so we cannot use
-# Field(discriminator="type"). Use parse_question() for type-safe parsing.
+# With distinct type values, we can now use Pydantic discriminated unions.
 Question = Annotated[
     StrQuestion
     | IntQuestion
@@ -80,7 +78,7 @@ Question = Annotated[
     | ChoiceQuestion
     | YamlQuestion
     | JsonQuestion,
-    Field(description="Union of all copier question types"),
+    Field(discriminator="type"),
 ]
 
 
@@ -88,7 +86,9 @@ def parse_question(name: str, spec: dict[str, Any]) -> Question:
     """
     Parse raw question dict into typed Question object.
 
-    Uses the 'type' field and presence of 'choices' to disambiguate.
+    Uses the 'type' field to select the correct Question class.
+    For backward compatibility, type="str" with a "choices" key
+    is automatically upgraded to type="choice".
 
     Raises:
         ValueError: If spec cannot be parsed into a known question type
@@ -100,8 +100,9 @@ def parse_question(name: str, spec: dict[str, Any]) -> Question:
 
     q_type = spec.get("type", "str")
 
-    # Disambiguate StrQuestion vs ChoiceQuestion (both have type="str")
+    # Backward compatibility: str + choices -> choice
     if q_type == "str" and "choices" in spec:
+        spec = {**spec, "type": "choice"}
         return ChoiceQuestion(**spec)
 
     type_map: dict[str, type[BaseQuestion]] = {
@@ -109,6 +110,7 @@ def parse_question(name: str, spec: dict[str, Any]) -> Question:
         "int": IntQuestion,
         "float": FloatQuestion,
         "bool": BoolQuestion,
+        "choice": ChoiceQuestion,
         "yaml": YamlQuestion,
         "json": JsonQuestion,
     }

@@ -1,6 +1,9 @@
+# tests/test_finder.py
+"""Tests for DevmanFinder domain service."""
 from pathlib import Path
 
-from devman.cli import DevmanFinder
+from devman.domain.finder import DevmanFinder
+from devman.domain.models import ProjectRoot
 
 
 def test_finds_devman_from_root(tmp_path: Path) -> None:
@@ -8,8 +11,10 @@ def test_finds_devman_from_root(tmp_path: Path) -> None:
     devman_dir.mkdir()
 
     finder = DevmanFinder()
+    result = finder.find(start_path=tmp_path)
 
-    assert finder.find(start_path=tmp_path) == devman_dir
+    assert result.is_ok()
+    assert result.unwrap().path == devman_dir
 
 
 def test_finds_devman_from_nested_dir(tmp_path: Path) -> None:
@@ -19,17 +24,20 @@ def test_finds_devman_from_nested_dir(tmp_path: Path) -> None:
     nested.mkdir(parents=True)
 
     finder = DevmanFinder()
+    result = finder.find(start_path=nested)
 
-    assert finder.find(start_path=nested) == devman_dir
+    assert result.is_ok()
+    assert result.unwrap().path == devman_dir
 
 
-def test_returns_none_when_not_found(tmp_path: Path) -> None:
+def test_returns_error_when_not_found(tmp_path: Path) -> None:
     nested = tmp_path / "nested"
     nested.mkdir()
 
     finder = DevmanFinder()
+    result = finder.find(start_path=nested)
 
-    assert finder.find(start_path=nested) is None
+    assert result.is_err()
 
 
 def test_respects_projects_root_boundary(tmp_path: Path) -> None:
@@ -39,9 +47,10 @@ def test_respects_projects_root_boundary(tmp_path: Path) -> None:
     project.mkdir()
     (tmp_path / ".devman").mkdir()
 
-    finder = DevmanFinder(projects_root=projects_root)
+    finder = DevmanFinder(projects_root=ProjectRoot(path=projects_root))
+    result = finder.find(start_path=project)
 
-    assert finder.find(start_path=project) is None
+    assert result.is_err()
 
 
 def test_finds_within_projects_root(tmp_path: Path) -> None:
@@ -52,6 +61,8 @@ def test_finds_within_projects_root(tmp_path: Path) -> None:
     devman_dir = projects_root / ".devman"
     devman_dir.mkdir()
 
-    finder = DevmanFinder(projects_root=projects_root)
+    finder = DevmanFinder(projects_root=ProjectRoot(path=projects_root))
+    result = finder.find(start_path=project)
 
-    assert finder.find(start_path=project) == devman_dir
+    assert result.is_ok()
+    assert result.unwrap().path == devman_dir

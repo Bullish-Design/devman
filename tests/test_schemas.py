@@ -28,18 +28,19 @@ def test_bool_question_with_default():
 
 def test_choice_question_with_list():
     q = ChoiceQuestion(
-        type="str",
+        type="choice",
         help="Select version",
         choices=["3.11", "3.12", "3.13"],
         default="3.13",
     )
     assert len(q.choices) == 3
     assert q.default == "3.13"
+    assert q.type == "choice"
 
 
 def test_choice_question_with_dict():
     q = ChoiceQuestion(
-        type="str",
+        type="choice",
         help="Select license",
         choices={"mit": "MIT License", "apache": "Apache 2.0"},
     )
@@ -170,11 +171,14 @@ def test_copier_config_validate_questions():
         }
     )
 
-    errors = config.validate_questions()
+    result = config.validate_questions()
 
-    assert "valid" not in errors
-    assert "invalid" in errors
-    assert "missing_type" in errors
+    # valid should have no issues
+    assert not any(e.location == "valid" for e in result.errors)
+    # invalid should be flagged
+    assert any(e.location == "invalid" for e in result.errors)
+    # missing_type should be flagged
+    assert any(e.location == "missing_type" for e in result.errors)
 
 
 def test_example_fixture_parsing():
@@ -235,14 +239,33 @@ def test_copier_config_structured_validation():
     config = CopierConfig(
         questions={
             "license": ChoiceQuestion(
-                type="str",
+                type="choice",
                 help="License",
                 choices=[],  # Empty choices - should warn
             ),
         }
     )
 
-    result = config.validate_questions_structured()
+    result = config.validate_questions()
 
     assert len(result.warnings) == 1
     assert result.warnings[0].code == "EMPTY_CHOICES"
+
+
+def test_choice_question_parsed_from_yaml_with_str_type(tmp_path: Path):
+    """Backward compat: type=str with choices is auto-upgraded to type=choice."""
+    yaml_content = """
+python_version:
+  type: str
+  help: Python version
+  choices:
+    - "3.11"
+    - "3.12"
+"""
+    yaml_file = tmp_path / "copier.yaml"
+    yaml_file.write_text(yaml_content)
+
+    config = CopierConfig.from_yaml_file(yaml_file)
+
+    assert isinstance(config.questions["python_version"], ChoiceQuestion)
+    assert config.questions["python_version"].type == "choice"
