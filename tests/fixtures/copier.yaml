@@ -7,6 +7,12 @@ project_name:
   type: str
   help: What is your project name?
 
+project_slug:
+  type: str
+  help: "Project slug (lowercase letters, numbers, and hyphens; must start with a letter)."
+  default: "{{ project_name | lower | replace('_', '-') | replace(' ', '-') }}"
+  validator: "^[a-z][a-z0-9-]*$"
+
 use_docker:
   type: bool
   help: Include Docker configuration?
