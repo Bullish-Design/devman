@@ -31,5 +31,24 @@ in
     cd "${root}"
     just test "$@"
   '';
-  
+
+  enterShell = ''
+    echo
+    echo --------------------------------------------------------
+    echo
+    echo " Welcome to the Devman development environment! "
+    # echo
+    # echo " To get started, try running: devman launch"
+    echo
+    echo --------------------------------------------------------
+    echo
+    git --version
+    # echo
+    # echo IWD: "$(pwd)"
+    echo
+    cd "${root}"
+    echo PWD: "$(pwd)"
+    echo
+  '';
+
 }

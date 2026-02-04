@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+
 from pathlib import Path
 
 import typer
@@ -74,6 +77,67 @@ def run(
         raise typer.Exit(error.exit_code)
 
     raise typer.Exit(run_result.unwrap().exit_code)
+
+
+@app.command()
+def launch(
+    projects_root: Path | None = typer.Option(None, "--projects-root"),
+    shell: str = typer.Option("zsh", "--shell", "-s", help="Shell to launch"),
+) -> None:
+    """Launch devenv services and enter interactive shell."""
+    import os
+    import subprocess
+
+    # Build projects root if provided
+    root: ProjectRoot | None = None
+    if projects_root:
+        root_result = ProjectRoot.create(projects_root)
+        if root_result.is_err():
+            typer.echo(f"Invalid projects root: {root_result.unwrap_err()}", err=True)
+            raise typer.Exit(1)
+        root = root_result.unwrap()
+    else:
+        config = load_config()
+        if config.projects_root:
+            root_result = ProjectRoot.create(config.projects_root)
+            if root_result.is_ok():
+                root = root_result.unwrap()
+
+    # Find .devman directory
+    find_use_case = FindDevmanUseCase()
+    find_command = FindDevmanCommand(start_path=Path.cwd(), projects_root=root)
+    find_result = find_use_case.execute(find_command)
+
+    if find_result.is_err():
+        typer.echo(str(find_result.unwrap_err()), err=True)
+        raise typer.Exit(1)
+
+    devman_dir = find_result.unwrap().devman_directory
+
+    # Start services in detached mode (allow failure if no processes defined)
+    result = subprocess.run(
+        ["devenv", "up", "-d"],
+        cwd=devman_dir.path,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        if (
+            "No processes defined" in result.stderr
+            or "No 'processes' option" in result.stderr
+        ):
+            typer.echo("No processes defined, skipping service startup.")
+        else:
+            typer.echo(f"Warning: Failed to start services: {result.stderr.strip()}")
+
+    typer.echo()  # Blank line
+
+    # Replace current process with interactive shell, starting in project root
+    os.chdir(devman_dir.path)
+    os.execvp(
+        "devenv", ["devenv", "shell", shell]
+    )  # , "-c", f"cd .. && exec {shell}"])
 
 
 @app.command()
