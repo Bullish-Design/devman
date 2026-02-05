@@ -1,240 +1,174 @@
-# src/devman/cli.py
-"""Command-line interface for devman."""
-
 from __future__ import annotations
 
-import os
-import subprocess
-
-from pathlib import Path
-
 import typer
+from pathlib import Path
+from rich.console import Console
 
-from devman import __version__
-from devman.application.use_cases import (
-    CreateProjectCommand,
-    CreateProjectUseCase,
-    FindDevmanCommand,
-    FindDevmanUseCase,
-    RunDevenvCommand,
-    RunDevenvUseCase,
+app = typer.Typer(
+    name="devman",
+    help="Self-bootstrapping file-oriented learning system",
+    add_completion=False,
 )
-from devman.config import ConfigRepository, load_config
-from devman.domain.models import ProjectRoot
+console = Console()
 
 
-app = typer.Typer()
+@app.command()
+def init():
+    """Initialize devman store with git-backed templates."""
+    from devman.bootstrap import init_devman_store
+
+    try:
+        store_path = init_devman_store()
+        console.print(f"[green]OK[/green] Devman store initialized: {store_path}")
+        console.print("  Git repository created with tag v0.1.0")
+    except ValueError as e:
+        console.print(f"[red]Error[/red] {e}")
+        raise typer.Exit(1)
 
 
-@app.command(
-    context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
-)
-def run(
-    ctx: typer.Context,
-    projects_root: Path | None = typer.Option(None, "--projects-root"),
-) -> None:
-    """Run a command within the nearest devman project."""
-    # Build projects root if provided
-    root: ProjectRoot | None = None
-    if projects_root:
-        root_result = ProjectRoot.create(projects_root)
-        if root_result.is_err():
-            typer.echo(f"Invalid projects root: {root_result.unwrap_err()}", err=True)
+@app.command()
+def bootstrap(
+    file_type: str = typer.Argument(..., help="File type name (e.g., pyproject.toml)"),
+    answers: Path = typer.Option(None, "--answers", "-a", help="Copier answers file"),
+    version: str = typer.Option(None, "--version", "-v", help="Pin to specific version"),
+):
+    """Bootstrap a new file type configuration."""
+    from devman.bootstrap import bootstrap_file_type, get_current_devman_version
+
+    console.print(f"Bootstrapping file type: [cyan]{file_type}[/cyan]")
+
+    try:
+        type_path = bootstrap_file_type(
+            file_type=file_type,
+            answers_file=answers,
+            template_version=version,
+        )
+        console.print(f"[green]OK[/green] File type created: {type_path}")
+
+        ver = version or get_current_devman_version()
+        console.print(f"  Template version: {ver}")
+
+    except (ValueError, RuntimeError) as e:
+        console.print(f"[red]Error[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def project(
+    template: str = typer.Argument(..., help="Project template (e.g., pyproj)"),
+    target: Path = typer.Argument(..., help="Target directory for project"),
+    answers: Path = typer.Option(None, "--answers", "-a", help="Copier answers file"),
+    version: str = typer.Option(None, "--version", "-v", help="Pin to specific version"),
+):
+    """Create a new project from a meta-template."""
+    from devman.bootstrap_project import bootstrap_project
+
+    console.print(f"Creating project from template: [cyan]{template}[/cyan]")
+
+    try:
+        result = bootstrap_project(
+            project_template=template,
+            target_dir=target,
+            answers_file=answers,
+            template_version=version,
+        )
+
+        console.print(f"[green]OK[/green] Project created: {result['project_path']}")
+        console.print(f"  Template: {result['template']}@{result['version']}")
+
+        if result["file_types"]:
+            console.print("\n  File types used:")
+            for ft in result["file_types"]:
+                console.print(f"    - {ft}")
+
+    except (ValueError, RuntimeError) as e:
+        console.print(f"[red]Error[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def update(
+    target: Path = typer.Argument(..., help="File type or project to update"),
+    version: str = typer.Option(None, "--version", "-v", help="Target version"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without applying"),
+):
+    """Update a file type or project to a new template version."""
+    from devman.update import update_file_type, update_project
+
+    target = Path(target).resolve()
+
+    # Determine if it's a project (has .devman-project.toml) or a file type
+    if (target / ".devman-project.toml").exists():
+        console.print(f"Updating project: [cyan]{target.name}[/cyan]")
+
+        try:
+            result = update_project(
+                project_path=target,
+                target_version=version,
+                dry_run=dry_run,
+            )
+
+            if result["success"]:
+                action = "Would update" if dry_run else "Updated"
+                console.print(
+                    f"[green]OK[/green] {action}: "
+                    f"{result['current_version']} -> {result['target_version']}"
+                )
+
+                if result.get("changes"):
+                    console.print("\n  Changes:")
+                    for change in result["changes"][:10]:
+                        console.print(f"    {change}")
+                    if len(result["changes"]) > 10:
+                        console.print(
+                            f"    ... and {len(result['changes']) - 10} more"
+                        )
+            else:
+                console.print(
+                    f"[yellow]Info[/yellow] "
+                    f"{result.get('message', 'No changes needed')}"
+                )
+
+        except (ValueError, RuntimeError) as e:
+            console.print(f"[red]Error[/red] {e}")
             raise typer.Exit(1)
-        root = root_result.unwrap()
+
     else:
-        # Try to load from config
-        config = load_config()
-        if config.projects_root:
-            root_result = ProjectRoot.create(config.projects_root)
-            if root_result.is_ok():
-                root = root_result.unwrap()
+        file_type = target.name
+        console.print(f"Updating file type: [cyan]{file_type}[/cyan]")
 
-    # Execute find use case
-    find_use_case = FindDevmanUseCase()
-    find_command = FindDevmanCommand(start_path=Path.cwd(), projects_root=root)
-    find_result = find_use_case.execute(find_command)
+        try:
+            result = update_file_type(
+                file_type=file_type,
+                target_version=version,
+                dry_run=dry_run,
+            )
 
-    if find_result.is_err():
-        typer.echo(str(find_result.unwrap_err()), err=True)
-        raise typer.Exit(1)
+            if result["success"]:
+                action = "Would update" if dry_run else "Updated"
+                console.print(
+                    f"[green]OK[/green] {action}: "
+                    f"{result['current_version']} -> {result['target_version']}"
+                )
 
-    devman_dir = find_result.unwrap().devman_directory
+                if result.get("changes"):
+                    console.print("\n  Changes:")
+                    for change in result["changes"][:10]:
+                        console.print(f"    {change}")
+                    if len(result["changes"]) > 10:
+                        console.print(
+                            f"    ... and {len(result['changes']) - 10} more"
+                        )
+            else:
+                console.print(
+                    f"[yellow]Info[/yellow] "
+                    f"{result.get('message', 'No changes needed')}"
+                )
 
-    # Execute run use case
-    run_use_case = RunDevenvUseCase()
-    run_cmd = RunDevenvCommand(
-        devenv_args=ctx.args,
-        devman_directory=devman_dir,
-    )
-    run_result = run_use_case.execute(run_cmd)
-
-    if run_result.is_err():
-        error = run_result.unwrap_err()
-        typer.echo(str(error), err=True)
-        if error.stderr:
-            typer.echo(error.stderr, err=True)
-        raise typer.Exit(error.exit_code)
-
-    raise typer.Exit(run_result.unwrap().exit_code)
-
-
-@app.command()
-def launch(
-    projects_root: Path | None = typer.Option(None, "--projects-root"),
-    shell: str = typer.Option("zsh", "--shell", "-s", help="Shell to launch"),
-) -> None:
-    """Launch devenv services and enter interactive shell."""
-    import os
-    import subprocess
-
-    # Build projects root if provided
-    root: ProjectRoot | None = None
-    if projects_root:
-        root_result = ProjectRoot.create(projects_root)
-        if root_result.is_err():
-            typer.echo(f"Invalid projects root: {root_result.unwrap_err()}", err=True)
+        except (ValueError, RuntimeError) as e:
+            console.print(f"[red]Error[/red] {e}")
             raise typer.Exit(1)
-        root = root_result.unwrap()
-    else:
-        config = load_config()
-        if config.projects_root:
-            root_result = ProjectRoot.create(config.projects_root)
-            if root_result.is_ok():
-                root = root_result.unwrap()
-
-    # Find .devman directory
-    find_use_case = FindDevmanUseCase()
-    find_command = FindDevmanCommand(start_path=Path.cwd(), projects_root=root)
-    find_result = find_use_case.execute(find_command)
-
-    if find_result.is_err():
-        typer.echo(str(find_result.unwrap_err()), err=True)
-        raise typer.Exit(1)
-
-    devman_dir = find_result.unwrap().devman_directory
-
-    # Start services in detached mode (allow failure if no processes defined)
-    result = subprocess.run(
-        ["devenv", "up", "-d"],
-        cwd=devman_dir.path,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        if (
-            "No processes defined" in result.stderr
-            or "No 'processes' option" in result.stderr
-        ):
-            typer.echo("No processes defined, skipping service startup.")
-        else:
-            typer.echo(f"Warning: Failed to start services: {result.stderr.strip()}")
-
-    typer.echo()  # Blank line
-
-    # Replace current process with interactive shell, starting in project root
-    os.chdir(devman_dir.path)
-    os.execvp(
-        "devenv", ["devenv", "shell", shell]
-    )  # , "-c", f"cd .. && exec {shell}"])
 
 
-@app.command()
-def new(
-    template_source: str = typer.Argument(..., help="Template path or git URL"),
-    destination: Path = typer.Argument(..., help="Destination directory"),
-    validate: bool = typer.Option(
-        True, "--validate/--no-validate", help="Validate template before use"
-    ),
-    data: list[str] = typer.Option(
-        [], "--data", "-d", help="Override template data (key=value)"
-    ),
-) -> None:
-    """Create a new project from a copier template."""
-    # Parse data overrides
-    data_dict: dict[str, str] = {}
-    for item in data:
-        if "=" not in item:
-            typer.echo(f"Invalid data format: {item} (expected key=value)", err=True)
-            raise typer.Exit(1)
-        key, value = item.split("=", 1)
-        data_dict[key] = value
-
-    # Execute use case
-    use_case = CreateProjectUseCase()
-    command = CreateProjectCommand(
-        template_source=template_source,
-        destination=destination,
-        data=data_dict,
-        validate=validate,
-    )
-
-    typer.echo(f"Creating project at {destination}...")
-    result = use_case.execute(command)
-
-    if result.is_err():
-        error = result.unwrap_err()
-
-        # Show validation errors if present
-        if error.validation_result and not error.validation_result.is_valid:
-            typer.echo("Template validation errors:", err=True)
-            for issue in error.validation_result.errors:
-                loc = f" ({issue.location})" if issue.location else ""
-                typer.echo(f"  - {issue.message}{loc}", err=True)
-        else:
-            typer.echo(error.message, err=True)
-
-        raise typer.Exit(1)
-
-    success = result.unwrap()
-
-    # Show warnings if any
-    if success.validation_result and success.validation_result.warnings:
-        typer.echo("Template warnings:")
-        for warning in success.validation_result.warnings:
-            loc = f" ({warning.location})" if warning.location else ""
-            typer.echo(f"  - {warning.message}{loc}")
-
-    typer.echo(f"Project created successfully at {destination}")
-
-
-@app.command()
-def config(
-    projects_root: Path | None = typer.Option(
-        None,
-        help="Set projects root directory",
-    ),
-    show: bool = typer.Option(False, "--show", help="Show current configuration"),
-) -> None:
-    """Show or update devman configuration."""
-    if projects_root is None and not show:
-        typer.echo("No configuration changes provided.", err=True)
-        raise typer.Exit(1)
-
-    repo = ConfigRepository()
-
-    if show:
-        current_config = repo.load()
-        typer.echo("Current configuration:")
-        if current_config.projects_root is None:
-            typer.echo("  projects_root: (not set)")
-        else:
-            typer.echo(f"  projects_root: {current_config.projects_root}")
-
-    if projects_root is not None:
-        repo.save_projects_root(projects_root)
-        resolved = projects_root.expanduser().resolve()
-        typer.echo(f"Updated projects root to {resolved}.")
-
-
-@app.command()
-def version() -> None:
-    """Show the devman version."""
-    typer.echo(f"devman {__version__}")
-
-
-@app.command()
-def hello(name: str) -> None:
-    """Say hello to the provided name."""
-    typer.echo(f"Hello, {name}!")
+if __name__ == "__main__":
+    app()
