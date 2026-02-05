@@ -1,144 +1,253 @@
-# devman
+# Devman: Self-Bootstrapping File-Oriented Learning System
 
-devman is a CLI for managing devenv-based projects and creating new projects from copier templates.
+Devman is a minimal self-bootstrapping system that uses [copier](https://copier.readthedocs.io/) templates to generate and manage file type configurations. It tracks template versions via git tags and provides update mechanisms to evolve configurations over time.
 
-## Features
+## Core Concepts
 
-- **Project Finder**: Locate and run commands in the nearest `.devman` directory
-- **Template System**: Create new projects from copier templates (local or git)
-- **Configuration**: Store project root directory for scoped searches
-- **Validation**: Validate copier templates before use
+**File Types** - Devman manages configuration for specific file types (e.g., `pyproject.toml`, `devenv.nix`). Each file type lives in the devman store as a directory with its own `.devman/` configuration, validation workflows, and boomtube symlink definitions.
+
+**Meta-Templates** - Higher-level templates (e.g., `pyproj`) that orchestrate multiple file types to scaffold entire projects.
+
+**Self-Bootstrapping** - Devman uses copier templates to extend itself. New file types are created by running a copier template that lives inside devman's own configuration.
+
+**Version Tracking** - Git tags on the devman store repository provide reproducible, pinnable template versions. New bootstraps automatically capture the current version; users can also pin to a specific version.
+
+## MVP Scope
+
+**Included:**
+- File type bootstrapping via copier templates
+- Git-based template versioning (automatic tag capture)
+- Template update mechanism via copier
+- Project generation from meta-templates (e.g., `pyproj`)
+- Type-level validation workflows
+- Boomtube symlink management
+- Four core CLI commands: `init`, `bootstrap`, `project`, `update`
+
+**Deferred to later phases:**
+- Testing framework (Phase 2)
+- Instance-level validation (Phase 2)
+- List/query commands (filesystem inspection suffices for MVP)
+- Auto-sync workflows (manual workflow only)
 
 ## Installation
 
-### As UV Tool (Recommended)
 ```bash
-uv tool install git+https://github.com/Bullish-Design/devman.git
-```
+# Install as a UV tool
+uv tool install -e .
 
-### From Source
-```bash
-git clone https://github.com/Bullish-Design/devman.git
-cd devman
-uv sync
+# Or install from source in development mode
+uv pip install -e ".[dev]"
 ```
 
 ## Usage
 
-### Create New Project
+### Initialize the devman store
+
 ```bash
-# From local template
-devman new ./my-template ./new-project
-
-# From git repository
-devman new https://github.com/user/template.git ./new-project
-
-# With data overrides
-devman new gh:user/template ./project --data project_name=MyApp --data use_docker=true
-
-# Skip validation
-devman new ./template ./project --no-validate
+devman init
+# Creates ~/.devman-store/devman/ with git repo and v0.1.0 tag
 ```
 
-### Find and Run DevEnv
+### Bootstrap a new file type
+
 ```bash
-# Run devenv command in nearest .devman directory
-devman run up
+# Uses current template version automatically
+devman bootstrap pyproject.toml
 
-# Set projects root to limit search scope
-devman config --projects-root ~/projects
-devman run shell
+# Pin to a specific version
+devman bootstrap devenv.nix --version v0.1.0
 ```
 
-### Validate Templates
+### Create a project from a meta-template
+
 ```bash
-# Using CLI
-uv run scripts/validate_copier.py ./my-template
+# Uses current template version automatically
+devman project pyproj ~/projects/my-lib
 
-# Generate example template
-uv run scripts/generate_example.py ./copier.yaml
+# Pin to a specific version
+devman project pyproj ~/projects/my-lib --version v1.0.0
 ```
 
-## Template Format
+### Update a file type or project
 
-Templates use the [copier](https://copier.readthedocs.io/) format:
-```yaml
-_subdirectory: template
-_templates_suffix: .jinja
+```bash
+# Update file type to latest
+devman update ~/.devman-store/pyproject.toml
 
-project_name:
-  type: str
-  help: What is your project name?
+# Update to a specific version
+devman update ~/.devman-store/pyproject.toml --version v0.2.0
 
-use_docker:
-  type: bool
-  default: false
+# Preview changes without applying
+devman update ~/.devman-store/pyproject.toml --dry-run
 
-_tasks:
-  - git init
-  - echo 'Done!'
+# Update a project
+devman update ~/projects/my-lib
 ```
-
-See `tests/fixtures/example_copier.yaml` for a complete example.
-
-## Available Commands
-
-- `devman run [ARGS...]`: Run `devenv` with the provided arguments in the nearest `.devman` directory.
-- `devman new TEMPLATE DESTINATION`: Create a new project from a copier template.
-- `devman config --projects-root PATH`: Set the default projects root directory.
-- `devman config --show`: Show the current configuration.
-- `devman version`: Print the current devman version.
-- `devman hello NAME`: Print a greeting.
 
 ## Architecture
 
-devman follows a layered architecture:
+### Devman Store Structure
 
-### Domain Layer (`src/devman/domain/`)
-Pure business logic with no framework dependencies:
-- **Models**: Value objects (`ProjectRoot`, `DevmanDirectory`, `ValidationResult`)
-- **Errors**: Structured error types for all failure cases
-- **Services**: `DevmanFinder` for .devman directory location
-- **Protocols**: Interfaces for dependency inversion
+```
+~/.devman-store/
+  devman/                          # Meta-type configuration (git repo)
+    .git/
+      refs/tags/v0.1.0            # Template versions as git tags
+    .devman/
+      .templates/
+        file-type/                # Copier template for new file types
+          copier.yml
+          {{file_type}}/
+            .devman/
+              config.toml.jinja
+              workflows/
+                validate.py.jinja
+              boomtube.yaml.jinja
 
-### Application Layer (`src/devman/application/`)
-Use cases orchestrating domain objects:
-- `FindDevmanUseCase`: Locate .devman directory
-- `RunDevenvUseCase`: Execute devenv commands
-- `ValidateTemplateUseCase`: Validate template structure
+        pyproj/                   # Python project meta-template
+          copier.yml
+          {{project_name}}/
+            pyproject.toml.jinja
+            devenv.nix.jinja
+            src/{{package_name}}/
+              __init__.py.jinja
+              __main__.py.jinja
+            README.md.jinja
+            .devman-bootstrap.py
 
-### Infrastructure Layer
-- **CLI** (`cli.py`): Typer-based command interface
-- **Schemas** (`schemas/`): Pydantic models for copier.yaml
-- **Templates** (`templates.py`): Template reference and validation
+      workflows/
+        bootstrap.py
+        bootstrap_project.py
+        update.py
 
-### Error Handling
-Uses Railway-Oriented Programming with `Result` types:
-- `Ok(value)` for success
-- `Err(error)` for failures
-- No exceptions in business logic
-- All errors are typed domain objects
+      config.toml
 
-Example:
-```python
-result = ProjectRoot.create(path)
-if result.is_ok():
-    root = result.unwrap()
-    # ... use root
-else:
-    error = result.unwrap_err()
-    print(f"Failed: {error}")
+  pyproject.toml/                 # Generated file type
+    .devman/
+      config.toml                 # Contains template version info
+      workflows/
+        validate.py
+      boomtube.yaml
+
+  devenv.nix/                     # Generated file type
+    .devman/
+      config.toml
+      workflows/
+        validate.py
+      boomtube.yaml
 ```
 
+### Version Metadata
+
+Each file type tracks its template origin:
+
+```toml
+# ~/.devman-store/pyproject.toml/.devman/config.toml
+[file_type]
+name = "pyproject.toml"
+description = "Python project configuration"
+
+[template]
+name = "file-type"
+devman_version = "v0.1.0"
+created_at = "2026-02-04T10:00:00Z"
+
+[validation]
+script = "workflows/validate.py"
+```
+
+Projects track their meta-template origin:
+
+```toml
+# ~/projects/my-lib/.devman-project.toml
+[project]
+name = "my-lib"
+description = "My awesome library"
+
+[template]
+name = "pyproj"
+version = "v1.0.0"
+created_at = "2026-02-04T10:00:00Z"
+file_types = ["pyproject.toml", "devenv.nix"]
+```
+
+## Template Evolution Workflow
+
+1. Edit templates in `~/.devman-store/devman/.devman/.templates/`
+2. Commit and tag: `git tag -a v0.2.0 -m "Add UV validation"`
+3. Update existing types: `devman update ~/.devman-store/pyproject.toml`
+4. New bootstraps automatically use the latest tagged version
+
+## Key Design Principles
+
+1. **Self-bootstrapping** - Devman uses copier to extend itself
+2. **Version tracking** - Git tags provide reproducible builds
+3. **Automatic versioning** - Captures current version by default
+4. **Explicit pinning** - Users can override with specific versions
+5. **Update mechanism** - Copier handles template evolution
+6. **Composable templates** - Meta-templates orchestrate file types
+7. **Type-level validation** - Common checks for all instances
+8. **Boomtube symlinks** - Robust link management
+9. **TOML everywhere** - Consistent metadata format
+10. **Python-native** - All workflows in Python with uv
+
+## Implementation Roadmap
+
+### Phase 1: MVP (Current)
+
+1. `devman init` with git initialization
+2. File-type copier template
+3. `devman bootstrap` with version capture
+4. `pyproj` copier template
+5. `devman project` with version flag
+6. `devman update` for file types and projects
+7. Boomtube integration
+
+### Phase 2: Enhanced Validation
+
+- Instance-level validation support
+- Validation hierarchy (type -> instance)
+- `devman validate` command
+- Validation caching and result reporting
+
+### Phase 3: Testing Framework
+
+- Test case structure and runner
+- `--test` flag on bootstrap command
+- Test generators for file types
+
+### Phase 4: Discovery and Tooling
+
+- `devman list-types` and `devman list-projects` commands
+- Version comparison utilities
+- Migration helpers
+- Template documentation generator
+
 ## Development
+
 ```bash
 # Install dev dependencies
-uv sync --all-extras
+uv pip install -e ".[dev]"
 
 # Run tests
 pytest
 
-# Run linters
+# Lint
 ruff check src/
+
+# Type check
 mypy src/
 ```
+
+## Dependencies
+
+- [typer](https://typer.tiangolo.com/) - CLI framework
+- [copier](https://copier.readthedocs.io/) - Template engine
+- [rich](https://rich.readthedocs.io/) - Terminal formatting
+- [tomli](https://github.com/hukkin/tomli) / [tomli-w](https://github.com/hukkin/tomli-w) - TOML reading/writing
+- [boomtube](https://github.com/Bullish-Design/boomtube) - Symlink management
+- [uv](https://github.com/astral-sh/uv) - Python packaging
+
+## License
+
+MIT License
