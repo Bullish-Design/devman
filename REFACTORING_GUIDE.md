@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This guide describes the step-by-step refactoring of DevMan from a simple copier template management CLI tool into an opinionated development assistant built on a context-driven, template-based workflow enabled by watchdog and copier.
+This guide describes the step-by-step refactoring of DevMan from a simple copier template management CLI tool into an opinionated development assistant built on a context-driven, template-based workflow enabled by watchdog and copier
 
 ### Current State
 - Simple CLI tool for managing copier templates
