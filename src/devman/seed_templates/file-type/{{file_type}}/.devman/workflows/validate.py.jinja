@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Validation workflow for {{ file_type }}."""
+
+from pathlib import Path
+import sys
+
+
+def validate(file_path: Path) -> bool:
+    """Validate a {{ file_type }} file."""
+    if not file_path.exists():
+        print(f"File not found: {file_path}", file=sys.stderr)
+        return False
+
+    # Add type-specific validation rules here
+    print(f"Validated: {file_path}")
+    return True
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: validate.py <file_path>", file=sys.stderr)
+        sys.exit(1)
+
+    target = Path(sys.argv[1])
+    sys.exit(0 if validate(target) else 1)

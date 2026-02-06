@@ -1,4 +1,4 @@
 # src/devman/__init__.py
-"""DevEnv project templating system."""
+"""Self-bootstrapping file-oriented learning system."""
 
 __version__ = "0.1.0"

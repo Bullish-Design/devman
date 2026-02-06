@@ -1,7 +1,7 @@
 # tests/test_domain_errors.py
 from pathlib import Path
 
-from devman.domain.errors import PathNotFoundError, ValidationError
+from devman.domain.errors import PathNotFoundError, PathNotDirectoryError
 
 
 def test_path_not_found_error_message():
@@ -9,11 +9,7 @@ def test_path_not_found_error_message():
     assert "/tmp/missing" in str(error)
 
 
-def test_validation_error_combines_messages():
-    error = ValidationError(
-        message="",
-        errors=["Missing field 'type'"],
-        warnings=["Deprecated syntax"],
-    )
-    assert "Missing field" in str(error)
-    assert "Deprecated" in str(error)
+def test_path_not_directory_error_message():
+    error = PathNotDirectoryError(message="", path=Path("/tmp/file.txt"))
+    assert "/tmp/file.txt" in str(error)
+    assert "not a directory" in str(error)
