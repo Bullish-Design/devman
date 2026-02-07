@@ -271,5 +271,45 @@ def watch_check(
         raise typer.Exit(1)
 
 
+@app.command("instantiate")
+def instantiate(
+    template: str = typer.Argument(..., help="Template name under template_store"),
+    target: Path = typer.Argument(..., help="Directory where template should be generated"),
+    config: Path = typer.Option(
+        Path(WATCH_CONFIG_NAME),
+        "--config",
+        "-c",
+        help="Path to watch TOML config file",
+    ),
+):
+    """Generate files/folders from a template without running the watch loop."""
+    from devman.watcher.config import DevmanWatchConfig
+    from devman.domain.errors import WatchError
+    from devman.watcher.handlers import resolve_template_path, run_copier_instantiation
+
+    config_path = config.resolve()
+    target_path = target.resolve()
+
+    try:
+        watcher_config = DevmanWatchConfig.from_toml_file(config_path)
+        template_path = resolve_template_path(template, watcher_config)
+        run_copier_instantiation(template_path, target_path)
+        console.print(
+            f"[green]OK[/green] Generated template [cyan]{template}[/cyan] at {target_path}"
+        )
+    except FileNotFoundError:
+        console.print(f"[red]Error[/red] Watch config not found: {config_path}")
+        raise typer.Exit(1)
+    except ValidationError as e:
+        console.print(f"[red]Error[/red] Invalid watch config: {config_path}")
+        for error in e.errors():
+            location = ".".join(str(part) for part in error["loc"])
+            console.print(f"  - {location}: {error['msg']}")
+        raise typer.Exit(1)
+    except WatchError as e:
+        console.print(f"[red]Error[/red] {e}")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
