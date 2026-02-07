@@ -21,7 +21,7 @@ Devman is a minimal self-bootstrapping system that uses [copier](https://copier.
 - Project generation from meta-templates (e.g., `pyproj`)
 - Type-level validation workflows
 - Boomtube symlink management
-- Four core CLI commands: `init`, `bootstrap`, `project`, `update`
+- Five core CLI commands: `init`, `bootstrap`, `project`, `update`, `instantiate`
 
 **Deferred to later phases:**
 - Testing framework (Phase 2)
@@ -66,6 +66,13 @@ devman project pyproj ~/projects/my-lib
 
 # Pin to a specific version
 devman project pyproj ~/projects/my-lib --version v1.0.0
+```
+
+### Instantiate a template directly (without watcher)
+
+```bash
+# Generate from a template in template_store to a target directory
+devman instantiate pyproj-template ./scratch/my-project --config ./devman-watch.toml
 ```
 
 ### Update a file type or project
