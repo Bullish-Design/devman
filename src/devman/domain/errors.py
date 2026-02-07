@@ -33,3 +33,8 @@ class PathNotDirectoryError(DomainError):
 
     def __str__(self) -> str:
         return f"Path is not a directory: {self.path}"
+
+
+@dataclass(frozen=True)
+class WatchError(DomainError):
+    """Generic error for watcher domain operations."""
