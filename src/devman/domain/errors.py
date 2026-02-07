@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
-class DomainError:
+class DomainError(Exception):
     """Base class for all domain errors."""
 
     message: str
