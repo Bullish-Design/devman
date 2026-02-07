@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-import typer
 from pathlib import Path
+
+import typer
+from pydantic import ValidationError
 from rich.console import Console
+
+from devman.constants import WATCH_CONFIG_NAME
 
 app = typer.Typer(
     name="devman",
-    help="Self-bootstrapping file-oriented learning system",
+    help=(
+        "Self-bootstrapping file-oriented learning system "
+        "(includes init/bootstrap/project/update/watch workflows)"
+    ),
     add_completion=False,
 )
 console = Console()
@@ -168,6 +175,100 @@ def update(
         except (ValueError, RuntimeError) as e:
             console.print(f"[red]Error[/red] {e}")
             raise typer.Exit(1)
+
+
+@app.command()
+def watch(
+    config: Path = typer.Option(
+        Path(WATCH_CONFIG_NAME),
+        "--config",
+        "-c",
+        help="Path to watch TOML config file",
+    ),
+):
+    """Run devman watcher loop using TOML configuration."""
+    from devman.watcher.config import DevmanWatchConfig
+    from devman.watcher.engine import DevmanWatcher
+
+    config_path = config.resolve()
+
+    try:
+        watcher_config = DevmanWatchConfig.from_toml_file(config_path)
+        watcher = DevmanWatcher(config=watcher_config, repo_root=Path.cwd())
+
+        console.print(f"Starting watcher with config: [cyan]{config_path}[/cyan]")
+        watcher.run()
+    except KeyboardInterrupt:
+        console.print("[yellow]Info[/yellow] Watcher stopped by user")
+    except FileNotFoundError:
+        console.print(f"[red]Error[/red] Watch config not found: {config_path}")
+        raise typer.Exit(1)
+    except ValidationError as e:
+        console.print(f"[red]Error[/red] Invalid watch config: {config_path}")
+        for error in e.errors():
+            location = ".".join(str(part) for part in error["loc"])
+            console.print(f"  - {location}: {error['msg']}")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]Error[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command("watch-init")
+def watch_init(
+    output: Path = typer.Option(
+        Path(WATCH_CONFIG_NAME),
+        "--output",
+        "-o",
+        help="Path where starter watch config will be created",
+    ),
+):
+    """Generate a starter devman-watch.toml configuration."""
+    from devman.watcher.toml_gen import generate_starter_config
+
+    output_path = output.resolve()
+
+    try:
+        generate_starter_config(output_path)
+        console.print(f"[green]OK[/green] Created starter config: {output_path}")
+    except FileExistsError:
+        console.print(
+            f"[red]Error[/red] Refusing to overwrite existing file: {output_path}"
+        )
+        raise typer.Exit(1)
+
+
+@app.command("watch-check")
+def watch_check(
+    config: Path = typer.Option(
+        Path(WATCH_CONFIG_NAME),
+        "--config",
+        "-c",
+        help="Path to watch TOML config file",
+    ),
+):
+    """Validate watch configuration and print diagnostics."""
+    from devman.watcher.config import DevmanWatchConfig
+
+    config_path = config.resolve()
+
+    try:
+        validated = DevmanWatchConfig.from_toml_file(config_path)
+        console.print(f"[green]OK[/green] Watch config is valid: {config_path}")
+        console.print(
+            f"  Patterns: {len(validated.patterns)} | "
+            f"Debounce: {validated.settings.debounce_ms}ms | "
+            f"Log level: {validated.settings.log_level}"
+        )
+    except FileNotFoundError:
+        console.print(f"[red]Error[/red] Watch config not found: {config_path}")
+        raise typer.Exit(1)
+    except ValidationError as e:
+        console.print(f"[red]Error[/red] Invalid watch config: {config_path}")
+        for error in e.errors():
+            location = ".".join(str(part) for part in error["loc"])
+            console.print(f"  - {location}: {error['msg']}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
