@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,8 +7,11 @@ from devman.domain.errors import WatchError
 from devman.watcher.config import DevmanWatchConfig, PatternConfig
 from devman.watcher.handlers import (
     handle_instantiation,
+    handle_pattern_match,
+    initialize_instance_repository,
     replace_source_with_symlink,
     resolve_target_instance_path,
+    run_copier_instantiation,
 )
 
 
@@ -92,3 +96,70 @@ def test_replace_source_with_symlink_refuses_unrelated_symlink(tmp_path: Path) -
 
     with pytest.raises(WatchError):
         replace_source_with_symlink(source, tmp_path / "different-target")
+
+
+def test_handle_pattern_match_swallows_watcherror(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pattern = PatternConfig(pattern="src/modules/*", template="module-template")
+    config = _config(tmp_path / "instances", tmp_path / "templates")
+
+    def fail(*_: object, **__: object) -> None:
+        raise WatchError("skip")
+
+    monkeypatch.setattr("devman.watcher.handlers.handle_instantiation", fail)
+
+    # no raise; errors should be handled as a skipped path
+    handle_pattern_match(pattern, Path("src/modules/auth"), "added", tmp_path, config)
+
+
+def test_run_copier_instantiation_invokes_subprocess(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], capture_output: bool, text: bool) -> SimpleNamespace:
+        captured["cmd"] = cmd
+        captured["capture_output"] = capture_output
+        captured["text"] = text
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr("devman.watcher.handlers.subprocess.run", fake_run)
+
+    template_path = tmp_path / "templates" / "module-template"
+    instance_path = tmp_path / "instances" / "generated"
+
+    run_copier_instantiation(template_path, instance_path)
+
+    assert captured["cmd"] == [
+        "copier",
+        "copy",
+        "--defaults",
+        str(template_path),
+        str(instance_path),
+    ]
+    assert captured["capture_output"] is True
+    assert captured["text"] is True
+
+
+def test_initialize_instance_repository_uses_jj_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    instance_path = tmp_path / "instance"
+    instance_path.mkdir()
+
+    commands: list[list[str]] = []
+
+    def fake_which(binary: str) -> str | None:
+        return "/usr/bin/jj" if binary == "jj" else None
+
+    def fake_run(cmd: list[str], cwd: Path, capture_output: bool, text: bool) -> SimpleNamespace:
+        commands.append(cmd)
+        assert cwd == instance_path
+        assert capture_output is True
+        assert text is True
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr("devman.watcher.handlers.shutil.which", fake_which)
+    monkeypatch.setattr("devman.watcher.handlers.subprocess.run", fake_run)
+
+    initialize_instance_repository(instance_path)
+
+    assert commands == [["jj", "git", "init"]]

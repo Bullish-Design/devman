@@ -38,6 +38,20 @@ def test_find_matching_pattern_respects_excludes() -> None:
     assert matched is None
 
 
+def test_find_matching_pattern_supports_directory_style_patterns() -> None:
+    patterns = [
+        PatternConfig(
+            pattern="src/modules/*/",
+            template="module-template",
+            on=["added"],
+        )
+    ]
+
+    matched = find_matching_pattern(Path("src/modules/core/new-file.py"), "added", patterns)
+
+    assert matched is not None
+
+
 def test_run_once_applies_ignore_filters_and_dispatches_handlers() -> None:
     config = DevmanWatchConfig.model_validate(
         {
@@ -77,3 +91,31 @@ def test_run_once_applies_ignore_filters_and_dispatches_handlers() -> None:
 
     assert dispatches == 1
     assert seen == [("module-template", "added:src/modules/core/README.md")]
+
+
+def test_run_once_dispatches_all_handlers_and_skips_failed_handler() -> None:
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [{"pattern": "src/modules/*", "template": "module-template", "on": ["added"]}],
+        }
+    )
+
+    calls: list[str] = []
+
+    def ok_handler(*_: object) -> None:
+        calls.append("ok")
+
+    def failing_handler(*_: object) -> None:
+        calls.append("fail")
+        raise RuntimeError("boom")
+
+    watcher = DevmanWatcher(
+        config=config,
+        repo_root=Path("."),
+        handlers=[ok_handler, failing_handler, ok_handler],
+    )
+
+    dispatches = watcher.run_once({("added", "src/modules/auth")})
+
+    assert dispatches == 2
+    assert calls == ["ok", "fail", "ok"]
