@@ -1,0 +1,182 @@
+"""Runtime watch loop and matching engine for devman watcher."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from fnmatch import fnmatch
+from pathlib import Path
+
+try:
+    from watchfiles import Change, watch
+except ModuleNotFoundError:  # pragma: no cover - fallback for environments without watchfiles
+    from enum import Enum
+
+    class Change(Enum):
+        added = 1
+        modified = 2
+        deleted = 3
+
+    def watch(*args: object, **kwargs: object):
+        raise RuntimeError("watchfiles is required to run the blocking watcher loop")
+
+from devman.watcher.config import DevmanWatchConfig, PatternConfig
+from devman.watcher.handlers import DEFAULT_HANDLERS, WatcherHandler
+
+logger = logging.getLogger(__name__)
+
+
+class DevmanWatcher:
+    """Filesystem watcher runtime for processing configured pattern matches."""
+
+    def __init__(
+        self,
+        config: DevmanWatchConfig,
+        repo_root: Path,
+        handlers: Sequence[WatcherHandler] | None = None,
+        watch_factory: Callable[..., Iterator[set[tuple[Change, str]]]] | None = None,
+    ) -> None:
+        self.config = config
+        self.repo_root = repo_root.resolve()
+        self.handlers = tuple(handlers) if handlers is not None else DEFAULT_HANDLERS
+        self._watch_factory = watch_factory or watch
+
+    def run(self) -> None:
+        """Run the blocking watch loop until interrupted."""
+        logger.info(
+            "watcher loop started",
+            extra={
+                "event": "watcher.start",
+                "repo_root": str(self.repo_root),
+                "patterns": len(self.config.patterns),
+                "debounce_ms": self.config.settings.debounce_ms,
+            },
+        )
+        for changes in self._watch_factory(
+            self.repo_root,
+            debounce=self.config.settings.debounce_ms,
+            raise_interrupt=False,
+        ):
+            self._process_changes(changes)
+
+    def run_once(self, changes: Iterable[tuple[Change | str, str | Path]]) -> int:
+        """Process a single change batch and return number of handler dispatches."""
+        normalized = {(self._normalize_change(change), str(path)) for change, path in changes}
+        return self._process_changes(normalized)
+
+    def _process_changes(self, changes: Iterable[tuple[Change | str, str]]) -> int:
+        dispatch_count = 0
+        for change, changed_path in changes:
+            change_name = self._normalize_change(change)
+            path = Path(changed_path)
+            if self._is_ignored_path(path):
+                logger.debug(
+                    "watcher ignored change",
+                    extra={
+                        "event": "watcher.ignored",
+                        "change": change_name,
+                        "path": str(path),
+                    },
+                )
+                continue
+
+            pattern = find_matching_pattern(path, change_name, self.config.patterns)
+            if pattern is None:
+                logger.debug(
+                    "watcher no match",
+                    extra={
+                        "event": "watcher.no_match",
+                        "change": change_name,
+                        "path": str(path),
+                    },
+                )
+                continue
+
+            logger.info(
+                "watcher match found",
+                extra={
+                    "event": "watcher.match",
+                    "change": change_name,
+                    "path": str(path),
+                    "pattern": pattern.pattern,
+                    "template": pattern.template,
+                },
+            )
+            dispatch_count += self._dispatch_handlers(pattern, path, change_name)
+        return dispatch_count
+
+    def _dispatch_handlers(self, pattern: PatternConfig, path: Path, change: str) -> int:
+        dispatch_count = 0
+        for handler in self.handlers:
+            try:
+                handler(pattern, path, change, self.repo_root, self.config)
+                dispatch_count += 1
+            except Exception:
+                logger.exception(
+                    "watcher handler failed",
+                    extra={
+                        "event": "watcher.error",
+                        "handler": getattr(handler, "__name__", str(handler)),
+                        "change": change,
+                        "path": str(path),
+                        "pattern": pattern.pattern,
+                    },
+                )
+        return dispatch_count
+
+    def _is_ignored_path(self, path: Path) -> bool:
+        settings = self.config.settings
+        posix_path = path.as_posix()
+
+        for part in path.parts:
+            if part in settings.ignore_dirs:
+                return True
+
+        for glob_pattern in settings.ignore_globs:
+            if fnmatch(posix_path, glob_pattern):
+                return True
+
+        return False
+
+    @staticmethod
+    def _normalize_change(change: Change | str) -> str:
+        if isinstance(change, Change):
+            return change.name.lower()
+        return str(change).strip().lower()
+
+
+def find_matching_pattern(
+    path: Path,
+    change: Change | str,
+    patterns: Sequence[PatternConfig],
+) -> PatternConfig | None:
+    """Find first matching pattern for a changed path/event pair."""
+    change_name = DevmanWatcher._normalize_change(change)
+    path_posix = path.as_posix()
+
+    for pattern in patterns:
+        if change_name not in pattern.on:
+            continue
+
+        if _matches_glob(path_posix, pattern.pattern) is False:
+            continue
+
+        excluded = any(_matches_glob(path_posix, exclude) for exclude in pattern.exclude)
+        if excluded:
+            continue
+
+        return pattern
+
+    return None
+
+
+def _matches_glob(path_posix: str, glob_pattern: str) -> bool:
+    if fnmatch(path_posix, glob_pattern):
+        return True
+
+    # Support directory-like patterns such as "src/modules/*/".
+    if glob_pattern.endswith("/"):
+        prefix_pattern = f"{glob_pattern}*"
+        return fnmatch(path_posix, prefix_pattern)
+
+    return False
