@@ -1,153 +1,256 @@
-# Devman Development Manager
+# Devman concept overview (post-watchdantic refactor)
 
-## Overview
+Devman is a reactive, template-driven development manager. It watches a project
+repository for new files/directories that match configured glob patterns,
+instantiates the appropriate Copier template into an **instance store**, and
+replaces the original path with a symlink to the instance output.
 
-Devman is a system daemon for reactive template-based development, providing automatic template instantiation through filesystem monitoring.
+After the watchdantic refactor, Devman’s “daemon mode” is implemented with a
+watchdantic-style engine built on **watchfiles** (Linux inotify) and **Pydantic**
+configuration validation, and is exposed via the `devman watch` CLI.
 
-**Foundation Stack:**
-- Copier (template engine)
-- Watchdog (filesystem monitoring)
-- Jujutsu (version control)
+---
 
-## Core Concept
+## What Devman gives you
 
-Devman enables a three-tier repository architecture where templates, instances, and projects each maintain full independence while staying connected through symlinks.
+Devman is designed around three properties:
 
-### Three-Layer Repository Model
+1. **Projects stay clean**  
+   The working repo contains mostly “real” source and a few symlinks—generated
+   infrastructure lives outside the project.
 
-1. **Base Templates**: Master template repos (jj/git) with workspace capability
-2. **Instance Store**: Each instantiation creates an independent jj repo
-3. **Project Repos**: Main development with symlinks to instance outputs
+2. **Instances are autonomous**  
+   Every instantiation produces an independent version-controlled repository
+   (prefer `jj`, fall back to `git`) that can evolve separately from both the
+   template and the consuming project.
 
-### System Components
+3. **Templates compose via cascading**  
+   A directory template can emit files that themselves match other patterns,
+   causing follow-on instantiations (e.g., a project template emits `devenv.nix`,
+   which triggers a `devenv-nix` file template).
 
-- **Devman Process**: System daemon for commands & orchestration
-- **Watchdog**: Filesystem monitoring via glob pattern configuration
-- **Instance Lifecycle**: Template → copier generate → new jj repo → symlink replacement
+---
 
-## Workflow
+## Foundation stack (revised)
 
-1. Developer creates file/folder matching glob pattern
-2. Watchdog triggers Devman
-3. Copier instantiates from base template into store location
-4. New jj repo initialized for instance
-5. Original file/folder replaced with symlink to instance output
-6. Instance evolves independently with full jj capabilities
+- **Copier** — template engine used for instantiation
+- **watchdantic / watchfiles** — filesystem watching, debouncing, glob matching
+- **Pydantic v2** — config models and validation
+- **Jujutsu (`jj`)** (preferred) / **git** (fallback) — instance version control
+- **`devenv.nix`** — common use case for environment bootstrap templates
 
-## Architecture Diagram
+> Note: Devman embeds the watching engine programmatically; it does not rely on
+> shell-command actions. Pattern matches are dispatched to Python handlers that
+> run Copier, create repos, and rewrite paths as symlinks.
+
+---
+
+## Core model: templates, instances, projects
+
+### Tier 1 — Base template repos
+
+A **template** is a Copier template repo (often also version-controlled) stored
+in a template store. Each template defines its own `copier.yml` and `template/`
+tree.
+
+Example:
+
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│           DEVMAN THREE-TIER REPOSITORY ARCHITECTURE              │
-└──────────────────────────────────────────────────────────────────┘
-
-TIER 1: BASE TEMPLATE REPOS
-════════════════════════════
-    ~/devman/templates/python-module/     (jj/git repo)
+~/.devman-store/devman/.devman/.templates/
+├── python-project/
+│   ├── copier.yml
+│   └── template/...
+├── devenv-nix/
+│   ├── copier.yml
+│   └── template/devenv.nix.jinja
+└── pyproject-toml/
     ├── copier.yml
-    ├── template/
-    └── .jj/workspaces/
-        └── experimental/    ◄── template evolution workspaces
-
-    ~/devman/templates/service-layer/     (jj/git repo)
-    ├── copier.yml
-    └── ...
-
-TIER 2: INSTANCE STORE (each = independent jj repo)
-════════════════════════════════════════════════════
-    ~/devman/instances/
-    ├── my-app-auth-module/              (jj repo)
-    │   ├── .devman/
-    │   │   ├── automations/
-    │   │   └── workflows/
-    │   ├── output/          ◄── symlink target
-    │   └── .jj/workspaces/
-    │       └── refactor/    ◄── instance-specific workspaces
-    │
-    ├── my-app-user-module/              (jj repo)
-    │   ├── .devman/
-    │   ├── output/
-    │   └── .jj/workspaces/
-    │
-    └── other-app-payments/              (jj repo)
-        └── ...
-
-TIER 3: PROJECT REPOS (main development)
-═════════════════════════════════════════
-    ~/projects/my-app/                   (jj repo)
-    ├── src/
-    │   └── modules/
-    │       ├── auth/ ────────┐ symlink
-    │       └── user/ ────────┤ symlink
-    ├── tests/               │
-    └── pyproject.toml       │
-                             │
-                ┌────────────┴──────────────┐
-                ▼                           ▼
-    ~/devman/instances/         ~/devman/instances/
-        my-app-auth-module/         my-app-user-module/
-            output/                     output/
+    └── template/pyproject.toml.jinja
 ```
 
-## Event Flow
+### Tier 2 — Instance store
+
+An **instance** is the result of instantiating a template. Devman creates a new
+directory in the instance store and initializes it as its own repo.
+
+Instances conventionally contain:
+
+- `.devman/` — automation/workflow metadata (not required)
+- `output/` — the rendered template output (preferred symlink target)
+- repo metadata (`.jj/` or `.git/`)
+
+Example:
+
 ```
-devman.yml (glob config):
-  - pattern: "src/modules/*/"
-    template: "python-module"
-
-Event Flow:
-═══════════
-1. Developer: mkdir src/modules/auth
-   
-2. Watchdog: Match detected!
-   
-3. Devman:
-   ├─ Copier: ~/devman/templates/python-module 
-   │          → ~/devman/instances/my-app-auth-module/
-   ├─ Init jj repo in instance
-   └─ Replace src/modules/auth/ with symlink
-
-4. Result: Independent evolution at all tiers
-   ├─ Template can evolve (Tier 1)
-   ├─ Instance has own jj repo + workspaces (Tier 2)
-   └─ Project continues normally (Tier 3)
+~/.devman-store/instances/
+└── my-app-src-modules-auth/      (jj or git repo)
+    ├── .devman/
+    ├── output/
+    │   └── ...rendered files...
+    └── .jj/  (or .git/)
 ```
 
-## Parallel Evolution Model
+### Tier 3 — Project repo
+
+Your working repo stays minimal. When a match triggers, the original path is
+replaced with a symlink to the instance output:
+
+- Directory trigger → symlink to `<instance>/output/` (if present)
+- File trigger → symlink to `<instance>/output/<file>` (if the template emits it)
+
+---
+
+## The reactive workflow
+
+When running `devman watch`, Devman:
+
+1. **Watches** a repository root for file events (debounced into batches)
+2. **Filters** events using ignore rules (e.g., `.git`, `.venv`, `__pycache__`)
+3. **Matches** each event against the configured pattern list
+4. **Instantiates** the selected template into the instance store (non-interactive)
+5. **Initializes** version control in the instance (`jj git init` preferred)
+6. **Replaces** the original project path with a symlink to the instance output
+
+A key guardrail: if the derived instance directory already exists, Devman treats
+the instantiation as a no-op (prevents repeated triggers).
+
+---
+
+## Cascading instantiation (composition)
+
+Cascading is a *result of watching the project tree*, not a special feature that
+requires separate “watch the instance store” logic.
+
+Typical cascade:
+
+1. You create a directory `my-app/` in the project
+2. A directory pattern matches and Devman instantiates `python-project`
+3. Devman replaces `my-app/` with a symlink to the instance `output/`
+4. The `python-project` output includes `devenv.nix` and `pyproject.toml`
+5. Those newly created paths are visible in the project tree (through the symlink)
+6. File patterns match and trigger additional instantiations for those files
+7. Devman replaces those files with symlinks to their own dedicated instances
+
+Conceptually, you end up with a symlink chain:
+
 ```
-Template Tier: jj repo + workspaces
-     ↓ copier instantiate
-Instance Tier: jj repo + workspaces  ◄── Full autonomy!
-     ↓ symlink
-Project Tier: jj repo + workspaces
+project path
+  → project-template instance output
+    → file-template instance output(s)
 ```
 
-Each tier:
-- Independently version-controlled
-- Can spawn jj workspaces for parallel work
-- Instances are NOT workspaces of template - they are full repos
+---
 
-## Key Benefits
+## Configuration (post-refactor)
 
-- **Zero Manual Setup**: Automatic template instantiation on file creation
-- **Full Instance Autonomy**: Each instance = independent jj repo (not just workspace)
-- **Clean Project Repos**: Infrastructure lives elsewhere via symlinks
-- **Parallel Evolution**: Templates, instances, and projects evolve independently
-- **Background Infrastructure**: Automations/data accessible but not tracked in projects
-- **Flexible Iteration**: Update templates without disrupting existing instances
+Devman now uses a TOML configuration designed for its watcher subsystem.
+It focuses on the one thing Devman needs: mapping **glob patterns → templates**.
 
-## Configuration Example
-```yaml
-# devman.yml
-watch_patterns:
-  - pattern: "src/modules/*/"
-    template: "python-module"
-  
-  - pattern: "*.service.py"
-    template: "service-layer"
-  
-  - pattern: "src/components/*/"
-    template: "react-component"
+### `devman-watch.toml`
 
-template_store: "~/devman/templates"
-instance_store: "~/devman/instances"
+- `[settings]` controls debounce, logging, ignore rules, and store locations
+- `[[pattern]]` blocks declare mappings and event types
 
+Example:
+
+```toml
+[settings]
+debounce_ms = 500
+log_level = "INFO"
+ignore_dirs = [".git", ".venv", "__pycache__", "node_modules"]
+ignore_globs = ["**/*.pyc", "**/.DS_Store"]
+
+# Store locations (defaults shown)
+instance_store = "~/.devman-store/instances"
+template_store = "~/.devman-store/devman/.devman/.templates"
+
+[[pattern]]
+pattern = "devenv.nix"
+template = "devenv-nix"
+on = ["added"]
+
+[[pattern]]
+pattern = "pyproject.toml"
+template = "pyproject-toml"
+on = ["added"]
+
+[[pattern]]
+pattern = "src/modules/*/"
+template = "python-module"
+on = ["added"]
+exclude = ["src/modules/**/__pycache__/**"]
+
+[[pattern]]
+pattern = "*/"
+template = "python-project"
+on = ["added"]
+```
+
+**Matching behavior (important):**
+
+- Matching is **glob-based** on POSIX-style relative paths.
+- Patterns are evaluated **in order**; the first match wins.
+- `exclude` globs are checked before `pattern`.
+- `on` typically uses `["added"]`, but `modified` and `deleted` are also valid.
+
+---
+
+## CLI surface area (revised)
+
+The watch subsystem is additive; the existing CLI remains, and Devman adds:
+
+- `devman watch` — run the reactive watcher (daemon mode, Ctrl+C to stop)
+- `devman watch-init` — generate a starter `devman-watch.toml`
+- `devman watch-check` — validate a `devman-watch.toml` and print a summary
+
+---
+
+## Instance naming and layout conventions
+
+Devman derives an instance name from:
+
+- the project directory name, and
+- the triggering path, slugified (path separators replaced with `-`)
+
+Example:
+
+- project root: `my-app`
+- trigger: `src/modules/auth/`
+- instance: `my-app-src-modules-auth`
+
+Symlink targets:
+
+- Prefer `<instance>/output/` when it exists (directory templates)
+- Otherwise symlink to the instance root (fallback)
+- For file templates, the output convention is still `output/` and Devman links
+  to the emitted file path under that directory.
+
+---
+
+## Why this architecture works
+
+- **Autonomy without duplication**: instances are full repos, not branches or
+  workspaces of the template repo.
+- **Fast iteration**: templates can evolve independently; instances can be
+  updated or forked without rewriting project history.
+- **Composable scaffolding**: directory templates can “pull in” specialized file
+  templates via cascading.
+- **Config safety**: TOML config is validated at startup; invalid event types or
+  log levels fail early.
+- **Operational sanity**: debouncing + ignore rules + “instance already exists”
+  checks keep the watcher stable under noisy filesystem activity.
+
+---
+
+## Mental model recap
+
+```
+Template tier (Copier templates) ──instantiate──▶ Instance tier (independent repos)
+          ▲                                              │
+          │                                              └─symlink into project
+          │
+   evolve templates                                  Project tier (your work)
+```
+
+Devman’s job is to keep those tiers loosely coupled—connected by symlinks, but
+versioned and evolvable independently.
