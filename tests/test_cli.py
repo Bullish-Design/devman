@@ -1,5 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
+import sys
+import types
 
 from typer.testing import CliRunner
 
@@ -83,3 +85,31 @@ def test_watch_init_force_overwrites_existing_file(tmp_path: Path) -> None:
     generated = output_path.read_text(encoding="utf-8")
     assert 'name = "python-module"' in generated
     assert 'debounce_ms = 500' in generated
+
+
+def test_update_command_no_op_file_type_renders_version_line(monkeypatch) -> None:
+    def fake_update_file_type(file_type: str, target_version: str | None = None, dry_run: bool = False) -> dict:
+        assert file_type == "pyproject.toml"
+        assert target_version is None
+        assert dry_run is False
+        return {
+            "success": True,
+            "message": "Already at version v1.2.3",
+            "current_version": "v1.2.3",
+            "target_version": "v1.2.3",
+            "changes": [],
+            "dry_run": False,
+        }
+
+    fake_update_module = types.SimpleNamespace(
+        update_file_type=fake_update_file_type,
+        update_project=lambda *args, **kwargs: {"success": False},
+    )
+    monkeypatch.setitem(sys.modules, "devman.update", fake_update_module)
+
+    result = runner.invoke(app, ["update", "pyproject.toml"])
+
+    assert result.exit_code == 0
+    assert "OK" in result.stdout
+    assert "Updated: v1.2.3 -> v1.2.3" in result.stdout
+    assert "Changes:" not in result.stdout
