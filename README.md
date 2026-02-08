@@ -185,7 +185,7 @@ description = "Python project configuration"
 [template]
 name = "file-type"
 devman_version = "v0.1.0"
-created_at = "2026-02-04T10:00:00Z"
+created_at = "2026-02-04T10:00:00+00:00"
 
 [validation]
 script = "workflows/validate.py"
@@ -202,7 +202,7 @@ description = "My awesome library"
 [template]
 name = "pyproj"
 version = "v1.0.0"
-created_at = "2026-02-04T10:00:00Z"
+created_at = "2026-02-04T10:00:00+00:00"
 file_types = ["pyproject.toml", "devenv.nix"]
 ```
 

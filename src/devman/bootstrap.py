@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 import shutil
@@ -182,6 +182,6 @@ def bootstrap_file_type(
             f.write("\n[template]\n")
             f.write('name = "file-type"\n')
             f.write(f'devman_version = "{template_version}"\n')
-            f.write(f'created_at = "{datetime.now().isoformat()}"\n')
+            f.write(f'created_at = "{datetime.now(timezone.utc).isoformat()}"\n')
 
     return target_path

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import tomllib
 import tomli_w
@@ -57,7 +57,7 @@ def update_file_type(
 
     if not dry_run:
         config["template"]["devman_version"] = target_version
-        config["template"]["updated_at"] = datetime.now().isoformat()
+        config["template"]["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         with open(config_path, "wb") as f:
             tomli_w.dump(config, f)
@@ -109,7 +109,7 @@ def update_project(
 
     if not dry_run:
         metadata["template"]["version"] = target_version
-        metadata["template"]["updated_at"] = datetime.now().isoformat()
+        metadata["template"]["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         with open(metadata_file, "wb") as f:
             tomli_w.dump(metadata, f)
