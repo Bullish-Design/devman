@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from devman.constants import DEFAULT_INSTANCE_STORE, DEFAULT_TEMPLATE_STORE
 from devman.watcher.config import DevmanWatchConfig
 import devman.watcher.config as watcher_config
 
@@ -47,6 +48,8 @@ def test_model_defaults_are_applied_when_sections_are_missing() -> None:
     assert config.settings.allow_destructive_modified is False
     assert ".git" in config.settings.ignore_dirs
     assert "**/*.pyc" in config.settings.ignore_globs
+    assert config.settings.instance_store == DEFAULT_INSTANCE_STORE
+    assert config.settings.template_store == DEFAULT_TEMPLATE_STORE
 
 
 @pytest.mark.parametrize(

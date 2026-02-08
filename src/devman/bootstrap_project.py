@@ -17,6 +17,7 @@ from datetime import datetime
 import tomllib
 import tomli_w
 
+from devman.constants import TEMPLATES_SUBPATH, get_devman_meta_dir
 from devman.subprocess_utils import run_checked_subprocess
 
 
@@ -51,9 +52,8 @@ def bootstrap_project(
     template_version: Optional[str] = None,
 ) -> dict:
     """Bootstrap a complete project using a meta-template."""
-    store_root = Path.home() / ".devman-store"
-    devman_path = store_root / "devman"
-    template_path = devman_path / f".devman/.templates/{project_template}"
+    devman_path = get_devman_meta_dir()
+    template_path = devman_path / TEMPLATES_SUBPATH / project_template
 
     if not template_path.exists():
         raise ValueError(f"Project template not found: {project_template}")

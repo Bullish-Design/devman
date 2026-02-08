@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from devman.constants import DEFAULT_INSTANCE_STORE, DEFAULT_TEMPLATE_STORE
 from devman.watcher.config import DevmanWatchConfig
 from devman.watcher.toml_gen import generate_starter_config
 
@@ -26,8 +27,8 @@ debounce_ms = 500
 log_level = "INFO"
 ignore_dirs = [".git", ".venv", "__pycache__", "node_modules"]
 ignore_globs = ["**/*.pyc", "**/.DS_Store"]
-instance_store = "~/.devman-store/instances"
-template_store = "~/.devman-store/devman/.devman/.templates"
+instance_store = "{DEFAULT_INSTANCE_STORE}"
+template_store = "{DEFAULT_TEMPLATE_STORE}"
 allow_destructive_modified = false
 """
     assert generated == expected
