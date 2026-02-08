@@ -281,6 +281,7 @@ def watch_check(
 def instantiate(
     template: str = typer.Argument(..., help="Template name under template_store"),
     target: Path = typer.Argument(..., help="Directory where template should be generated"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing target"),
     config: Path = typer.Option(
         Path(WATCH_CONFIG_NAME),
         "--config",
@@ -299,7 +300,7 @@ def instantiate(
     try:
         watcher_config = DevmanWatchConfig.from_toml_file(config_path)
         template_path = resolve_template_path(template, watcher_config)
-        run_copier_instantiation(template_path, target_path)
+        run_copier_instantiation(template_path, target_path, force=force)
         console.print(
             f"[green]OK[/green] Generated template [cyan]{template}[/cyan] at {target_path}"
         )
