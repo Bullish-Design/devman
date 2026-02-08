@@ -12,6 +12,7 @@ sys.modules.setdefault("tomllib", tomli)
 sys.modules.setdefault("tomli_w", types.SimpleNamespace(dump=lambda *args, **kwargs: None))
 
 from devman.bootstrap_project import _build_uv_run_command, _run_checked, bootstrap_project
+from devman.constants import TEMPLATES_SUBPATH
 
 
 def test_build_uv_run_command_uses_current_interpreter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,7 +40,7 @@ def test_bootstrap_project_constructs_uv_commands_with_current_interpreter(
     monkeypatch.setattr("devman.bootstrap_project.Path.home", lambda: tmp_path)
 
     template_name = "python"
-    template_root = tmp_path / ".devman-store" / "devman" / ".devman" / ".templates" / template_name
+    template_root = tmp_path / ".devman-store" / "devman" / TEMPLATES_SUBPATH / template_name
     template_root.mkdir(parents=True)
 
     target_dir = tmp_path / "target"
