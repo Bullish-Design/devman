@@ -3,7 +3,12 @@ from types import SimpleNamespace
 import sys
 import types
 
+import tomli
 from typer.testing import CliRunner
+
+sys.modules.setdefault("tomllib", tomli)
+sys.modules.setdefault("tomli_w", types.SimpleNamespace(dump=lambda *args, **kwargs: None))
+sys.modules.setdefault("watchfiles", types.SimpleNamespace(Change=object, watch=lambda *args, **kwargs: iter(())))
 
 from devman.cli import app
 
@@ -166,3 +171,72 @@ def test_update_command_no_op_file_type_renders_version_line(monkeypatch) -> Non
     assert "OK" in result.stdout
     assert "Updated: v1.2.3 -> v1.2.3" in result.stdout
     assert "Changes:" not in result.stdout
+
+
+
+def test_watch_command_configures_logging_before_start(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_from_toml_file(config_path: Path) -> object:
+        calls["config_path"] = config_path
+        return SimpleNamespace(settings=SimpleNamespace(log_level="DEBUG"), patterns=[])
+
+    class FakeWatcher:
+        def __init__(self, config: object, repo_root: Path) -> None:
+            calls["watcher_config"] = config
+            calls["repo_root"] = repo_root
+
+        def run(self) -> None:
+            calls["ran"] = True
+
+    def fake_configure_watch_logging(level_name: str) -> None:
+        calls["log_level"] = level_name
+
+    monkeypatch.setattr(
+        "devman.watcher.config.DevmanWatchConfig.from_toml_file",
+        fake_from_toml_file,
+    )
+    monkeypatch.setattr("devman.watcher.engine.DevmanWatcher", FakeWatcher)
+    monkeypatch.setattr("devman.cli._configure_watch_logging", fake_configure_watch_logging)
+
+    config_path = tmp_path / "devman-watch.toml"
+    result = runner.invoke(app, ["watch", "--config", str(config_path)])
+
+    assert result.exit_code == 0
+    assert calls["config_path"] == config_path.resolve()
+    assert calls["log_level"] == "DEBUG"
+    assert calls["repo_root"] == Path.cwd()
+    assert calls["ran"] is True
+
+
+def test_configure_watch_logging_sets_level_and_does_not_duplicate_handlers() -> None:
+    import logging
+
+    from devman.cli import _configure_watch_logging
+
+    logger = logging.getLogger("devman.watcher")
+    original_handlers = list(logger.handlers)
+    original_level = logger.level
+
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+
+    try:
+        _configure_watch_logging("warning")
+        first_handlers = list(logger.handlers)
+        assert logger.level == logging.WARNING
+        assert len(first_handlers) == 1
+        assert isinstance(first_handlers[0], logging.StreamHandler)
+        assert first_handlers[0].formatter is not None
+
+        _configure_watch_logging("error")
+        second_handlers = list(logger.handlers)
+        assert logger.level == logging.ERROR
+        assert len(second_handlers) == 1
+        assert second_handlers[0] is first_handlers[0]
+    finally:
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+        for handler in original_handlers:
+            logger.addHandler(handler)
+        logger.setLevel(original_level)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import typer
@@ -17,6 +18,33 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _configure_watch_logging(level_name: str) -> None:
+    """Configure watcher logging level and stream handler exactly once."""
+    logger = logging.getLogger("devman.watcher")
+    logger.setLevel(level_name.upper())
+
+    readable_formatter = logging.Formatter(
+        fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    stream_handlers = [
+        handler
+        for handler in logger.handlers
+        if isinstance(handler, logging.StreamHandler)
+    ]
+
+    if not stream_handlers:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(readable_formatter)
+        logger.addHandler(stream_handler)
+        return
+
+    for handler in stream_handlers:
+        if handler.formatter is None:
+            handler.setFormatter(readable_formatter)
 
 
 @app.command()
@@ -194,6 +222,7 @@ def watch(
 
     try:
         watcher_config = DevmanWatchConfig.from_toml_file(config_path)
+        _configure_watch_logging(watcher_config.settings.log_level)
         watcher = DevmanWatcher(config=watcher_config, repo_root=Path.cwd())
 
         console.print(f"Starting watcher with config: [cyan]{config_path}[/cyan]")
