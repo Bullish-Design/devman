@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python <3.11 compatibility
-    import tomli as tomllib
+import tomllib
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 _ALLOWED_EVENTS = {"added", "modified", "deleted"}

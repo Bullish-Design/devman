@@ -7,18 +7,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from fnmatch import fnmatch
 from pathlib import Path
 
-try:
-    from watchfiles import Change, watch
-except ModuleNotFoundError:  # pragma: no cover - fallback for environments without watchfiles
-    from enum import Enum
-
-    class Change(Enum):
-        added = 1
-        modified = 2
-        deleted = 3
-
-    def watch(*args: object, **kwargs: object):
-        raise RuntimeError("watchfiles is required to run the blocking watcher loop")
+from watchfiles import Change, watch
 
 from devman.watcher.config import DevmanWatchConfig, PatternConfig
 from devman.watcher.handlers import DEFAULT_HANDLERS, WatcherHandler

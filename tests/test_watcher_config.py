@@ -6,6 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from devman.watcher.config import DevmanWatchConfig
+import devman.watcher.config as watcher_config
+
+
+def test_config_uses_stdlib_tomllib() -> None:
+    assert watcher_config.tomllib.__name__ == "tomllib"
 
 
 def test_from_toml_file_loads_valid_config_and_normalizes_values(tmp_path: Path) -> None:
