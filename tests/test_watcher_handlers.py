@@ -192,6 +192,48 @@ def test_run_copier_instantiation_invokes_subprocess(monkeypatch: pytest.MonkeyP
     assert captured["text"] is True
 
 
+
+def test_run_copier_instantiation_existing_target_without_force_raises(
+    tmp_path: Path,
+) -> None:
+    template_path = tmp_path / "templates" / "module-template"
+    instance_path = tmp_path / "instances" / "generated"
+    instance_path.mkdir(parents=True)
+
+    with pytest.raises(WatchError, match="Refusing to overwrite existing target"):
+        run_copier_instantiation(template_path, instance_path)
+
+
+def test_run_copier_instantiation_existing_target_with_force_reinstantiates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], capture_output: bool, text: bool) -> SimpleNamespace:
+        captured["cmd"] = cmd
+        captured["capture_output"] = capture_output
+        captured["text"] = text
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr("devman.watcher.handlers.subprocess.run", fake_run)
+
+    template_path = tmp_path / "templates" / "module-template"
+    instance_path = tmp_path / "instances" / "generated"
+    instance_path.mkdir(parents=True)
+    (instance_path / "stale.txt").write_text("stale", encoding="utf-8")
+
+    run_copier_instantiation(template_path, instance_path, force=True)
+
+    assert instance_path.exists() is False
+    assert captured["cmd"] == [
+        "copier",
+        "copy",
+        "--defaults",
+        str(template_path),
+        str(instance_path),
+    ]
+
 def test_initialize_instance_repository_uses_jj_when_available(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

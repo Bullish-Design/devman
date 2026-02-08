@@ -129,10 +129,23 @@ def resolve_template_path(template_name: str, config: DevmanWatchConfig) -> Path
     return template_path
 
 
-def run_copier_instantiation(template_path: Path, instance_path: Path) -> None:
+def run_copier_instantiation(
+    template_path: Path,
+    instance_path: Path,
+    force: bool = False,
+) -> None:
     """Execute copier to instantiate a selected template into an instance path."""
     if instance_path.exists():
-        return
+        if not force:
+            raise WatchError(
+                f"Refusing to overwrite existing target: {instance_path}. "
+                "Re-run with force=True to replace it."
+            )
+
+        if instance_path.is_dir() and not instance_path.is_symlink():
+            shutil.rmtree(instance_path)
+        else:
+            instance_path.unlink()
 
     instance_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["copier", "copy", "--defaults", str(template_path), str(instance_path)]
