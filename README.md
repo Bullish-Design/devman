@@ -75,6 +75,16 @@ devman project pyproj ~/projects/my-lib --version v1.0.0
 devman instantiate pyproj-template ./scratch/my-project --config ./devman-watch.toml
 ```
 
+### Generate a starter watcher config
+
+```bash
+# Create a starter watch config (refuses to overwrite existing file)
+devman watch-init --output ./devman-watch.toml
+
+# Force overwrite an existing config
+devman watch-init --output ./devman-watch.toml --force
+```
+
 ### Update a file type or project
 
 ```bash

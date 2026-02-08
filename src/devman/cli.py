@@ -222,6 +222,12 @@ def watch_init(
         "-o",
         help="Path where starter watch config will be created",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Overwrite the output file if it already exists",
+    ),
 ):
     """Generate a starter devman-watch.toml configuration."""
     from devman.watcher.toml_gen import generate_starter_config
@@ -229,7 +235,7 @@ def watch_init(
     output_path = output.resolve()
 
     try:
-        generate_starter_config(output_path)
+        generate_starter_config(output_path, overwrite=force)
         console.print(f"[green]OK[/green] Created starter config: {output_path}")
     except FileExistsError:
         console.print(

@@ -59,3 +59,27 @@ def test_instantiate_command_handles_missing_config(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "Watch config not found" in result.stdout
+
+
+def test_watch_init_refuses_to_overwrite_existing_file(tmp_path: Path) -> None:
+    output_path = tmp_path / "devman-watch.toml"
+    output_path.write_text("[settings]\ndebounce_ms = 123\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["watch-init", "--output", str(output_path)])
+
+    assert result.exit_code == 1
+    assert "Refusing to overwrite existing file" in result.stdout
+    assert output_path.read_text(encoding="utf-8") == "[settings]\ndebounce_ms = 123\n"
+
+
+def test_watch_init_force_overwrites_existing_file(tmp_path: Path) -> None:
+    output_path = tmp_path / "devman-watch.toml"
+    output_path.write_text("[settings]\ndebounce_ms = 123\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["watch-init", "--output", str(output_path), "--force"])
+
+    assert result.exit_code == 0
+    assert "Created starter config" in result.stdout
+    generated = output_path.read_text(encoding="utf-8")
+    assert 'name = "python-module"' in generated
+    assert 'debounce_ms = 500' in generated
