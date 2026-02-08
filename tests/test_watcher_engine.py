@@ -124,3 +124,86 @@ def test_run_once_dispatches_all_handlers_and_skips_failed_handler() -> None:
 
     assert dispatches == 2
     assert calls == ["ok", "fail", "ok"]
+
+def test_run_once_treats_enum_and_string_changes_identically() -> None:
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [
+                {
+                    "pattern": "src/modules/*/README.md",
+                    "template": "module-template",
+                    "on": ["added"],
+                }
+            ],
+        }
+    )
+
+    enum_seen: list[tuple[str, str]] = []
+    string_seen: list[tuple[str, str]] = []
+
+    def enum_handler(pattern: PatternConfig, matched_path: Path, change: str, *_: object) -> None:
+        enum_seen.append((pattern.template, f"{change}:{matched_path.as_posix()}"))
+
+    def string_handler(pattern: PatternConfig, matched_path: Path, change: str, *_: object) -> None:
+        string_seen.append((pattern.template, f"{change}:{matched_path.as_posix()}"))
+
+    enum_watcher = DevmanWatcher(
+        config=config,
+        repo_root=Path('.'),
+        handlers=[enum_handler],
+    )
+    string_watcher = DevmanWatcher(
+        config=config,
+        repo_root=Path('.'),
+        handlers=[string_handler],
+    )
+
+    enum_dispatches = enum_watcher.run_once({(Change.added, Path('src/modules/core/README.md'))})
+    string_dispatches = string_watcher.run_once({('added', 'src/modules/core/README.md')})
+
+    assert enum_dispatches == string_dispatches == 1
+    assert enum_seen == string_seen == [('module-template', 'added:src/modules/core/README.md')]
+
+
+def test_run_and_run_once_share_change_normalization_logic() -> None:
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [
+                {
+                    "pattern": "src/modules/*/README.md",
+                    "template": "module-template",
+                    "on": ["added"],
+                }
+            ],
+        }
+    )
+
+    run_seen: list[tuple[str, str]] = []
+    run_once_seen: list[tuple[str, str]] = []
+
+    def run_handler(pattern: PatternConfig, matched_path: Path, change: str, *_: object) -> None:
+        run_seen.append((pattern.template, f"{change}:{matched_path.as_posix()}"))
+
+    def run_once_handler(pattern: PatternConfig, matched_path: Path, change: str, *_: object) -> None:
+        run_once_seen.append((pattern.template, f"{change}:{matched_path.as_posix()}"))
+
+    def watch_factory(*_: object, **__: object):
+        yield {(Change.added, 'src/modules/core/README.md')}
+
+    run_watcher = DevmanWatcher(
+        config=config,
+        repo_root=Path('.'),
+        handlers=[run_handler],
+        watch_factory=watch_factory,
+    )
+    run_once_watcher = DevmanWatcher(
+        config=config,
+        repo_root=Path('.'),
+        handlers=[run_once_handler],
+    )
+
+    run_watcher.run()
+    run_once_dispatches = run_once_watcher.run_once({(' ADDED ', Path('src/modules/core/README.md'))})
+
+    assert run_once_dispatches == 1
+    assert run_seen == run_once_seen == [('module-template', 'added:src/modules/core/README.md')]

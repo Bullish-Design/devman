@@ -50,10 +50,9 @@ class DevmanWatcher:
 
     def run_once(self, changes: Iterable[tuple[Change | str, str | Path]]) -> int:
         """Process a single change batch and return number of handler dispatches."""
-        normalized = {(self._normalize_change(change), str(path)) for change, path in changes}
-        return self._process_changes(normalized)
+        return self._process_changes(changes)
 
-    def _process_changes(self, changes: Iterable[tuple[Change | str, str]]) -> int:
+    def _process_changes(self, changes: Iterable[tuple[Change | str, str | Path]]) -> int:
         dispatch_count = 0
         for change, changed_path in changes:
             change_name = self._normalize_change(change)
