@@ -73,6 +73,7 @@ class SettingsConfig(BaseModel):
     )
     instance_store: str = Field(default="~/.devman-store/instances")
     template_store: str = Field(default="~/.devman-store/devman/.devman/.templates")
+    allow_destructive_modified: bool = Field(default=False)
 
     @field_validator("log_level")
     @classmethod

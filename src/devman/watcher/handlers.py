@@ -75,6 +75,13 @@ def handle_instantiation(
         logger.info("watcher path already linked to instance", extra={"path": str(source_path)})
         return instance_path
 
+    if change == "modified" and not config.settings.allow_destructive_modified:
+        if not source_path.is_symlink():
+            raise WatchError(
+                "Refusing destructive modified event for non-symlink source path "
+                f"(set settings.allow_destructive_modified=true to override): {source_path}"
+            )
+
     if instance_path.exists() and not source_path.exists():
         logger.info(
             "watcher instance already exists for missing source path; no-op",

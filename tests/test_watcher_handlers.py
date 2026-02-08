@@ -152,6 +152,57 @@ def test_replace_source_with_symlink_refuses_unrelated_symlink(tmp_path: Path) -
         replace_source_with_symlink(source, tmp_path / "different-target")
 
 
+def test_handle_instantiation_modified_file_skips_destructive_replace_by_default(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    trigger = repo_root / "src" / "modules" / "auth.py"
+    trigger.parent.mkdir(parents=True)
+    trigger.write_text("print('hello')", encoding="utf-8")
+
+    templates = tmp_path / "templates"
+    (templates / "module-template").mkdir(parents=True)
+    config = _config(tmp_path / "instances", templates)
+    pattern = PatternConfig(pattern="src/modules/*", template="module-template")
+
+    with pytest.raises(WatchError, match="Refusing destructive modified event"):
+        handle_instantiation(
+            pattern=pattern,
+            matched_path=trigger,
+            change="modified",
+            repo_root=repo_root,
+            config=config,
+        )
+
+    assert trigger.exists()
+    assert not trigger.is_symlink()
+
+
+def test_handle_instantiation_modified_directory_skips_destructive_replace_by_default(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    trigger = repo_root / "src" / "modules" / "auth"
+    trigger.mkdir(parents=True)
+    sentinel = trigger / "README.md"
+    sentinel.write_text("keep me", encoding="utf-8")
+
+    templates = tmp_path / "templates"
+    (templates / "module-template").mkdir(parents=True)
+    config = _config(tmp_path / "instances", templates)
+    pattern = PatternConfig(pattern="src/modules/*", template="module-template")
+
+    with pytest.raises(WatchError, match="Refusing destructive modified event"):
+        handle_instantiation(
+            pattern=pattern,
+            matched_path=trigger,
+            change="modified",
+            repo_root=repo_root,
+            config=config,
+        )
+
+    assert trigger.exists()
+    assert trigger.is_dir()
+    assert not trigger.is_symlink()
+    assert sentinel.exists()
+
+
 def test_handle_pattern_match_swallows_watcherror(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     pattern = PatternConfig(pattern="src/modules/*", template="module-template")
     config = _config(tmp_path / "instances", tmp_path / "templates")

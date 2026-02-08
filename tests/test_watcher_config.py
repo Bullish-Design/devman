@@ -44,6 +44,7 @@ def test_model_defaults_are_applied_when_sections_are_missing() -> None:
     assert config.patterns == []
     assert config.settings.debounce_ms == 500
     assert config.settings.log_level == "INFO"
+    assert config.settings.allow_destructive_modified is False
     assert ".git" in config.settings.ignore_dirs
     assert "**/*.pyc" in config.settings.ignore_globs
 

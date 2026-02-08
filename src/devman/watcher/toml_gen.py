@@ -8,7 +8,7 @@ _STARTER_CONFIG = """[[pattern]]
 name = "python-module"
 pattern = "src/modules/*/"
 template = "python-module"
-on = ["added", "modified"]
+on = ["added"]
 exclude = ["**/draft-*", "**/*.tmp"]
 
 [settings]
@@ -18,6 +18,7 @@ ignore_dirs = [".git", ".venv", "__pycache__", "node_modules"]
 ignore_globs = ["**/*.pyc", "**/.DS_Store"]
 instance_store = "~/.devman-store/instances"
 template_store = "~/.devman-store/devman/.devman/.templates"
+allow_destructive_modified = false
 """
 
 
