@@ -121,12 +121,18 @@ def get_current_devman_version() -> str:
     store_root = Path.home() / ".devman-store"
     devman_path = store_root / "devman"
 
-    result = subprocess.run(
-        ["git", "describe", "--tags", "--abbrev=0"],
-        cwd=devman_path,
-        capture_output=True,
-        text=True,
-    )
+    if not devman_path.exists():
+        return "unversioned"
+
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=devman_path,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return "unversioned"
 
     if result.returncode != 0:
         return "unversioned"
