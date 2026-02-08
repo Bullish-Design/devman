@@ -35,7 +35,10 @@ def update_file_type(
         return {
             "success": True,
             "message": f"Already at version {target_version}",
+            "current_version": current_version,
+            "target_version": target_version,
             "changes": [],
+            "dry_run": dry_run,
         }
 
     copier_cmd = ["copier", "update"]
