@@ -56,10 +56,10 @@ def handle_instantiation(
     repo_root: Path,
     config: DevmanWatchConfig,
     *,
-    resolve_instance_path_fn: Callable[[Path, PatternConfig, Path, DevmanWatchConfig], Path] = None,
-    run_copier_fn: Callable[[Path, Path], None] = None,
-    init_repo_fn: Callable[[Path], None] = None,
-    replace_path_fn: Callable[[Path, Path], None] = None,
+    resolve_instance_path_fn: Callable[[Path, PatternConfig, Path, DevmanWatchConfig], Path] | None = None,
+    run_copier_fn: Callable[[Path, Path], None] | None = None,
+    init_repo_fn: Callable[[Path], None] | None = None,
+    replace_path_fn: Callable[[Path, Path], None] | None = None,
 ) -> Path:
     """Orchestrate template instantiation side-effects for a matched event."""
     resolve_instance_path_fn = resolve_instance_path_fn or resolve_target_instance_path
