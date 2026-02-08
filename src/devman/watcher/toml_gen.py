@@ -21,14 +21,16 @@ template_store = "~/.devman-store/devman/.devman/.templates"
 """
 
 
-def generate_starter_config(output_path: Path) -> None:
+def generate_starter_config(output_path: Path, overwrite: bool = False) -> None:
     """Write a deterministic starter watcher config.
 
-    The function will create parent directories when needed and refuses to
-    overwrite existing files, raising ``FileExistsError`` when ``output_path``
-    already exists.
+    The function will create parent directories when needed. By default it
+    refuses to overwrite existing files and raises ``FileExistsError`` when
+    ``output_path`` already exists. Set ``overwrite=True`` to replace an
+    existing file.
     """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("x", encoding="utf-8") as file_handle:
+    mode = "w" if overwrite else "x"
+    with output_path.open(mode, encoding="utf-8") as file_handle:
         file_handle.write(_STARTER_CONFIG)

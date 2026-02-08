@@ -44,3 +44,14 @@ def test_generate_starter_config_refuses_to_overwrite(tmp_path: Path) -> None:
 
     with pytest.raises(FileExistsError):
         generate_starter_config(output_path)
+
+
+def test_generate_starter_config_overwrites_when_enabled(tmp_path: Path) -> None:
+    output_path = tmp_path / "watch.toml"
+    output_path.write_text("[settings]\ndebounce_ms = 123\n", encoding="utf-8")
+
+    generate_starter_config(output_path, overwrite=True)
+
+    generated = output_path.read_text(encoding="utf-8")
+    assert 'name = "python-module"' in generated
+    assert 'debounce_ms = 500' in generated
