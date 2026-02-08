@@ -43,7 +43,22 @@ def test_find_matching_pattern_respects_excludes() -> None:
     assert matched is None
 
 
-def test_find_matching_pattern_supports_directory_style_patterns() -> None:
+
+def test_find_matching_pattern_directory_event_matches_directory_glob() -> None:
+    patterns = [
+        PatternConfig(
+            pattern="src/modules/*/",
+            template="module-template",
+            on=["added"],
+        )
+    ]
+
+    matched = find_matching_pattern(Path("src/modules/core"), "added", patterns)
+
+    assert matched is not None
+
+
+def test_find_matching_pattern_directory_glob_still_matches_child_files() -> None:
     patterns = [
         PatternConfig(
             pattern="src/modules/*/",

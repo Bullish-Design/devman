@@ -159,11 +159,23 @@ def find_matching_pattern(
 
 
 def _matches_glob(path_posix: str, glob_pattern: str) -> bool:
+    """Return whether ``path_posix`` matches ``glob_pattern``.
+
+    For directory-style patterns ending in ``/`` we normalize matching in two ways:
+
+    * Try matching both ``path_posix`` and a slash-suffixed form (for directory events that
+      may be emitted without a trailing slash).
+    * Preserve cascading child-file behavior by checking ``{glob_pattern}*``.
+    """
     if fnmatch(path_posix, glob_pattern):
         return True
 
     # Support directory-like patterns such as "src/modules/*/".
     if glob_pattern.endswith("/"):
+        path_with_slash = path_posix if path_posix.endswith("/") else f"{path_posix}/"
+        if fnmatch(path_with_slash, glob_pattern):
+            return True
+
         prefix_pattern = f"{glob_pattern}*"
         return fnmatch(path_posix, prefix_pattern)
 
