@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from typing import Optional
 
+from devman.subprocess_utils import run_checked_subprocess
+
 SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO = "external_repo_path"
 SEED_TEMPLATES_STRATEGY_PACKAGE_ASSETS = "package_assets"
 DEFAULT_SEED_TEMPLATES_STRATEGY = SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO
@@ -100,17 +102,17 @@ def init_devman_store(
     )
 
     # Initialize git repo
-    subprocess.run(["git", "init"], cwd=devman_path, check=True)
-    subprocess.run(["git", "add", "."], cwd=devman_path, check=True)
-    subprocess.run(
+    run_checked_subprocess(["git", "init"], cwd=devman_path, context="Git init")
+    run_checked_subprocess(["git", "add", "."], cwd=devman_path, context="Git add")
+    run_checked_subprocess(
         ["git", "commit", "-m", "[init] Initialize devman store"],
         cwd=devman_path,
-        check=True,
+        context="Git commit",
     )
-    subprocess.run(
+    run_checked_subprocess(
         ["git", "tag", "-a", "v0.1.0", "-m", "Initial devman version"],
         cwd=devman_path,
-        check=True,
+        context="Git tag",
     )
 
     return store_root
@@ -125,16 +127,12 @@ def get_current_devman_version() -> str:
         return "unversioned"
 
     try:
-        result = subprocess.run(
+        result = run_checked_subprocess(
             ["git", "describe", "--tags", "--abbrev=0"],
             cwd=devman_path,
-            capture_output=True,
-            text=True,
+            context="Git describe",
         )
-    except FileNotFoundError:
-        return "unversioned"
-
-    if result.returncode != 0:
+    except RuntimeError:
         return "unversioned"
 
     return result.stdout.strip()
@@ -167,10 +165,7 @@ def bootstrap_file_type(
 
     copier_cmd.extend([str(template_path), str(target_path.parent)])
 
-    result = subprocess.run(copier_cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        raise RuntimeError(f"Copier failed: {result.stderr}")
+    run_checked_subprocess(copier_cmd, context="Copier copy")
 
     # Add version metadata to config
     config_path = target_path / ".devman/config.toml"

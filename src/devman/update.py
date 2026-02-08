@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 from typing import Optional
 from datetime import datetime
 
 import tomllib
 import tomli_w
+
+from devman.subprocess_utils import run_checked_subprocess
 
 
 def update_file_type(
@@ -51,15 +52,7 @@ def update_file_type(
 
     copier_cmd.append(str(type_path))
 
-    result = subprocess.run(copier_cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        return {
-            "success": False,
-            "error": result.stderr,
-            "current_version": current_version,
-            "target_version": target_version,
-        }
+    result = run_checked_subprocess(copier_cmd, context="Copier update")
 
     if not dry_run:
         config["template"]["devman_version"] = target_version
@@ -111,15 +104,7 @@ def update_project(
 
     copier_cmd.append(str(project_path))
 
-    result = subprocess.run(copier_cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        return {
-            "success": False,
-            "error": result.stderr,
-            "current_version": current_version,
-            "target_version": target_version,
-        }
+    result = run_checked_subprocess(copier_cmd, context="Copier update")
 
     if not dry_run:
         metadata["template"]["version"] = target_version

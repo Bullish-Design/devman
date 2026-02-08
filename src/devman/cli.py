@@ -47,6 +47,10 @@ def _configure_watch_logging(level_name: str) -> None:
             handler.setFormatter(readable_formatter)
 
 
+def _format_cli_error(error: Exception) -> str:
+    return f"Operation failed: {error}"
+
+
 @app.command()
 def init(
     seed_templates_repo: Path = typer.Option(
@@ -70,8 +74,8 @@ def init(
         )
         console.print(f"[green]OK[/green] Devman store initialized: {store_path}")
         console.print("  Git repository created with tag v0.1.0")
-    except ValueError as e:
-        console.print(f"[red]Error[/red] {e}")
+    except (ValueError, RuntimeError) as e:
+        console.print(f"[red]Error[/red] {_format_cli_error(e)}")
         raise typer.Exit(1)
 
 
@@ -98,7 +102,7 @@ def bootstrap(
         console.print(f"  Template version: {ver}")
 
     except (ValueError, RuntimeError) as e:
-        console.print(f"[red]Error[/red] {e}")
+        console.print(f"[red]Error[/red] {_format_cli_error(e)}")
         raise typer.Exit(1)
 
 
@@ -131,7 +135,7 @@ def project(
                 console.print(f"    - {ft}")
 
     except (ValueError, RuntimeError) as e:
-        console.print(f"[red]Error[/red] {e}")
+        console.print(f"[red]Error[/red] {_format_cli_error(e)}")
         raise typer.Exit(1)
 
 
@@ -179,7 +183,7 @@ def update(
                 )
 
         except (ValueError, RuntimeError) as e:
-            console.print(f"[red]Error[/red] {e}")
+            console.print(f"[red]Error[/red] {_format_cli_error(e)}")
             raise typer.Exit(1)
 
     else:
@@ -215,7 +219,7 @@ def update(
                 )
 
         except (ValueError, RuntimeError) as e:
-            console.print(f"[red]Error[/red] {e}")
+            console.print(f"[red]Error[/red] {_format_cli_error(e)}")
             raise typer.Exit(1)
 
 
@@ -253,7 +257,7 @@ def watch(
             console.print(f"  - {location}: {error['msg']}")
         raise typer.Exit(1)
     except RuntimeError as e:
-        console.print(f"[red]Error[/red] {e}")
+        console.print(f"[red]Error[/red] {_format_cli_error(e)}")
         raise typer.Exit(1)
 
 
@@ -357,7 +361,7 @@ def instantiate(
             console.print(f"  - {location}: {error['msg']}")
         raise typer.Exit(1)
     except WatchError as e:
-        console.print(f"[red]Error[/red] {e}")
+        console.print(f"[red]Error[/red] {_format_cli_error(e)}")
         raise typer.Exit(1)
 
 

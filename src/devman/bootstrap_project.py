@@ -17,12 +17,18 @@ from datetime import datetime
 import tomllib
 import tomli_w
 
+from devman.subprocess_utils import run_checked_subprocess
+
 
 def _build_uv_run_command(*args: str) -> list[str]:
     return [sys.executable, "-m", "uv", "run", "--python", sys.executable, *args]
 
 
-def _run_checked(command: list[str], cwd: Path | None = None, context: str = "Command") -> subprocess.CompletedProcess[str]:
+def _run_checked(
+    command: list[str],
+    cwd: Path | None = None,
+    context: str = "Command",
+):
     try:
         return subprocess.run(
             command,
@@ -66,12 +72,12 @@ def bootstrap_project(
 
     copier_cmd.extend([str(template_path), str(target_dir)])
 
-    _run_checked(copier_cmd, context="Copier")
+    run_checked_subprocess(copier_cmd, context="Copier copy")
 
     # Execute .devman-bootstrap.py if it exists
     bootstrap_script = target_dir / ".devman-bootstrap.py"
     if bootstrap_script.exists():
-        _run_checked(
+        run_checked_subprocess(
             _build_uv_run_command(str(bootstrap_script)),
             cwd=target_dir,
             context="Bootstrap script",
