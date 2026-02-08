@@ -86,6 +86,32 @@ def test_handle_instantiation_executes_steps_with_injected_functions(tmp_path: P
     assert trigger.is_symlink()
 
 
+def test_handle_instantiation_accepts_none_injected_functions(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    trigger = repo_root / "src" / "modules" / "auth"
+    trigger.mkdir(parents=True)
+
+    templates = tmp_path / "templates"
+    (templates / "module-template").mkdir(parents=True)
+    config = _config(tmp_path / "instances", templates)
+    pattern = PatternConfig(pattern="src/modules/*", template="module-template")
+
+    instance_path = handle_instantiation(
+        pattern=pattern,
+        matched_path=trigger,
+        change="added",
+        repo_root=repo_root,
+        config=config,
+        resolve_instance_path_fn=None,
+        run_copier_fn=None,
+        init_repo_fn=None,
+        replace_path_fn=None,
+    )
+
+    assert instance_path.exists()
+    assert trigger.is_symlink()
+
+
 def test_replace_source_with_symlink_refuses_unrelated_symlink(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.touch()
