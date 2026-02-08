@@ -99,3 +99,56 @@ def test_model_defaults_are_applied_when_sections_are_missing() -> None:
 def test_invalid_configs_raise_validation_error(payload: dict[str, object], expected_message: str) -> None:
     with pytest.raises(ValidationError, match=expected_message):
         DevmanWatchConfig.model_validate(payload)
+
+
+def test_to_toml_file_round_trip_preserves_pattern_alias_shape(tmp_path: Path) -> None:
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [
+                {
+                    "name": "python module",
+                    "pattern": "src/modules/*/",
+                    "template": "python-module",
+                    "on": ["added", "modified"],
+                    "exclude": ["**/draft-*", "**/*.tmp"],
+                }
+            ],
+            "settings": {
+                "debounce_ms": 250,
+                "log_level": "warning",
+            },
+        }
+    )
+    output_path = tmp_path / "nested" / "watch.toml"
+
+    config.to_toml_file(output_path)
+
+    raw_text = output_path.read_text(encoding="utf-8")
+    assert "[[pattern]]" in raw_text
+    assert "[[patterns]]" not in raw_text
+
+    loaded = DevmanWatchConfig.from_toml_file(output_path)
+    assert loaded == config
+
+
+def test_get_template_for_pattern_reuses_runtime_matching_rules() -> None:
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [
+                {
+                    "pattern": "src/modules/*/",
+                    "template": "python-module",
+                    "on": ["added"],
+                    "exclude": ["**/draft-*", "**/*.tmp"],
+                }
+            ]
+        }
+    )
+
+    assert (
+        config.get_template_for_pattern(Path("src/modules/api/README.md"), "added")
+        == "python-module"
+    )
+    assert config.get_template_for_pattern(Path("src/modules/api/README.md"), "modified") is None
+    assert config.get_template_for_pattern(Path("src/modules/draft-alpha/README.md"), "added") is None
+    assert config.get_template_for_pattern(Path("src/modules/api/file.tmp"), "added") is None

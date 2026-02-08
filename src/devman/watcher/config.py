@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import tomllib
+import tomli_w
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 _ALLOWED_EVENTS = {"added", "modified", "deleted"}
@@ -106,3 +107,19 @@ class DevmanWatchConfig(BaseModel):
         with path.open("rb") as file_handle:
             data = tomllib.load(file_handle)
         return cls.model_validate(data)
+
+    def to_toml_file(self, path: Path) -> None:
+        """Serialize the current configuration to a TOML file."""
+        payload = self.model_dump(by_alias=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as file_handle:
+            tomli_w.dump(payload, file_handle)
+
+    def get_template_for_pattern(self, path: Path, change: str) -> str | None:
+        """Resolve the matched template for a path and change event, if any."""
+        from devman.watcher.engine import find_matching_pattern
+
+        pattern = find_matching_pattern(path=path, change=change, patterns=self.patterns)
+        if pattern is None:
+            return None
+        return pattern.template
