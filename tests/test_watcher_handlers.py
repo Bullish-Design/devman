@@ -112,6 +112,34 @@ def test_handle_instantiation_accepts_none_injected_functions(tmp_path: Path) ->
     assert trigger.is_symlink()
 
 
+def test_replace_source_with_symlink_file_source_happy_path(tmp_path: Path) -> None:
+    source = tmp_path / "source.py"
+    source.write_text("print('hello')")
+
+    instance_path = tmp_path / "generated-instance"
+    instance_path.mkdir()
+    expected_target = instance_path / source.name
+    expected_target.write_text("print('from instance')")
+
+    replace_source_with_symlink(source, instance_path)
+
+    assert source.is_symlink()
+    assert source.resolve() == expected_target.resolve()
+
+
+def test_replace_source_with_symlink_directory_source_happy_path(tmp_path: Path) -> None:
+    source = tmp_path / "src-dir"
+    source.mkdir()
+
+    instance_path = tmp_path / "generated-instance"
+    instance_path.mkdir()
+
+    replace_source_with_symlink(source, instance_path)
+
+    assert source.is_symlink()
+    assert source.resolve() == instance_path.resolve()
+
+
 def test_replace_source_with_symlink_refuses_unrelated_symlink(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.touch()
