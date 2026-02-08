@@ -56,26 +56,45 @@ class DevmanWatcher:
         dispatch_count = 0
         for change, changed_path in changes:
             change_name = self._normalize_change(change)
-            path = Path(changed_path)
-            if self._is_ignored_path(path):
+            absolute_path = Path(changed_path)
+            if absolute_path.is_absolute():
+                if not absolute_path.is_relative_to(self.repo_root):
+                    logger.debug(
+                        "watcher skipped out-of-repo change",
+                        extra={
+                            "event": "watcher.skipped_outside_repo",
+                            "change": change_name,
+                            "path": str(absolute_path),
+                            "repo_root": str(self.repo_root),
+                        },
+                    )
+                    continue
+                relative_path = absolute_path.relative_to(self.repo_root)
+            else:
+                relative_path = absolute_path
+                absolute_path = (self.repo_root / relative_path).resolve()
+
+            if self._is_ignored_path(relative_path):
                 logger.debug(
                     "watcher ignored change",
                     extra={
                         "event": "watcher.ignored",
                         "change": change_name,
-                        "path": str(path),
+                        "path": str(absolute_path),
+                        "relative_path": relative_path.as_posix(),
                     },
                 )
                 continue
 
-            pattern = find_matching_pattern(path, change_name, self.config.patterns)
+            pattern = find_matching_pattern(relative_path.as_posix(), change_name, self.config.patterns)
             if pattern is None:
                 logger.debug(
                     "watcher no match",
                     extra={
                         "event": "watcher.no_match",
                         "change": change_name,
-                        "path": str(path),
+                        "path": str(absolute_path),
+                        "relative_path": relative_path.as_posix(),
                     },
                 )
                 continue
@@ -85,12 +104,13 @@ class DevmanWatcher:
                 extra={
                     "event": "watcher.match",
                     "change": change_name,
-                    "path": str(path),
+                    "path": str(absolute_path),
+                    "relative_path": relative_path.as_posix(),
                     "pattern": pattern.pattern,
                     "template": pattern.template,
                 },
             )
-            dispatch_count += self._dispatch_handlers(pattern, path, change_name)
+            dispatch_count += self._dispatch_handlers(pattern, absolute_path, change_name)
         return dispatch_count
 
     def _dispatch_handlers(self, pattern: PatternConfig, path: Path, change: str) -> int:
@@ -134,13 +154,13 @@ class DevmanWatcher:
 
 
 def find_matching_pattern(
-    path: Path,
+    relative_path: str,
     change: Change | str,
     patterns: Sequence[PatternConfig],
 ) -> PatternConfig | None:
-    """Find first matching pattern for a changed path/event pair."""
+    """Find first matching pattern for a repo-relative path/event pair."""
     change_name = DevmanWatcher._normalize_change(change)
-    path_posix = path.as_posix()
+    path_posix = Path(relative_path).as_posix()
 
     for pattern in patterns:
         if change_name not in pattern.on:
