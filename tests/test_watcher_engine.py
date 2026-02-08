@@ -2,6 +2,11 @@ from pathlib import Path
 
 from devman.watcher.config import DevmanWatchConfig, PatternConfig
 from devman.watcher.engine import Change, DevmanWatcher, find_matching_pattern
+import devman.watcher.engine as watcher_engine
+
+
+def test_engine_uses_watchfiles_change_enum() -> None:
+    assert watcher_engine.Change.__module__.startswith("watchfiles")
 
 
 def test_find_matching_pattern_matches_on_change_and_glob() -> None:
