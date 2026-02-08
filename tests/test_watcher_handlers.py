@@ -41,6 +41,38 @@ def test_resolve_target_instance_path_is_under_instance_store(tmp_path: Path) ->
     assert "repo-module-template-src-modules-auth" in resolved.name
 
 
+def test_resolve_target_instance_path_preserves_lexical_in_repo_symlink(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    source = repo_root / "src" / "modules" / "external-link"
+    source.parent.mkdir(parents=True)
+
+    outside = tmp_path / "outside-target"
+    outside.mkdir()
+    source.symlink_to(outside, target_is_directory=True)
+
+    config = _config(tmp_path / "instances", tmp_path / "templates")
+    pattern = PatternConfig(pattern="src/modules/*", template="module-template")
+
+    resolved = resolve_target_instance_path(source, pattern, repo_root, config)
+
+    assert resolved.parent == (tmp_path / "instances")
+    assert "repo-module-template-src-modules-external-link" in resolved.name
+
+
+def test_resolve_target_instance_path_rejects_truly_out_of_repo_lexical_path(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    outside_source = tmp_path / "outside" / "auth"
+    outside_source.parent.mkdir(parents=True)
+    outside_source.mkdir()
+
+    config = _config(tmp_path / "instances", tmp_path / "templates")
+    pattern = PatternConfig(pattern="src/modules/*", template="module-template")
+
+    with pytest.raises(WatchError, match="Matched path is outside repository root"):
+        resolve_target_instance_path(outside_source, pattern, repo_root, config)
+
+
 def test_handle_instantiation_executes_steps_with_injected_functions(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     trigger = repo_root / "src" / "modules" / "auth"

@@ -117,7 +117,10 @@ def resolve_target_instance_path(
     """Resolve instance destination path from source, pattern, and config context."""
     repo_root = repo_root.resolve()
     try:
-        relative_source = source_path.resolve().relative_to(repo_root)
+        if source_path.is_absolute():
+            relative_source = source_path.relative_to(repo_root)
+        else:
+            relative_source = source_path
     except ValueError as exc:
         raise WatchError(f"Matched path is outside repository root: {source_path}") from exc
 
