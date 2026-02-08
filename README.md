@@ -46,7 +46,25 @@ uv pip install -e ".[dev]"
 ```bash
 devman init
 # Creates ~/.devman-store/devman/ with git repo and v0.1.0 tag
+
+# Explicitly set external seed template source (Option B, default)
+devman init --seed-templates-repo ~/my-devman-templates
+
+# Optional fallback strategy: bundled package assets (Option A)
+devman init --seed-templates-strategy package_assets
 ```
+
+### Seed template source strategy
+
+Devman now encodes seed-template sourcing as an explicit strategy during `init`:
+
+- **Default (Option B):** `external_repo_path`
+  - Uses `--seed-templates-repo`, then `$DEVMAN_SEED_TEMPLATES_REPO`, then `~/.devman-templates`.
+  - Expects a `file-type/` template directory in that external repo path.
+- **Optional (Option A):** `package_assets`
+  - Uses bundled `src/devman/seed_templates/file-type` via `importlib.resources`.
+
+This makes template sourcing explicit and allows migrating template ownership out of the package.
 
 ### Bootstrap a new file type
 
@@ -239,6 +257,12 @@ file_types = ["pyproject.toml", "devenv.nix"]
 - Version comparison utilities
 - Migration helpers
 - Template documentation generator
+
+## Migration Notes
+
+- Existing stores under `~/.devman-store/devman/.devman/.templates` are unchanged.
+- New `devman init` runs now default to **Option B** (`external_repo_path`), so ensure `~/.devman-templates/file-type` exists or set `DEVMAN_SEED_TEMPLATES_REPO` / `--seed-templates-repo`.
+- If you still want packaged seed templates, use `--seed-templates-strategy package_assets` explicitly.
 
 ## Development
 

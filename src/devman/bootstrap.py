@@ -1,13 +1,72 @@
 from __future__ import annotations
 
-from pathlib import Path
-import subprocess
-import shutil
-from typing import Optional
+import os
 from datetime import datetime
+from importlib import resources
+from pathlib import Path
+import shutil
+import subprocess
+from typing import Optional
+
+SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO = "external_repo_path"
+SEED_TEMPLATES_STRATEGY_PACKAGE_ASSETS = "package_assets"
+DEFAULT_SEED_TEMPLATES_STRATEGY = SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO
+DEFAULT_SEED_TEMPLATES_REPO = Path("~/.devman-templates").expanduser()
+SEED_TEMPLATES_ENV_VAR = "DEVMAN_SEED_TEMPLATES_REPO"
 
 
-def init_devman_store() -> Path:
+def _copy_seed_file_type_template(
+    destination: Path,
+    strategy: str,
+    seed_templates_repo: Optional[Path] = None,
+) -> None:
+    """Copy the `file-type` seed template to the destination directory.
+
+    Strategy options:
+    - `external_repo_path` (default): read template from an external templates repository
+      (`seed_templates_repo`, then `$DEVMAN_SEED_TEMPLATES_REPO`, then
+      `~/.devman-templates`).
+    - `package_assets` (optional fallback): read bundled package assets via
+      `importlib.resources`.
+    """
+    if strategy == SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO:
+        configured_repo = (
+            seed_templates_repo
+            or Path(os.environ[SEED_TEMPLATES_ENV_VAR]).expanduser()
+            if SEED_TEMPLATES_ENV_VAR in os.environ
+            else DEFAULT_SEED_TEMPLATES_REPO
+        )
+        file_type_template = configured_repo / "file-type"
+        if not file_type_template.exists():
+            raise ValueError(
+                "Seed template 'file-type' not found at "
+                f"{file_type_template}. Configure {SEED_TEMPLATES_ENV_VAR}, pass "
+                "seed_templates_repo, or use strategy='package_assets'."
+            )
+
+        shutil.copytree(file_type_template, destination)
+        return
+
+    if strategy == SEED_TEMPLATES_STRATEGY_PACKAGE_ASSETS:
+        package_template = resources.files("devman").joinpath(
+            "seed_templates", "file-type"
+        )
+        with resources.as_file(package_template) as local_template:
+            shutil.copytree(local_template, destination)
+        return
+
+    raise ValueError(
+        "Unknown seed templates strategy "
+        f"'{strategy}'. Expected one of: "
+        f"{SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO}, "
+        f"{SEED_TEMPLATES_STRATEGY_PACKAGE_ASSETS}"
+    )
+
+
+def init_devman_store(
+    seed_templates_strategy: str = DEFAULT_SEED_TEMPLATES_STRATEGY,
+    seed_templates_repo: Optional[Path] = None,
+) -> Path:
     """Initialize devman store with git-backed meta-configuration."""
     store_root = Path.home() / ".devman-store"
     devman_path = store_root / "devman"
@@ -26,12 +85,11 @@ def init_devman_store() -> Path:
     workflows_dir = devman_config / "workflows"
     workflows_dir.mkdir()
 
-    # Copy seed templates into the templates directory
-    seed_templates_path = Path(__file__).parent / "seed_templates"
-    if seed_templates_path.exists():
-        file_type_template = seed_templates_path / "file-type"
-        if file_type_template.exists():
-            shutil.copytree(file_type_template, templates_dir / "file-type")
+    _copy_seed_file_type_template(
+        destination=templates_dir / "file-type",
+        strategy=seed_templates_strategy,
+        seed_templates_repo=seed_templates_repo,
+    )
 
     # Create minimal config
     config_path = devman_config / "config.toml"

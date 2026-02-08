@@ -68,6 +68,18 @@ Example:
     └── template/pyproject.toml.jinja
 ```
 
+### Seed template source strategy (init-time)
+
+Devman initialization now uses an explicit seed-template strategy:
+
+- **Option B (default):** `external_repo_path`
+  - Resolves from `--seed-templates-repo`, then `$DEVMAN_SEED_TEMPLATES_REPO`, then `~/.devman-templates`.
+  - Copies `file-type/` from that external path into `~/.devman-store/devman/.devman/.templates/file-type`.
+- **Option A (optional):** `package_assets`
+  - Copies bundled package assets via `importlib.resources`.
+
+This keeps runtime template usage the same, while making bootstrap sourcing explicit and configurable.
+
 ### Tier 2 — Instance store
 
 An **instance** is the result of instantiating a template. Devman creates a new
@@ -228,6 +240,9 @@ Symlink targets:
 ---
 
 ## Why this architecture works
+
+Migration note: existing template stores continue to work as-is; the strategy only affects new `devman init` runs.
+
 
 - **Autonomy without duplication**: instances are full repos, not branches or
   workspaces of the template repo.

@@ -48,12 +48,26 @@ def _configure_watch_logging(level_name: str) -> None:
 
 
 @app.command()
-def init():
+def init(
+    seed_templates_repo: Path = typer.Option(
+        None,
+        "--seed-templates-repo",
+        help="External templates repo path (defaults to $DEVMAN_SEED_TEMPLATES_REPO or ~/.devman-templates)",
+    ),
+    seed_templates_strategy: str = typer.Option(
+        "external_repo_path",
+        "--seed-templates-strategy",
+        help="Seed strategy: external_repo_path (default) or package_assets",
+    ),
+):
     """Initialize devman store with git-backed templates."""
     from devman.bootstrap import init_devman_store
 
     try:
-        store_path = init_devman_store()
+        store_path = init_devman_store(
+            seed_templates_strategy=seed_templates_strategy,
+            seed_templates_repo=seed_templates_repo,
+        )
         console.print(f"[green]OK[/green] Devman store initialized: {store_path}")
         console.print("  Git repository created with tag v0.1.0")
     except ValueError as e:
