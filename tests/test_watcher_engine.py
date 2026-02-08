@@ -224,6 +224,34 @@ def test_run_and_run_once_share_change_normalization_logic() -> None:
     assert run_seen == run_once_seen == [('module-template', 'added:src/modules/core/README.md')]
 
 
+def test_run_passes_watch_filter_that_rejects_ignored_dirs_and_globs() -> None:
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [{"pattern": "src/modules/*", "template": "module-template", "on": ["added"]}],
+            "settings": {
+                "ignore_dirs": [".git", "build"],
+                "ignore_globs": ["**/*.tmp"],
+            },
+        }
+    )
+
+    watch_kwargs: dict[str, object] = {}
+
+    def watch_factory(*_: object, **kwargs: object):
+        watch_kwargs.update(kwargs)
+        yield set()
+
+    watcher = DevmanWatcher(config=config, repo_root=Path('.'), watch_factory=watch_factory)
+
+    watcher.run()
+
+    watch_filter = watch_kwargs["watch_filter"]
+    assert callable(watch_filter)
+    assert watch_filter(Change.added, "src/modules/core") is True
+    assert watch_filter(Change.added, "build/output/file.md") is False
+    assert watch_filter(Change.added, "src/modules/core/temp.tmp") is False
+
+
 def test_run_once_matches_relative_patterns_for_absolute_incoming_paths(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     changed_file = repo_root / "src" / "modules" / "core" / "README.md"
