@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import tomllib
 import tomli_w
@@ -95,7 +95,7 @@ def bootstrap_project(
 
     metadata["template"]["name"] = project_template
     metadata["template"]["version"] = template_version
-    metadata["template"]["created_at"] = datetime.now().isoformat()
+    metadata["template"]["created_at"] = datetime.now(timezone.utc).isoformat()
 
     with open(metadata_file, "wb") as f:
         tomli_w.dump(metadata, f)
