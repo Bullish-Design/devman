@@ -8,6 +8,15 @@ import shutil
 import subprocess
 from typing import Optional
 
+from devman.constants import (
+    CONFIG_SUBPATH,
+    DEVMAN_CONFIG_SUBPATH,
+    TEMPLATES_SUBPATH,
+    WORKFLOWS_SUBPATH,
+    STORE_ROOT_USER_PATH,
+    get_devman_meta_dir,
+    get_store_root,
+)
 from devman.subprocess_utils import run_checked_subprocess
 
 SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO = "external_repo_path"
@@ -70,21 +79,21 @@ def init_devman_store(
     seed_templates_repo: Optional[Path] = None,
 ) -> Path:
     """Initialize devman store with git-backed meta-configuration."""
-    store_root = Path.home() / ".devman-store"
-    devman_path = store_root / "devman"
+    store_root = get_store_root()
+    devman_path = get_devman_meta_dir()
 
     if devman_path.exists():
         raise ValueError(f"Devman store already initialized at {store_root}")
 
     # Create structure
     devman_path.mkdir(parents=True)
-    devman_config = devman_path / ".devman"
+    devman_config = devman_path / DEVMAN_CONFIG_SUBPATH
     devman_config.mkdir()
 
-    templates_dir = devman_config / ".templates"
+    templates_dir = devman_config / TEMPLATES_SUBPATH.name
     templates_dir.mkdir()
 
-    workflows_dir = devman_config / "workflows"
+    workflows_dir = devman_config / WORKFLOWS_SUBPATH.name
     workflows_dir.mkdir()
 
     _copy_seed_file_type_template(
@@ -94,11 +103,11 @@ def init_devman_store(
     )
 
     # Create minimal config
-    config_path = devman_config / "config.toml"
+    config_path = devman_path / CONFIG_SUBPATH
     config_path.write_text(
-        '[devman]\n'
-        'version = "0.1.0"\n'
-        'store_path = "~/.devman-store"\n'
+        "[devman]\n"
+        "version = \"0.1.0\"\n"
+        f'store_path = "{STORE_ROOT_USER_PATH}"\n'
     )
 
     # Initialize git repo
@@ -120,8 +129,7 @@ def init_devman_store(
 
 def get_current_devman_version() -> str:
     """Get current devman template version from git tags."""
-    store_root = Path.home() / ".devman-store"
-    devman_path = store_root / "devman"
+    devman_path = get_devman_meta_dir()
 
     if not devman_path.exists():
         return "unversioned"
@@ -144,9 +152,9 @@ def bootstrap_file_type(
     template_version: Optional[str] = None,
 ) -> Path:
     """Bootstrap a new file type using copier templates."""
-    store_root = Path.home() / ".devman-store"
-    devman_path = store_root / "devman"
-    template_path = devman_path / ".devman/.templates/file-type"
+    store_root = get_store_root()
+    devman_path = get_devman_meta_dir()
+    template_path = devman_path / TEMPLATES_SUBPATH / "file-type"
     target_path = store_root / file_type
 
     if target_path.exists():
@@ -168,7 +176,7 @@ def bootstrap_file_type(
     run_checked_subprocess(copier_cmd, context="Copier copy")
 
     # Add version metadata to config
-    config_path = target_path / ".devman/config.toml"
+    config_path = target_path / CONFIG_SUBPATH
     if config_path.exists():
         with open(config_path, "a") as f:
             f.write("\n[template]\n")

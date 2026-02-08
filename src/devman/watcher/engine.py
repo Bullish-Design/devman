@@ -43,6 +43,7 @@ class DevmanWatcher:
         )
         for changes in self._watch_factory(
             self.repo_root,
+            watch_filter=self._watch_filter,
             debounce=self.config.settings.debounce_ms,
             raise_interrupt=False,
         ):
@@ -97,6 +98,12 @@ class DevmanWatcher:
                 return True
 
         return False
+
+    def _watch_filter(self, _change: Change, path: str) -> bool:
+        candidate_path = Path(path)
+        if candidate_path.is_absolute() and candidate_path.is_relative_to(self.repo_root):
+            candidate_path = candidate_path.relative_to(self.repo_root)
+        return not self._is_ignored_path(candidate_path)
 
     @staticmethod
     def _normalize_change(change: Change | str) -> str:

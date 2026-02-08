@@ -16,12 +16,14 @@ def _dump_minimal_toml(data: dict, file_obj) -> None:
         file_obj.write(f"[{section}]\n".encode("utf-8"))
         for key, value in values.items():
             file_obj.write(f'{key} = "{value}"\n'.encode("utf-8"))
+from devman.constants import CONFIG_SUBPATH
+from devman.update import update_file_type
 
 
 def test_update_file_type_returns_full_payload_for_no_op(monkeypatch, tmp_path: Path) -> None:
     store_root = tmp_path / ".devman-store"
     type_path = store_root / "pyproject.toml"
-    config_path = type_path / ".devman" / "config.toml"
+    config_path = type_path / CONFIG_SUBPATH
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
         "[template]\n"

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import tomllib
 import tomli_w
 
+from devman.constants import CONFIG_SUBPATH, get_store_root
 from devman.subprocess_utils import run_checked_subprocess
 
 
@@ -16,13 +17,13 @@ def update_file_type(
     dry_run: bool = False,
 ) -> dict:
     """Update a file type configuration to a new template version."""
-    store_root = Path.home() / ".devman-store"
+    store_root = get_store_root()
     type_path = store_root / file_type
 
     if not type_path.exists():
         raise ValueError(f"File type not found: {file_type}")
 
-    config_path = type_path / ".devman/config.toml"
+    config_path = type_path / CONFIG_SUBPATH
     with open(config_path, "rb") as f:
         config = tomllib.load(f)
 

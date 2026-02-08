@@ -8,6 +8,8 @@ import tomllib
 import tomli_w
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from devman.constants import DEFAULT_INSTANCE_STORE, DEFAULT_TEMPLATE_STORE
+
 _ALLOWED_EVENTS = {"added", "modified", "deleted"}
 _ALLOWED_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
@@ -71,8 +73,8 @@ class SettingsConfig(BaseModel):
     ignore_globs: list[str] = Field(
         default_factory=lambda: ["**/*.pyc", "**/.DS_Store"],
     )
-    instance_store: str = Field(default="~/.devman-store/instances")
-    template_store: str = Field(default="~/.devman-store/devman/.devman/.templates")
+    instance_store: str = Field(default=DEFAULT_INSTANCE_STORE)
+    template_store: str = Field(default=DEFAULT_TEMPLATE_STORE)
     allow_destructive_modified: bool = Field(default=False)
 
     @field_validator("log_level")

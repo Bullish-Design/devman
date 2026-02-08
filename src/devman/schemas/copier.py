@@ -38,6 +38,12 @@ class CopierConfig(BaseModel):
     def from_yaml_file(cls, path: Path) -> CopierConfig:
         """Load and parse a copier.yaml file."""
         content = yaml.safe_load(path.read_text())
+        if content is None:
+            content = {}
+        elif not isinstance(content, dict):
+            raise ValueError(
+                f"Invalid YAML root in {path}: expected a mapping, got {type(content).__name__}"
+            )
 
         # Separate metadata fields from questions
         questions_raw: dict[str, Any] = {}

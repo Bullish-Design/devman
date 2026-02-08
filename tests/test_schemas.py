@@ -141,6 +141,28 @@ use_docker:
     assert "use_docker" in config.questions
 
 
+def test_copier_config_from_empty_yaml_file(tmp_path: Path):
+    yaml_file = tmp_path / "copier.yaml"
+    yaml_file.write_text("")
+
+    config = CopierConfig.from_yaml_file(yaml_file)
+
+    assert config.questions == {}
+
+
+def test_copier_config_invalid_yaml_root_type(tmp_path: Path):
+    yaml_file = tmp_path / "copier.yaml"
+    yaml_file.write_text("- item\n- item2\n")
+
+    try:
+        CopierConfig.from_yaml_file(yaml_file)
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert str(yaml_file) in str(exc)
+        assert "expected a mapping" in str(exc)
+        assert "list" in str(exc)
+
+
 def test_copier_config_to_yaml_file(tmp_path: Path):
     config = CopierConfig(
         subdirectory="src",

@@ -1,15 +1,15 @@
-# tests/test_domain_errors.py
 from pathlib import Path
 
-from devman.domain.errors import PathNotFoundError, PathNotDirectoryError
+from devman.domain.errors import PathNotDirectoryError, PathNotFoundError
 
 
-def test_path_not_found_error_message():
-    error = PathNotFoundError(message="", path=Path("/tmp/missing"))
-    assert "/tmp/missing" in str(error)
+def test_path_not_found_error_args_and_message():
+    error = PathNotFoundError(path=Path("/tmp/missing"))
+    assert error.args == ("Path does not exist: /tmp/missing",)
+    assert str(error) == "Path does not exist: /tmp/missing"
 
 
-def test_path_not_directory_error_message():
-    error = PathNotDirectoryError(message="", path=Path("/tmp/file.txt"))
-    assert "/tmp/file.txt" in str(error)
-    assert "not a directory" in str(error)
+def test_path_not_directory_error_args_and_message():
+    error = PathNotDirectoryError(path=Path("/tmp/file.txt"))
+    assert error.args == ("Path is not a directory: /tmp/file.txt",)
+    assert str(error) == "Path is not a directory: /tmp/file.txt"
