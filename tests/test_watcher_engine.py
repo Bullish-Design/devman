@@ -20,7 +20,7 @@ def test_find_matching_pattern_matches_on_change_and_glob() -> None:
     ]
 
     matched = find_matching_pattern(
-        Path("src/modules/core/README.md"),
+        "src/modules/core/README.md",
         Change.modified,
         patterns,
     )
@@ -38,7 +38,7 @@ def test_find_matching_pattern_respects_excludes() -> None:
         )
     ]
 
-    matched = find_matching_pattern(Path("src/modules/core/draft-notes.md"), "added", patterns)
+    matched = find_matching_pattern("src/modules/core/draft-notes.md", "added", patterns)
 
     assert matched is None
 
@@ -52,7 +52,7 @@ def test_find_matching_pattern_supports_directory_style_patterns() -> None:
         )
     ]
 
-    matched = find_matching_pattern(Path("src/modules/core/new-file.py"), "added", patterns)
+    matched = find_matching_pattern("src/modules/core/new-file.py", "added", patterns)
 
     assert matched is not None
 
@@ -207,3 +207,66 @@ def test_run_and_run_once_share_change_normalization_logic() -> None:
 
     assert run_once_dispatches == 1
     assert run_seen == run_once_seen == [('module-template', 'added:src/modules/core/README.md')]
+
+
+def test_run_once_matches_relative_patterns_for_absolute_incoming_paths(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    changed_file = repo_root / "src" / "modules" / "core" / "README.md"
+    changed_file.parent.mkdir(parents=True)
+    changed_file.write_text("docs")
+
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [
+                {
+                    "pattern": "src/modules/*/README.md",
+                    "template": "module-template",
+                    "on": ["added"],
+                }
+            ],
+        }
+    )
+
+    seen: list[str] = []
+
+    def handler(_: PatternConfig, matched_path: Path, change: str, *__: object) -> None:
+        seen.append(f"{change}:{matched_path.as_posix()}")
+
+    watcher = DevmanWatcher(config=config, repo_root=repo_root, handlers=[handler])
+
+    dispatches = watcher.run_once({(Change.added, changed_file)})
+
+    assert dispatches == 1
+    assert seen == [f"added:{changed_file.as_posix()}"]
+
+
+def test_run_once_skips_absolute_paths_outside_repo_root(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    outside_file = tmp_path / "outside" / "src" / "modules" / "core" / "README.md"
+    outside_file.parent.mkdir(parents=True)
+    outside_file.write_text("docs")
+
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [
+                {
+                    "pattern": "src/modules/*/README.md",
+                    "template": "module-template",
+                    "on": ["added"],
+                }
+            ],
+        }
+    )
+
+    seen: list[str] = []
+
+    def handler(_: PatternConfig, matched_path: Path, change: str, *__: object) -> None:
+        seen.append(f"{change}:{matched_path.as_posix()}")
+
+    watcher = DevmanWatcher(config=config, repo_root=repo_root, handlers=[handler])
+
+    dispatches = watcher.run_once({(Change.added, outside_file)})
+
+    assert dispatches == 0
+    assert seen == []
