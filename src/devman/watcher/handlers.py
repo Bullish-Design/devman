@@ -181,11 +181,12 @@ def initialize_instance_repository(instance_path: Path) -> None:
 def replace_source_with_symlink(source_path: Path, instance_path: Path) -> None:
     """Replace the matched source path with a symlink to the generated instance."""
     source_was_directory = source_path.is_dir() and not source_path.is_symlink()
+    directory_target = _resolve_directory_link_target(instance_path)
 
     if source_path.is_symlink():
         current_target = source_path.resolve()
         file_target = _resolve_file_link_target(source_path, instance_path)
-        if current_target in {instance_path.resolve(), file_target.resolve()}:
+        if current_target in {directory_target.resolve(), file_target.resolve()}:
             return
         raise WatchError(f"Refusing to replace unrelated symlink: {source_path}")
 
@@ -194,10 +195,21 @@ def replace_source_with_symlink(source_path: Path, instance_path: Path) -> None:
 
     if source_was_directory:
         shutil.rmtree(source_path)
-        source_path.symlink_to(instance_path, target_is_directory=True)
+        source_path.symlink_to(directory_target, target_is_directory=True)
     else:
         source_path.unlink()
         source_path.symlink_to(_resolve_file_link_target(source_path, instance_path), target_is_directory=False)
+
+
+def _resolve_directory_link_target(instance_path: Path) -> Path:
+    """Resolve symlink target for directory sources."""
+    output_path = instance_path / "output"
+    if output_path.exists() and output_path.is_dir():
+        logger.debug("Resolved directory link target to output path: %s", output_path)
+        return output_path
+
+    logger.debug("Resolved directory link target to instance path: %s", instance_path)
+    return instance_path
 
 
 def _resolve_file_link_target(source_path: Path, instance_path: Path) -> Path:
@@ -206,11 +218,21 @@ def _resolve_file_link_target(source_path: Path, instance_path: Path) -> Path:
     A file-oriented instance strategy may return a concrete file path. Otherwise,
     default to linking into the generated instance directory with the source file name.
     """
+    output_target = instance_path / "output" / source_path.name
+    if output_target.exists():
+        logger.debug("Resolved file link target to output file path: %s", output_target)
+        return output_target
+
     if instance_path.exists() and instance_path.is_file():
+        logger.debug("Resolved file link target to file instance path: %s", instance_path)
         return instance_path
     if instance_path.suffix and not instance_path.exists():
+        logger.debug("Resolved file link target to file-like instance path: %s", instance_path)
         return instance_path
-    return instance_path / source_path.name
+
+    default_target = instance_path / source_path.name
+    logger.debug("Resolved file link target to default instance child path: %s", default_target)
+    return default_target
 
 
 def _resolve_source_path(matched_path: Path, repo_root: Path) -> Path:
