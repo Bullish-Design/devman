@@ -1,12 +1,41 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# dependencies = [
+#   "copier>=9.0.0",
+#   "tomli-w>=1.0.0",
+# ]
+# ///
+
 from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import sys
 from typing import Optional
 from datetime import datetime
 
 import tomllib
 import tomli_w
+
+
+def _build_uv_run_command(*args: str) -> list[str]:
+    return [sys.executable, "-m", "uv", "run", "--python", sys.executable, *args]
+
+
+def _run_checked(command: list[str], cwd: Path | None = None, context: str = "Command") -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise RuntimeError(
+            f"{context} failed with exit code {exc.returncode}. stderr: {stderr}"
+        ) from exc
 
 
 def bootstrap_project(
@@ -27,7 +56,7 @@ def bootstrap_project(
         from devman.bootstrap import get_current_devman_version
         template_version = get_current_devman_version()
 
-    copier_cmd = ["copier", "copy"]
+    copier_cmd = _build_uv_run_command("copier", "copy")
 
     if template_version != "unversioned":
         copier_cmd.extend(["--vcs-ref", template_version])
@@ -37,22 +66,16 @@ def bootstrap_project(
 
     copier_cmd.extend([str(template_path), str(target_dir)])
 
-    result = subprocess.run(copier_cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        raise RuntimeError(f"Copier failed: {result.stderr}")
+    _run_checked(copier_cmd, context="Copier")
 
     # Execute .devman-bootstrap.py if it exists
     bootstrap_script = target_dir / ".devman-bootstrap.py"
     if bootstrap_script.exists():
-        result = subprocess.run(
-            ["python", str(bootstrap_script)],
+        _run_checked(
+            _build_uv_run_command(str(bootstrap_script)),
             cwd=target_dir,
-            capture_output=True,
-            text=True,
+            context="Bootstrap script",
         )
-        if result.returncode != 0:
-            raise RuntimeError(f"Bootstrap script failed: {result.stderr}")
 
     # Read/update project metadata
     metadata_file = target_dir / ".devman-project.toml"
