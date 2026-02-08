@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections import deque
+from collections.abc import Callable, Iterator
+from contextvars import ContextVar
 from pathlib import Path
 
 from devman.domain.errors import WatchError
@@ -60,12 +62,14 @@ def handle_instantiation(
     run_copier_fn: Callable[[Path, Path], None] | None = None,
     init_repo_fn: Callable[[Path], None] | None = None,
     replace_path_fn: Callable[[Path, Path], None] | None = None,
+    dispatch_change_event_fn: Callable[[str, Path, Path, DevmanWatchConfig], int] | None = None,
 ) -> Path:
     """Orchestrate template instantiation side-effects for a matched event."""
     resolve_instance_path_fn = resolve_instance_path_fn or resolve_target_instance_path
     run_copier_fn = run_copier_fn or run_copier_instantiation
     init_repo_fn = init_repo_fn or initialize_instance_repository
     replace_path_fn = replace_path_fn or replace_source_with_symlink
+    dispatch_change_event_fn = dispatch_change_event_fn or dispatch_change_event
 
     source_path = _resolve_source_path(matched_path, repo_root)
     instance_path = resolve_instance_path_fn(source_path, pattern, repo_root, config)
@@ -94,6 +98,13 @@ def handle_instantiation(
         init_repo_fn(instance_path)
 
     replace_path_fn(source_path, instance_path)
+    _emit_synthetic_added_events(
+        source_path=source_path,
+        instance_path=instance_path,
+        repo_root=repo_root,
+        config=config,
+        dispatch_change_event_fn=dispatch_change_event_fn,
+    )
     logger.info(
         "watcher instantiation complete",
         extra={
@@ -106,6 +117,103 @@ def handle_instantiation(
         },
     )
     return instance_path
+
+
+_MAX_SYNTHETIC_SCAN_DEPTH = 4
+_MAX_SYNTHETIC_SCAN_ENTRIES = 1000
+_synthetic_scan_depth: ContextVar[int] = ContextVar("synthetic_scan_depth", default=0)
+_synthetic_scan_stack: ContextVar[tuple[Path, ...]] = ContextVar("synthetic_scan_stack", default=())
+
+
+def dispatch_change_event(change: str, changed_path: Path, repo_root: Path, config: DevmanWatchConfig) -> int:
+    """Dispatch a synthesized change through the watcher engine pipeline."""
+    from devman.watcher.engine import process_change_event
+
+    return process_change_event(
+        config=config,
+        repo_root=repo_root,
+        handlers=DEFAULT_HANDLERS,
+        change=change,
+        changed_path=changed_path,
+        is_ignored_path_fn=lambda path: _is_ignored_path(path, config),
+    )
+
+
+def _emit_synthetic_added_events(
+    *,
+    source_path: Path,
+    instance_path: Path,
+    repo_root: Path,
+    config: DevmanWatchConfig,
+    dispatch_change_event_fn: Callable[[str, Path, Path, DevmanWatchConfig], int],
+) -> None:
+    if not instance_path.exists() or not instance_path.is_dir():
+        return
+
+    current_depth = _synthetic_scan_depth.get()
+    if current_depth >= _MAX_SYNTHETIC_SCAN_DEPTH:
+        logger.warning("synthetic scan depth limit reached", extra={"instance_path": str(instance_path)})
+        return
+
+    resolved_instance = instance_path.resolve()
+    stack = _synthetic_scan_stack.get()
+    if resolved_instance in stack:
+        logger.warning("synthetic scan loop detected; skipping", extra={"instance_path": str(instance_path)})
+        return
+
+    stack_token = _synthetic_scan_stack.set((*stack, resolved_instance))
+    depth_token = _synthetic_scan_depth.set(current_depth + 1)
+    try:
+        for synthetic_path in _iter_synthetic_paths(source_path, instance_path):
+            dispatch_change_event_fn("added", synthetic_path, repo_root, config)
+    finally:
+        _synthetic_scan_depth.reset(depth_token)
+        _synthetic_scan_stack.reset(stack_token)
+
+
+def _iter_synthetic_paths(source_path: Path, instance_path: Path) -> Iterator[Path]:
+    visited: set[Path] = set()
+    queue: deque[tuple[Path, Path]] = deque([(instance_path, source_path)])
+    emitted = 0
+
+    while queue and emitted < _MAX_SYNTHETIC_SCAN_ENTRIES:
+        current_instance, current_source = queue.popleft()
+        try:
+            current_real = current_instance.resolve()
+        except FileNotFoundError:
+            continue
+
+        if current_real in visited:
+            continue
+        visited.add(current_real)
+
+        for child in current_instance.iterdir():
+            synthetic_child = current_source / child.name
+            yield synthetic_child
+            emitted += 1
+            if emitted >= _MAX_SYNTHETIC_SCAN_ENTRIES:
+                logger.warning("synthetic scan entry limit reached", extra={"instance_path": str(instance_path)})
+                return
+
+            if child.is_dir():
+                queue.append((child, synthetic_child))
+
+
+def _is_ignored_path(path: Path, config: DevmanWatchConfig) -> bool:
+    settings = config.settings
+    posix_path = path.as_posix()
+
+    for part in path.parts:
+        if part in settings.ignore_dirs:
+            return True
+
+    from fnmatch import fnmatch
+
+    for glob_pattern in settings.ignore_globs:
+        if fnmatch(posix_path, glob_pattern):
+            return True
+
+    return False
 
 
 def resolve_target_instance_path(

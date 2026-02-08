@@ -6,6 +6,10 @@ import pytest
 from devman.domain.errors import WatchError
 from devman.watcher.config import DevmanWatchConfig, PatternConfig
 from devman.watcher.handlers import (
+    _MAX_SYNTHETIC_SCAN_DEPTH,
+    _emit_synthetic_added_events,
+    _iter_synthetic_paths,
+    _synthetic_scan_depth,
     handle_instantiation,
     handle_pattern_match,
     initialize_instance_repository,
@@ -310,3 +314,101 @@ def test_initialize_instance_repository_uses_jj_when_available(
     initialize_instance_repository(instance_path)
 
     assert commands == [["jj", "git", "init"]]
+
+
+def test_handle_instantiation_synthesizes_nested_added_events_for_followup_patterns(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    trigger = repo_root / "src" / "modules" / "auth"
+    trigger.mkdir(parents=True)
+
+    template_store = tmp_path / "templates"
+    (template_store / "module-template").mkdir(parents=True)
+    (template_store / "feature-template").mkdir(parents=True)
+
+    config = DevmanWatchConfig.model_validate(
+        {
+            "pattern": [
+                {"pattern": "src/modules/*", "template": "module-template", "on": ["added"]},
+                {"pattern": "src/modules/*/features/*", "template": "feature-template", "on": ["added"]},
+            ],
+            "settings": {
+                "instance_store": str(tmp_path / "instances"),
+                "template_store": str(template_store),
+            },
+        }
+    )
+
+    copier_calls: list[Path] = []
+
+    def fake_copier(template_path: Path, instance_path: Path) -> None:
+        copier_calls.append(template_path)
+        instance_path.mkdir(parents=True, exist_ok=True)
+        if template_path.name == "module-template":
+            (instance_path / "features" / "billing").mkdir(parents=True)
+
+    def fake_init(instance_path: Path) -> None:
+        (instance_path / ".git").mkdir(exist_ok=True)
+
+    def fake_replace(source_path: Path, instance_path: Path) -> None:
+        source_path.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr("devman.watcher.handlers.run_copier_instantiation", fake_copier)
+    monkeypatch.setattr("devman.watcher.handlers.initialize_instance_repository", fake_init)
+    monkeypatch.setattr("devman.watcher.handlers.replace_source_with_symlink", fake_replace)
+
+    root_pattern = config.patterns[0]
+    handle_instantiation(
+        pattern=root_pattern,
+        matched_path=trigger,
+        change="added",
+        repo_root=repo_root,
+        config=config,
+        run_copier_fn=fake_copier,
+        init_repo_fn=fake_init,
+        replace_path_fn=fake_replace,
+    )
+
+    called_templates = [path.name for path in copier_calls]
+    assert called_templates.count("module-template") == 1
+    assert called_templates.count("feature-template") == 1
+
+
+def test_iter_synthetic_paths_stops_on_symlink_loop(tmp_path: Path) -> None:
+    source_path = tmp_path / "repo" / "src" / "modules" / "auth"
+    source_path.mkdir(parents=True)
+
+    instance_path = tmp_path / "instance"
+    nested = instance_path / "nested"
+    nested.mkdir(parents=True)
+    (nested / "loop").symlink_to(instance_path, target_is_directory=True)
+
+    synthetic = list(_iter_synthetic_paths(source_path, instance_path))
+
+    assert source_path / "nested" in synthetic
+    assert len(synthetic) == 2
+
+
+def test_emit_synthetic_added_events_respects_depth_guard(tmp_path: Path) -> None:
+    source_path = tmp_path / "repo" / "src" / "modules" / "auth"
+    source_path.mkdir(parents=True)
+    instance_path = tmp_path / "instance"
+    (instance_path / "nested").mkdir(parents=True)
+
+    dispatched: list[Path] = []
+
+    token = _synthetic_scan_depth.set(_MAX_SYNTHETIC_SCAN_DEPTH)
+    try:
+        _emit_synthetic_added_events(
+            source_path=source_path,
+            instance_path=instance_path,
+            repo_root=tmp_path / "repo",
+            config=_config(tmp_path / "instances", tmp_path / "templates"),
+            dispatch_change_event_fn=lambda _c, path, _r, _cfg: dispatched.append(path) or 1,
+        )
+    finally:
+        _synthetic_scan_depth.reset(token)
+
+    assert dispatched == []
