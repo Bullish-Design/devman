@@ -1,9 +1,16 @@
-# tmuxp project definition for devman.
-# Keep this file under .devman/ and expose it via the root symlink.
-session_name: devman
+session_name: DevMan
 windows:
-  - window_name: dev
-    layout: main-horizontal
+  - window_name: DevMan
+    layout: main-vertical
+    options:
+      main-pane-width: 20%
     panes:
       - shell_command:
-          - cd /workspace/devman
+          - cd ~/Documents/Notes/Projects/devman
+          # - nvim Notes.md ToDo.md
+          - open-project
+      - shell_command:
+          - tmux resizep -y 85%
+          - filelist-open "startup_files.txt" devman
+        focus: true
+      - clear
