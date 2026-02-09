@@ -1,6 +1,23 @@
-# Devman: Self-Bootstrapping File-Oriented Learning System
+# Devman: Experimental, Modular Development Control Plane
 
-Devman is a minimal self-bootstrapping system that uses [copier](https://copier.readthedocs.io/) templates to generate and manage file type configurations. It tracks template versions via git tags and provides update mechanisms to evolve configurations over time.
+> **Intent (read this first):** Devman is explicitly aimed at a **new, modular, highly experimental development style**. It is designed to leverage **`devenv.sh`** so templates and agents can define and control both:
+> 1) the **system environment** (tools, services, runtime shape), and
+> 2) the **software layered on top of it** (project code, tasks, artifacts).
+>
+> If you are an agent, do **not** fall back to legacy assumptions where the host environment is fixed and only app code changes. In Devman, environment + software are co-designed modules.
+
+Devman is a self-bootstrapping system that uses [copier](https://copier.readthedocs.io/) templates to generate and manage development modules. It tracks template versions via git tags and provides update mechanisms to evolve configurations over time.
+
+## Experimental Development Model (devenv-first)
+
+Devman assumes a **devenv-first** workflow:
+
+- `devenv.sh` is the primary mechanism for defining reproducible system capabilities.
+- Templates should be modular and composable so teams can rapidly try different toolchains, services, and run strategies.
+- Agents should treat infra/runtime definitions as editable project assets, not external constraints.
+- “Works on my machine” is replaced with explicitly declared environment modules.
+
+In short: this project is intentionally opinionated toward fast experimentation with full-stack local environment control.
 
 ## Core Concepts
 

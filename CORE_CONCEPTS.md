@@ -22,6 +22,13 @@ Devman does **not** replace your project’s tools. Instead, it:
 
 ## First principles
 
+### 0) Experimental, modular, devenv.sh-first development
+Devman is not a conservative wrapper around existing project scripts. It is an experimental control plane for modular development systems:
+- Treat environment definition (`devenv.sh`) as a first-class part of the project architecture.
+- Treat system/tooling/runtime modules and app/code modules as co-evolving components.
+- Optimize for safe iteration speed and replaceability of modules over rigid one-off setup.
+- Avoid agent behaviors that preserve legacy assumptions like “the system is fixed; only app code changes.”
+
 ### 1) Just-first execution
 All task execution is performed by invoking **`just`**:
 - Task == `just <recipe> [args…]`
