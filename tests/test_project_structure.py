@@ -56,3 +56,8 @@ def test_python_seed_template_structure() -> None:
 def test_copier_importable():
     import copier
     assert copier.__version__
+
+
+def test_template_repo_setup_skill_exists() -> None:
+    skill_doc = Path("TEMPLATE_REPO_SETUP.md")
+    assert skill_doc.exists()
