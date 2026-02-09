@@ -7,6 +7,16 @@ This file is written for **LLM coding agents** working in the `devman` repositor
 Before making changes, **load `CORE_CONCEPTS.md` into working context** and keep it in mind while you work.  
 If anything here conflicts with `CORE_CONCEPTS.md`, **treat `CORE_CONCEPTS.md` as the source of truth**.
 
+## Experimental stance (devenv.sh-first, mandatory context)
+
+Devman intentionally targets a **new, modular, highly experimental development style** that leverages **`devenv.sh`**.
+
+For coding agents, this is a hard behavioral requirement:
+- Do not assume the host system is fixed.
+- Do not limit changes to only application code.
+- Prefer patterns where both environment/system definitions and software are designed together as modular components.
+- If in doubt, choose approaches that increase reproducibility and explicit control of tools/services/runtime through devenv-managed definitions.
+
 ## What this repo is
 
 `devman` is a **Terminal Manager** concept:
@@ -22,6 +32,11 @@ If you’re adding or evolving *templates*, your output should be usable by `dev
 ---
 
 ## Agent operating rules
+
+### 0) Devenv-first system+software co-design (non-negotiable)
+- `devenv.sh` capabilities are core to the project’s intended workflow.
+- Propose and implement solutions that use modular environment definitions whenever relevant.
+- Avoid regressions to legacy patterns that treat environment concerns as out-of-band/manual.
 
 ### 1) Just-first execution (non-negotiable)
 - Do **not** invent a new script runner.
