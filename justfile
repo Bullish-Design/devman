@@ -67,7 +67,20 @@ entrypoint config="sample-config.toml":
     fi
 
     # ── Parse answers from the TOML config ──────────────────────────
-    eval "$(uv run scripts/parse-config.py "$config")"
+    config_json="$(uv run scripts/parse-config.py "$config")"
+
+    mapfile -t parsed < <(python - "$config_json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload["file_type"])
+print(payload.get("description", ""))
+PY
+    )
+
+    file_type="${parsed[0]}"
+    description="${parsed[1]}"
 
     template_name="file-type"
     template_src="src/devman/seed_templates/$template_name"
@@ -92,16 +105,18 @@ entrypoint config="sample-config.toml":
     echo "──────────────────────────────────────────────"
 
     # ── Generate the template instance inside an asciinema session ──
+    export file_type description template_name template_src output_dir
+
     asciinema rec "$term_dir/session.cast" --command "
       set -e
-      echo 'Generating $template_name instance for file_type=$file_type ...'
+      echo \"Generating \$template_name instance for file_type=\$file_type ...\"
       copier copy --defaults \
-        --data file_type='$file_type' \
-        --data description='$description' \
-        '$template_src' '$output_dir'
+        --data file_type=\"\$file_type\" \
+        --data description=\"\$description\" \
+        \"\$template_src\" \"\$output_dir\"
       echo
       echo 'Generated files:'
-      find '$output_dir' -not -path '*/.term/*' -not -path '*/.term' | sort
+      find \"\$output_dir\" -not -path '*/.term/*' -not -path '*/.term' | sort
       echo
       echo 'Done.'
     "
