@@ -2,11 +2,15 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""Parse a file-type template TOML config and print key=value pairs for shell consumption."""
+"""Parse a file-type template TOML config and print JSON for shell consumption."""
 
+import json
 import sys
-import shlex
-import tomllib
+
+if sys.version_info >= (3, 11):
+    import tomllib as toml_reader
+else:
+    import tomli as toml_reader
 
 def main() -> None:
     if len(sys.argv) < 2:
@@ -15,11 +19,14 @@ def main() -> None:
 
     config_path = sys.argv[1]
     with open(config_path, "rb") as f:
-        cfg = tomllib.load(f)
+        cfg = toml_reader.load(f)
 
     section = cfg["file_type_template"]
-    print(f"file_type={shlex.quote(section['file_type'])}")
-    print(f"description={shlex.quote(section.get('description', ''))}")
+    payload = {
+        "file_type": section["file_type"],
+        "description": section.get("description", ""),
+    }
+    print(json.dumps(payload))
 
 if __name__ == "__main__":
     main()
