@@ -24,14 +24,16 @@ SEED_TEMPLATES_STRATEGY_PACKAGE_ASSETS = "package_assets"
 DEFAULT_SEED_TEMPLATES_STRATEGY = SEED_TEMPLATES_STRATEGY_EXTERNAL_REPO
 DEFAULT_SEED_TEMPLATES_REPO = Path("~/.devman-templates").expanduser()
 SEED_TEMPLATES_ENV_VAR = "DEVMAN_SEED_TEMPLATES_REPO"
+SEED_TEMPLATE_NAMES = ("file-type", "devenv.nix", "python")
 
 
-def _copy_seed_file_type_template(
+def _copy_seed_template(
+    template_name: str,
     destination: Path,
     strategy: str,
     seed_templates_repo: Optional[Path] = None,
 ) -> None:
-    """Copy the `file-type` seed template to the destination directory.
+    """Copy a seed template to the destination directory.
 
     Strategy options:
     - `external_repo_path` (default): read template from an external templates repository
@@ -47,21 +49,19 @@ def _copy_seed_file_type_template(
             if SEED_TEMPLATES_ENV_VAR in os.environ
             else DEFAULT_SEED_TEMPLATES_REPO
         )
-        file_type_template = configured_repo / "file-type"
-        if not file_type_template.exists():
+        source_template = configured_repo / template_name
+        if not source_template.exists():
             raise ValueError(
-                "Seed template 'file-type' not found at "
-                f"{file_type_template}. Configure {SEED_TEMPLATES_ENV_VAR}, pass "
+                f"Seed template '{template_name}' not found at "
+                f"{source_template}. Configure {SEED_TEMPLATES_ENV_VAR}, pass "
                 "seed_templates_repo, or use strategy='package_assets'."
             )
 
-        shutil.copytree(file_type_template, destination)
+        shutil.copytree(source_template, destination)
         return
 
     if strategy == SEED_TEMPLATES_STRATEGY_PACKAGE_ASSETS:
-        package_template = resources.files("devman").joinpath(
-            "seed_templates", "file-type"
-        )
+        package_template = resources.files("devman").joinpath("seed_templates", template_name)
         with resources.as_file(package_template) as local_template:
             shutil.copytree(local_template, destination)
         return
@@ -96,11 +96,13 @@ def init_devman_store(
     workflows_dir = devman_config / WORKFLOWS_SUBPATH.name
     workflows_dir.mkdir()
 
-    _copy_seed_file_type_template(
-        destination=templates_dir / "file-type",
-        strategy=seed_templates_strategy,
-        seed_templates_repo=seed_templates_repo,
-    )
+    for template_name in SEED_TEMPLATE_NAMES:
+        _copy_seed_template(
+            template_name=template_name,
+            destination=templates_dir / template_name,
+            strategy=seed_templates_strategy,
+            seed_templates_repo=seed_templates_repo,
+        )
 
     # Create minimal config
     config_path = devman_path / CONFIG_SUBPATH
@@ -154,7 +156,8 @@ def bootstrap_file_type(
     """Bootstrap a new file type using copier templates."""
     store_root = get_store_root()
     devman_path = get_devman_meta_dir()
-    template_path = devman_path / TEMPLATES_SUBPATH / "file-type"
+    generic_template_path = devman_path / TEMPLATES_SUBPATH / "file-type"
+    dedicated_template_path = devman_path / TEMPLATES_SUBPATH / file_type
     target_path = store_root / file_type
 
     if target_path.exists():
@@ -171,7 +174,10 @@ def bootstrap_file_type(
     if answers_file:
         copier_cmd.extend(["--data-file", str(answers_file)])
 
-    copier_cmd.extend([str(template_path), str(target_path.parent)])
+    if dedicated_template_path.exists():
+        copier_cmd.extend([str(dedicated_template_path), str(store_root)])
+    else:
+        copier_cmd.extend([str(generic_template_path), str(target_path.parent)])
 
     run_checked_subprocess(copier_cmd, context="Copier copy")
 

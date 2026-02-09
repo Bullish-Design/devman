@@ -60,7 +60,7 @@ Devman now encodes seed-template sourcing as an explicit strategy during `init`:
 
 - **Default (Option B):** `external_repo_path`
   - Uses `--seed-templates-repo`, then `$DEVMAN_SEED_TEMPLATES_REPO`, then `~/.devman-templates`.
-  - Expects a `file-type/` template directory in that external repo path.
+- Expects `file-type/`, `devenv.nix/`, and `python/` template directories in that external repo path.
 - **Optional (Option A):** `package_assets`
   - Uses bundled `src/devman/seed_templates/file-type` via `importlib.resources`.
 
@@ -80,10 +80,10 @@ devman bootstrap devenv.nix --version v0.1.0
 
 ```bash
 # Uses current template version automatically
-devman project pyproj ~/projects/my-lib
+devman project python ~/projects/my-lib
 
 # Pin to a specific version
-devman project pyproj ~/projects/my-lib --version v1.0.0
+devman project python ~/projects/my-lib --version v1.0.0
 ```
 
 ### Instantiate a template directly (without watcher)
