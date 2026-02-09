@@ -33,5 +33,58 @@ devenv-test:
 # Generate a file-type seed template instance with asciinema recording.
 # Usage: just entrypoint [config_file]
 #   config_file  Path to a TOML config (default: sample-config.toml)
+[script]
 entrypoint config="sample-config.toml":
-    entrypoint "{{ config }}"
+    root="$(git rev-parse --show-toplevel)"
+    cd "$root"
+
+    config="{{ config }}"
+
+    if [ ! -f "$config" ]; then
+      echo "Error: config file not found: $config" >&2
+      exit 1
+    fi
+
+    # ── Parse answers from the TOML config ──────────────────────────
+    eval "$(uv run scripts/parse-config.py "$config")"
+
+    template_name="file-type"
+    template_src="src/devman/seed_templates/$template_name"
+
+    if [ ! -d "$template_src" ]; then
+      echo "Error: seed template not found: $template_src" >&2
+      exit 1
+    fi
+
+    # ── Build timestamped output directory ──────────────────────────
+    timestamp="$(date +%y%m%d%H%M%S)"
+    output_dir="output/$template_name/$timestamp"
+    term_dir="$output_dir/.term"
+
+    mkdir -p "$term_dir"
+
+    echo "──────────────────────────────────────────────"
+    echo " template  : $template_name"
+    echo " file_type : $file_type"
+    echo " output    : $output_dir"
+    echo " recording : $term_dir/session.cast"
+    echo "──────────────────────────────────────────────"
+
+    # ── Generate the template instance inside an asciinema session ──
+    asciinema rec "$term_dir/session.cast" --command "
+      set -e
+      echo 'Generating $template_name instance for file_type=$file_type ...'
+      copier copy --defaults \
+        --data file_type='$file_type' \
+        --data description='$description' \
+        '$template_src' '$output_dir'
+      echo
+      echo 'Generated files:'
+      find '$output_dir' -not -path '*/.term/*' -not -path '*/.term' | sort
+      echo
+      echo 'Done.'
+    "
+
+    echo
+    echo "Instance saved to: $output_dir"
+    echo "Recording saved to: $term_dir/session.cast"
