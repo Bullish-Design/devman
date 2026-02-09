@@ -1,0 +1,9 @@
+# tmuxp project definition for devman.
+# Keep this file under .devman/ and expose it via the root symlink.
+session_name: devman
+windows:
+  - window_name: dev
+    layout: main-horizontal
+    panes:
+      - shell_command:
+          - cd /workspace/devman

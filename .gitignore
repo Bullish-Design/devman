@@ -12,6 +12,8 @@ __pycache__/
 **.db
 **archive**
 .tmuxp*
+!.tmuxp.yaml
+!.devman/.tmuxp.yaml
 
 # C extensions
 *.so
