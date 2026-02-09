@@ -215,6 +215,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Entrypoint output (generated template instances and recordings)
+output/
+
 # Devenv
 .devenv*
 devenv.local.nix
