@@ -5,6 +5,7 @@
 """Parse a file-type template TOML config and print key=value pairs for shell consumption."""
 
 import sys
+import shlex
 import tomllib
 
 def main() -> None:
@@ -17,8 +18,8 @@ def main() -> None:
         cfg = tomllib.load(f)
 
     section = cfg["file_type_template"]
-    print(f"file_type={section['file_type']}")
-    print(f"description={section.get('description', '')}")
+    print(f"file_type={shlex.quote(section['file_type'])}")
+    print(f"description={shlex.quote(section.get('description', ''))}")
 
 if __name__ == "__main__":
     main()
