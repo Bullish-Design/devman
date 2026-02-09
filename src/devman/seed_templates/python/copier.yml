@@ -1,0 +1,16 @@
+_subdirectory: ""
+_templates_suffix: ".jinja"
+
+project_name:
+  type: str
+  help: "Project folder name"
+
+package_name:
+  type: str
+  help: "Primary Python package name"
+  default: "{{ project_name.replace('-', '_') }}"
+
+description:
+  type: str
+  help: "Short project description"
+  default: ""

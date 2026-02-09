@@ -1,0 +1,9 @@
+{ pkgs, ... }:
+
+{
+  languages.python.enable = true;
+  packages = [
+    pkgs.just
+    pkgs.uv
+  ];
+}

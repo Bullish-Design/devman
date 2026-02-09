@@ -28,7 +28,28 @@ test-run:
     pytest | tee "$output_dir/pytest.log"
 
 devenv-test:
+    just eval-seed-templates
     just test-run
+
+[script]
+eval-seed-templates:
+    root="$(git rev-parse --show-toplevel)"
+    required=(
+      "$root/src/devman/seed_templates/file-type/copier.yml"
+      "$root/src/devman/seed_templates/devenv.nix/copier.yml"
+      "$root/src/devman/seed_templates/python/copier.yml"
+      "$root/src/devman/seed_templates/python/{{project_name}}/pyproject.toml.jinja"
+      "$root/src/devman/seed_templates/python/{{project_name}}/src/{{package_name}}/__main__.py.jinja"
+    )
+
+    for path in "${required[@]}"; do
+      if [ ! -f "$path" ]; then
+        echo "Missing seed template asset: $path" >&2
+        exit 1
+      fi
+    done
+
+    echo "Seed template assets validated"
 
 # Generate a file-type seed template instance with asciinema recording.
 # Usage: just entrypoint [config_file]

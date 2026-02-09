@@ -1,0 +1,15 @@
+from pathlib import Path
+
+
+def main() -> int:
+    target = Path("devenv.nix")
+    if not target.exists():
+        print("Missing devenv.nix")
+        return 1
+
+    print("devenv.nix exists")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

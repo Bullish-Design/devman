@@ -1,0 +1,12 @@
+_subdirectory: ""
+_templates_suffix: ".jinja"
+
+file_type:
+  type: str
+  default: "devenv.nix"
+  when: false
+
+description:
+  type: str
+  default: "Nix development environment configuration"
+  when: false
