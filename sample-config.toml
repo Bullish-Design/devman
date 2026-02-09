@@ -1,0 +1,10 @@
+# Sample configuration for generating a file-type seed template instance.
+# Used by the `just entrypoint` recipe.
+#
+# These values are passed to the copier template as answers:
+#   file_type   – name of the file type to generate (e.g. "pyproject.toml")
+#   description – brief description of the file type
+
+[file_type_template]
+file_type = "pyproject.toml"
+description = "Python project configuration"

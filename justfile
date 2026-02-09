@@ -29,3 +29,9 @@ test-run:
 
 devenv-test:
     just test-run
+
+# Generate a file-type seed template instance with asciinema recording.
+# Usage: just entrypoint [config_file]
+#   config_file  Path to a TOML config (default: sample-config.toml)
+entrypoint config="sample-config.toml":
+    entrypoint "{{ config }}"
