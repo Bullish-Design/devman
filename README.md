@@ -119,6 +119,19 @@ devman update ~/.devman-store/pyproject.toml --dry-run
 devman update ~/projects/my-lib
 ```
 
+
+## Repository Layout Policy
+
+To keep repo-root noise low, Devman keeps local development ergonomics under `.devman/` and exposes root-level compatibility links:
+
+- `justfile -> .devman/justfile`
+- `AGENTS.md -> .devman/AGENTS.md`
+- `scripts -> .devman/scripts`
+- `.agents -> .devman/.agents`
+- `.tmuxp.yaml -> .devman/.tmuxp.yaml`
+
+This preserves standard command usage from the project root (`just ...`, `python scripts/...`) while making `.devman/` the authoritative home for dev-only operational files.
+
 ## Architecture
 
 ### Devman Store Structure
