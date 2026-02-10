@@ -64,6 +64,17 @@ The goal is reproducibility and debuggability.
 ### 5) `jj` integration is best-effort
 Devman should work without `jj`, but when `jj` is present it should capture enough workspace context to relate runs to a working-copy state.
 
+### 6) devenv.sh environment management
+Devman treats `devenv.sh` as the canonical way to define and compose local environments:
+- Environment definitions live as normal project files at repo root (for example `devenv.nix`, `devenv.yaml`, `devenv.local.nix`).
+- Teams compose reusable modules for tools, services, and runtime behavior instead of relying on ad-hoc host setup.
+- Reproducible toolchains and background services are part of the template + instance contract, not external prerequisites.
+
+Recommended command flow:
+1. `devenv up` (or `devenv shell`) to materialize the environment.
+2. `just <recipe>` to run project tasks in that environment.
+3. `devman run -- just <recipe>` (or equivalent devman command) when you want run metadata/log/artifact capture in the store.
+
 ---
 
 ## Glossary
@@ -105,13 +116,18 @@ Devman should work without `jj`, but when `jj` is present it should capture enou
                 ...
 ```
 
-### Project repo
+### Project repo (root-first layout)
 ```
 <PROJECT_REPO>/
-  .devman/     -> symlink into store instance
-  Justfile     (required for task execution)
+  Justfile
+  devenv.nix                 # or devenv.yaml + composed modules
+  src/
+  tests/
+  .devman/   -> <DEV_MAN_STORE>/instances/<template>/<project_slug>/.devman
   ... normal project files ...
 ```
+
+Root-level project files remain first-class project files. Devman links `.devman/` for instance state and operational metadata, but does not require root files to be proxied through `.devman/`.
 
 ---
 
