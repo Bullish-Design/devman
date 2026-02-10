@@ -23,7 +23,6 @@ For coding agents, this is a hard behavioral requirement:
 
 - It orchestrates project workflows via **`just`** (Justfile recipes).
 - It keeps **templates** and **instances** in a central **Devman Store**.
-- Project repos **consume instances via symlinks** (e.g., `.devman/` in the repo points into the store).
 - Every run produces **stored logs + metadata + artifacts**.
 - It integrates with **`jj` workspaces** (best-effort capture of workspace context).
 
@@ -43,11 +42,10 @@ If you’re adding or evolving *templates*, your output should be usable by `dev
 - Any “task” should map to a **`just` recipe** executed in the project repo context.
 - If you need flags/parameters, pass them through `just` or environment variables.
 
-### 2) Store is authoritative; repo is a consumer
+### 2) Store is authoritative; repository layout is implementation-defined
 - Instance state, run history, and generated artifacts live in the **Devman Store**.
-- The project repo should only contain:
-  - a `.devman/` **symlink** into the store (plus optional additional symlinks),
-  - the `Justfile` and normal project source.
+- Project repositories may expose Devman-managed data in different ways (root-first, `.devman/`, symlinks, or other explicit layouts), as long as behavior is documented and reproducible.
+- Prefer guidance that keeps primary developer entry points discoverable from repo root.
 
 ### 3) Idempotency and safety
 - Linking and materialization must be **idempotent**.
@@ -59,6 +57,12 @@ When you add or modify template behavior:
 - Update docs in-template and/or at repo root.
 - Add or update tests/fixtures so behavior is provable.
 - Ensure paths, manifests, and link plans are consistent.
+
+### 5) Practical devenv.sh guidance
+- Keep `devenv.nix` and/or `devenv.yaml` discoverable at repository root when possible.
+- Define reproducible packages and services in composable devenv modules.
+- Run project tasks via `just` recipes that assume execution inside a `devenv` shell context.
+- Document required environment variables and service ports explicitly in docs and/or template metadata.
 
 ---
 
@@ -93,12 +97,12 @@ Instances live under something like:
       <run_id>/...
 ```
 
-`links.toml` declares **what gets symlinked into the repo** and where.
+`links.toml` (or equivalent config) declares **how instance content is surfaced to the repo** (including symlinked and non-symlinked strategies).
 
 ### C) Validate with a fixture project
 Maintain at least one fixture that demonstrates:
 - Instance materialization
-- Symlink correctness
+- Repository integration correctness for the chosen layout strategy
 - `just` invocation working as expected
 - Run logging + metadata
 
@@ -143,6 +147,6 @@ Before finishing a change set, confirm:
 
 - [ ] `CORE_CONCEPTS.md` remains consistent with your changes (update it if needed).
 - [ ] New/updated templates include docs and a minimal example.
-- [ ] Symlink behavior is idempotent and safe.
+- [ ] Repository integration behavior (including any links, if used) is idempotent and safe.
 - [ ] Task execution is done through `just` recipes.
 - [ ] Runs produce logs + metadata in the store, not in the repo.
