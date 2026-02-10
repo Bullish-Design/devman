@@ -19,6 +19,27 @@ Devman assumes a **devenv-first** workflow:
 
 In short: this project is intentionally opinionated toward fast experimentation with full-stack local environment control.
 
+## devenv.sh environment management
+
+Devman expects environment management to be explicitly defined and versioned in the repo:
+
+- Keep environment definition files (for example `devenv.nix`, `devenv.yaml`, and local composition overlays) in normal project locations.
+- Compose modules for toolchains, services, and runtime dependencies so environments are reproducible across machines.
+- Treat environment modules as part of the template + instance lifecycle, just like `Justfile` recipes and project config.
+
+Recommended command flow:
+
+```bash
+# Enter or start the reproducible environment
+devenv up      # or: devenv shell
+
+# Run workflow tasks through just
+just test
+
+# Run through devman when you want logs/metadata/artifacts captured in store
+devman run -- just test
+```
+
 ## Core Concepts
 
 **File Types** - Devman manages configuration for specific file types (e.g., `pyproject.toml`, `devenv.nix`). Each file type lives in the devman store as a directory with its own `.devman/` configuration, validation workflows, and boomtube symlink definitions.
@@ -137,69 +158,46 @@ devman update ~/projects/my-lib
 ```
 
 
-## Repository Layout Policy
-
-To keep repo-root noise low, Devman keeps local development ergonomics under `.devman/` and exposes root-level compatibility links:
-
-- `justfile -> .devman/justfile`
-- `AGENTS.md -> .devman/AGENTS.md`
-- `scripts -> .devman/scripts`
-- `.agents -> .devman/.agents`
-- `.tmuxp.yaml -> .devman/.tmuxp.yaml`
-
-This preserves standard command usage from the project root (`just ...`, `python scripts/...`) while making `.devman/` the authoritative home for dev-only operational files.
-
 ## Architecture
 
 ### Devman Store Structure
 
 ```
-~/.devman-store/
-  devman/                          # Meta-type configuration (git repo)
-    .git/
-      refs/tags/v0.1.0            # Template versions as git tags
-    .devman/
-      .templates/
-        file-type/                # Copier template for new file types
-          copier.yml
-          {{file_type}}/
-            .devman/
-              config.toml.jinja
-              workflows/
-                validate.py.jinja
-              boomtube.yaml.jinja
+<DEV_MAN_STORE>/
+  templates/
+    <template_name>/
+      .devman/
+        manifest.toml
+        templates/
+          Justfile
+          devenv.nix
+          config/
 
-        pyproj/                   # Python project meta-template
-          copier.yml
-          {{project_name}}/
-            pyproject.toml.jinja
-            devenv.nix.jinja
-            src/{{package_name}}/
-              __init__.py.jinja
-              __main__.py.jinja
-            README.md.jinja
-            .devman-bootstrap.py
+  instances/
+    <template_name>/
+      <project_slug>/
+        .devman/
+          instance.toml
+          links.toml
+          runs/
+            <run_id>/
+              meta.json
+              stdout.log
+              stderr.log
+              artifacts/
 
-      workflows/
-        bootstrap.py
-        bootstrap_project.py
-        update.py
+  template-store.git/             # Optional git metadata/tag history
+```
 
-      config.toml
+### Project Repository Layout (root-first)
 
-  pyproject.toml/                 # Generated file type
-    .devman/
-      config.toml                 # Contains template version info
-      workflows/
-        validate.py
-      boomtube.yaml
-
-  devenv.nix/                     # Generated file type
-    .devman/
-      config.toml
-      workflows/
-        validate.py
-      boomtube.yaml
+```
+<PROJECT_REPO>/
+  Justfile
+  devenv.nix                      # or devenv.yaml + module composition
+  src/
+  tests/
+  .devman/ -> <DEV_MAN_STORE>/instances/<template>/<project_slug>/.devman
 ```
 
 ### Version Metadata
@@ -238,10 +236,10 @@ file_types = ["pyproject.toml", "devenv.nix"]
 
 ## Template Evolution Workflow
 
-1. Edit templates in `~/.devman-store/devman/.devman/.templates/`
-2. Commit and tag: `git tag -a v0.2.0 -m "Add UV validation"`
-3. Update existing types: `devman update ~/.devman-store/pyproject.toml`
-4. New bootstraps automatically use the latest tagged version
+1. Edit templates in `<DEV_MAN_STORE>/templates/<template_name>/.devman/templates/`
+2. Commit and tag the template source-of-truth repository
+3. Re-materialize or update target instances for affected projects
+4. Re-run `just` recipes through `devenv` and capture runs with devman for verification
 
 ## Key Design Principles
 
