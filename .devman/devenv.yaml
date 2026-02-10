@@ -33,7 +33,8 @@ inputs:
   #  url: github:Bullish-Design/devenv-py2nix
 
 #imports:
-#  - devenv-py2nix
+#  - ../../confidantic/.devman
+  #- devenv-py2nix
 
 
   # If you're using non-OSS software, you can set allowUnfree to true.

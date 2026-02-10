@@ -11,6 +11,7 @@ in
     jujutsu
     jq
     ripgrep
+    lsd
   ];
 
   languages.python = {
