@@ -56,8 +56,13 @@
         };
       mkDevmanEnv = {
         system,
-        withCodexCli ? true,
-        withClaudeCode ? true,
+        # LLM CLIs are NOT bundled by default: the LLM command-line clients are
+        # single-owned by nix-apps' `llmCli` bundle (the desktop application
+        # layer). Shipping claude/codex here too caused a home.packages buildEnv
+        # collision on hosts that compose both. Opt in explicitly if a standalone
+        # devman-tools install wants them.
+        withCodexCli ? false,
+        withClaudeCode ? false,
       }:
         let
           pkgs = nixpkgs.legacyPackages.${system};
@@ -67,7 +72,9 @@
           ]
           ++ lib.optional withCodexCli codex-cli.packages.${system}.default
           ++ lib.optional withClaudeCode claude-code.packages.${system}.default;
-          description = "devman with codex-cli and claude-code";
+          description = "devman project templating CLI"
+            + lib.optionalString withCodexCli " + codex-cli"
+            + lib.optionalString withClaudeCode " + claude-code";
         in
         pkgs.buildEnv {
           name = "devman-env";
