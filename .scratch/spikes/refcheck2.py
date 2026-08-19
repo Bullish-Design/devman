@@ -14,7 +14,7 @@ SH = "/home/andrew/Documents/Projects/shellij/.devenv/state/venv/bin/python"
 PREFIX = r"(?:\$\s*)?(?:devenv\s+shell\s+(?:--\s+)?|devenv\s+run\s+|uv\s+run\s+|uvx\s+)?"
 
 def facts(python, module):
-    p = subprocess.run([python, "walker3.py", module, "app"],
+    p = subprocess.run([python, "walker.py", module, "app"],
                        capture_output=True, text=True)
     return json.loads(p.stdout)
 

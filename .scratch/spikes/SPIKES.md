@@ -52,8 +52,9 @@ the cost of entering a shell.
 **Question.** §15 leaned toward "walk the Typer app, because every family member
 is a Typer CLI in the same machine venv." §14 step 2 depends on the answer.
 
-**Method.** Import each tool and walk its Typer app. Scripts: `introspect.py`
-(v1), `walker3.py` (final).
+**Method.** Import each tool and walk its Typer app. Scripts: `walker.py`
+(final), `walker_typer_only.py` (abandoned), `parity.py` (the test that decided
+between them).
 
 **The lean was wrong on its premise.** Not every family member is in the machine
 venv:
@@ -75,14 +76,52 @@ tool the old §14 step 5 named as the first conversion target.
 under whichever interpreter can import the tool. Confirmed working:
 
 ```
-~/.local/share/repoman/venv/bin/python  walker3.py copyroom.cli app   → 19 nodes
-<repo>/.devenv/state/venv/bin/python    walker3.py testee.cli   app   →  8 nodes
+~/.local/share/repoman/venv/bin/python  walker.py copyroom.cli app   → 19 nodes
+<repo>/.devenv/state/venv/bin/python    walker.py testee.cli   app   →  8 nodes
 ```
 
-No `--schema` export to negotiate with any tool. One mechanism covers both
-install models.
+One mechanism covers both install models, and needs nothing from any tool.
 
-**Three traps the spike hit, all now handled in `walker3.py`:**
+### B.1 The walker must go through `typer.main.get_command()`
+
+This was re-opened by a good question — *why are we caring about click at all?* —
+and the answer reversed on measurement. It is recorded in full because the first
+answer was wrong.
+
+`typer.main.get_command()` converts a Typer app into a click object graph. That
+is what drags click in. It looks avoidable: typer exposes `registered_commands`
+and `registered_groups` directly, and a walker built on those imports no click.
+That walker was built (`walker_typer_only.py`) and matched on command *names*
+immediately.
+
+`parity.py` compares the two walkers fact for fact. The click-free version failed
+three rounds:
+
+| Round | Discrepancies | What was missing |
+|---|---|---|
+| 1 | **43** | `Annotated[str, typer.Option()]` style — its params live in type metadata, not in the default. copyroom and repoman use the legacy style and matched; gitman, docman and testee use `Annotated` and lost every parameter. |
+| 2 | **13** | typer's name derivation — `all_` → `--all`, not `--all-`; bare `path: str` is a positional |
+| 3 | **6** | short-only decls gaining a long form |
+
+The last 6 never closed. Checked against the CLIs' real `--help`, **the click
+route is right and the click-free walker is wrong in every one**:
+
+| Command | click-free | via click | real `--help` |
+|---|---|---|---|
+| `gitman save` | `--message` | `--message`, `-m` | `--message`, `-m` |
+| `gitman release` | `--set-version` | `--version` | `--version` |
+| `docman doctor` | `--json-output`, `--repo-root` | `--json`, `--repo-root` | `--json`, `--repo-root` |
+
+**Conclusion: `get_command()` is typer's own resolution, so it is ground truth by
+construction.** Any other route reimplements that resolution, and an
+approximation of it is exactly as wrong as its gaps. Three rounds of patching
+reduced the error without eliminating it, and each round's gaps were invisible
+until parity was run.
+
+So devman does care about click — not by choice, but as the price of reading
+facts correctly. The price is about ten lines, listed next.
+
+**Three traps that price brings, all handled in `walker.py`:**
 
 1. **typer vendors click.** typer 0.27.1 ships click privately as `typer._click`
    and there is **no top-level `click`** in the toolchain venv. Code that does
@@ -103,6 +142,26 @@ across both click layouts.
 **Version skew is already present**: toolchain typer 0.27.1, testee's repo venv
 typer 0.26.8. The walker must tolerate it, because devman cannot pin the
 interpreter it borrows.
+
+### B.2 Two costs the walker cannot remove
+
+1. **It imports the tool.** `import copyroom.cli` takes 222ms and executes the
+   module tree beneath it — `release.check`, `session.dispatcher`,
+   `workshop.golden`. devman runs another tool's import-time code to learn
+   command names.
+2. **It couples devman to typer's internals** across interpreters it does not
+   control.
+
+The import-free alternative was tested and rejected. Parsing `--help` works on
+copyroom (19 nodes, correct) and returns **0 nodes** for gitman, docman, and
+repoman, which render help in rich panels (`╭─ Commands ─╮`) rather than a plain
+`Commands:` section. Two incompatible help formats already exist inside one
+family. Script: `helpwalk.py`.
+
+Both costs point the same way: the only party that can report a tool's facts
+without approximating typer's resolution is **the tool itself**. That is
+`003-cli-schema`, proposed as a family-contract change rather than a devman
+feature. The walker ships first because it needs agreement from nobody.
 
 ---
 
@@ -196,8 +255,10 @@ does **not** need ownership of the skills — reading them is enough.
 | Question | Was | Now |
 |---|---|---|
 | devenv eval cache vs generated nix | open, "measure early" | **measured — not a blocker**; forces byte-deterministic emitters |
-| how facts are introspected | open, leaned Typer-import | **out-of-process duck-typed walker**; `--schema` not needed |
+| how facts are introspected | open, leaned Typer-import | **out-of-process walker through `get_command()`**, duck-typed |
 | testee reachable from the machine venv | assumed yes | **no** — the walker handles it |
+| can the walker avoid click? | assumed yes, then built | **no** — proved by `parity.py`; `get_command()` is ground truth |
+| is `--schema` needed? | dismissed as "a surface to negotiate" | **it is the right end state** — `003-cli-schema`, after the walker |
 | reference-check depth | leaned names first, flags later | **arity is mandatory in step 2**; names alone are unusable |
 | trigger-collision linting | open question | **works, and finds 33 real collisions** |
 

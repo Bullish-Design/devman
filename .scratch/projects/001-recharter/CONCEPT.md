@@ -373,14 +373,22 @@ leaf), its positional arity, and its options.
 <repo>/.devenv/state/venv/bin/python    walker.py testee.cli   app   →  8 nodes
 ```
 
-**Why out-of-process, not an import.** The first draft assumed "every family
-member is a Typer CLI in the same machine venv". testee is not:
+**Why out-of-process.** The first draft assumed "every family member is a Typer
+CLI in the same machine venv". testee is not:
 `repoman/src/repoman/registry.py` sets `install="uv"` because testee's tools
 import the consumer's code. It is a per-repo dependency, unreachable from the
-shared venv. One out-of-process walker covers both install models and needs no
-`--schema` export negotiated with any tool.
+shared venv. One out-of-process walker covers both install models and needs
+nothing from any tool.
 
-**Three rules the spike forced, all non-obvious:**
+**Go through `typer.main.get_command()`, and accept click.** That call is typer's
+own resolution, so it is ground truth by construction. A click-free walker built
+on `registered_commands` was tried and abandoned: `parity.py` scored it 43
+discrepancies, then 13, then 6 after three rounds of patching, and the final 6
+were all cases where it disagreed with the CLI's real `--help` and the click
+route matched it. Reimplementing typer's parameter resolution fails quietly —
+every gap was invisible until parity was run.
+
+**Three rules that decision brings, all non-obvious:**
 
 1. **Never `import click`.** typer 0.27.1 vendors it as the private
    `typer._click`, and no top-level `click` exists in the toolchain venv.
@@ -395,6 +403,26 @@ shared venv. One out-of-process walker covers both install models and needs no
 devman cannot pin the interpreter it borrows, so the walker must tolerate version
 skew. It already exists in the family today: toolchain 0.27.1, testee's repo venv
 0.26.8.
+
+### 9.1 The walker is a bridge, not the end state
+
+Two costs stay, and neither can be engineered away:
+
+- **It imports the tool.** `import copyroom.cli` costs 222ms and runs the module
+  tree beneath it. devman executes another tool's import-time code to read
+  command names.
+- **It couples devman to typer internals** across interpreters it does not
+  control.
+
+The import-free alternative was tested and fails: parsing `--help` reads copyroom
+correctly and returns **0 nodes** for gitman, docman, and repoman, which render
+help in rich panels. Two incompatible help formats already exist inside one
+family.
+
+Both costs point at the same end state — a tool reporting its own facts. That is
+`003-cli-schema`, a family-contract change. The walker ships in v1 because it
+needs agreement from nobody, and it is what tells 003 which facts are actually
+worth exporting.
 
 ---
 
@@ -551,11 +579,18 @@ has learned them.
 
 ### 14.3 The walker borrows an interpreter it does not control
 
-§9's design runs devman's code under another repo's python. Version skew is
-already present and will widen. The walker must stay small, dependency-free, and
-defensive: it returns `{"ok": false, "error": ...}` rather than raising, and
-`doctor` degrades to a warning when a tool cannot be introspected. A tool devman
-cannot read is a gap in the report, never a failed build.
+§9's design runs devman's code under another repo's python, and imports that
+repo's tool to do it. Version skew is already present and will widen. Three
+rules:
+
+- The walker stays small and dependency-free. Its only imports are the target
+  module and typer.
+- It returns `{"ok": false, "error": ...}` rather than raising. A tool devman
+  cannot read is a gap in the report, never a failed build. `doctor` degrades to
+  a warning.
+- It is a **bridge** (§9.1). Every month it runs is a month devman executes
+  another tool's import-time code to read a command list. `003-cli-schema`
+  retires it. Do not let the walker's success postpone that.
 
 ---
 
@@ -604,7 +639,8 @@ devman status | doctor          # the family pair
 | 5 | **`activate` + the atuin emitters.** The first step that touches state outside the repo. Behind the manifest. | shell-surface assets |
 | 6 | **`propose`.** The harvester. | the assistant half |
 
-`002-agent-surface` opens after step 4, on the evidence step 2 collects.
+Two follow-on projects open off this one, both on evidence step 2 collects:
+`003-cli-schema` after step 2, and `002-agent-surface` after step 4.
 
 Step 2 is not optional and not deferrable. It is what makes §10 real, it is far
 harder to retrofit than to build in, and it is the only thing that lets 002 be
@@ -651,7 +687,8 @@ Answered questions moved to §6, §8, §9, and §10. What remains:
   warning or an error? Lean: warning, reported by `doctor`.
 - **How does a tool publish its domain prose (§5.2)?** A convention'd block in
   the tool's repo that devman pulls, or a field the walker returns? Lean: a
-  `DOMAIN.md` per tool, read as a file — the walker should stay dependency-free.
+  `DOMAIN.md` per tool, read as a file — the walker should stay dependency-free,
+  and `003-cli-schema` §7 keeps the same question open for the schema.
 - **Codex and other agents.** The `skill` emitter is Claude-first. Which other
   agent formats earn an emitter, and when?
 - **How deep does the reference check go?** Names, sub-commands, and arity are in
