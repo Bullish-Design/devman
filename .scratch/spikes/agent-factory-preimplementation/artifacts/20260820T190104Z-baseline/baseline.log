@@ -1,0 +1,40 @@
+started_utc=2026-08-20T19:01:04Z
+command=devenv shell -- sh -lc <baseline probes>
+hostname=server
+Linux server 6.18.38 #1-NixOS SMP PREEMPT_DYNAMIC Sat Jul  4 11:44:22 UTC 2026 x86_64 GNU/Linux
+LANG=en_US.UTF-8
+LC_CTYPE="C.UTF-8"
+LC_NUMERIC="C.UTF-8"
+LC_TIME="C.UTF-8"
+LC_COLLATE="C.UTF-8"
+LC_MONETARY="C.UTF-8"
+LC_MESSAGES="C.UTF-8"
+LC_PAPER="C.UTF-8"
+LC_NAME="C.UTF-8"
+LC_ADDRESS="C.UTF-8"
+LC_TELEPHONE="C.UTF-8"
+LC_MEASUREMENT="C.UTF-8"
+LC_IDENTIFICATION="C.UTF-8"
+LC_ALL=C.UTF-8
+Python 3.13.14
+ruff 0.15.20
+devenv 2.1.2 (x86_64-linux)
+b9f494a0b1efd4a46d053f0ad54aad3765dc742b
+## spike/agent-factory-round-trip...origin/spike/agent-factory-round-trip
+?? .scratch/spikes/agent-factory-preimplementation/
+repo=../pydantree
+11b1c62c0fc576e5baf7f5933144008b1d0567a0
+## HEAD (no branch)
+ M devenv.lock
+?? .scratch/projects/021-deep-adversarial-review/
+repo=../templateer_v2
+1075ca8786671a88b4830135634911a209014725
+## main...origin/main
+repo=../fsdantic
+56e2d5f394a97d68a5c1642104a9adeeff216983
+## main...origin/main
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import pydantic,pydantree_sitter,templateer,tree_sitter_python,fsdantic; print(f"pydantic={pydantic.__version__}"); print(f"pydantree-sitter={pydantree_sitter.__version__}"); print(f"templateer={templateer.__version__}"); print(f"fsdantic={fsdantic.__version__}"); print(f"tree-sitter-python={getattr(tree_sitter_python, "__version__", "distribution-metadata-only")}")
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'fsdantic'
