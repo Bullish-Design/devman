@@ -1,0 +1,40 @@
+{
+  "accepted": false,
+  "accepted_store_preserved": true,
+  "attempts": [
+    {
+      "attempt": 1,
+      "detail": "expected=['unit:one', 'unit:two'] got=['unit:one']",
+      "state": "partial-output"
+    },
+    {
+      "attempt": 2,
+      "detail": "expected=['unit:one', 'unit:two'] got=['unit:one']",
+      "state": "partial-output"
+    },
+    {
+      "attempt": 3,
+      "detail": "expected=['unit:one', 'unit:two'] got=['unit:one']",
+      "state": "partial-output"
+    }
+  ],
+  "edited_source_preserved": true,
+  "proposal": {
+    "base_generation_token": "token-split",
+    "changes": [
+      {
+        "edit_kind": "split",
+        "examples": [
+          "example:split:unit:one"
+        ],
+        "semantic_spec": "Return one.",
+        "unit_id": "unit:one"
+      }
+    ]
+  },
+  "source_after_hash": "cdd4c4d65752868dcbcd0f59ae51a935bd2dac945a3eb3aa489dcd30da797f42",
+  "source_before_hash": "cdd4c4d65752868dcbcd0f59ae51a935bd2dac945a3eb3aa489dcd30da797f42",
+  "store_after_hash": "5a33aaff588cac9ce5b852e10f738133605623e735b16f673bae86e427659df9",
+  "store_before_hash": "5a33aaff588cac9ce5b852e10f738133605623e735b16f673bae86e427659df9",
+  "terminal_state": "rejected-attempt-limit"
+}

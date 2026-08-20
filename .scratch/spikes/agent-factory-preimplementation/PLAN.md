@@ -107,7 +107,9 @@ Accept when success, rejection, malformed output, non-convergence, stale input,
 and rollback preserve all promised bytes. Model-quality remains `unknown` unless
 an authorized local provider and blinded corpus become available.
 
-Status: pending.
+Status: in progress. The deterministic state-machine matrix passed ten edit
+kinds and nine rejection classes with zero orchestration false decisions. Model
+quality and crash-safe acceptance remain open.
 
 ## Phase 4 — Python support corpus
 

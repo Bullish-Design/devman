@@ -142,3 +142,39 @@ assembler, full-file parse validation, and Ruff formatting.
 
 This decision closes the dependency blocker. It does not prove the external
 assembler against the full Python support corpus.
+
+### 2026-08-20 — semantic promotion orchestration
+
+The exact probe is `promotion_probe.py`. The passing evidence is
+`artifacts/20260820T192215Z-promotion-probe-retry/`. The full investigation
+tests also passed in `artifacts/20260820T192113Z-promotion-tests-final/`.
+The first final-probe wrapper pre-created its target directory, so the probe's
+freshness guard correctly rejected it. That harness failure is preserved in
+`artifacts/20260820T192113Z-promotion-probe-final/`.
+
+The scripted provider covered body, signature, behavior, docstring, import,
+rename, move, split, merge, and delete proposals. All ten expected promotions
+reached the in-memory accepted state in one attempt.
+
+The adversarial matrix covered malformed output, partial output, hallucinated
+units, stale context, contradictory examples, timeout, cancellation, repeated
+non-convergence, and an exact-source field. All nine cases rejected. Stale input
+and cancellation terminated immediately. Retryable failures stopped at the
+three-attempt limit.
+
+The measured orchestration false-acceptance rate was 0 of 9. The measured
+orchestration false-rejection rate was 0 of 10. Every rejection preserved the
+edited-source and accepted-store hashes.
+
+The schema forbids extra fields, so a `source_contract` cannot enter an authored
+semantic record. The deterministic derivation fixture still knows the expected
+source. This is an oracle for orchestration tests, not a model-quality claim.
+The closed schema also cannot stop a provider from disguising exact source in
+the `semantic_spec` string; the blinded review protocol must detect that case.
+
+The probe creates accepted store bytes in memory. It does not test a durable
+multi-record commit or a process interruption. Those claims remain under
+AF-009 and AF-010.
+
+No local or hosted model ran. Semantic false-acceptance and false-rejection rates
+remain unknown. `MODEL_QUALITY_PROTOCOL.md` defines the authorized experiment.

@@ -1,0 +1,8 @@
+{
+  "command": ".scratch/spikes/agent-factory-preimplementation/promotion_probe.py --artifacts .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T191708Z-promotion-probe",
+  "max_attempts": 3,
+  "network": "not used",
+  "provider": "local scripted deterministic provider",
+  "provider_timeout_seconds": 0.01,
+  "python": "3.13.14"
+}
