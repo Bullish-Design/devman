@@ -14,12 +14,18 @@ Status: provisional until final evidence reconciliation
 6. Deterministic orchestration claims stay separate from model-quality claims.
 7. Concurrency stress waits for single-process ownership and persistence rules.
 8. The user authorized logical commits and pushes during this investigation.
+9. Templateer remains the typed agent-handoff boundary.
+10. Templateer does not assemble final Python source under its current API.
+11. The agent-factory owns a narrow deterministic source assembler, full-file
+    Python parse validation, and Ruff formatting.
+12. A future Templateer `PythonFragment` contract can replace that assembler
+    only after its ordinary-string isolation and diagnostics tests pass.
 
 ## Open architecture decisions
 
 | Decision | Options | Required evidence | Current gate |
 | --- | --- | --- | --- |
-| Python rendering boundary | Typed raw fragment; language emitter; section renderer; text plus validation; external renderer | Executable preservation, syntax, injection, diagnostics, determinism, and compatibility results | AF-003 |
+| Python rendering boundary | **Decided: external narrow renderer now; first-class Templateer fragment later** | Current failure, text workaround, injection counterexample, external reference, and future contract test | AF-003 is bounded-risk |
 | Durable authored truth | Semantic spec plus examples; source-backed bootstrap; skeleton-only source ownership | Promotion quality, bootstrap exit, and dual-authority analysis | AF-001, AF-002, AF-004 |
 | Source structure engine | Abstract syntax tree plus spans; tokens; concrete syntax tree; explicit trivia records | Categorized corpus with 100 percent supported preservation | AF-005, AF-006 |
 | Durable identity | Stored identifier plus evidence-ranked continuity; proposal; human choice | False-match, missed-match, ambiguity, and churn metrics | AF-007 |
@@ -37,4 +43,3 @@ budgets, threat model, and concurrency entry criteria.
 ## Verdict
 
 Not issued. The investigation is active.
-

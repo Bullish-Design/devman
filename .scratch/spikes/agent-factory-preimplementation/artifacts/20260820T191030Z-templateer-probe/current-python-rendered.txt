@@ -1,0 +1,1 @@
+def answer() -> int:\n    return 42\n

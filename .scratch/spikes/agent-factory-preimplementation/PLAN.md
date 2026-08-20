@@ -64,7 +64,7 @@ and tests at module, class, function, method, statement, and fragment scope.
 Accept when the ownership table has no dual-authority field and gives a bounded
 bootstrap exit. Reject when ordinary edits require two accepted owners.
 
-Status: in progress.
+Status: pending.
 
 ## Phase 2 — Templateer raw Python boundary
 
@@ -89,7 +89,10 @@ devenv shell -- ruff check --exclude artifacts .scratch/spikes/agent-factory-pre
 devenv shell -- ruff format --check --exclude artifacts .scratch/spikes/agent-factory-preimplementation
 ```
 
-Status: pending.
+Status: complete. Current Python rendering fails the fragment contract. A
+source-only text template works with layered validation but creates a mixed-field
+injection trap. Final Python assembly moves outside Templateer until the
+first-class fragment contract exists.
 
 ## Phase 3 — semantic promotion and transaction state
 

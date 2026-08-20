@@ -1,0 +1,7 @@
+status=failed
+boundary=fragment schema validation
+classification=probe contract error
+first_failure=SyntaxError escaped the Pydantic AfterValidator instead of becoming ValidationError
+last_confirmed=future upstream contract failed as expected; current comparison test reached invalid-fragment case
+accepted_state_mutated=false
+fix=translate SyntaxError to ValueError with line, offset, and parser message

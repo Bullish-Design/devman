@@ -105,3 +105,40 @@ The fresh retry passed with Python 3.13.14, Pydantic 2.13.4,
 pydantree-sitter 0.2.0, Templateer 0.2.0, tree-sitter-python 0.25.0,
 Ruff 0.15.20, and devenv 2.1.2. It records fsdantic runtime behavior as
 unavailable rather than inferring it from source.
+
+### 2026-08-20 — Templateer raw Python boundary
+
+The exact probe is `templateer_probe.py`. The passing runtime evidence is
+`artifacts/20260820T191030Z-templateer-probe/`. The contract tests passed with
+one expected failure for the missing future upstream API. Their evidence is
+`artifacts/20260820T191014Z-templateer-tests-retry/`.
+
+Current `language: python` changed the fragment's newline bytes to `\\n` escape
+sequences. The assembled artifact failed `ast.parse` at line 1, column 22.
+
+A source-only `language: text` template preserved the fragment, rejected an
+invalid fragment before rendering, passed a declared Python parse validator,
+rendered deterministically, and remained Ruff-idempotent.
+
+That workaround is unsafe as a general Python renderer. A mixed text template
+accepted an ordinary string that closed a quoted value and added an `INJECTED`
+assignment. The final artifact remained valid Python, so syntax validation did
+not detect the structural injection.
+
+An external source assembler preserved the same fragment and passed Python
+syntax validation. It does not weaken Templateer's escaping because Templateer
+is not the final source renderer.
+
+Fact: Templateer has no current value type that distinguishes raw Python from
+ordinary strings after `model_dump(mode="json")`.
+
+Inference: a template-wide identity finalizer cannot safely mix source fragments
+with ordinary string fields.
+
+Decision: keep Templateer for typed agent handoffs. Remove it from final Python
+assembly until it supplies the explicit `PythonFragment` contract in
+`TEMPLATEER_CONTRACT.md`. The agent-factory owns a narrow deterministic source
+assembler, full-file parse validation, and Ruff formatting.
+
+This decision closes the dependency blocker. It does not prove the external
+assembler against the full Python support corpus.
