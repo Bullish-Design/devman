@@ -1,0 +1,11 @@
+{
+  "accepted_store_hash": "0479d8e0b9a62f530ef567246b128b5ab1a8495874842614ee38a3fb70ab55ee",
+  "edited_hashes": {
+    "catalog": "4e2d2a654cb366cdfd601a559fbbd8ba96dbf2001f19aeb37d708f5721342368"
+  },
+  "error": "import requirement is collated; change the owning declaration spec; owner=catalog::build_catalog",
+  "error_type": "UnsupportedEditError",
+  "source_preserved": true,
+  "status": "rejected",
+  "store_update_accepted": false
+}

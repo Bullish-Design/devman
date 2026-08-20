@@ -250,6 +250,126 @@ does **not** need ownership of the skills — reading them is enough.
 
 ---
 
+## Spike E — does the mirror anchor survive ordinary work?
+
+> **Run 2026-08-20** for `004-unified-charter`, not the re-charter. Script:
+> `anchors.py`. Runs under pydantree's `devenv shell`; `src/` resolves through
+> the `pydantree:venv-src-pth` task, so there is no `PYTHONPATH` to set.
+
+**Question.** 004 §6.2 keys authored prose to `<relpath>::<dotted.symbol>`.
+§15 step 1 made the orphan rate a gate on the whole mirror half, and §16
+criterion 10 set the bar at "≥ 90% of prose re-attaches per commit, 0 lost".
+Is the anchor stable enough to build on?
+
+**Method.** Replay each repo's first-parent history. Extract every anchor at
+every commit with pydantree-sitter (`M("module", ..., "function_definition")`
+and the `class_definition` twin, dotted paths built by span containment). For
+each consecutive pair, split the orphans by whether the code is still in the
+tree, using a body hash. Merge commits are excluded from the rates: a
+first-parent diff across a merge is a whole branch of work, not one step.
+
+Scope: **public symbols under `src/`** — no tests, no `_private`. That is
+where prose actually goes. Annotating everything measures churn in private
+helpers nobody documents.
+
+| Repo | Churn pairs | Orphans | Code deleted | **Anchor failures** | Recovered by `git -M` |
+|---|---|---|---|---|---|
+| pydantree | 13 | 926 | 584 | **342** | 334 |
+| fsdantic | 1 | 1 | 1 | **0** | — |
+| templateer_v2 | 1 | 20 | 20 | **0** | — |
+| devman | 2 | 5 | 5 | **0** | — |
+
+**Three of four repos produced zero anchor failures.** Every orphan was prose
+on code that was genuinely deleted, which is correct behaviour, not breakage.
+pydantree — three rewrites and three reverts in 162 commits — is the family's
+worst case, and `git -M` recovers 334 of its 342 real failures.
+
+### E.1 Criterion 10 measures the wrong thing
+
+The raw per-pair rate looks alarming (pydantree: mean 66.1%, median 77.2%,
+8/13 pairs under the bar) because it counts prose on **deleted** code as a
+re-attachment failure. It cannot re-attach; the subject is gone.
+
+Measured as *"of orphans whose code still exists, how many re-attach"*, the
+bar clears at **~98%**.
+
+### E.2 Quarantine does not heal
+
+004 §6.3 quarantines orphaned prose instead of deleting it. The obvious hope
+is that a revert or a re-landed branch re-attaches it later. It does not:
+
+| Repo | Detach events | Ever re-attached |
+|---|---|---|
+| pydantree | 971 | 91 (9.4%) |
+| fsdantic | 10 | 1 (10.0%) |
+| templateer_v2 | 20 | 1 (5.0%) |
+| devman | 58 | 0 (0.0%) |
+
+Quarantine is a safety net for the user, not a recovery mechanism. Do not
+claim otherwise.
+
+### E.3 The name-only bridge is unambiguous where prose lives
+
+Matching a quarantined anchor by its dotted symbol alone, ignoring the path:
+
+| Scope | Cleared | **Ambiguous** |
+|---|---|---|
+| pydantree, public `src/` | 360 | **0** |
+| pydantree, whole repo incl. tests | 688 | **978** |
+
+Test functions share names across files (`test_reparse_incremental` lives in
+two); public source symbols do not. The bridge works exactly where prose lives
+and collapses exactly where it does not.
+
+### E.4 Two predictions that were wrong
+
+1. **Narrowing to public `src/` would improve the rate.** It made it worse.
+   pydantree's 014 refactor renamed the public surface deliberately, so the
+   prose target absorbed the full blast while private helpers stayed put.
+2. **Reverts would re-attach quarantined prose.** See E.2 — 4–9%.
+
+**Verdict: the anchor is sound; the criterion was not.** Build the rename
+bridge in step 4 rather than deferring it to §17 — `git -M` for the file
+case, name-only for the residue. A deliberate reorganization still detaches
+most prose, and no bridge fixes that, because the subject was renamed on
+purpose. That is a bulk re-attachment chore, not data loss.
+
+---
+
+## Spike F — can model-owned Python survive ordinary editing?
+
+> **Run 2026-08-20** for `005-agent-factory`. Prototype and full evidence:
+> `agent-factory-round-trip/`.
+
+**Question.** Can nested typed units ingest and deterministically render a real
+Python module, then preserve ordinary source edits and a cross-file move?
+
+**Method.** Pydantree-sitter supplied declaration byte spans. Python's Abstract
+Syntax Tree supplied qualified ownership. Pydantic records formed the disposable
+unit store. Templateer rendered ordered typed sections. Ruff was the final
+render step. A deterministic promotion test double exercised the convergence
+guard.
+
+| Measure | Result |
+|---|---|
+| Initial ingest to render | **100% byte identity** |
+| Body, signature, docstring edits | **Pass**; one unit changed in each case |
+| Add and delete | **Pass**; stable new unit and recoverable tombstone |
+| Same-file method rename | **Pass**; durable identifier retained |
+| Cross-file function move | **Pass**; one moved function, one added module, zero unrelated changed units |
+| Unsupported import edit | **Pass**; rejected with the correct owner |
+| Failed promotion | **Pass**; source and accepted store preserved; proposal written |
+| Ruff stability | **Pass**; no post-render drift |
+
+**Verdict: investigate one blocker.** The round-trip premise survived the
+fixture, so do not retreat to skeleton-only generation yet. Templateer cannot
+interpolate raw Python source under `language: python`; it escapes strings for
+quoted positions. The spike used `language: text`, then Ruff. Define or reject
+a validated raw-source-fragment contract before production work. The promotion
+test double also does not prove semantic model promotion.
+
+---
+
 ## What the spikes decide
 
 | Question | Was | Now |
@@ -261,6 +381,8 @@ does **not** need ownership of the skills — reading them is enough.
 | is `--schema` needed? | dismissed as "a surface to negotiate" | **it is the right end state** — `003-cli-schema`, after the walker |
 | reference-check depth | leaned names first, flags later | **arity is mandatory in step 2**; names alone are unusable |
 | trigger-collision linting | open question | **works, and finds 33 real collisions** |
+| is the mirror anchor stable enough? | gated the whole mirror half | **yes** — 0 failures in 3 of 4 repos; ~98% of live-code orphans recovered |
+| does the anchor need a rename bridge? | 004 §17 open, "do not build before the measurement" | **yes, build it in step 4** — `git -M`, then name-only for the residue |
 
 ## What the spikes correct
 
@@ -269,6 +391,8 @@ does **not** need ownership of the skills — reading them is enough.
 | §4.1/§4.2: "the `devenv-*` skills (11)" | there are **8**; 11 is the whole skill dir, including copyroom's 3 |
 | §15: "every family member is a Typer CLI in the same machine venv" | testee is not, by deliberate design |
 | §6: provenance on every emitted file | provenance must carry **no timestamp**, or spike A's free-rebuild property is lost |
+| 004 §16 criterion 10: "≥ 90% re-attaches per commit" | the metric counts prose on **deleted** code as failure. Replaced by 10a/10b/10c — see 004 §16 |
+| 004 §6.3: quarantined prose can re-attach later | it almost never does (4–9%). Quarantine prevents loss; it does not recover |
 
 ## What the spikes change about the plan
 

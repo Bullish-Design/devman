@@ -1,0 +1,11 @@
+{
+  "accepted_store_hash": "dc946e4d05f1960eb1144e0fce44fdf2e229b891cc9d850e742b1bd2e4c5e8d8",
+  "edited_hashes": {
+    "catalog": "fc0e25e70c7af98ea9998ced43604bb10134dfb6ddc465319e0148683858d453"
+  },
+  "error": "promotion did not reproduce edited declaration; owner=catalog::normalize_name",
+  "error_type": "PromotionRejectedError",
+  "source_preserved": true,
+  "status": "rejected",
+  "store_update_accepted": false
+}

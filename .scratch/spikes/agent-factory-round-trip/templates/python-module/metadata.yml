@@ -1,0 +1,20 @@
+name: python-module
+description: Render a Python module from ordered typed source sections.
+
+output:
+  path: module.py
+  language: text
+
+schema:
+  module: schema
+  class: PythonModuleModel
+
+prompt:
+  file: prompt.md
+
+renderer:
+  engine: minijinja
+  file: template.j2
+
+trigger_filenames:
+  - "*.py"

@@ -48,10 +48,41 @@
   '';
 
   # https://devenv.sh/tasks/
-  # tasks = {
-  #   "myproj:setup".exec = "mytool build";
-  #   "devenv:enterShell".after = [ "myproj:setup" ];
-  # };
+  tasks."devman:agent-factory-spike-dependencies" = {
+    description = "Install local dependencies for the agent-factory round-trip spike";
+    after = [ "devenv:python:virtualenv" ];
+    before = [ "devenv:enterShell" ];
+    exec = ''
+      SPIKE_PYTHON="${config.env.DEVENV_STATE}/venv/bin/python"
+      SPIKE_SITE_PACKAGES="$(echo "${config.env.DEVENV_STATE}"/venv/lib/python*/site-packages)"
+      PYDANTREE_SOURCE="${config.devenv.root}/../pydantree/src"
+      PYDANTREE_SITE_PACKAGES="${config.devenv.root}/../pydantree/.devenv/state/venv/lib/python3.13/site-packages"
+      TEMPLATEER_SOURCE="${config.devenv.root}/../templateer_v2/src"
+      TEMPLATEER_SITE_PACKAGES="${config.devenv.root}/../templateer_v2/.devenv/state/venv/lib/python3.13/site-packages"
+
+      if "$SPIKE_PYTHON" -c \
+        'import pydantree_sitter, templateer, tree_sitter_python' \
+        >/dev/null 2>&1; then
+        exit 0
+      fi
+
+      for SPIKE_PATH in \
+        "$PYDANTREE_SOURCE" \
+        "$PYDANTREE_SITE_PACKAGES" \
+        "$TEMPLATEER_SOURCE" \
+        "$TEMPLATEER_SITE_PACKAGES"; do
+        if [ ! -d "$SPIKE_PATH" ]; then
+          echo "agent-factory spike dependency path is missing: $SPIKE_PATH" >&2
+          exit 2
+        fi
+      done
+
+      mkdir -p "$SPIKE_SITE_PACKAGES"
+      cat > "$SPIKE_SITE_PACKAGES/_agent_factory_spike_siblings.pth" <<PTH
+import sys; sys.path[:0] = ["$PYDANTREE_SOURCE", "$TEMPLATEER_SOURCE", "$PYDANTREE_SITE_PACKAGES", "$TEMPLATEER_SITE_PACKAGES"]
+PTH
+    '';
+  };
 
   # https://devenv.sh/tests/
   enterTest = ''
