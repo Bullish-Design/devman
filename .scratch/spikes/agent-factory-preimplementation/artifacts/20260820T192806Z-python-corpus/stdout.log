@@ -1,0 +1,14 @@
+{
+  "byte_identity_failures": 0,
+  "case_count": 16,
+  "category_count": 69,
+  "decisions": {
+    "collate": 1,
+    "own": 7,
+    "preserve": 5,
+    "reject": 3
+  },
+  "parse_classification_failures": 0,
+  "pre_mutation_rejections": 3,
+  "span_failures": 0
+}

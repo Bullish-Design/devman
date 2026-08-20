@@ -123,7 +123,10 @@ own, collate, or reject.
 Accept when every supported case has byte identity and every unsupported case
 has a pre-mutation diagnostic with the best available owner.
 
-Status: pending.
+Status: complete for preservation and pre-mutation rejection. Sixteen cases
+covering 69 categories reconstructed from concrete-node UTF-8 byte spans plus
+opaque gaps with zero identity, span, or parse-classification failures. Edit
+and semantic-regeneration coverage remains an implementation gate.
 
 ## Phase 5 — durable identity, imports, and ordering
 

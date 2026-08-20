@@ -178,3 +178,31 @@ AF-009 and AF-010.
 
 No local or hosted model ran. Semantic false-acceptance and false-rejection rates
 remain unknown. `MODEL_QUALITY_PROTOCOL.md` defines the authorized experiment.
+
+### 2026-08-20 — Python syntax, trivia, and ownership corpus
+
+The executable corpus is `python_corpus_probe.py`; the support policy is
+`PYTHON_SUPPORT_MATRIX.md`. Passing evidence is preserved under
+`artifacts/20260820T192930Z-python-corpus-final/`, and the expanded four-test
+suite passed under `artifacts/20260820T192930Z-python-corpus-tests-final/`.
+
+Sixteen composite cases cover 69 required syntax and trivia categories. Every
+supported case was reconstructed byte-for-byte from top-level tree-sitter node
+spans plus explicit opaque gap slices. There were zero byte-identity failures,
+zero UTF-8 span failures, and zero parse-classification failures. The non-ASCII
+case confirms that offsets must index encoded UTF-8 bytes, not Python character
+positions.
+
+The invalid active buffer produced parser error nodes and was rejected before
+assembly or mutation. Optional/side-effect import blocks and unsafe star,
+dynamic, and semicolon import forms were also assigned to the source owner and
+rejected from automatic ownership/collation before mutation.
+
+Fact: concrete-node spans plus opaque gaps can preserve an unchanged file.
+Inference: declaration AST plus spans alone cannot safely own comments,
+directives, blank lines, mixed-newline policy, or import collation. Those need
+the concrete tree plus tokens or explicit trivia/gap records.
+
+This is not a semantic edit or full regeneration result. It establishes the
+unchanged preservation and rejection boundary; edits across the corpus remain a
+later implementation gate.
