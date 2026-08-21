@@ -379,8 +379,8 @@ The loop is concrete. You save `foo.py`; the watcher fires `format`; `format`
 rewrites `foo.py`; the watcher sees that write and fires `format` again.
 
 > **A workflow that writes files records their content hashes to
-> `$DEVENV_STATE/devman/generation.json`. A trigger skips any file whose current
-> hash matches.**
+> `.devman/.runs/generation.json`. A trigger skips any file whose current hash
+> matches.**
 
 It is a note saying *I did that* — nothing more. Stateless, so no lock, no
 deadlock, and no ordering assumption.
@@ -415,30 +415,33 @@ future remote worker all work without editing a workflow.
 
 ### 9.2 On disk
 
+Machine-side holds the registry, and nothing else:
+
 ```
-~/.local/share/devman/
-├── projects/<project>/
-│   ├── metadata.json          # identity and path
-│   └── workflows/*.yaml       # the projection
-└── runs/<project>/<run-id>/
-    └── logs/  artifacts/  reports/  metadata.json
+~/.local/share/devman/projects/<project>/
+├── metadata.json              # identity and path
+└── workflows/*.yaml           # the projection
 ```
+
+Everything a run produces stays with the checkout that produced it:
 
 ```
 <repo>/.devman/
-└── workflows/                 # tracked — Dagu YAML, the last layer (§7.3)
-
-$DEVENV_STATE/devman/
-└── generation.json            # ignored — the loop-breaking token (§8.1)
+├── workflows/                 # tracked — Dagu YAML, the last layer (§7.3)
+└── .runs/                     # ignored
+    ├── generation.json        # the loop-breaking token (§8.1)
+    └── <run-id>/logs/ artifacts/ reports/ metadata.json
 ```
 
-**`.devman/` is tracked and yours. Derived state is machine-side, or in devenv's
-state directory. Nothing derived is ever tracked.**
+**Two locations, one rule each.** The registry is machine-side because it is
+machine-wide. Run output is repo-side because you read it from inside the repo
+you were working in, and because it belongs to a **working tree, not a
+project** — one project can be checked out twice, and each checkout runs and
+fails on its own.
 
-The token is the one derived thing that lives beside a checkout rather than
-machine-side, because **it belongs to a working tree, not to a project.** One
-project can be checked out twice; each tree has its own watcher, and a
-project-keyed token would let one tree suppress the other's triggers.
+`.devman/workflows/` is tracked; `.devman/.runs/` is not. The devenv module adds
+the ignore rule at registration, because an un-ignored `.runs/` turns the first
+failed run into a dirty tree.
 
 `workflows/` is an input to the projection, never a second source Dagu reads.
 
@@ -510,18 +513,21 @@ These live in devman's `machine` group — never in one arbitrary participant.
 
 ### 12.1 Dagu supports what the design assumes — spike, before stage 1
 
-> Dagu accepts a named queue on a DAG, and interpolates an environment variable
-> in `workingDir`.
+> Dagu accepts a named queue on a DAG, interpolates an environment variable in
+> `workingDir`, and can be told where to write a run's logs.
 
-§7.2 rests on both. If `workingDir` does not interpolate, one group file cannot
+§7.2 rests on the first two; §9.2 rests on the third. If `workingDir` does not interpolate, one group file cannot
 serve many repos and registration has to rewrite each projection — recoverable,
 but it makes the plane parse files it currently never touches. If queues are not
 named per DAG, §7.1's only global vocabulary has nothing to bind to.
 
 *Measure:* write one DAG naming a queue with an interpolated `workingDir`, run it
-against two projects.
-*Fails if:* either is unsupported. The plane then rewrites files at projection,
-and §7.2's "devman never parses a workflow" becomes false.
+against two projects, and confirm its logs land under each project's
+`.devman/.runs/`.
+*Fails if:* interpolation or per-DAG queues are unsupported — the plane then
+rewrites files at projection, and §7.2's "devman never parses a workflow"
+becomes false. If only the log path is fixed machine-wide, §9.2 moves run output
+back beside the registry.
 
 This spike is first because it is cheap and because the charter assumed a
 feature set it never checked.
@@ -697,7 +703,12 @@ alarms from a heuristic that cannot know your machine. Notice it yourself.
   on demand.
 - **Where do machine-level overrides live?** Lean: `~/.config/devman/`, resolved
   after the group layer and before the repo's.
-- **Retention.** Runs grow without bound. Lean: 7 days for logs, keep
-  `metadata.json` indefinitely — it is small and it is the run history.
+- **Retention.** `.devman/.runs/` grows inside the repo, where it is at least
+  visible. Lean: 7 days for logs and artifacts, keep `metadata.json`
+  indefinitely — it is small and it is the run history.
+- **Where does a cross-repo run log go?** §11's workflows belong to no single
+  repo, so repo-side has no home for them. Lean: `~/.local/share/devman/runs/`
+  for the `machine` group only — accepting one exception rather than pushing
+  every repo's logs machine-side to avoid it.
 
 ---
