@@ -66,13 +66,12 @@ devman/
 ├── flake.nix
 ├── nix/nixos-module.nix       # machine interface
 ├── modules/default.nix        # repo interface — selection and identity
-├── workflows/                 # content, not contract (§7.2)
-│   ├── base/                  # group: check, validate, full-test
+├── groups/                    # content, not contract (§7.2)
+│   ├── base/                  # check, validate, full-test
 │   ├── python/ nix/ rust/     # ecosystem groups
-│   └── machine/               # cross-repo and machine-level DAGs (§13)
-├── assets/                    # asset packs (§8)
+│   └── machine/               # cross-repo and machine-level DAGs (§12)
 ├── lib/                       # x-devman schema, registration helpers
-└── src/devman/                # the CLI, deferred to stage 3 (§12)
+└── src/devman/                # the CLI, deferred to stage 3 (§11)
 ```
 
 | Output | Consumer |
@@ -144,9 +143,8 @@ toward a central config every repo edits — the failure the plane prevents.
 
 ```nix
 devman = {
-  enable  = true;
-  project = "pyjutsu";                 # identity, never a path (§11.1)
-  groups  = [ "base" "python" ];       # workflows to inherit (§7.4)
+  enable = true;
+  groups = [ "base" "python" ];       # workflows to inherit (§7.4)
 };
 
 tasks."lint".exec      = "ruff check .";
@@ -154,9 +152,11 @@ tasks."typecheck".exec = "basedpyright";
 tasks."test".exec      = "pytest";
 ```
 
-That is the whole adoption. The repo names itself, picks its groups, and owns
-its primitives. Workflows arrive as files (§7.2); a repo writes YAML only to
-change one.
+Two lines plus the repo's own primitives. `project` defaults to the directory
+name and is worth setting only when that is wrong or already taken —
+registration refuses a duplicate identity (§10.1).
+
+Workflows arrive as files (§7.2); a repo writes YAML only to change one.
 
 ### 5.1 Registration, not discovery
 
@@ -248,8 +248,8 @@ nothing about what any repository's work should be.
 | Global | Because |
 |---|---|
 | resource class names (§7.3) | the machine maps them to queues; a class it does not know has no queue |
-| execution kinds — `workspace`, `snapshot` | snapshot isolation is machinery the plane provides (§9), not a label |
-| the `x-devman` block (§7.2) | registration reads it; it is two keys |
+| execution kinds — `workspace`, `snapshot` | snapshot isolation is machinery the plane provides (§8), not a label |
+| `kind` and `resource`, when a file sets them (§7.2) | registration reads them; both default, so a file may set neither |
 
 | Not global | |
 |---|---|
@@ -276,12 +276,12 @@ One Dagu YAML file, one workflow. **The directory names the group; the file
 names the workflow.**
 
 ```
-devman/workflows/
-├── base/                     # group: base
+devman/groups/
+├── base/workflows/           # group: base
 │   ├── check.yaml
 │   ├── validate.yaml
 │   └── full-test.yaml
-├── python/                   # group: python
+├── python/workflows/         # group: python
 │   ├── check.yaml
 │   └── validate.yaml
 ├── nix/
@@ -294,14 +294,29 @@ A repo overrides by putting a file of the same name in its own directory:
 <repo>/.devman/workflows/check.yaml       # shadows every group's check.yaml
 ```
 
-There is no second representation. A pack file and a repo file are the same kind
-of file, so nothing generates one from the other and nothing needs ejecting.
+There is no second representation. A group file and a repo file are the same
+kind of file, so nothing generates one from the other.
 
-**The one required block.** Registration refuses a file without it, because
-these are the two things the plane acts on (§7.1):
+**A group is a directory, and devman reads only `workflows/*.yaml` in it.**
+Everything else there is inert to the plane and belongs to that group's own
+workflows:
+
+```
+groups/my-ai/
+├── workflows/provision.yaml    # devman reads this
+└── skills/**                   # inert; the workflow knows where its files are
+```
+
+Installing files is a workflow that writes files. It needs no concept of its
+own, so the plane has none. A group that ships payload arrives through a flake
+input, so its files are already in the Nix store — content-addressed and
+machine-wide without devman arranging it.
+
+**No block is required.** A plain Dagu file runs as `kind: workspace`,
+`resource: normal`. Add `x-devman` only to change a default:
 
 ```yaml
-# workflows/python/check.yaml
+# groups/python/workflows/check.yaml
 x-devman:
   kind: workspace        # workspace | snapshot
   resource: light        # a class from §7.3
@@ -313,7 +328,11 @@ steps:
 ```
 
 Anything Dagu accepts below that block is yours. The plane never parses the
-steps; it reads `x-devman`, resolves identity, and projects the file.
+steps; it reads `x-devman` if present, resolves identity, and projects the file.
+
+Requiring the block would only catch a *missing* value, never a wrong one —
+somebody who forgets `resource: gpu` would as readily have typed `normal`. So
+the defaults carry it and the required surface is zero.
 
 `kind` and `resource` are declared, never derived from a name. A repo whose
 `check` is genuinely expensive marks it `heavy` and nothing objects.
@@ -342,15 +361,15 @@ devman.groups = [ "base" "python" ];
 ```
 
 ```
-workflows/base/check.yaml
-  → workflows/python/check.yaml        (shadows base)
-    → .devman/workflows/check.yaml     (shadows both)
+groups/base/workflows/check.yaml
+  → groups/python/workflows/check.yaml   (shadows base)
+    → .devman/workflows/check.yaml       (shadows both)
 ```
 
 **Shadowing is whole-file, never a field merge.** A file either wins or it does
 not. Defining merge semantics over Dagu YAML would be more machinery than the
 problem deserves, and the result would be hard to predict from either file
-alone. The cost is §18.7: overriding one step means copying the file.
+alone. The cost is §17.7: overriding one step means copying the file.
 
 ### 7.5 What a repo controls
 
@@ -359,9 +378,9 @@ each, so no workflow is expressible two ways.
 
 ```nix
 devman = {
-  enable  = true;
-  project = "pyjutsu";                    # identity, never a path (§11.1)
-  groups  = [ "base" "python" ];          # what to inherit
+  enable = true;
+  groups = [ "base" "python" ];           # what to inherit
+  project = "pyjutsu";                    # optional; defaults to the dir name
 
   workflows.full-test.enable = false;     # drop one you do not want
 };
@@ -379,39 +398,7 @@ opinion about what the work is.
 
 ---
 
-## 8. Assets
-
-Helper scripts, agent skills, prompts, and aliases are **payload a workflow
-installs** — not a compiler, and not a product needing its own charter.
-
-| Workflow | Does | Blocks? |
-|---|---|---|
-| `provision` | install this repo's declared assets into their consumer surfaces | no |
-| `refresh` | re-install when the source pack or the declaration changed | no |
-
-```nix
-devman.assets = {
-  packs = [ "devenv-literacy" "my-ai" ];
-  local = ./.devman/assets;
-};
-```
-
-Three consequences, all simplifications:
-
-1. **Assets layer the same way workflows do.** A pack shadows by name, the
-   repo's `.devman/assets/` wins last — the §7.4 rule, applied to payload
-   instead of workflow files. There is no second distribution system.
-2. **Packs resolve to a machine-wide cache**, never into the repo — the same
-   rule as §11.3: generated state is machine-local and reconstructable.
-3. **No reverse path is needed.** Assets are installed, not compiled. Correct
-   the source and run `refresh`.
-
-Asset **rendering** — templates, anchors, projections — is out of scope. If a
-pack needs it, the pack owns it and the plane still only runs the workflow.
-
----
-
-## 9. Workspace and snapshot
+## 8. Workspace and snapshot
 
 A first-class distinction, not an implementation detail.
 
@@ -430,7 +417,7 @@ The reason is not purity. A 40-minute benchmark that observes an edit made at
 minute 12 produces a number describing no revision — and the number does not
 say so.
 
-### 9.1 jj-aware execution
+### 8.1 jj-aware execution
 
 Design for it now, implement at stage 4. A durable run captures:
 
@@ -443,11 +430,11 @@ historical run unattributable.
 
 **The open cost is devenv cold start in a fresh workspace.** Spike A measured
 5.46s cold in a warm store. A fresh jj workspace per snapshot run may miss the
-eval cache every time. §15.1 measures this before stage 4 commits.
+eval cache every time. §14.1 measures this before stage 4 commits.
 
 ---
 
-## 10. Triggers
+## 9. Triggers
 
 Dagu orchestrates. It does not detect.
 
@@ -463,7 +450,7 @@ schedule          → Dagu's own timer
 | Dagu | decide and orchestrate what happens next |
 | devenv | execute the repo's tasks |
 
-### 10.1 Loop-breaking is plane infrastructure
+### 9.1 Loop-breaking is plane infrastructure
 
 Any workflow that writes files a watcher watches will chase itself. The plane
 owns the fix once, so no repo implements it again:
@@ -476,9 +463,9 @@ Stateless. No lock, no deadlock, no ordering assumption.
 
 ---
 
-## 11. State
+## 10. State
 
-### 11.1 Identity
+### 10.1 Identity
 
 Never commit a developer's absolute path.
 
@@ -487,10 +474,13 @@ avoid:   working_dir: /home/andrew/Documents/Projects/Pyjutsu
 prefer:  project: pyjutsu          → resolved by the registry
 ```
 
+Identity defaults to the repo's directory name. Registration refuses a duplicate,
+which is when you set `project` by hand.
+
 This is what makes moving a repo, a second machine, a temporary workspace, a jj
 workspace, and a future remote worker all work without editing a workflow.
 
-### 11.2 On disk
+### 10.2 On disk
 
 ```
 ~/.local/share/devman/
@@ -505,28 +495,27 @@ workspace, and a future remote worker all work without editing a workflow.
 
 ```
 .devman/
-├── devman.toml        # tracked  — this repo's automation declaration
-├── workflows/         # tracked  — Dagu YAML, the last layer (§7.4)
-├── assets/            # tracked  — local asset payload (§8)
-└── state/             # ignored  — local run state
+└── workflows/         # tracked — Dagu YAML, the last layer (§7.4)
 ```
+
+That is the whole per-repo footprint. The declaration lives in `devenv.nix`, and
+run state lives machine-side, so **everything under `.devman/` is tracked and
+yours, and everything derived is under `~/.local/share/devman/`.**
 
 `workflows/` is an input to the projection, never a second source Dagu reads.
 
-### 11.3 Canonical and operational
+### 10.3 Canonical and operational
 
-| Canonical — losing it is real loss | Operational — reconstructable |
-|---|---|
-| git / jj history | Dagu run history and logs |
-| the repo's `.devman/` declaration | queues |
-| devenv definitions | the registry itself |
-| this flake | temporary workspaces, ordinary artifacts |
+> **Everything under `~/.local/share/devman/` is reconstructable by re-entering
+> every registered repo's shell.** The registry, the queues, the run history, the
+> logs, the temporary workspaces.
 
-**Rebuilding the Dagu service must be inconvenient, not catastrophic.** That is
-a design constraint: anything that would make a rebuild catastrophic does not
-belong in Dagu state.
+Canonical state is jj history, the repo's `.devman/workflows/`, its devenv
+definitions, and this flake. **Rebuilding the Dagu service must be inconvenient,
+not catastrophic** — a design constraint, not an observation. Anything that
+would make a rebuild catastrophic does not belong in Dagu state.
 
-### 11.4 Secrets
+### 10.4 Secrets
 
 A workflow references a symbolic name and never carries a value.
 
@@ -539,7 +528,7 @@ dependency on a secret; it never holds one.
 
 ---
 
-## 12. The CLI, deferred
+## 11. The CLI, deferred
 
 ```
 devman list      devman register     devman unregister
@@ -555,7 +544,7 @@ cover.
 
 ---
 
-## 13. Cross-repository workflows
+## 12. Cross-repository workflows
 
 One central instance is what makes these possible. They belong to no single
 repository, so today they exist nowhere.
@@ -573,51 +562,46 @@ library A   library B   application
 Uses: validating dependent libraries together, synchronized releases, nightly
 stack validation, cross-repo benchmarks, coordinated migrations.
 
-These live in devman's `workflows/machine/` group — never in one arbitrary
-participant.
+These live in devman's `machine` group — never in one arbitrary participant.
 
 ---
 
-## 14. What it refuses to do
+## 13. What it refuses to do
 
 | Refuses to | Because |
 |---|---|
 | Let the NixOS module learn a project fact | it becomes a central config every repo edits |
 | Let a repo learn the machine's concurrency numbers | the repo declares intent; the machine prices it |
 | Duplicate a task graph in Dagu and devenv | two graphs drift, and the drift is silent |
-| Implement a task itself | devenv owns execution; a second implementation is a second answer |
 | Scan the filesystem for projects | registration is the design (§5.1) |
-| Reserve a task or workflow name | ecosystems and repos differ; a rule the plane cannot check is a rule it should not have (§7.1) |
+| Reserve a task or workflow name | a rule the plane cannot check is a rule it should not have (§7.1) |
 | Hold an opinion about what a workflow costs or contains | that is the repository's business |
-| Read a workflow file Dagu has not been given | registration projects every file; Dagu reads one place (§7.2) |
 | Merge two workflow files | shadowing is whole-file; a merge would be unpredictable from either side (§7.4) |
+| Grow a concept for what a workflow already does | installing files is a workflow that writes files (§7.2) |
 | Let an agent block a build | a stochastic gate fails open — it costs autonomy and buys nothing |
-| Write into a repo's tracked files without an explicit command | provisioning installs to build outputs and caches |
-| Treat Dagu state as canonical | §11.3 |
-| Ship a default that half the repos override | that is a shared file with a misleading name |
 | Build the CLI before the conventions settle | it would freeze the wrong vocabulary |
 
 ---
 
-## 15. Riskiest claims
+## 14. Riskiest claims
 
-### 15.1 devenv is affordable as the universal executor — spike, before stage 4
+### 14.1 devenv is affordable as the universal executor — spike, before stage 4
 
 > Routing every task through `devenv tasks run` costs little enough that nobody
 > reaches around it.
 
 Spike A settled the workspace case: **0.16s warm**, 1.44s after a change.
 
-**The unmeasured case is a cold devenv in a fresh jj workspace** (§9.1). At
+**The unmeasured case is a cold devenv in a fresh jj workspace** (§8.1). At
 5.46s a snapshot run is fine. At two minutes, snapshot workflows are
-unaffordable and §9 needs a different mechanism — a reused workspace pool, or a
+unaffordable and §8 needs a different mechanism — a reused workspace pool, or a
 shared eval cache.
 
 *Measure:* create a jj workspace at a revision, enter its devenv, time it. Cold
 and warm, ten runs.
 *Fails if:* over ~30s repeatedly. Stage 4 redesigns rather than ships.
 
-### 15.2 One flake serves both interfaces cleanly — spike, at stage 1
+### 14.2 One flake serves both interfaces cleanly — spike, at stage 1
 
 > A NixOS module and a devenv module can live in one flake, at one version,
 > without either constraining the other's nixpkgs.
@@ -634,13 +618,13 @@ this repo and this machine.
 *Fails if:* the module must pin its own nixpkgs. The plane then ships two
 flakes, and §3.1's anti-drift argument weakens to a convention.
 
-### 15.3 Whole-file shadowing is coarse enough to live with
+### 14.3 Whole-file shadowing is coarse enough to live with
 
 > Repos override whole workflow files rarely enough that the copied duplication
 > does not accumulate.
 
 §7.4 refuses field merging, so changing one step of `check` means copying
-`check.yaml` into the repo, where it stops tracking upstream (§18.7).
+`check.yaml` into the repo, where it stops tracking upstream (§17.7).
 
 Measure at stage 2 across five real repos: **how many files were overridden, and
 how much of each is unchanged from the group version?**
@@ -649,20 +633,13 @@ A file copied to change one line is the failure mode. If it is common, the fix
 is smaller group files — split `check.yaml` into what varies and what does not —
 not a merge algorithm.
 
-### 15.4 One instance per machine is a shared failure
-
-A wedged queue blocks every repo, not one. §11.3 bounds the damage — state is
-reconstructable, so recovery is a restart — but availability is genuinely
-shared. Accepted, with one requirement: **`devman doctor` must diagnose a wedged
-plane**, or the shared failure becomes an unexplained one.
-
 ---
 
-## 16. Rollout
+## 15. Rollout
 
 ### Stage 1 — the flake foundation
 
-Spike §15.2 first; it can change the shape. Then:
+Spike §14.2 first; it can change the shape. Then:
 
 ```
 nixosModules.default    one Dagu service, config, state paths
@@ -680,32 +657,31 @@ registration            manual — devman register, or a hand-written entry
 automatic registration (§5.2, enterShell + hash guard)
 the metadata schema
 resource classes → queues and concurrency
-artifact and run-state layout (§11.2)
+artifact and run-state layout (§10.2)
 .devman/workflows/ shadowing + devman show (§7.4)
 ```
 
-Adopt across five repos and run §15.3's measurement: **how many files were
+Adopt across five repos and run §14.3's measurement: **how many files were
 overridden, and how much of each is unchanged?**
 
-### Stage 3 — assets and reactivity
+### Stage 3 — reactivity
 
 ```
-provision and refresh (§8)
 watchexec triggers, VCS hooks
-the generation token (§10.1)
+the generation token (§9.1)
 retention policy
 devman list / status / doctor
 ```
 
 ### Stage 4 — snapshot execution
 
-Spike §15.1 gates this stage.
+Spike §14.1 gates this stage.
 
 ```
 jj-aware isolated workspaces
 commit-addressed runs
 revision-aware artifacts
-cross-repo workflows (§13)
+cross-repo workflows (§12)
 ```
 
 ### Stage 5 — higher-level automation
@@ -719,16 +695,16 @@ agent workflows    policy gating
 
 ---
 
-## 17. Success criteria
+## 16. Success criteria
 
 | # | Criterion | Measured by |
 |---|---|---|
 | 1 | One flake, two interfaces, one version | the machine and this repo import the same rev; `nix flake check` passes |
-| 2 | A repo enables automation in under ten lines | `devman.enable` plus workflow toggles; no Dagu YAML written by the repo |
+| 2 | A repo adopts the plane in two lines | `devman.enable` and `devman.groups`; no Dagu YAML, no identity, no per-workflow config |
 | 3 | A repo may take no groups at all | `groups = []` plus its own `.devman/workflows/`; every workflow runs |
 | 4 | **A repo may rename or replace every default** | drop `check`, define `smoke` and `ci`; both run, and nothing in devman objects |
 | 5 | Shadowing is exact | `devman show check` saved to `.devman/workflows/check.yaml` projects identically; edit one step and only that step changes |
-| 6 | Raw YAML cannot bypass the plane | a file without `x-devman`, or with an absolute path, is refused at registration |
+| 6 | A plain Dagu file just runs | a workflow file with no `x-devman` registers and runs as `workspace` / `normal` |
 | 7 | devenv stays on the fast path | `devenv shell -- true` ≤ 0.25s warm — Spike A regression |
 | 8 | Registration is automatic and idempotent | enter a shell twice; the registry is written once |
 | 9 | Registration covers only opted-in repos | a repo without `devman.enable` never appears, even under a scanned root |
@@ -740,52 +716,59 @@ agent workflows    policy gating
 | 15 | Snapshot runs ignore live edits | edit a file mid-run; the result matches the revision |
 | 16 | A rebuild is inconvenient, not catastrophic | delete Dagu state, re-enter every registered shell, every workflow runs again |
 | 17 | devman adopts itself | this repo carries `.devman/`, `devman doctor` exits 0 |
-| 18 | Assets install without touching tracked files | run `provision`; `jj status` is clean |
 
 **Criterion 4 is the one that keeps §7 honest.** If a repo cannot rename or
 replace a default without something in devman objecting, the plane has grown an
-opinion it should not have. Criterion 16 keeps §11.3 honest. Criterion 9 keeps
+opinion it should not have. Criterion 16 keeps §10.3 honest. Criterion 9 keeps
 devman out of fleetman's job.
 
 ---
 
-## 18. Sharp edges
+## 17. Sharp edges
 
-**18.1 Registration cannot happen at evaluation time.** Nix eval is pure, so
+**17.1 Registration cannot happen at evaluation time.** Nix eval is pure, so
 §5.2 puts it in `enterShell` behind a hash guard. A repo is invisible until you
 enter its shell once. Do not solve this by scanning.
 
-**18.2 `.devman/` has carried other meanings.** `fsdantic` carries a live
+**17.2 `.devman/` has carried other meanings.** `fsdantic` carries a live
 `.devman/` of an older shape (`.devman/store/vendor/agentfs`). Migration must
 detect the old layout and report it, never silently adopt it.
 
-**18.3 One instance per machine is a shared availability failure.** §15.4.
-`doctor` is the mitigation, and it is required.
+**17.3 One instance per machine is a shared availability failure.** A wedged
+queue blocks every repo, not one. §10.3 bounds the damage — state is
+reconstructable, so recovery is a restart — but availability is genuinely
+shared. Accepted, with one requirement: **`devman doctor` must diagnose a wedged
+plane**, or a shared failure becomes an unexplained one.
 
-**18.4 The five resource classes are the one-way door.** They are the only
+**17.4 The five resource classes are the one-way door.** They are the only
 global names, and the machine's queue mapping depends on them. Adding a sixth is
 cheap; renaming one is a migration across every repo. Everything else in §7 is
 schema or convention and stays revisable.
 
-**18.5 devenv and NixOS may want different nixpkgs.** §15.2. If they do, the
+**17.5 devenv and NixOS may want different nixpkgs.** §14.2. If they do, the
 single-version guarantee becomes a convention rather than a property.
 
-**18.6 A cold devenv in a fresh jj workspace is unmeasured.** §15.1. Stage 4
+**17.6 A cold devenv in a fresh jj workspace is unmeasured.** §14.1. Stage 4
 depends on the answer.
 
-**18.7 An overriding file stops tracking its group.** A repo that shadows
+**17.7 An overriding file stops tracking its group.** A repo that shadows
 `check.yaml` keeps that version forever, and §7.4 offers no partial override.
 `doctor` counts shadowed files and reports how far each has diverged from the
 group version.
 
-**18.8 Nothing checks that a default still fits.** Since the plane holds no
+**17.8 Renaming a repo's directory changes its identity.** `project` defaults
+to the directory name (§10.1), so a rename detaches the repo from its run
+history and re-registers it as new. Set `project` explicitly in any repo whose
+directory name you expect to change.
+
+**17.9 Nothing checks that a default still fits.** Since the plane holds no
 opinion about what a workflow costs, a `check` that grows to four minutes is
 invisible to devman. That is the deliberate trade: no policing, and no false
 alarms from a heuristic that cannot know your machine. Notice it yourself.
 
 ---
 
-## 19. Open questions
+## 18. Open questions
 
 - **Registry root.** `~/.local/share/devman/`. Confirm nothing else claims it.
 - **What validates `x-devman`?** Lean: one pydantic model in `lib/`, applied at
@@ -801,7 +784,6 @@ alarms from a heuristic that cannot know your machine. Notice it yourself.
   after the group layer and before the repo's.
 - **Retention.** Runs grow without bound. Lean: 7 days for logs, keep
   `metadata.json` indefinitely — it is small and it is the run history.
-- **Does `provision` need a dry run?** Lean: yes, and it is `doctor`'s job.
 - **CI's relationship to the plane.** CI is authoritative remote validation and
   runs the same devenv tasks. Does it read the plane's definitions or restate
   them? Lean: read them, at stage 3, or the drift the plane prevents locally
@@ -809,7 +791,7 @@ alarms from a heuristic that cannot know your machine. Notice it yourself.
 
 ---
 
-## 20. One word to keep straight
+## 19. One word to keep straight
 
 **`registry`** — say **project registry** (devman, opt-in, §5.1) or **fleet
 index** (fleetman, scanned). Two different things, and §5.1 depends on not
