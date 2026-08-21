@@ -585,7 +585,7 @@ flakes, and §3.1's anti-drift argument weakens to a convention.
 > Repos override whole workflow files rarely enough that the copied duplication
 > does not accumulate.
 
-§7.4 refuses field merging, so changing one step of `check` means copying
+§7.3 refuses field merging, so changing one step of `check` means copying
 `check.yaml` into the repo, where it stops tracking upstream (§15.7).
 
 Measure at stage 2 across five real repos: **how many files were overridden, and
@@ -694,11 +694,11 @@ plane**, or a shared failure becomes an unexplained one.
 Adding one is cheap; renaming one is a migration across every workflow that names
 it.
 
-**15.5 devenv and NixOS may want different nixpkgs.** §12.2. If they do, the
+**15.5 devenv and NixOS may want different nixpkgs.** §12.3. If they do, the
 single-version guarantee becomes a convention rather than a property.
 
 **15.6 An overriding file stops tracking its group.** A repo that shadows
-`check.yaml` keeps that version forever, and §7.4 offers no partial override.
+`check.yaml` keeps that version forever, and §7.3 offers no partial override.
 `doctor` counts shadowed files and reports how far each has diverged from the
 group version.
 
