@@ -108,7 +108,7 @@ One Dagu instance per machine or user.
 |---|---|
 | Dagu installation, service, config | which project uses pytest |
 | workflow discovery, registry paths | which repo has a benchmark |
-| queues, concurrency, resource mapping | any project's task graph |
+| Dagu queues and concurrency limits | any project's task graph |
 | state paths, log retention | any project's dependency order |
 | secret and environment injection | |
 
