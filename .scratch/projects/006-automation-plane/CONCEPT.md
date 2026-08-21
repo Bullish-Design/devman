@@ -30,15 +30,15 @@ Three things, and the list is closed:
    one version (§3).
 2. **A project registry** of repositories that opted into automation, keyed by
    identity, resolving to paths (§5).
-3. **A contract** — a structural schema plus a small reserved vocabulary: three
-   workflow tiers, two asset workflows, five resource classes (§7).
+3. **A contract** — a declaration schema, five resource classes, and two
+   execution kinds. Nothing about what a repository's work should be (§7).
 
-Item 3 is the product. Strip it and devman is a way to install Dagu, which is
-not worth a charter. Ten-line adoption, cross-repo workflows, and any generic
-tooling all rest on the contract being assumable.
+Item 3 is deliberately thin. The plane needs a name it can resolve, a class it
+can queue, and a kind it can isolate. Anything more is an opinion about your
+repositories, and devman does not have those.
 
-The default workflows are **not** on this list. They are content, so they ship
-as the base pack and resolve through the same layers as everything else (§7.4).
+Default workflows are **not** on this list. They are content, so they ship as
+the base pack and resolve through the same layers as everything else (§7.4).
 
 ### 2.2 Is not
 
@@ -67,7 +67,7 @@ devman/
 ├── nix/nixos-module.nix       # machine interface
 ├── modules/default.nix        # repo interface — the contract
 ├── packs/                     # content, not contract (§7.4)
-│   ├── base/                  # default tier compositions
+│   ├── base/                  # default workflows
 │   ├── python/ nix/ rust/     # ecosystem packs
 │   └── assets/                # asset packs (§8)
 ├── dags/                      # machine-level and cross-repo DAGs (§13)
@@ -247,42 +247,49 @@ let Dagu re-derive the order.
 
 ## 7. The contract
 
-Standardize early, because generic tooling needs assumable names. Standardize
-**as little as possible**, because every reserved name is a one-way door.
+The plane defines **the smallest vocabulary the machine has to implement**, and
+nothing about what any repository's work should be.
 
-### 7.1 Reserve the tier, not the technique
+### 7.1 What is global, and why
 
-| Reserved, cross-ecosystem | Pack-local convention |
+| Global | Because |
 |---|---|
-| `check` `validate` `full-test` — workflow **tiers** | **task names, entirely** |
-| `provision` `refresh` (§8) | python: `lint` `typecheck` `test` |
-| `light` `normal` `heavy` `gpu` `exclusive` | nix: `flake-check` `build` |
-| | rust: `clippy` `cargo-check` `test` |
+| resource class names (§7.3) | the machine maps them to queues; a class it does not know has no queue |
+| execution kinds — `workspace`, `snapshot` | snapshot isolation is machinery the plane provides (§9), not a label |
+| the declaration schema (§7.2) | registration validates against it |
 
-Ten reserved words.
+| Not global | |
+|---|---|
+| task names | the repo's business, entirely |
+| workflow names | a convention the base pack follows; nothing enforces it |
+| what any workflow does, or how long it takes | the repo's business, entirely |
 
-Task names cannot be reserved, because ecosystems decompose differently. `nix
-flake check` is not a lint, and Nix has no `typecheck` distinct from `build`.
-Forcing every ecosystem into a Python-shaped split produces empty tasks or lies.
+**Task names cannot be reserved**, because ecosystems decompose differently.
+`nix flake check` is not a lint, and Nix has no `typecheck` distinct from
+`build`. Forcing every ecosystem into a Python-shaped split produces empty tasks
+or lies. They need to be stable only *within* a pack, because only the pack
+composes them.
 
-They only need to be stable *within* a pack, because only the pack composes
-them. **Nothing outside a repo ever calls a task** — a cross-repo workflow calls
-`validate` on three repos, never `pytest` on one.
+**Workflow names are not reserved either.** The base pack ships `check`,
+`validate`, and `full-test` because most repos want a fast one, a gate, and an
+exhaustive one — so `devman run check` usually resolves. A repo that wants
+`smoke` and `ci` instead gets them. The plane does not police what a name means,
+because a rule it cannot check is a rule it should not have.
 
-**One constraint:** a reserved workflow name may not also be a task name. Rust
-makes it concrete — `cargo check` is a typecheck, and the `check` tier is fast
-feedback. The pack maps to the tier and never exposes a task called `check`.
+### 7.2 Declaring a workflow
 
-### 7.2 The three tiers
+Four fields. Everything else is the repo's.
 
-Content varies by ecosystem, so the name means a level of cost and confidence,
-not a technique:
+```nix
+devman.workflows.validate = {
+  tasks    = [ "lint" "typecheck" "test" ];   # devenv task names, yours
+  kind     = "workspace";                     # workspace | snapshot
+  resource = "normal";                        # a class from §7.3
+  enable   = true;
+};
+```
 
-| Tier | Contract | Kind | Default class |
-|---|---|---|---|
-| `check` | fast feedback, seconds, runs on save. May be incomplete. | workspace | `light` |
-| `validate` | the gate. Must pass before you land. Minutes. | workspace | `normal` |
-| `full-test` | exhaustive, including slow suites. | snapshot | `heavy` |
+Ecosystem packs fill the same shape:
 
 ```
 python pack:  check → lint + typecheck        validate → + test
@@ -290,8 +297,8 @@ nix pack:     check → statix + deadnix        validate → nix flake check
 rust pack:    check → clippy + cargo check    validate → + cargo test
 ```
 
-**Resource class falls out of the tier, not the language** — the machine does
-not care what you write.
+`kind` and `resource` are declared, never derived from a name. A repo whose
+`check` is genuinely expensive marks it `heavy` and nothing objects.
 
 ### 7.3 Resource classes
 
@@ -318,49 +325,33 @@ Later wins. A pack is a shared default so five Python repos do not each write
 the same six lines. Skip it and declare the composition inline for the same
 result.
 
-### 7.5 What a repo may name
+### 7.5 What a repo controls
 
-| The repo decides | |
-|---|---|
-| its own task names | ✅ always — inline or from a pack |
-| which tasks each tier composes | ✅ the project override layer |
-| which tiers it has at all | ✅ `full-test.enable = false` |
-| brand-new workflow names | ✅ open namespace |
-| **what `check` means** | ❌ the one refusal |
+Everything except the three global items in §7.1.
 
 ```nix
 devman.workflows = {
-  check.tasks    = [ "lint" "typecheck" ];
+  check.tasks    = [ "lint" "typecheck" ];      # inherited name, own content
   validate.tasks = [ "lint" "typecheck" "test" ];
 
   full-test = {
     tasks    = [ "test" "integration-test" ];
+    kind     = "snapshot";
     resource = "heavy";
   };
 
-  # new name — yours, nobody else needs to know it
-  benchmark-campaign = {
+  benchmark-campaign = {                         # a name of your own
     tasks    = [ "benchmark" ];
-    resource = "gpu";
     kind     = "snapshot";
+    resource = "gpu";
   };
 
-  provision.enable = false;
+  provision.enable = false;                      # drop one you do not want
 };
 ```
 
-**The refusal, and the test behind it.** `check` must keep meaning fast
-feedback — not because the name is sacred, but because of one question:
-
-> **Can a tool that has never seen this repo do the right thing?**
-
-A watcher firing `check` on save needs seconds. A cross-repo workflow calling
-`validate` on three repos needs all three to be gates. Redefine `check` as the
-exhaustive suite in one repo and the watcher hangs there — and nothing reports
-an error, because nothing can tell.
-
-To *type* something else, use a shell alias or a local devenv task. Free, and it
-never reaches the plane.
+Rename, redefine, drop, or invent. The plane resolves a name to a workflow and
+runs it at the declared class. It has no opinion about what the work is.
 
 ### 7.6 Raw Dagu YAML
 
@@ -378,12 +369,12 @@ So `.devman/workflows/*.yaml` is the last layer.
 Dagu still reads one place, and hand-written files still get identity
 resolution, queue mapping, and the no-absolute-paths check.
 
-**Rule 1 — declare plane metadata.** Registration refuses a file without it:
+**The one rule — declare `kind` and `resource`.** Registration refuses a file
+without them, because those are the two things the plane acts on (§7.1):
 
 ```yaml
 # .devman/workflows/validate.yaml
 x-devman:
-  tier: validate        # or `none` for an open-namespace workflow
   kind: workspace
   resource: normal
 steps:
@@ -391,20 +382,7 @@ steps:
     run: devenv tasks run lint
 ```
 
-**Rule 2 — overriding a reserved tier is allowed; the contract still binds.**
-This differs from §7.5's refusal on purpose. Raw YAML buys *structure*, and
-§7.2's contract is about cost and confidence, not structure. A parallel
-`validate` with a join is still a gate. What breaks the contract is a `check`
-that takes four minutes.
-
-**The contract is measurable.** Run durations are stored (§11.2), so this is not
-honour-system:
-
-> `devman doctor` reports any tier whose observed runs violate its budget — a
-> `check` drifting past seconds, a `validate` past minutes.
-
-Reported, never blocked. A violated contract that nothing mentions reads exactly
-like a kept one.
+Anything Dagu accepts below that block is yours.
 
 **Eject, do not hand-write.**
 
@@ -629,10 +607,9 @@ arbitrary participant.
 | Duplicate a task graph in Dagu and devenv | two graphs drift, and the drift is silent |
 | Implement a task itself | devenv owns execution; a second implementation is a second answer |
 | Scan the filesystem for projects | registration is the design (§5.1) |
-| Reserve a task name | ecosystems decompose differently (§7.1) |
-| Let a repo redefine what a tier means | a tool that has never seen the repo could no longer act (§7.5) |
+| Reserve a task or workflow name | ecosystems and repos differ; a rule the plane cannot check is a rule it should not have (§7.1) |
+| Hold an opinion about what a workflow costs or contains | that is the repository's business |
 | Let raw YAML bypass registration | it would lose identity, queue mapping, and the path check (§7.6) |
-| Block a run because a tier overran its budget | `doctor` reports it; a plane that blocks on its own heuristic is a worse plane |
 | Let an agent block a build | a stochastic gate fails open — it costs autonomy and buys nothing |
 | Write into a repo's tracked files without an explicit command | provisioning installs to build outputs and caches |
 | Treat Dagu state as canonical | §11.3 |
@@ -676,26 +653,17 @@ this repo and this machine.
 *Fails if:* the module must pin its own nixpkgs. The plane then ships two
 flakes, and §3.1's anti-drift argument weakens to a convention.
 
-### 15.3 Three tiers cover real repositories
+### 15.3 The schema is expressive enough
 
-> `check`, `validate`, and `full-test` are enough that no repo needs a fourth.
+> Four fields — `tasks`, `kind`, `resource`, `enable` — describe most workflows,
+> and raw YAML covers the rest without becoming the normal path.
 
-Untestable in advance. Measure at stage 2 across five real repos, and measure
-the right thing:
+Measure at stage 2 across five real repos: **how many workflows ejected to raw
+YAML (§7.6), and what did each need that the schema lacked?**
 
-> Did any repo need a tier that is not `check`, `validate`, or `full-test`?
-
-Counting overrides is the wrong signal — every pack overrides task names by
-design, and that is the design working. A repo reaching for raw YAML (§7.6) is
-also fine. A repo wanting a fourth *tier* is the failure, because tiers are what
-generic tooling assumes.
-
-The remedy is cheap in one direction only: a bad default is a pack fix, but a
-wrong tier set is a plane change. That asymmetry is the argument for §12's
-deferral of the CLI.
-
-Count ejected files alongside it. A high eject rate means the Nix composition is
-too weak, not that the tiers are wrong.
+A high eject rate is the signal, and it points at the schema, not the repos. The
+remedy is cheap — add a field. This risk is mild by construction, because §7.1
+made the plane's vocabulary small enough to have little to be wrong about.
 
 ### 15.4 One instance per machine is a shared failure
 
@@ -714,8 +682,8 @@ Spike §15.2 first; it can change the shape. Then:
 
 ```
 nixosModules.default    one Dagu service, config, state paths
-modules/                the contract — schema + reserved vocabulary
-packs/base              the three tier compositions
+modules/                the contract — schema, classes, kinds
+packs/base              default workflows: check, validate, full-test
 packs/python            one ecosystem pack, to prove the layer stack
 registration            manual — devman register, or a hand-written entry
 ```
@@ -732,9 +700,8 @@ artifact and run-state layout (§11.2)
 .devman/workflows/ + devman show --format yaml (§7.6)
 ```
 
-Adopt across five repos and run §15.3's measurement: **did any repo want a
-fourth tier?** Count ejected files alongside it. The tier set is cheap to change
-here and not after.
+Adopt across five repos and run §15.3's measurement: **how many workflows
+ejected to raw YAML, and what did the schema lack?**
 
 ### Stage 3 — assets and reactivity
 
@@ -773,28 +740,28 @@ agent workflows    policy gating
 | # | Criterion | Measured by |
 |---|---|---|
 | 1 | One flake, two interfaces, one version | the machine and this repo import the same rev; `nix flake check` passes |
-| 2 | A repo enables automation in under ten lines | `devman.enable` plus tier toggles; no Dagu YAML written by the repo |
-| 3 | A repo may skip packs entirely | declare all three tiers inline; the result matches the pack's |
-| 4 | **A tier means one thing everywhere** | `devman run check` on any registered repo runs its fast-feedback workflow, with no repo-specific knowledge |
+| 2 | A repo enables automation in under ten lines | `devman.enable` plus workflow toggles; no Dagu YAML written by the repo |
+| 3 | A repo may skip packs entirely | declare its workflows inline; the result matches the pack's |
+| 4 | **A repo may rename or replace every default** | drop `check`, define `smoke` and `ci`; both run, and nothing in devman objects |
 | 5 | Ejecting round-trips | `devman show check --format yaml` saved to `.devman/workflows/` produces an identical projection |
 | 6 | Raw YAML cannot bypass the plane | a file without `x-devman`, or with an absolute path, is refused at registration |
-| 7 | A violated tier budget is reported | a `check` running for minutes appears in `doctor`; the run is never blocked |
-| 8 | devenv stays on the fast path | `devenv shell -- true` ≤ 0.25s warm — Spike A regression |
-| 9 | Registration is automatic and idempotent | enter a shell twice; the registry is written once |
-| 10 | Registration covers only opted-in repos | a repo without `devman.enable` never appears, even under a scanned root |
-| 11 | No workflow contains an absolute path | grep the registry and `dags/`; zero hits |
-| 12 | Identity survives a move | move a repo, re-enter its shell, run `check` — no workflow edited |
-| 13 | Resource classes reach real queues | mark a task `exclusive`; two concurrent runs serialize |
-| 14 | The watchers do not chase each other | a file-writing workflow plus a watcher on those files, one save, exactly one run |
-| 15 | The task graph exists once | no default workflow re-states a dependency devenv already declares |
-| 16 | Snapshot runs ignore live edits | edit a file mid-run; the result matches the revision |
-| 17 | A rebuild is inconvenient, not catastrophic | delete Dagu state, re-enter every registered shell, every workflow runs again |
-| 18 | devman adopts itself | this repo carries `.devman/`, `devman doctor` exits 0 |
-| 19 | Assets install without touching tracked files | run `provision`; `jj status` is clean |
+| 7 | devenv stays on the fast path | `devenv shell -- true` ≤ 0.25s warm — Spike A regression |
+| 8 | Registration is automatic and idempotent | enter a shell twice; the registry is written once |
+| 9 | Registration covers only opted-in repos | a repo without `devman.enable` never appears, even under a scanned root |
+| 10 | No workflow contains an absolute path | grep the registry and `dags/`; zero hits |
+| 11 | Identity survives a move | move a repo, re-enter its shell, run `check` — no workflow edited |
+| 12 | Resource classes reach real queues | mark a task `exclusive`; two concurrent runs serialize |
+| 13 | The watchers do not chase each other | a file-writing workflow plus a watcher on those files, one save, exactly one run |
+| 14 | The task graph exists once | no default workflow re-states a dependency devenv already declares |
+| 15 | Snapshot runs ignore live edits | edit a file mid-run; the result matches the revision |
+| 16 | A rebuild is inconvenient, not catastrophic | delete Dagu state, re-enter every registered shell, every workflow runs again |
+| 17 | devman adopts itself | this repo carries `.devman/`, `devman doctor` exits 0 |
+| 18 | Assets install without touching tracked files | run `provision`; `jj status` is clean |
 
-**Criterion 4 is the one the contract exists for.** If it fails, the reserved
-vocabulary buys nothing and §7 should shrink further. Criterion 17 keeps §11.3
-honest. Criterion 10 keeps devman out of fleetman's job.
+**Criterion 4 is the one that keeps §7 honest.** If a repo cannot rename or
+replace a default without something in devman objecting, the plane has grown an
+opinion it should not have. Criterion 16 keeps §11.3 honest. Criterion 9 keeps
+devman out of fleetman's job.
 
 ---
 
@@ -811,10 +778,10 @@ detect the old layout and report it, never silently adopt it.
 **18.3 One instance per machine is a shared availability failure.** §15.4.
 `doctor` is the mitigation, and it is required.
 
-**18.4 The reserved vocabulary is a one-way door** — a narrow one. Only the
-three tiers, two asset workflows, and five resource classes are hard to change;
-everything behind them is pack content and stays revisable. Renaming `validate`
-after five repos and a CLI depend on it is still a migration.
+**18.4 The five resource classes are the one-way door.** They are the only
+global names, and the machine's queue mapping depends on them. Adding a sixth is
+cheap; renaming one is a migration across every repo. Everything else in §7 is
+schema or convention and stays revisable.
 
 **18.5 devenv and NixOS may want different nixpkgs.** §15.2. If they do, the
 single-version guarantee becomes a convention rather than a property.
@@ -824,12 +791,12 @@ depends on the answer.
 
 **18.7 An ejected workflow stops tracking pack improvements.** A repo that
 ejects `check` keeps that version forever. `doctor` counts ejected files, and a
-rising count means the Nix composition is too weak — not that the repos are
-wrong.
+rising count means the schema is too weak — not that the repos are wrong.
 
-**18.8 The tier budget is a heuristic.** A slow machine, a cold cache, or one
-large repo will trip it. That is why it reports and never blocks. Resist making
-it a gate — a blocking heuristic on a shared plane fails everyone at once.
+**18.8 Nothing checks that a default still fits.** Since the plane holds no
+opinion about what a workflow costs, a `check` that grows to four minutes is
+invisible to devman. That is the deliberate trade: no policing, and no false
+alarms from a heuristic that cannot know your machine. Notice it yourself.
 
 ---
 
@@ -858,13 +825,8 @@ it a gate — a blocking heuristic on a shared plane fails everyone at once.
 
 ---
 
-## 20. Two words to keep straight
+## 20. One word to keep straight
 
 **`registry`** — say **project registry** (devman, opt-in, §5.1) or **fleet
 index** (fleetman, scanned). Two different things, and §5.1 depends on not
 confusing them.
-
-**`workflow`** — say **tier** for one of the three reserved names, **workflow**
-for anything else. §7.5 lets a repo invent the second freely and forbids it from
-redefining the first, so a sentence that blurs them states the opposite of the
-rule.
