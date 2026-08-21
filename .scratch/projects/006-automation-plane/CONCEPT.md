@@ -30,15 +30,15 @@ Three things, and the list is closed:
    one version (§3).
 2. **A project registry** of repositories that opted into automation, keyed by
    identity, resolving to paths (§5).
-3. **A contract** — a declaration schema, five resource classes, and two
-   execution kinds. Nothing about what a repository's work should be (§7).
+3. **A contract** — two metadata keys, five resource classes, and two execution
+   kinds. Nothing about what a repository's work should be (§7).
 
 Item 3 is deliberately thin. The plane needs a name it can resolve, a class it
 can queue, and a kind it can isolate. Anything more is an opinion about your
 repositories, and devman does not have those.
 
-Default workflows are **not** on this list. They are content, so they ship as
-the base pack and resolve through the same layers as everything else (§7.4).
+Default workflows are **not** on this list. They are content — files in a
+group directory, shadowed by name (§7.2).
 
 ### 2.2 Is not
 
@@ -65,13 +65,13 @@ the repository that owns it.
 devman/
 ├── flake.nix
 ├── nix/nixos-module.nix       # machine interface
-├── modules/default.nix        # repo interface — the contract
-├── packs/                     # content, not contract (§7.4)
-│   ├── base/                  # default workflows
-│   ├── python/ nix/ rust/     # ecosystem packs
-│   └── assets/                # asset packs (§8)
-├── dags/                      # machine-level and cross-repo DAGs (§13)
-├── lib/                       # metadata schema, helpers
+├── modules/default.nix        # repo interface — selection and identity
+├── workflows/                 # content, not contract (§7.2)
+│   ├── base/                  # group: check, validate, full-test
+│   ├── python/ nix/ rust/     # ecosystem groups
+│   └── machine/               # cross-repo and machine-level DAGs (§13)
+├── assets/                    # asset packs (§8)
+├── lib/                       # x-devman schema, registration helpers
 └── src/devman/                # the CLI, deferred to stage 3 (§12)
 ```
 
@@ -144,17 +144,9 @@ toward a central config every repo edits — the failure the plane prevents.
 
 ```nix
 devman = {
-  enable = true;
-  project = "pyjutsu";          # identity, never a path (§11.1)
-  packs = [ "python" ];
-
-  workflows = {
-    check.enable = true;
-    validate.enable = true;
-    full-test.enable = true;
-  };
-
-  resources.benchmark = "gpu";
+  enable  = true;
+  project = "pyjutsu";                 # identity, never a path (§11.1)
+  groups  = [ "base" "python" ];       # workflows to inherit (§7.4)
 };
 
 tasks."lint".exec      = "ruff check .";
@@ -162,8 +154,9 @@ tasks."typecheck".exec = "basedpyright";
 tasks."test".exec      = "pytest";
 ```
 
-The repo declares intent and owns its primitives. The module composes them. A
-repo never writes Dagu YAML to enable a default workflow.
+That is the whole adoption. The repo names itself, picks its groups, and owns
+its primitives. Workflows arrive as files (§7.2); a repo writes YAML only to
+change one.
 
 ### 5.1 Registration, not discovery
 
@@ -199,7 +192,7 @@ you enter its shell once; `devman register <path>` covers the rest.
 Violating this boundary is the main way the design decays.
 
 **devenv owns implementation.** The repo names its own tasks — task names are
-pack-local convention, never reserved (§7.1):
+group-local convention, never reserved (§7.1):
 
 ```
 python:  lint  typecheck  test  integration-test
@@ -256,46 +249,71 @@ nothing about what any repository's work should be.
 |---|---|
 | resource class names (§7.3) | the machine maps them to queues; a class it does not know has no queue |
 | execution kinds — `workspace`, `snapshot` | snapshot isolation is machinery the plane provides (§9), not a label |
-| the declaration schema (§7.2) | registration validates against it |
+| the `x-devman` block (§7.2) | registration reads it; it is two keys |
 
 | Not global | |
 |---|---|
 | task names | the repo's business, entirely |
-| workflow names | a convention the base pack follows; nothing enforces it |
+| workflow names | a file name; the base group's happen to be conventional |
 | what any workflow does, or how long it takes | the repo's business, entirely |
+| the rest of the workflow file | Dagu's schema, not devman's |
 
 **Task names cannot be reserved**, because ecosystems decompose differently.
 `nix flake check` is not a lint, and Nix has no `typecheck` distinct from
 `build`. Forcing every ecosystem into a Python-shaped split produces empty tasks
-or lies. They need to be stable only *within* a pack, because only the pack
-composes them.
+or lies. They need to be stable only *within* a group, because only that group's
+files call them.
 
-**Workflow names are not reserved either.** The base pack ships `check`,
+**Workflow names are not reserved either.** The base group ships `check`,
 `validate`, and `full-test` because most repos want a fast one, a gate, and an
 exhaustive one — so `devman run check` usually resolves. A repo that wants
-`smoke` and `ci` instead gets them. The plane does not police what a name means,
+`smoke` and `ci` renames the files. The plane does not police what a name means,
 because a rule it cannot check is a rule it should not have.
 
-### 7.2 Declaring a workflow
+### 7.2 A workflow is a file
 
-Four fields. Everything else is the repo's.
-
-```nix
-devman.workflows.validate = {
-  tasks    = [ "lint" "typecheck" "test" ];   # devenv task names, yours
-  kind     = "workspace";                     # workspace | snapshot
-  resource = "normal";                        # a class from §7.3
-  enable   = true;
-};
-```
-
-Ecosystem packs fill the same shape:
+One Dagu YAML file, one workflow. **The directory names the group; the file
+names the workflow.**
 
 ```
-python pack:  check → lint + typecheck        validate → + test
-nix pack:     check → statix + deadnix        validate → nix flake check
-rust pack:    check → clippy + cargo check    validate → + cargo test
+devman/workflows/
+├── base/                     # group: base
+│   ├── check.yaml
+│   ├── validate.yaml
+│   └── full-test.yaml
+├── python/                   # group: python
+│   ├── check.yaml
+│   └── validate.yaml
+├── nix/
+└── rust/
 ```
+
+A repo overrides by putting a file of the same name in its own directory:
+
+```
+<repo>/.devman/workflows/check.yaml       # shadows every group's check.yaml
+```
+
+There is no second representation. A pack file and a repo file are the same kind
+of file, so nothing generates one from the other and nothing needs ejecting.
+
+**The one required block.** Registration refuses a file without it, because
+these are the two things the plane acts on (§7.1):
+
+```yaml
+# workflows/python/check.yaml
+x-devman:
+  kind: workspace        # workspace | snapshot
+  resource: light        # a class from §7.3
+steps:
+  - name: lint
+    run: devenv tasks run lint
+  - name: typecheck
+    run: devenv tasks run typecheck
+```
+
+Anything Dagu accepts below that block is yours. The plane never parses the
+steps; it reads `x-devman`, resolves identity, and projects the file.
 
 `kind` and `resource` are declared, never derived from a name. A repo whose
 `check` is genuinely expensive marks it `heavy` and nothing objects.
@@ -315,87 +333,49 @@ The repo declares intent. The machine prices it.
 The NixOS module maps classes onto queues and concurrency limits. A project
 never learns the machine's core count.
 
-### 7.4 Four layers, one mechanism
+### 7.4 Resolution
+
+Groups resolve in the order the repo lists them, then the repo's own directory:
+
+```nix
+devman.groups = [ "base" "python" ];
+```
 
 ```
-base pack  →  ecosystem pack  →  devenv.nix declaration  →  .devman/workflows/*.yaml
+workflows/base/check.yaml
+  → workflows/python/check.yaml        (shadows base)
+    → .devman/workflows/check.yaml     (shadows both)
 ```
 
-Later wins. A pack is a shared default so five Python repos do not each write
-the same six lines. Skip it and declare the composition inline for the same
-result.
+**Shadowing is whole-file, never a field merge.** A file either wins or it does
+not. Defining merge semantics over Dagu YAML would be more machinery than the
+problem deserves, and the result would be hard to predict from either file
+alone. The cost is §18.7: overriding one step means copying the file.
 
 ### 7.5 What a repo controls
 
-Everything except the three global items in §7.1.
+Nix declares **selection and identity**. YAML declares **workflows**. One job
+each, so no workflow is expressible two ways.
 
 ```nix
-devman.workflows = {
-  check.tasks    = [ "lint" "typecheck" ];      # inherited name, own content
-  validate.tasks = [ "lint" "typecheck" "test" ];
+devman = {
+  enable  = true;
+  project = "pyjutsu";                    # identity, never a path (§11.1)
+  groups  = [ "base" "python" ];          # what to inherit
 
-  full-test = {
-    tasks    = [ "test" "integration-test" ];
-    kind     = "snapshot";
-    resource = "heavy";
-  };
-
-  benchmark-campaign = {                         # a name of your own
-    tasks    = [ "benchmark" ];
-    kind     = "snapshot";
-    resource = "gpu";
-  };
-
-  provision.enable = false;                      # drop one you do not want
+  workflows.full-test.enable = false;     # drop one you do not want
 };
+
+tasks."lint".exec      = "ruff check .";  # your primitives, your names
+tasks."typecheck".exec = "basedpyright";
 ```
 
-Rename, redefine, drop, or invent. The plane resolves a name to a workflow and
-runs it at the declared class. It has no opinion about what the work is.
+Everything else is a file. Rename by naming the file differently, replace by
+shadowing, drop with `enable = false`, invent by adding
+`.devman/workflows/benchmark-campaign.yaml`.
 
-### 7.6 Raw Dagu YAML
-
-A Nix task list cannot express everything Dagu can: parallel branches with a
-join, preconditions, retries on a flaky step, matrix fan-out. Without an escape
-hatch the module grows an option per Dagu feature and re-implements Dagu's
-schema in Nix, badly.
-
-So `.devman/workflows/*.yaml` is the last layer.
-
-> **The directory is an input to the registry projection, not a second source
-> Dagu reads.** Registration validates the file, resolves identity, and projects
-> it — the same path a generated workflow takes, minus the Nix composition.
-
-Dagu still reads one place, and hand-written files still get identity
-resolution, queue mapping, and the no-absolute-paths check.
-
-**The one rule — declare `kind` and `resource`.** Registration refuses a file
-without them, because those are the two things the plane acts on (§7.1):
-
-```yaml
-# .devman/workflows/validate.yaml
-x-devman:
-  kind: workspace
-  resource: normal
-steps:
-  - name: lint
-    run: devenv tasks run lint
-```
-
-Anything Dagu accepts below that block is yours.
-
-**Eject, do not hand-write.**
-
-```
-devman show check --format yaml > .devman/workflows/check.yaml
-```
-
-Start from the real generated file and edit it. A raw-YAML directory is how
-copied boilerplate creeps back, and ejecting keeps the hatch cheap without
-making from-scratch YAML normal.
-
-Honest cost: **every ejected file stops tracking pack improvements.** `doctor`
-counts them.
+The plane resolves a name to a file and runs it at the declared class. It has no
+opinion about what the work is.
 
 ---
 
@@ -418,9 +398,9 @@ devman.assets = {
 
 Three consequences, all simplifications:
 
-1. **One pack mechanism carries both kinds of content.** Since the workflow
-   library is a pack (§7.4), workflow packs and asset packs are the same thing
-   over the same four layers. There is no second distribution system.
+1. **Assets layer the same way workflows do.** A pack shadows by name, the
+   repo's `.devman/assets/` wins last — the §7.4 rule, applied to payload
+   instead of workflow files. There is no second distribution system.
 2. **Packs resolve to a machine-wide cache**, never into the repo — the same
    rule as §11.3: generated state is machine-local and reconstructable.
 3. **No reverse path is needed.** Assets are installed, not compiled. Correct
@@ -526,7 +506,7 @@ workspace, and a future remote worker all work without editing a workflow.
 ```
 .devman/
 ├── devman.toml        # tracked  — this repo's automation declaration
-├── workflows/         # tracked  — raw Dagu YAML, the last layer (§7.6)
+├── workflows/         # tracked  — Dagu YAML, the last layer (§7.4)
 ├── assets/            # tracked  — local asset payload (§8)
 └── state/             # ignored  — local run state
 ```
@@ -593,8 +573,8 @@ library A   library B   application
 Uses: validating dependent libraries together, synchronized releases, nightly
 stack validation, cross-repo benchmarks, coordinated migrations.
 
-These live in devman's `dags/` or a machine-level namespace — never in one
-arbitrary participant.
+These live in devman's `workflows/machine/` group — never in one arbitrary
+participant.
 
 ---
 
@@ -609,7 +589,8 @@ arbitrary participant.
 | Scan the filesystem for projects | registration is the design (§5.1) |
 | Reserve a task or workflow name | ecosystems and repos differ; a rule the plane cannot check is a rule it should not have (§7.1) |
 | Hold an opinion about what a workflow costs or contains | that is the repository's business |
-| Let raw YAML bypass registration | it would lose identity, queue mapping, and the path check (§7.6) |
+| Read a workflow file Dagu has not been given | registration projects every file; Dagu reads one place (§7.2) |
+| Merge two workflow files | shadowing is whole-file; a merge would be unpredictable from either side (§7.4) |
 | Let an agent block a build | a stochastic gate fails open — it costs autonomy and buys nothing |
 | Write into a repo's tracked files without an explicit command | provisioning installs to build outputs and caches |
 | Treat Dagu state as canonical | §11.3 |
@@ -653,17 +634,20 @@ this repo and this machine.
 *Fails if:* the module must pin its own nixpkgs. The plane then ships two
 flakes, and §3.1's anti-drift argument weakens to a convention.
 
-### 15.3 The schema is expressive enough
+### 15.3 Whole-file shadowing is coarse enough to live with
 
-> Four fields — `tasks`, `kind`, `resource`, `enable` — describe most workflows,
-> and raw YAML covers the rest without becoming the normal path.
+> Repos override whole workflow files rarely enough that the copied duplication
+> does not accumulate.
 
-Measure at stage 2 across five real repos: **how many workflows ejected to raw
-YAML (§7.6), and what did each need that the schema lacked?**
+§7.4 refuses field merging, so changing one step of `check` means copying
+`check.yaml` into the repo, where it stops tracking upstream (§18.7).
 
-A high eject rate is the signal, and it points at the schema, not the repos. The
-remedy is cheap — add a field. This risk is mild by construction, because §7.1
-made the plane's vocabulary small enough to have little to be wrong about.
+Measure at stage 2 across five real repos: **how many files were overridden, and
+how much of each is unchanged from the group version?**
+
+A file copied to change one line is the failure mode. If it is common, the fix
+is smaller group files — split `check.yaml` into what varies and what does not —
+not a merge algorithm.
 
 ### 15.4 One instance per machine is a shared failure
 
@@ -682,9 +666,9 @@ Spike §15.2 first; it can change the shape. Then:
 
 ```
 nixosModules.default    one Dagu service, config, state paths
-modules/                the contract — schema, classes, kinds
-packs/base              default workflows: check, validate, full-test
-packs/python            one ecosystem pack, to prove the layer stack
+modules/                selection and identity; the x-devman schema
+workflows/base          check, validate, full-test
+workflows/python        one ecosystem group, to prove shadowing
 registration            manual — devman register, or a hand-written entry
 ```
 
@@ -697,11 +681,11 @@ automatic registration (§5.2, enterShell + hash guard)
 the metadata schema
 resource classes → queues and concurrency
 artifact and run-state layout (§11.2)
-.devman/workflows/ + devman show --format yaml (§7.6)
+.devman/workflows/ shadowing + devman show (§7.4)
 ```
 
-Adopt across five repos and run §15.3's measurement: **how many workflows
-ejected to raw YAML, and what did the schema lack?**
+Adopt across five repos and run §15.3's measurement: **how many files were
+overridden, and how much of each is unchanged?**
 
 ### Stage 3 — assets and reactivity
 
@@ -741,14 +725,14 @@ agent workflows    policy gating
 |---|---|---|
 | 1 | One flake, two interfaces, one version | the machine and this repo import the same rev; `nix flake check` passes |
 | 2 | A repo enables automation in under ten lines | `devman.enable` plus workflow toggles; no Dagu YAML written by the repo |
-| 3 | A repo may skip packs entirely | declare its workflows inline; the result matches the pack's |
+| 3 | A repo may take no groups at all | `groups = []` plus its own `.devman/workflows/`; every workflow runs |
 | 4 | **A repo may rename or replace every default** | drop `check`, define `smoke` and `ci`; both run, and nothing in devman objects |
-| 5 | Ejecting round-trips | `devman show check --format yaml` saved to `.devman/workflows/` produces an identical projection |
+| 5 | Shadowing is exact | `devman show check` saved to `.devman/workflows/check.yaml` projects identically; edit one step and only that step changes |
 | 6 | Raw YAML cannot bypass the plane | a file without `x-devman`, or with an absolute path, is refused at registration |
 | 7 | devenv stays on the fast path | `devenv shell -- true` ≤ 0.25s warm — Spike A regression |
 | 8 | Registration is automatic and idempotent | enter a shell twice; the registry is written once |
 | 9 | Registration covers only opted-in repos | a repo without `devman.enable` never appears, even under a scanned root |
-| 10 | No workflow contains an absolute path | grep the registry and `dags/`; zero hits |
+| 10 | No workflow contains an absolute path | grep the registry and `workflows/`; zero hits |
 | 11 | Identity survives a move | move a repo, re-enter its shell, run `check` — no workflow edited |
 | 12 | Resource classes reach real queues | mark a task `exclusive`; two concurrent runs serialize |
 | 13 | The watchers do not chase each other | a file-writing workflow plus a watcher on those files, one save, exactly one run |
@@ -789,9 +773,10 @@ single-version guarantee becomes a convention rather than a property.
 **18.6 A cold devenv in a fresh jj workspace is unmeasured.** §15.1. Stage 4
 depends on the answer.
 
-**18.7 An ejected workflow stops tracking pack improvements.** A repo that
-ejects `check` keeps that version forever. `doctor` counts ejected files, and a
-rising count means the schema is too weak — not that the repos are wrong.
+**18.7 An overriding file stops tracking its group.** A repo that shadows
+`check.yaml` keeps that version forever, and §7.4 offers no partial override.
+`doctor` counts shadowed files and reports how far each has diverged from the
+group version.
 
 **18.8 Nothing checks that a default still fits.** Since the plane holds no
 opinion about what a workflow costs, a `check` that grows to four minutes is
@@ -803,18 +788,17 @@ alarms from a heuristic that cannot know your machine. Notice it yourself.
 ## 19. Open questions
 
 - **Registry root.** `~/.local/share/devman/`. Confirm nothing else claims it.
-- **What validates `x-devman`?** §7.6 requires the block but names no schema.
-  Lean: the same pydantic model that generates a workflow from `devenv.nix`, so
-  both paths land in one shape.
-- **Do ecosystem packs ship in this flake?** In-repo is simpler and couples pack
-  churn to plane releases. Lean: in-repo until a third party wants to publish
-  one.
+- **What validates `x-devman`?** Lean: one pydantic model in `lib/`, applied at
+  registration to group files and repo files alike.
+- **Do ecosystem groups ship in this flake?** In-repo is simpler and couples
+  group churn to plane releases. Lean: in-repo until a third party wants to
+  publish one.
 - **Does the machine module manage a Dagu it did not install?** Lean: no — own
   the service, and document the conflict.
-- **How many ecosystem packs at first?** Python and Nix. Rust and TypeScript on
-  demand.
+- **How many ecosystem groups at first?** Python and Nix. Rust and TypeScript
+  on demand.
 - **Where do machine-level overrides live?** Lean: `~/.config/devman/`, resolved
-  after the pack layer and before the repo's.
+  after the group layer and before the repo's.
 - **Retention.** Runs grow without bound. Lean: 7 days for logs, keep
   `metadata.json` indefinitely — it is small and it is the run history.
 - **Does `provision` need a dry run?** Lean: yes, and it is `doctor`'s job.
