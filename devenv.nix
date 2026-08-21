@@ -60,8 +60,17 @@
       TEMPLATEER_SOURCE="${config.devenv.root}/../templateer_v2/src"
       TEMPLATEER_SITE_PACKAGES="${config.devenv.root}/../templateer_v2/.devenv/state/venv/lib/python3.13/site-packages"
 
+      # fsdantic ships agentfs_sdk, fsdantic, pyturso and pydantic in one
+      # environment.  Both fsdantic and agentfs_sdk are installed editable, so
+      # they resolve to the sibling checkouts.  Accept either venv layout:
+      # devenv builds .devenv/state/venv, a plain `uv venv` builds .venv.
+      FSDANTIC_SITE_PACKAGES="${config.devenv.root}/../fsdantic/.devenv/state/venv/lib/python3.13/site-packages"
+      if [ ! -d "$FSDANTIC_SITE_PACKAGES" ]; then
+        FSDANTIC_SITE_PACKAGES="${config.devenv.root}/../fsdantic/.venv/lib/python3.13/site-packages"
+      fi
+
       if "$SPIKE_PYTHON" -c \
-        'import pydantree_sitter, templateer, tree_sitter_python' \
+        'import pydantree_sitter, templateer, tree_sitter_python, fsdantic, agentfs_sdk' \
         >/dev/null 2>&1; then
         exit 0
       fi
@@ -70,7 +79,8 @@
         "$PYDANTREE_SOURCE" \
         "$PYDANTREE_SITE_PACKAGES" \
         "$TEMPLATEER_SOURCE" \
-        "$TEMPLATEER_SITE_PACKAGES"; do
+        "$TEMPLATEER_SITE_PACKAGES" \
+        "$FSDANTIC_SITE_PACKAGES"; do
         if [ ! -d "$SPIKE_PATH" ]; then
           echo "agent-factory spike dependency path is missing: $SPIKE_PATH" >&2
           exit 2
@@ -80,6 +90,7 @@
       mkdir -p "$SPIKE_SITE_PACKAGES"
       cat > "$SPIKE_SITE_PACKAGES/_agent_factory_spike_siblings.pth" <<PTH
 import sys; sys.path[:0] = ["$PYDANTREE_SOURCE", "$TEMPLATEER_SOURCE", "$PYDANTREE_SITE_PACKAGES", "$TEMPLATEER_SITE_PACKAGES"]
+import site; site.addsitedir("$FSDANTIC_SITE_PACKAGES")
 PTH
     '';
   };
