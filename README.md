@@ -1,75 +1,58 @@
 # devman
 
-Minimal workspace orchestrator for tmuxp + Claude Code + Neovim.
+The development automation plane.
 
-## Features
+> **devman installs one Dagu control plane per machine, and gives every
+> devenv-managed repository a shared automation contract through one Nix flake.**
 
-- Discover `.devman/` workspaces under configured roots.
-- Cache index at `~/.cache/devman/index.json`.
-- Launch tmuxp sessions with Claude Code + Neovim windows.
-- Switch workspaces and load Neovim sessions via remote commands.
-- Claude Code requires the `claude` CLI to be installed.
+Dagu orchestrates. devenv executes. devman is the contract between them, and
+executes nothing itself.
 
-## Quick start
+## Status
 
-```bash
-./cli/devman index rebuild
-./cli/devman
-```
+**Pre-implementation.** The charter is written; the investigations that gate
+planning are not yet run. This repository currently holds design work and a
+development shell.
 
-## Documentation
+The previous devman — a tmuxp workspace orchestrator — is superseded and its
+source has been removed.
 
-- [Getting started](docs/getting-started.md)
-- [Workspace schema](docs/workspace-schema.md)
-- [Claude integration](docs/claude-integration.md)
-- [Troubleshooting](docs/troubleshooting.md)
+## What it will be
 
-## NixOS + Home Manager (flakes)
+Three things, and the list is closed:
 
-Use a flake input pinned with `git+` to avoid GitHub API rate limits.
+1. **A shared Nix flake** — a NixOS interface and a devenv interface, one
+   version.
+2. **A project registry** — which repositories opted in, and where they are.
+3. **A contract** — a queue name, and nothing else.
 
-```nix
-inputs.devman.url = "git+https://github.com/<org>/<repo>?ref=<branch>&rev=<commit>";
-# Optional: add &dir=path/to/subdir if the flake isn't at the repo root.
-```
-
-Home Manager:
+A repository adopts it in three lines:
 
 ```nix
-home.packages = [
-  inputs.devman.packages.${pkgs.system}.default
-];
+devman = {
+  enable  = true;
+  project = "pyjutsu";
+  groups  = [ "base" "python" ];
+};
 ```
 
-NixOS:
+A workflow is a Dagu YAML file with no devman-specific key in it. Groups layer
+by directory; a repository overrides one by shadowing the file name.
 
-```nix
-environment.systemPackages = [
-  inputs.devman.packages.${pkgs.system}.default
-];
-```
+## Documents
 
-Usage:
+| Path | What |
+|---|---|
+| [`CONCEPT.md`](.scratch/projects/006-automation-plane/CONCEPT.md) | the charter |
+| [`KICKOFF_PROMPT.md`](.scratch/projects/006-automation-plane/KICKOFF_PROMPT.md) | the investigations that gate planning |
+| [`INITIAL_PROPOSAL.md`](.scratch/projects/006-automation-plane/INITIAL_PROPOSAL.md) | the source guide the charter adopted |
+| [`SPIKES.md`](.scratch/spikes/SPIKES.md) | measurements; Spike A is load-bearing |
 
-```bash
-devman index rebuild
-devman
-```
+`.scratch/projects/001`–`005` are earlier attempts to define devman. They are
+superseded and carry no authority.
 
 ## Development
 
-Use `devenv` + `uv` for local development.
-
 ```bash
-uv sync
-uv run ./cli/devman --help
-```
-
-## Config validation helper
-
-Use `cli/setup_config.py` to validate `.env.example`, `.toml.example`, or
-`.yaml.example` files against their target configs.
-
-```bash
-uv run ./cli/setup_config.py validate .env.example
+devenv shell
 ```
