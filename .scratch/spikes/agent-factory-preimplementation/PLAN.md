@@ -64,7 +64,13 @@ and tests at module, class, function, method, statement, and fragment scope.
 Accept when the ownership table has no dual-authority field and gives a bounded
 bootstrap exit. Reject when ordinary edits require two accepted owners.
 
-Status: pending.
+Status: decided, probe pending. The 2026-08-21 architecture decision resolves
+the ownership question: the unit model is the durable truth, `src/` is a
+render, and ingest rejects any file where `render(ingest(f)) != f`. No field
+carries dual authority, because content without a unit field makes the whole
+file unmanaged. The ownership table itself still needs the guard to measure
+it — the probe now builds the guard and reports which corpus files it accepts.
+See `DECISION_RECORD.md`.
 
 ## Phase 2 — Templateer raw Python boundary
 
