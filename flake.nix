@@ -40,10 +40,17 @@
       nixosModules.default = ./nix/nixos-module.nix;
       nixosModules.devman-dagu = ./nix/nixos-module.nix;
 
-      packages = forAllSystems (pkgs: {
-        dagu = pkgs.callPackage ./nix/dagu.nix { };
-        default = pkgs.callPackage ./nix/dagu.nix { };
-      });
+      packages = forAllSystems (pkgs:
+        let dagu = pkgs.callPackage ./nix/dagu.nix { }; in
+        {
+          inherit dagu;
+
+          # §3.1's table: `packages.default` is the devman CLI, and the NixOS
+          # module is what puts it on a machine's PATH. It is not offered by the
+          # devenv module — see the note at the top of nix/devman-cli.nix.
+          devman = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
+          default = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
+        });
 
       checks = forAllSystems (pkgs:
         {

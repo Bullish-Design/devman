@@ -130,5 +130,68 @@
     with subtest("the ports the module declares are the ports Dagu binds"):
         machine.succeed("ss -ltnp | grep 127.0.0.1:8080")
         machine.succeed("ss -ltnp | grep 127.0.0.1:50055")
+
+    # ---------------------------------------------------------------------
+    # STAGE 3 — the CLI (§10) and the watcher (§8), from the same module.
+
+    with subtest("the CLI is on PATH, wrapped with this machine's directories"):
+        # The registry entry the devenv module would have written. The CLI reads
+        # it; the projection above is what it points at.
+        entry = json.dumps({
+            "schema": 3, "project": "demo", "path": PROJ,
+            "groups": ["base"], "plan": "", "local": ["probe"],
+            "workflows": {"check": {"group": "base", "shadows": [], "source": ""}},
+            "triggers": None,
+        })
+        machine.succeed(
+            f"install -o tester -g users -m 644 /dev/null {REG}/projects/demo/metadata.json"
+        )
+        machine.succeed(f"echo '{entry}' > {REG}/projects/demo/metadata.json")
+        shown = tester("cd " + PROJ + " && devman show probe")
+        assert "run: pwd" in shown, "devman show did not print the resolved file"
+
+    with subtest("devman run triggers, and the run lands in the project"):
+        # No DAGU_HOME and no DEVMAN_PROJECT_DIR in this environment: the CLI
+        # states both itself, which is the whole of S2 and A3.
+        out = machine.succeed(
+            f"su tester -c 'cd {PROJ} && HOME={HOME} XDG_RUNTIME_DIR=/run/user/1000 "
+            f"devman run probe' 2>&1"
+        )
+        print(out)
+        assert "Enqueued" in out
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test $(wc -l < {PROJ}/.devman/.runs/metadata.jsonl) -ge 2'",
+            timeout=90,
+        )
+
+    with subtest("devman run refuses when the project directory is gone (S15)"):
+        machine.succeed(f"echo '{entry.replace(PROJ, PROJ + '-gone')}' > {REG}/projects/demo/metadata.json")
+        refusal = machine.fail(
+            f"su tester -c 'cd {PROJ} && HOME={HOME} devman run probe -p demo' 2>&1"
+        )
+        print(refusal)
+        assert "refusing" in refusal
+        machine.succeed(f"echo '{entry}' > {REG}/projects/demo/metadata.json")
+
+    with subtest("devman doctor reports nothing on a healthy plane"):
+        report = machine.succeed(
+            f"su tester -c '{ENV}devman doctor' 2>&1"
+        )
+        print(report)
+        assert "Nothing to report" in report
+        assert "ok  plane" in report, "doctor could not read the running service"
+
+    with subtest("the watcher is a second user service, and it watches nothing yet"):
+        unit = tester("systemctl --user cat devman-watch")
+        assert "devman watch" in unit
+        # No project declares triggers, so the service starts, says so, and
+        # exits 0. `Restart=on-failure` leaves it alone rather than spinning.
+        tester("systemctl --user start devman-watch || true")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}journalctl --user -u devman-watch | grep -q \"Nothing to watch\"'",
+            timeout=60,
+        )
+        state = tester("systemctl --user show devman-watch -p Result")
+        assert "Result=success" in state, state
   '';
 }
