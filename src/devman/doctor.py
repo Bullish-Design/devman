@@ -491,11 +491,32 @@ def check_watcher(rep: Report, reg: Registry) -> None:
     # second watcher overwrites it rather than appearing in it.
     live = running_watchers(reg)
     pid = state.get("pid") if state else None
+    # A supervisor with nothing to watch has NO watchexec child: it is waiting
+    # for the first repository to adopt a reactive group (S16). Counting only
+    # watchexec would report that healthy machine as a dead watcher, which the
+    # NixOS test caught the first time this check was written.
+    supervisor_alive = isinstance(pid, int) and Path(f"/proc/{pid}").exists()
 
     if not live:
         if state is None:
             lines.append("the watcher has never run — no state file")
             rep.add("watcher", "ok" if not watching else "..", lines)
+            return
+        if supervisor_alive and not watching:
+            lines.append(f"running as pid {pid}, with nothing to watch yet")
+            rep.add("watcher", "ok", lines)
+            return
+        if supervisor_alive:
+            rep.add(
+                "watcher",
+                "!!",
+                lines
+                + [
+                    f"the supervisor is alive as pid {pid} and is watching nothing",
+                    "it should have started watchexec for the repositories above:"
+                    " journalctl --user -u devman-watch",
+                ],
+            )
             return
         rep.add(
             "watcher",

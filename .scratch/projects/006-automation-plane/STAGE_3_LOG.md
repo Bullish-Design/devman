@@ -1390,6 +1390,29 @@ be — its supervisor would start another one.
 Proved by making one on purpose: run `devman watch` by hand, `kill -9` the
 supervisor, confirm the child is alive with parent 1, and run `doctor`.
 
+### And the NixOS test caught the second mistake
+
+Counting only `watchexec` processes reports a healthy machine as a dead watcher,
+because **a supervisor with nothing to watch has no watchexec child** — it is
+waiting for the first repository to adopt a reactive group (S16). The VM test
+runs exactly that machine, and it failed:
+
+```
+subtest: devman doctor reports nothing on a healthy plane
+!!! Test failed: `devman doctor` failed (exit code 1)
+```
+
+Liveness is therefore two questions, not one: is the supervisor alive, and how
+many watchexec processes are aimed at this registry. A live supervisor with no
+child and nothing to watch is `ok`; a live supervisor with no child and
+repositories to watch is a finding of its own, because it should have started
+one.
+
+```
+ok  watcher   no registered project takes a group that declares triggers
+              running as pid 734, with nothing to watch yet
+```
+
 **Two smaller things this leaves.** A stale state file now says so — one watcher
 running under a supervisor the file does not name is reported, because the watch
 set and the fired log then belong to a watcher that is gone. And the count is
