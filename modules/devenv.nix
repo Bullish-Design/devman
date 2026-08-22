@@ -43,32 +43,51 @@ let
   # script below, because which files are in a working tree is a run-time fact.
   groupsRoot = ../groups;
 
-  groupWorkflows = lib.foldl'
+  # One group's workflows, as `<name> -> <store file>`.
+  #
+  # `builtins.readFile` rather than the path itself, and the reason is devenv's
+  # evaluation cache. Interpolating a path copies the file to the store, and
+  # devenv does not notice when that file's CONTENT changes: the projection then
+  # keeps pointing at the previous store path, shell entry after shell entry.
+  # `readFile` is a read the cache tracks, so an edited group file re-evaluates.
+  #
+  # A repository pinning a `git+https` rev never meets this, because a changed
+  # group file is a changed rev. A repository importing `./modules` — this one,
+  # adopting itself (criterion 16) — meets it on every edit.
+  groupFiles = group:
+    let
+      dir = groupsRoot + "/${group}/workflows";
+    in
+    if !builtins.pathExists dir then
+      throw "devman: group '${group}' does not exist. There is no ${toString dir}."
+    else
+      lib.mapAttrs'
+        (file: _: lib.nameValuePair
+          (lib.removeSuffix ".yaml" file)
+          (pkgs.writeText "devman-${group}-${file}" (builtins.readFile (dir + "/${file}"))))
+        (lib.filterAttrs
+          (file: kind: kind == "regular" && lib.hasSuffix ".yaml" file)
+          (builtins.readDir dir));
+
+  # The whole of §7.3's group resolution, as `<name> -> { group; file; shadows; }`.
+  #
+  # `shadows` is the groups this name displaced, in the order the repo listed
+  # them. It costs nothing at evaluation time and it is what makes the registry
+  # record the resolution rather than only its result: `devman show` prints
+  # which group a file came from, and `doctor` diffs a repo's own override
+  # against the group version it shadows (§10 check 4, §15.6). The same field is
+  # what §12.4's measurement reads.
+  resolved = lib.foldl'
     (acc: group:
-      let
-        dir = groupsRoot + "/${group}/workflows";
-      in
-      if !builtins.pathExists dir then
-        throw "devman: group '${group}' does not exist. There is no ${toString dir}."
-      else
-        acc // (lib.mapAttrs'
-          (file: _: lib.nameValuePair
-            (lib.removeSuffix ".yaml" file)
-            # `builtins.readFile` rather than the path itself, and the reason is
-            # devenv's evaluation cache. Interpolating a path copies the file to
-            # the store, and devenv does not notice when that file's CONTENT
-            # changes: the projection then keeps pointing at the previous store
-            # path, shell entry after shell entry. `readFile` is a read the
-            # cache tracks, so an edited group file re-evaluates.
-            #
-            # A repository pinning a `git+https` rev never meets this, because a
-            # changed group file is a changed rev. A repository importing
-            # `./modules` — this one, adopting itself (criterion 16) — meets it
-            # on every edit.
-            (pkgs.writeText "devman-${group}-${file}" (builtins.readFile (dir + "/${file}"))))
-          (lib.filterAttrs
-            (file: kind: kind == "regular" && lib.hasSuffix ".yaml" file)
-            (builtins.readDir dir))))
+      acc // lib.mapAttrs
+        (name: file: {
+          inherit group file;
+          shadows =
+            if acc ? ${name}
+            then acc.${name}.shadows ++ [ acc.${name}.group ]
+            else [ ];
+        })
+        (groupFiles group))
     { }
     cfg.groups;
 
@@ -89,8 +108,8 @@ let
   # on disk, which the guard in `enterShell` decides without forking at all.
   linkLines = lib.concatStringsSep "\n  "
     (lib.mapAttrsToList
-      (name: src: "devman_link ${lib.escapeShellArg name} ${src}")
-      groupWorkflows);
+      (name: w: "devman_link ${lib.escapeShellArg name} ${w.file}")
+      resolved);
 
   projectScript = pkgs.writeShellScript "devman-project-${cfg.project}" ''
     set -eu
@@ -102,6 +121,24 @@ let
     pdir="$reg/projects/$proj"
     dags="$reg/dags"
     mkdir -p "$pdir/workflows" "$dags"
+
+    # §9.2's run-state layout, repo-side. Dagu creates `log_dir` itself before
+    # the first step runs, so `logs/` would appear anyway; `artifacts/` and
+    # `reports/` have no other owner, and a step that writes a report should not
+    # have to create the tree first.
+    #
+    # A step addresses them through the two names §7.1 already makes global —
+    # `$DEVMAN_PROJECT_DIR` and the `.devman/.runs/` path shape — so this adds
+    # no fourth name to a closed list and no absolute path to any workflow
+    # (criterion 10):
+    #
+    #     run: mytool --out "$DEVMAN_PROJECT_DIR/.devman/.runs/artifacts/x.json"
+    #
+    # The whole tree is git-ignored: registration writes `.devman/.runs/` to
+    # `.git/info/exclude` below, and `.devman/` itself holds nothing else here,
+    # so an adopted repository's tree stays clean.
+    mkdir -p "$root/.devman/.runs/logs" "$root/.devman/.runs/artifacts" \
+             "$root/.devman/.runs/reports"
 
     # The registry is derived (§9.3), so the projection is rebuilt rather than
     # patched. A `dags/` link is removed only when it still points at this
@@ -149,14 +186,36 @@ let
   # `plan` is the projection script's store path. It changes when the groups
   # change, when a group file changes, and when the plane's revision changes,
   # which is exactly when the projection must be rebuilt.
+  #
+  # ---------------------------------------------------------------------------
+  # SCHEMA 2 adds `workflows`, and it exists for `doctor` (§10) rather than for
+  # the projection, which never reads it. Schema 1 recorded the inputs to §7.3's
+  # resolution — `groups` and `local` — and not its outcome, so nothing on disk
+  # said which file won or what it displaced. Four of §10's six checks want the
+  # outcome, and check 4 — "shadowed files and their drift" — cannot be computed
+  # from schema 1 at all: to diff a repo's `.devman/workflows/check.yaml`
+  # against the group version it shadows, something must record which group
+  # version that was. §12.4's measurement asks the same question.
+  #
+  #   "workflows": {
+  #     "check": {"group":"python","shadows":["base"],"source":"/nix/store/..."}
+  #   }
+  #
+  # `local` stays, and the two are read together: a name in `local` is the
+  # winner, and `workflows.<name>.source` is then what it shadows. Nix knows the
+  # group half at evaluation time; which files are in a working tree is a
+  # run-time fact, which is why `local` is still filled by the hook.
   entryTemplate = pkgs.writeText "devman-metadata-${cfg.project}.json" ''
     {
-      "schema": 1,
+      "schema": 2,
       "project": ${builtins.toJSON cfg.project},
       "path": "@PATH@",
       "groups": ${builtins.toJSON cfg.groups},
       "plan": "${projectScript}",
-      "local": [@LOCAL@]
+      "local": [@LOCAL@],
+      "workflows": ${builtins.toJSON (lib.mapAttrs
+        (_: w: { inherit (w) group shadows; source = "${w.file}"; })
+        resolved)}
     }
   '';
 in
