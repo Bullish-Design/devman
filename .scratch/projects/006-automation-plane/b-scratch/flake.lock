@@ -5,14 +5,19 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1787375316,
-        "narHash": "sha256-Bcyp15Ne6Fh+4xw9U7Psaopur7/Y45z6taiXWv4egcI=",
-        "path": "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon",
-        "type": "path"
+        "lastModified": 1787376172,
+        "narHash": "sha256-kI3thUGphDTNsbXronZcNr5j3mLzeUW66oeA/nIWu0M=",
+        "ref": "dagu-devenv-automation-eli5",
+        "rev": "f674623df61f039150fb5eb70accaa03eae2cd8a",
+        "revCount": 142,
+        "type": "git",
+        "url": "https://github.com/Bullish-Design/devman"
       },
       "original": {
-        "path": "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon",
-        "type": "path"
+        "ref": "dagu-devenv-automation-eli5",
+        "rev": "f674623df61f039150fb5eb70accaa03eae2cd8a",
+        "type": "git",
+        "url": "https://github.com/Bullish-Design/devman"
       }
     },
     "machine-nixpkgs": {

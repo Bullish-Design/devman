@@ -22,7 +22,9 @@
   description = "Investigation B — one flake, two module interfaces, several nixpkgs";
 
   inputs = {
-    devman.url = "path:/home/andrew/.paseo/worktrees/1n48r26y/special-dragon";
+    # The same revision the throwaway devenv repos under /tmp/devman-b pin, so
+    # "one flake at one revision" is literal rather than approximate.
+    devman.url = "git+https://github.com/Bullish-Design/devman?ref=dagu-devenv-automation-eli5&rev=f674623df61f039150fb5eb70accaa03eae2cd8a";
 
     # The machine's nixpkgs, as the registry resolves it. `nixos-version` says
     # rev d407951447dcd00442e97087bf374aad70c04cea; this is that tree, already

@@ -3085,3 +3085,614 @@ the bare `${NAME}` form**, while `working_dir` accepts `${env.NAME}` as well
 Investigations B, C, and D were not started. Tier 3 was catalogued and not
 spiked. Nothing in `CONCEPT.md` was edited — every impact above is recorded for
 the single reconciliation pass, as §5 of the kickoff requires.
+
+---
+---
+
+# Investigation B — one flake, two module interfaces
+
+Answers to `INVESTIGATION_B_PROMPT.md`. The question is whether one flake can
+carry a NixOS module and a devenv module at one version, without either
+constraining the other's nixpkgs (§3.1, §12.3).
+
+**The answer is yes.** The module does not need to pin its own nixpkgs. §3.1's
+anti-drift argument holds as a property, not as a convention.
+
+**Tested:** Nix **2.34.7**, devenv **2.1.2**, on **2026-08-22**.
+**devman revision under test:** `f674623df61f039150fb5eb70accaa03eae2cd8a`, on
+branch `dagu-devenv-automation-eli5`. Every measurement below used that one
+revision.
+
+### The pair that was built
+
+| Path | What it is |
+|---|---|
+| `nix/nixos-module.nix` | the machine interface — `systemd.user.services.dagu`, `config.yaml`, `base.yaml` |
+| `modules/devenv.nix` | the repo interface — `devman.enable`, `project`, `groups`, a hash-guarded registry write in `enterShell` |
+| `flake.nix` | gains `nixosModules.default`; `packages` and `overlays` unchanged |
+
+Both take `pkgs` from their **consumer**. Neither reads the devman flake's own
+`nixpkgs` input. That input now serves `packages` and `checks` only.
+
+The NixOS module is a stub in size, not in shape: it writes a user service, it
+puts `DAGU_HOME` at `~/.local/share/dagu`, its `config.yaml` carries
+`env_passthrough_prefixes: [DEVMAN_]` and both `dag_discovery` knobs, its
+`base.yaml` carries `working_dir`, `log_dir`, and a default queue, and it
+declares `restartTriggers` on both files. It does not project workflows, resolve
+groups, or read the registry.
+
+### The four nixpkgs in play
+
+| Name | What it is | Revision |
+|---|---|---|
+| `machine` | the running machine's tree, from the flake registry | `d407951` (NixOS 26.11.20260705) |
+| `unstable` | devman's own flake input | `ffb3c9b` (2026-08-19) |
+| `rolling` | this repo's devenv nixpkgs, patched | `ee3d58d` (`cachix/devenv-nixpkgs`) |
+| `rolling-src` | the plain tree `rolling` patches | `54ba4bc` (2026-08-16) |
+
+`rolling` is **not a nixpkgs checkout**. It is a wrapper flake: it takes
+`nixpkgs-src`, applies patches with `applyPatches`, and exposes the result as
+`legacyPackages.<system>`. It therefore has no `nixos/lib/eval-config.nix` at
+its root, and reaching its package set needs import-from-derivation:
+
+```
+error: cannot build '/nix/store/f2mvh6...-devenv-nixpkgs-patched.drv^out' during
+evaluation because the option 'allow-import-from-derivation' is disabled
+```
+
+That is why the NixOS half is evaluated against `rolling-src` and the Dagu
+package is built against both.
+
+### The scratch flake
+
+`.scratch/projects/006-automation-plane/b-scratch/flake.nix` — imports devman
+at the pinned revision, builds a throwaway `nixosConfigurations.<tree>` per
+tree, and builds `nix/dagu.nix` per package set. `collide.nix` beside it is B3's
+probe. Throwaway repos live at `/tmp/devman-b/proj{A,B,C,D,F,G}`.
+
+---
+
+## B1 — Do both modules evaluate, each under its own nixpkgs?
+
+**Answer:** **yes.** The NixOS module builds a full system toplevel under the
+machine's nixpkgs, under `nixos-unstable`, and under the tree the repo's devenv
+patches. The devenv module evaluates and registers under the repo's
+`devenv-nixpkgs/rolling`. Both from one flake at one revision, and neither
+constrains the other.
+
+**Tested:** Nix 2.34.7, devenv 2.1.2, devman `f674623`, on 2026-08-22.
+
+### The NixOS half
+
+**Command:**
+
+```
+cd .scratch/projects/006-automation-plane/b-scratch
+for t in machine unstable rolling-src; do
+  nix build --no-link --print-out-paths \
+    ".#nixosConfigurations.$t.config.system.build.toplevel"
+done
+```
+
+**Evidence:**
+
+```
+machine      /nix/store/dkkjs6kyzl9jlxkim8i19mhf5j7nl2r6-nixos-system-nixos-26.11pre-git
+unstable     /nix/store/hac6zr8n0y0r7brv6p64sz6dxr9z20xc-nixos-system-nixos-26.11pre-git
+rolling-src  /nix/store/hqzdqp8pcp9nbc433dc67bq09jcsr84z-nixos-system-nixos-26.11pre-git
+```
+
+Three toplevels, one module file, three different nixpkgs. Nothing was
+activated and `/etc/nixos/` was not touched.
+
+The unit the machine's tree produces, read out of the built system:
+
+```
+$ cat /nix/store/dkkjs6...-nixos-system-nixos-26.11pre-git/etc/systemd/user/dagu.service
+[Unit]
+Description=Dagu — devman automation plane
+X-Restart-Triggers=/nix/store/fl9j1w1p4pl1sjx0kfmsvf0cbzbssv8w-X-Restart-Triggers-dagu
+
+[Service]
+Environment="DAGU_HOME=%h/.local/share/dagu"
+ExecStart=/nix/store/2mjbj2imilxj56l8l79z689hz40ram6a-dagu-2.15.0/bin/dagu start-all
+ExecStartPre=/nix/store/p3dy65d37rxcffk8mlq6cd5ny38m02zh-dagu-install-config
+Restart=on-failure
+RestartSec=5
+Type=simple
+
+[Install]
+WantedBy=default.target
+```
+
+`systemd.user.services.<name>.restartTriggers` is accepted, and it renders to
+`X-Restart-Triggers` in the unit. §5.2's "must restart in the same activation"
+therefore has a mechanism on the user side as well as the system side.
+
+The two generated files:
+
+```
+# config.yaml
+dag_discovery:
+  recursive: true
+  symlinks: true
+env_passthrough_prefixes:
+- DEVMAN_
+queues:
+  config:
+  - max_concurrency: 1
+    name: exclusive
+  - max_concurrency: 4
+    name: light
+  enabled: true
+
+# base.yaml
+hist_retention_days: 7
+log_dir: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs
+queue: exclusive
+working_dir: ${DEVMAN_PROJECT_DIR}
+```
+
+`pkgs.formats.yaml` passes `${DEVMAN_PROJECT_DIR}` through unaltered, so Dagu's
+run-time interpolation (A2, A3) survives Nix generation.
+
+### The devenv half
+
+Three throwaway repos, each with its own `devenv.yaml` pinning
+`devenv-nixpkgs/rolling` and importing `devman/modules`.
+
+**Command:**
+
+```
+cd /tmp/devman-b/projA && devenv shell -- true
+cd /tmp/devman-b/projB && devenv shell -- true
+cd /tmp/devman-b/projF && devenv shell -- true
+```
+
+**Evidence:**
+
+```
+$ cat /tmp/devman-b/registry/projects/projF.json
+{
+  "groups": [ "base" ],
+  "path": "/tmp/devman-b/projF",
+  "project": "projF",
+  "schema": 1
+}
+```
+
+One unedited module, three repos, three entries, each carrying its own
+run-time path. §7.2's portability claim holds for the repo interface as well as
+for a workflow file.
+
+### The proof that neither constrains the other
+
+`projF`'s `devenv.lock` holds **two nixpkgs nodes**, and the root and devman
+resolve to different ones:
+
+```
+devman.inputs       -> {'nixpkgs': 'nixpkgs'}
+nixpkgs      -> NixOS/nixpkgs @ ffb3c9b700e759be2ef13237c9d8f953b32a1e46
+nixpkgs_2    -> cachix/devenv-nixpkgs @ ee3d58d53cfcddfc0ae6fc7f04f4fe2a0c7cf0ed
+root.inputs.nixpkgs -> nixpkgs_2
+```
+
+devman keeps its `nixos-unstable`, the repo keeps its `rolling`, and devenv
+neither deduplicates them nor forces one onto the other. The module is
+evaluated under `nixpkgs_2` because it takes `pkgs` from the consumer.
+
+**Charter impact:** **none.** §3.1 and §12.3 stand. One clarification worth
+adding when §3.1 is next edited: *the modules take `pkgs` from their consumer,
+and the flake's own `nixpkgs` input serves `packages` and `checks` only.* That
+sentence is what makes the premise a property rather than a hope, and B3 shows
+what happens when a module breaks it.
+
+---
+
+## B2 — Does the Dagu package resolve in both?
+
+**Answer:** **yes, in all four package sets, and the binary is byte-identical.**
+`nix/dagu.nix` needs no pin of its own.
+
+**Tested:** Nix 2.34.7, devman `f674623`, on 2026-08-22.
+
+**Command:**
+
+```
+cd .scratch/projects/006-automation-plane/b-scratch
+for t in machine unstable rolling-src; do nix build --no-link --print-out-paths ".#$t"; done
+nix build --no-link --print-out-paths --option allow-import-from-derivation true ".#rolling"
+```
+
+**Evidence:**
+
+```
+machine      /nix/store/2mjbj2imilxj56l8l79z689hz40ram6a-dagu-2.15.0
+unstable     /nix/store/80z64fdn6gkgagz7xh2v4mh362hahvqa-dagu-2.15.0
+rolling-src  /nix/store/80z64fdn6gkgagz7xh2v4mh362hahvqa-dagu-2.15.0
+rolling      /nix/store/80z64fdn6gkgagz7xh2v4mh362hahvqa-dagu-2.15.0
+```
+
+Two store paths, and the binaries in them are the same file:
+
+```
+$ sha256sum /nix/store/2mjbj2.../bin/dagu /nix/store/80z64f.../bin/dagu
+5d8f5986127563269769ad25198cdffc8bd334022e3f3a50759ae74e10d83665  .../2mjbj2.../bin/dagu
+5d8f5986127563269769ad25198cdffc8bd334022e3f3a50759ae74e10d83665  .../80z64f.../bin/dagu
+```
+
+The reason is the shape of the expression, and the prompt guessed right: it
+installs a release tarball. The tarball is a fixed-output derivation, so both
+package sets get the **same** `src` store path:
+
+```
+src A (machine):  /nix/store/a0k5bnfry03aq2j17hn5pb33qvrhdvkk-dagu_2.15.0_linux_amd64.tar.gz
+src B (unstable): /nix/store/a0k5bnfry03aq2j17hn5pb33qvrhdvkk-dagu_2.15.0_linux_amd64.tar.gz
+```
+
+The whole difference is the builder:
+
+| | machine | unstable |
+|---|---|---|
+| stdenv | `stdenv-linux.drv` | `stdenv-linux-no-cc.drv` |
+| bash | `5.3p9` | `5.3p15` |
+
+Neither reaches the output, because the binary is statically linked, is copied
+rather than compiled, and needs no `patchelf` (E0.2). Each closure is one path
+with no runtime dependencies:
+
+```
+$ nix path-info -rS /nix/store/2mjbj2...-dagu-2.15.0
+/nix/store/2mjbj2imilxj56l8l79z689hz40ram6a-dagu-2.15.0	162144896
+```
+
+`doInstallCheck` runs `$out/bin/dagu version` in every one of the four builds,
+so "it resolves" means "it ran", not "it evaluated".
+
+**Charter impact:** **none.** §4's "both interfaces call the same file" holds,
+and §3.1's anti-drift rule is cheapest exactly where it matters most. Note the
+cost so a later pass can decide whether to care: **two store paths mean 155 MB
+of identical binary held twice** while the machine's nixpkgs and the repo's
+disagree. See B3.
+
+---
+
+## B3 — What breaks first when the two disagree on a shared input?
+
+**Answer:** **it depends on the class of disagreement, and only one of the three
+is loud.** A missing attribute is an eval failure on the side that lacks it,
+before anything builds, naming the module's own file and line. A *differing*
+attribute is silent, and is the one to design against.
+
+**Tested:** Nix 2.34.7, devman `f674623`, on 2026-08-22.
+
+The disagreement is already live in the repository, and it is real: the machine's
+tree and `nixos-unstable` differ by 465 top-level attributes.
+
+**Command:**
+
+```
+nix eval --impure --json --expr \
+  "builtins.attrNames (import /nix/store/ifpab9...-source { system=\"x86_64-linux\"; })"
+```
+
+**Evidence:**
+
+```
+machine attrs: 27506   unstable attrs: 27905
+in unstable, not on the machine: 432   (cronet-go, azure-mcp, bashd, ...)
+on the machine, not in unstable:  33   (rust_1_95, julia_19, nim-2_2, ...)
+```
+
+### Class 1 — a missing attribute: eval failure, early and loud
+
+`b-scratch/collide.nix` adds one reference to the module, in each direction.
+
+**Command:**
+
+```
+nix eval --raw ".#nixosConfigurations.machine-newer-than-machine.config\
+.systemd.user.services.dagu-collide.serviceConfig.ExecStart"
+```
+
+**Evidence — the module wants something newer than the machine:**
+
+```
+error: attribute 'cronet-go' missing
+at /home/andrew/.../b-scratch/collide.nix:19:15:
+    18|       if direction == "newer-than-machine"
+    19|       then "${pkgs.cronet-go}/bin/probe"
+      |               ^
+```
+
+**Evidence — the module wants something the newer tree removed:**
+
+```
+error: attribute 'rust_1_95' missing
+Did you mean rust_1_97?
+```
+
+Both fail at **evaluation**, on the **consumer** whose tree lacks the
+attribute, pointing at the module's own line, before a single derivation is
+built. The same probe under the tree that has the attribute succeeds:
+
+```
+unstable-newer-than-machine  /nix/store/i78zw8...-cronet-go-150.0.7871.63-1/bin/probe
+```
+
+This is the good case. A module that needs a package one consumer lacks tells
+that consumer, immediately, by name.
+
+### Class 2 — the same attribute, a different value: silent
+
+Nothing fails. The two sides simply get different software from the same devman
+revision.
+
+**Command:**
+
+```
+nix eval --raw ".#nixosConfigurations.machine.pkgs.gnused.outPath"
+nix eval --impure --raw --option allow-import-from-derivation true \
+  --expr '(builtins.getFlake "...").inputs.rolling.legacyPackages.x86_64-linux.gnused.outPath'
+```
+
+**Evidence:**
+
+```
+NixOS module (machine tree): /nix/store/0hamsiy8hsyfw1hmizbc3bf93ad7fa1v-gnused-4.9
+devenv module (rolling):     /nix/store/rxd8p6g4k4s0sx4q1szmzvp9rsmhmfys-gnused-4.10
+```
+
+`sed` renders the registry entry in `enterShell` and appears on the service's
+`PATH`. It is 4.10 in the repo and 4.9 on the machine, from one module pair at
+one revision. Nothing announces it. The same holds for `git` (2.54.0 vs
+2.55.0), `python3` (3.13.13 vs 3.14.7), and `bash` (5.3p9 vs 5.3p15).
+
+This is the class §12.3 should have worried about. It does not weaken the
+single-flake premise — it is a consequence of the premise working, because each
+side gets its own tree on purpose. It sets one design rule: **the shared
+vocabulary between the two interfaces must be text, not a package.** Queue
+names, `DEVMAN_PROJECT_DIR`, the `.devman/.runs/` path shape, and the registry
+schema are all text (E4). `nix/dagu.nix` is the single exception, and B2 shows
+it costs 155 MB of duplication and no behaviour difference.
+
+### Class 3 — the module reaches for the flake's own nixpkgs: possible, and today free
+
+A devenv module *can* reach past its consumer. `inputs.devman.inputs.nixpkgs` is
+reachable from a devenv module, so pinning is available if it is ever needed.
+
+**Command:** `/tmp/devman-b/projG`, a devenv module referencing both.
+
+**Evidence:**
+
+```
+repo   gnused: /nix/store/rxd8p6g4k4s0sx4q1szmzvp9rsmhmfys-gnused-4.10
+devman gnused: /nix/store/rxd8p6g4k4s0sx4q1szmzvp9rsmhmfys-gnused-4.10
+repo   dagu:   /nix/store/80z64fdn6gkgagz7xh2v4mh362hahvqa-dagu-2.15.0
+devman dagu:   /nix/store/80z64fdn6gkgagz7xh2v4mh362hahvqa-dagu-2.15.0
+```
+
+Identical today, because devman's `nixos-unstable` (`ffb3c9b`, 2026-08-19) and
+the tree `rolling` patches (`54ba4bc`, 2026-08-16) are three days apart. The
+divergence that exists is machine-versus-repo, not flake-versus-repo. Recorded
+so the escape hatch is known to exist; **do not take it**, because a module that
+supplies its own `pkgs` puts a second nixpkgs in every consumer's shell and
+returns Class 2's silent divergence to a place the consumer cannot see.
+
+**Charter impact:** **none, and it adds one rule to §3.1.** Say plainly what the
+two interfaces are allowed to share: *text, and one package expression.* A
+module that reaches for the flake's own nixpkgs breaks the premise that makes
+§3.1 work.
+
+---
+
+## B4 — Is `modules/` the right import path?
+
+**Answer:** **yes, with one correction and one warning.** The path is right, but
+the file inside it must be named `devenv.nix`; `default.nix` is never consulted.
+And a `git+` pin holds over **https** and does **not** hold over **file**.
+
+**Tested:** devenv 2.1.2, Nix 2.34.7, on 2026-08-22.
+
+### The file must be `devenv.nix`
+
+The first attempt shipped `modules/default.nix`, which is what a Nix reader
+expects. It fails.
+
+**Command:** `cd /tmp/devman-b/projA && devenv shell -- true`, with
+`imports: - devman/modules`.
+
+**Evidence:**
+
+```
+error: devman/modules/devenv.nix file does not exist
+```
+
+The rule is in devenv's own bootstrap, at
+`.devenv/bootstrap/bootstrapLib.nix:91`:
+
+```nix
+tryImport =
+  resolvedPath: basePath:
+  if lib.hasSuffix ".nix" basePath then
+    [ (import resolvedPath) ]
+  else
+    let
+      devenvpath = resolvedPath + "/devenv.nix";
+      localpath = resolvedPath + "/devenv.local.nix";
+    in
+    if builtins.pathExists devenvpath then
+      [ (import devenvpath) ] ++ lib.optional (builtins.pathExists localpath) (import localpath)
+    else
+      throw (basePath + "/devenv.nix file does not exist");
+```
+
+So `<input>/<subdir>` resolves to `inputs.<input> + /<subdir>` and then looks
+for `devenv.nix` inside it, plus an optional `devenv.local.nix`. A path ending
+in `.nix` is imported directly instead. `shellij/modules` works because shellij
+ships `modules/devenv.nix`; its `modules/default.nix` is a Home-Manager module
+and devenv never reads it.
+
+The file was renamed to `modules/devenv.nix` and the import then worked.
+
+### The form holds under a `git+https` pin
+
+**Command:** `/tmp/devman-b/projF`, with
+
+```yaml
+inputs:
+  devman:
+    url: "git+https://github.com/Bullish-Design/devman?ref=dagu-devenv-automation-eli5&rev=f674623df61f039150fb5eb70accaa03eae2cd8a"
+imports:
+  - devman/modules
+```
+
+**Evidence:** the shell entered, `dagu` was on `PATH`, the registry entry was
+written, and the lock recorded the revision:
+
+```
+"locked": {
+ "lastModified": 1787376172,
+ "narHash": "sha256-kI3thUGphDTNsbXronZcNr5j3mLzeUW66oeA/nIWu0M=",
+ "ref": "dagu-devenv-automation-eli5",
+ "rev": "f674623df61f039150fb5eb70accaa03eae2cd8a",
+ "revCount": 142,
+ "type": "git",
+ "url": "https://github.com/Bullish-Design/devman"
+}
+```
+
+§3.2's mandated form works, and it is a real pin.
+
+### But `git+file` silently drops the revision
+
+The obvious development shortcut — pin a local checkout — is not a pin.
+
+**Command:** `/tmp/devman-b/projC`, pinned to `rev=6cc76d2`. A later commit
+changed the module's `groups` default to `[ "base" "PIN-TEST" ]`. The pinned
+repo's cache was cleared and the shell re-entered.
+
+**Evidence:**
+
+```
+$ cat /tmp/devman-b/registry/projects/projC.json
+{
+  "groups": [ "base", "PIN-TEST" ],   <- from a commit AFTER the pinned rev
+  ...
+}
+```
+
+The lock explains it:
+
+```
+"locked":   { "ref": "dagu-devenv-automation-eli5", "type": "git",
+              "url": "file:///home/andrew/.paseo/worktrees/..." }
+"original": { "ref": "...", "rev": "6cc76d2e201afb6c05597ab6433bfdf1c1b78a44", ... }
+```
+
+`original` keeps the revision. `locked` has no `rev` and no `narHash`, so there
+is nothing to hold and the input tracks the branch head.
+
+The full matrix, over the same two URLs with and without `flake: false`:
+
+```
+file-flake       locked keys: [ref, type, url]                                  rev= ABSENT
+file-nonflake    locked keys: [ref, type, url]                                  rev= ABSENT
+https-flake      locked keys: [lastModified, narHash, ref, rev, revCount, ...]  rev= 8b85ecc...
+https-nonflake   locked keys: [lastModified, narHash, ref, rev, revCount, ...]  rev= 8b85ecc...
+```
+
+`flake: true`/`false` makes no difference. The transport does. A `rev`-only
+`git+file` URL with no `ref` is worse: devenv discards the revision and
+substitutes the branch instead — `"ref": "refs/heads/dagu-devenv-automation-eli5"`.
+
+It is devenv, not Nix. Nix honours the same URL:
+
+```
+$ nix flake metadata --json "git+file:///home/.../special-dragon?ref=...&rev=6cc76d2..."
+/nix/store/1gx7wsh94p5zkq7d5jgjzb7pdgk9pkpk-source 6cc76d2e201afb6c05597ab6433bfdf1c1b78a44
+(no marker — nix honours the pin)
+```
+
+The repository was clean at the time of the test, so this is not a dirty-tree
+artefact. devenv 2.1.2 was under test; 2.2.2 exists and was not tested.
+
+One more property, confirmed in passing: a `git+file` URL pointing at a **git
+worktree** resolves. Nix reads the worktree's `.git` file correctly.
+
+**Charter impact:** **changes §3.2**, in two sentences.
+
+1. The repo interface is `modules/devenv.nix`, not `modules/default.nix`. §3.1's
+   shape diagram says `modules/default.nix` and must be corrected. If the flake
+   ever wants a Nix-importable `modules/default.nix` as well, it may have one —
+   devenv will ignore it.
+2. Add the warning §3.2's "pin with `git+`" implies but does not state: **the
+   pin holds over `git+https` and not over `git+file`.** A repo developing
+   against a local devman checkout tracks the branch head no matter what `rev`
+   it writes, and nothing warns it. Use `path:` deliberately for local work, and
+   `git+https` with a `rev` everywhere else.
+
+---
+
+## Summary — Investigation B, the single-flake premise
+
+**The premise holds. The module does not need to pin its own nixpkgs.** The
+plane ships one flake, and §3.1's anti-drift argument stays a property.
+
+| ID | Question | Answer | Charter impact |
+|---|---|---|---|
+| B1 | do both modules evaluate under their own nixpkgs? | **yes** | none |
+| B2 | does the Dagu package resolve in both? | **yes, byte-identical** | none |
+| B3 | what breaks first when the two disagree? | eval failure if absent, **silence if merely different** | none — adds one rule to §3.1 |
+| B4 | is `modules/` the right import path? | **yes**, but the file is `devenv.nix` | **changes §3.2** (and §3.1's diagram) |
+
+### The one change
+
+- **changes §3.2, and §3.1's shape diagram** — the repo interface is
+  `modules/devenv.nix`. devenv resolves `<input>/<subdir>` to
+  `inputs.<input> + /<subdir>` and then requires `devenv.nix` inside it; a
+  `default.nix` is never read. And "pin with `git+`" needs a qualifier:
+  **`git+https` records `rev` and `narHash` in `devenv.lock`; `git+file`
+  records neither and follows the branch head.** A local checkout is therefore
+  never pinned, and nothing warns about it.
+
+### Two rules the charter should state, both free
+
+Neither is a change to a claim. Both are the reason the claims hold, and writing
+them down is what keeps a later edit from breaking the premise by accident.
+
+1. **The modules take `pkgs` from their consumer.** Not from the flake's own
+   `nixpkgs` input, which serves `packages` and `checks` only. This is what
+   makes "one flake, two nixpkgs" work: `devenv.lock` carries both trees as
+   separate nodes and neither constrains the other. The escape hatch exists —
+   `inputs.devman.inputs.nixpkgs` is reachable from a devenv module — and taking
+   it would put a second nixpkgs in every consumer's shell.
+2. **What the two interfaces share must be text, with one exception.** Queue
+   names, `DEVMAN_PROJECT_DIR`, the `.devman/.runs/` path shape, and the
+   registry schema are text and cost nothing to share. `nix/dagu.nix` is the
+   exception, and B2 measured its price: two store paths, one identical
+   155 MB binary, no behaviour difference. Any *other* shared package would pay
+   the same duplication with no such guarantee — the machine and the repo differ
+   by 465 attributes today, and `sed`, `git`, `python3`, and `bash` all differ in
+   version between them, silently.
+
+### What Investigation B did not do
+
+Investigations C and D were not started, as §5 of the prompt requires. Nothing
+in `CONCEPT.md` was edited. The machine was not modified: no `nixos-rebuild
+switch`, no `/etc/nixos/` edit, and no change to the running Dagu instance. The
+test NixOS configurations live in the scratch flake and were built, never
+activated.
+
+Three things were seen and deliberately not chased, because each is stage 1 or a
+later investigation:
+
+- **NixOS does not restart user services on activation.** `restartTriggers`
+  renders `X-Restart-Triggers` into the user unit, so the mechanism §5.2 needs
+  exists, but who acts on it for a *user* service on this machine was not
+  measured. Stage 1 must answer it, because §5.2 requires the restart to happen
+  in the same activation.
+- **`enterShell` ran under `devenv shell -- cmd`** in every test here. That is
+  Investigation C's C1 and is not recorded as an answer; it was incidental.
+- **devenv 2.1.2 is not the current release.** 2.2.2 exists. The `git+file`
+  locking result may or may not survive an upgrade.
