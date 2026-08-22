@@ -101,6 +101,38 @@ on devenv 2.1.2 (`STAGE_2_LOG.md`, S4).
 `queue` stays, because it is the one thing that genuinely varies from workflow to
 workflow (§7.2).
 
+## Triggering one of these on a commit
+
+The plane supplies `devman run`. The hook that calls it is the repository's own,
+and it is devenv's `git-hooks` module rather than anything of devman's:
+
+```nix
+git-hooks.hooks.devman-validate = {
+  enable = true;
+  name = "devman validate";
+  entry = "devman run validate";
+  stages = [ "post-commit" ];
+  pass_filenames = false;
+  always_run = true;
+};
+```
+
+devenv 2.1.2 first needs the input:
+
+```bash
+devenv inputs add git-hooks github:cachix/git-hooks.nix --follows nixpkgs
+```
+
+Three things to know before taking it (measured in `STAGE_3_LOG.md`, S9):
+
+- **It is not a gate.** `devman run` enqueues and returns, so the commit is not
+  blocked and the workflow starts a second or two later. A repository that wants
+  to stop a bad commit wants a `pre-commit` hook that runs the task directly.
+- **The run reads the tree it finds**, which is the tree after the commit rather
+  than the tree that was committed.
+- **It costs a devenv input** — about 20 ms on every shell entry — and a
+  generated `.pre-commit-config.yaml` in the working tree.
+
 ## Why the multi-step files say `type: chain`
 
 `chain` runs the steps in order. `graph`, Dagu's default, runs steps with no
