@@ -238,10 +238,10 @@ mode '--show-output'  STDOUT-marker occurrences: 0
 mode '-v'             STDOUT-marker occurrences: 1
 ```
 
-### Why `-v` costs almost nothing, which is the part that decided it
+### Why `-v` costs almost nothing on 2.1.2, and rather more on 2.2.0
 
-`-v` adds 41 lines of devenv machinery. They do not land where a developer
-looks, because the two streams separate:
+`-v` adds 41 lines of devenv machinery. On **2.1.2** they do not land where a
+developer looks, because the two streams separate:
 
 ```
 $ devenv tasks run -v python:lint 2>/dev/null      # STDOUT only
@@ -255,6 +255,27 @@ $ devenv tasks run -v python:lint 2>&1 1>/dev/null | wc -l   # STDERR only
 Dagu writes a step's `.out` and `.err` to separate files, so the file holding
 the findings gains one `{}` line and the noise stays in the other. On the
 failure path the same separation holds, and the exit code is still 1.
+
+**It does not hold on devenv 2.2.0, and that is worth knowing before the
+machine's devenv moves.** 2.2.0 was built from `github:cachix/devenv/v2.2`
+(`2.2.0+ffce215`) and run against the same repository:
+
+| devenv | plain | `--show-output` | `-v` |
+|---|---|---|---|
+| 2.1.2 | stdout lost | stdout lost | task stdout on **stdout** |
+| 2.2.0 | stdout lost | stdout lost | task stdout on **stderr** |
+
+```
+$ devenv-2.2.0 tasks run -v python:lint 2>/dev/null | grep -c STDOUT-marker
+0
+$ devenv-2.2.0 tasks run -v python:lint 2>&1        | grep -c STDOUT-marker
+1
+```
+
+So `-v` restores the findings on both versions, and only 2.1.2 keeps them clean
+of the debug log. The group files say so rather than resting on the separation.
+This machine runs **2.1.2** today; `nix-meta` pins devenv v2.2 as a flake input,
+and `profiles/developer.nix` installs nixpkgs' `devenv`, which is 2.1.2.
 
 ### The step this does not fix
 

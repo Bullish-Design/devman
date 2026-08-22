@@ -5,11 +5,15 @@
 #
 # `-v` IS LOAD-BEARING, NOT DEBUG NOISE. Without it `devenv tasks run` captures
 # the task's stdout and never prints it, so a step running `ruff check .` writes
-# a log containing `{}` and nothing else — on the failure path too. With it, the
-# task's own stdout goes to STDOUT and devenv's debug log goes to STDERR, and
-# Dagu files those separately, so the log a developer reads holds the findings
-# and the noise stays in the `.err` file. Measured on devenv 2.1.2; see
-# STAGE_2_LOG.md S4.
+# a log containing `{}` and nothing else — on the failure path too. `-v` is the
+# only flag that restores it: `--show-output` documents itself as equivalent and
+# is not.
+#
+# Which stream it lands on depends on the devenv version, so do not rely on one:
+# 2.1.2 puts the task's stdout on STDOUT and its own debug log on STDERR, while
+# 2.2.0 puts both on STDERR. Dagu files a step's two streams separately, so on
+# 2.1.2 the findings arrive clean and on 2.2.0 they arrive beside the noise.
+# Either way they arrive. See STAGE_2_LOG.md S4.
 queue: light
 steps:
   - name: lint

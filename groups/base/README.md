@@ -68,9 +68,20 @@ file (§7.3). The plane does not police what a name means.
 `-v` is load-bearing and must not be tidied away. Without it `devenv tasks run`
 captures the task's stdout and prints none of it, on the success path and the
 failure path alike, so a step running `ruff check .` writes a log holding `{}`
-and nothing else. With it, the task's own stdout goes to **stdout** and devenv's
-debug log goes to **stderr** — and Dagu writes those to separate files, so the
-findings land in the file a developer reads and the noise stays out of it.
+and nothing else. `-v` is the only flag that restores it — `--show-output`
+documents itself as equivalent and, measured, is not.
+
+**Which stream the output lands on depends on the devenv version**, so no group
+file should depend on one:
+
+| devenv | plain | `-v` |
+|---|---|---|
+| 2.1.2 | stdout lost | task stdout on **stdout**, debug log on stderr |
+| 2.2.0 | stdout lost | task stdout on **stderr**, beside the debug log |
+
+Dagu writes a step's two streams to separate files, so on 2.1.2 the findings
+arrive clean and on 2.2.0 they arrive next to devenv's own 40-odd lines. Either
+way they arrive, which is the whole point.
 
 `full-test.yaml`'s third step is the exception, and it is devenv's limit rather
 than the plane's: `devenv test` captures **both** of `enterTest`'s streams and
