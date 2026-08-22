@@ -390,3 +390,313 @@ which is an absolute promise nobody can keep across a machine-module change.
 currently says `metadata.jsonl` "is written by Dagu, and no workflow carries a
 line of it" — true, and it omits that a workflow can take the writer away.
 Applied in its own commit with the §8 change, per rule 4.
+
+---
+
+## S4 — `review`: the first workflow whose output is a document
+
+**Answer:** `groups/base/workflows/review.yaml`. It runs `base:lint` and
+`base:test` like `validate` does, and the difference is what it leaves behind:
+`.devman/.runs/reports/review-<run id>.md`, holding the head commit, the
+uncommitted files, the diffstat against `HEAD`, the last five commits, and one
+verdict line per check.
+
+**Home: `base`, and it needed no repository to change at all.** It calls the two
+task names `base` already asks for, so the five repositories that take the group
+have it the moment they re-pin. That is D2's coverage condition met by one file
+rather than by six.
+
+**Command:**
+
+```bash
+devman run review
+```
+
+**Evidence — the run:**
+
+```
+level=INFO msg="Enqueued dag-run" dag=devman-review run-id=034Bln299La34UauzhWjb2
+    params="[DEVMAN_PROJECT_DIR=/home/andrew/.paseo/worktrees/1n48r26y/special-dragon]"
+
+$ dagu status devman-review
+Succeeded — dag: devman-review (11.0s)
+├─changes (0s) [succeeded]
+├─lint    (…)  [succeeded]
+└─test    (…)  [succeeded]
+
+$ tail -1 .devman/.runs/metadata.jsonl
+{"dag":"devman-review","run_id":"034Bln299La34UauzhWjb2","attempt":"d5754e",
+ "status":"succeeded","started_at":"2026-08-22T21:11:07Z","log":"…/devman-review/…"}
+```
+
+**Evidence — what a person reads afterwards** (`.devman/.runs/reports/review-034Bln299La34UauzhWjb2.md`):
+
+```markdown
+# review — devman-review
+- run id: `034Bln299La34UauzhWjb2`
+- head: `6a2acd7` on `dagu-devenv-automation-eli5`
+## uncommitted
+```
+?? groups/base/workflows/review.yaml
+```
+## last five commits
+```
+6a2acd7 CONCEPT §8, §9.2: a schedule is a user timer, and a workflow's own …
+```
+## verdict
+- `base:lint` pass
+- `base:test` pass
+```
+
+The report records the workflow that produced it, which was uncommitted at the
+time. That is the point of the file rather than an accident of when it ran.
+
+**Two things it does on purpose.**
+
+1. **Both check steps carry `continue_on: {failure: true}`.** A `chain` stops at
+   the first failed step, so without it a failing lint leaves a report with no
+   verdict — the one case a reader most needs one. Measured on the throwaway:
+   with `continue_on`, step `a` failed, step `b` ran, and the DAG reported
+   **`Partially Succeeded`** with a non-zero exit. That is not `succeeded` in
+   `metadata.jsonl`, so a review that found something is still not a success.
+   It does **not** say `mark_success`.
+2. **It defines no `handler_on`.** One would replace `base.yaml`'s and the run
+   would write no `metadata.jsonl` line at all (S3).
+
+**What it costs, stated:** `git` on the service PATH. `servicePath` supplies it
+from the machine's profiles, and it worked first time — `head: 6a2acd7` above is
+`git rev-parse` running inside a Dagu step. A repository with no `.git` gets
+`(no git)` in each section rather than a failed step.
+
+**Charter impact:** **none.** §7.2 says a workflow is Dagu configuration and
+§7.4 says invent by adding a file; this is a group file doing both.
+
+---
+
+## S5 — `release` and the policy gate, and the bug that only a real run found
+
+**Answer:** `groups/release/workflows/release.yaml`, in a group of its own. Its
+first step is a **gate that fails**, and the two conditions it reads are files
+this repository already has. **Policy gating needs no fifth global name.**
+
+**Home: a `release` group, not `base`.** §16's promotion rule decided it — a
+group begins when a *second* repository wants the same file — and two do:
+`devman` builds a package and `observantic` builds a wheel. `base` reaches five
+repositories and three of them have nothing to release, so a `release.yaml`
+there is a workflow that fails on a task those three have no reason to define.
+Unlike `python-format`, inheriting this one is free: nothing fires it, so §7.4's
+"an inherited workflow you never trigger costs nothing" holds, and the reason it
+did not hold for reactivity was that a *triggered* workflow rewrites your files
+while you edit them (S4 of stage 3).
+
+### Decision 4, answered: `metadata.jsonl` is enough, and §7.1 stays closed at four
+
+The gate reads two things, both content:
+
+| Condition | Source |
+|---|---|
+| the working tree is clean | `git status --porcelain` |
+| the last recorded run of this project's `validate` succeeded | `.devman/.runs/metadata.jsonl` |
+
+Neither is a new name. `.devman/.runs/` is already §7.1's third global name, the
+file is already written by `base.yaml`'s exit handler for every run on both
+paths, and it already survives every retention setting because nothing in Dagu
+owns it (§9.2). **A precondition is a shell command inside a workflow file,
+which is content**, and so is a step that exits 1. Nothing here wants a fifth
+name, a new command, or a new registry field.
+
+### And a gate FAILS. It does not skip.
+
+`python-format`'s loop break is a step-level `preconditions:`, which records
+`Succeeded` with a skipped step — right there, because a self-stopping loop must
+not fill the history with things that look like failures (E1, S6 of stage 3).
+**A refused release is the opposite case.** A release that is refused and reports
+success is `STAGE_4_PROMPT.md` §10's failure exactly: a successful run that did
+the wrong thing, which the plane has no check for and is not growing one. So the
+gate writes what it found and exits 1.
+
+**Evidence — the refusal, on the real plane:**
+
+```
+$ devman run release
+$ dagu status devman-release
+Failed — ├─gate (0s) [failed]
+
+.devman/.runs/reports/release-034BluLi0xlqcR5XpHIK6a.md:
+## gate
+- clean tree: **NO** — refusing
+```
+M devenv.nix
+?? groups/release/
+```
+- last validate: **NONE RECORDED** for `devman-validate` — refusing.
+  Run `devman run validate` first
+
+$ tail -1 .devman/.runs/metadata.jsonl
+{"dag":"devman-release", … "status":"failed", …}
+```
+
+**Evidence — the same workflow after the two conditions were met**, with nothing
+edited in between except the tree being committed and `devman run validate` run:
+
+```
+$ devman run validate    # Succeeded, 47.0s
+$ devman run release
+$ dagu status devman-release
+Succeeded — gate [succeeded], build [succeeded], record [succeeded]   (3.0s)
+
+.devman/.runs/reports/release-034Blzg9VUzKaEv3Vxx0TL.md:
+## gate
+- clean tree: yes
+- last validate: succeeded — `{"dag":"devman-validate","run_id":"034BlvLPKX1SdIiqkXQJG0", … "status":"succeeded", …}`
+## built
+- head: `8a2f589d5e13fb5d0b5b04b1538240d8d725a2ff`
+- describes as: `8a2f589`
+```
+lrwxrwxrwx 1 andrew users 56 Aug 22 17:19 devman -> /nix/store/s5ab2fckx3sd4w3jf59nsw2gcp79h4rx-devman-0.3.0
+```
+
+$ git status --porcelain
+                                   <- the tree stayed clean; the artifact is under .runs/
+```
+
+### The bug, and it took a real run to find it
+
+The first version matched `"dag":"[^"]*-validate"`. That looked safe —
+`metadata.jsonl` is per working tree, so every line in it is already this
+project's. **It matched `devman-stack-validate`**, the cross-repo workflow (§11),
+and reported a different workflow's success as this one's:
+
+```
+- last validate: succeeded — `{"dag":"devman-stack-validate", … "status":"succeeded", …}`
+```
+
+A DAG name is `<project>-<workflow>` and a workflow name may itself contain a
+hyphen, so **the name cannot be split from the right in general**. The fix uses
+what the run already knows about itself: `${context.dag.name}` is this run's own
+`<project>-release`, so stripping its last hyphenated component gives the
+project and the wanted name is exact. It holds no project identity and no
+absolute path, so criterion 10 stays true.
+
+This is rule 6 earning its place. `dagu validate` passed on the broken version,
+`nix flake check` passed, and the gate reported a green light it had no business
+reporting. Only running it against a repository that owns a `stack-validate`
+showed it.
+
+### What it deliberately does not do
+
+**It builds. It does not publish.** No tag is pushed, no wheel is uploaded, no
+GitHub release is cut. Each is irreversible and each wants a credential; see S7
+for the decision that follows from that.
+
+**The gate cannot say "on this commit".** `metadata.jsonl` records a run's dag,
+id, status and time, and no commit. The report prints the matched line so a
+person can judge how old it is. Inventing a freshness rule the data cannot
+support would be §15.7 with extra steps.
+
+**Charter impact:** **none.** §7.1's list stays closed at four names, §10's
+command list at four, and §7.4's repo interface at three keys.
+
+---
+
+## S6 — `maintain`, and decision 1 proved end to end from a real timer
+
+**Answer:** `groups/base/workflows/maintain.yaml`, and a **systemd user timer**
+is what fires it. Both halves ran on the installed service.
+
+**What maintenance is here, and why it is two things.** `hist_retention_days`
+prunes Dagu's machine-side history and the per-project **log** tree, and nothing
+else (D5, S10). `.devman/.runs/reports/` and `.runs/artifacts/` are created at
+registration and owned by nobody — and stage 4 is what starts filling them, since
+`review` writes a report on every run and `release` writes one plus an artifact.
+§9.2's trap makes it worse: retention is per DAG and runs when that DAG runs, so
+a project whose workflows stop running keeps everything it ever wrote.
+
+So `maintain` does the part with no other owner, and then asks `devman doctor` —
+the one thing in this design allowed to tell the developer something (§5.2) —
+for everything else.
+
+**It prunes reports and never artifacts.** A report is regenerable text; an
+artifact is the thing you were about to ship. Deleting one unattended is
+§10-of-the-prompt's failure arriving inside the deliverable meant to prevent it.
+Artifacts are counted and reported, and a person removes them.
+
+**Command — by hand first:**
+
+```bash
+devman run maintain
+```
+
+**Evidence:**
+
+```
+level=INFO msg="Enqueued dag-run" dag=devman-maintain run-id=034Bm0gPWPmpUlYVo8uPX0
+    params="[DEVMAN_PROJECT_DIR=… KEEP_DAYS=7]"
+Succeeded — dag: devman-maintain (2.0s)
+
+.devman/.runs/reports/maintain-034Bm0gPWPmpUlYVo8uPX0.md:
+## this project
+- reports: 4 before, 4 after — 0 pruned
+- artifacts: 1 entries, **never pruned here** — remove them by hand
+- log trees: 59, pruned by the machine's hist_retention_days when this project's DAGs run
+## the plane
+```
+devman doctor — 6 projects, 22 workflows
+ok  plane / queues / validate / queue names / literal dir / shadowing /
+    stale entries / run output / cross-repo / watcher
+Nothing to report.
+```
+```
+
+### Decision 1, proved: a systemd user timer, and devman ships none
+
+S2 measured that Dagu's own scheduler cannot trigger anything this plane
+projects. This is the other half — the shape §8 now names, run for real.
+
+**Command** — a transient timer, which is the same unit a `.timer` file
+installs:
+
+```bash
+systemd-run --user --unit=s4-nightly --collect --on-active=5s \
+  /run/current-system/sw/bin/devman run maintain --project devman KEEP_DAYS=30
+```
+
+**Evidence:**
+
+```
+$ journalctl --user -u s4-nightly -o cat
+Started [systemd-run] /run/current-system/sw/bin/devman run maintain --project devman KEEP_DAYS=30.
+level=INFO msg="Enqueued dag-run" dag=devman-maintain run-id=034Bm1fNVg4gfgFUqF3wGl
+    params="[DEVMAN_PROJECT_DIR=/home/andrew/.paseo/worktrees/1n48r26y/special-dragon KEEP_DAYS=30]"
+
+metadata lines: 57 -> 58
+{"dag":"devman-maintain","run_id":"034Bm1fNVg4gfgFUqF3wGl", … "status":"succeeded",
+ "log":"/home/andrew/.paseo/worktrees/1n48r26y/special-dragon/.devman/.runs/logs/devman-maintain/…"}
+```
+
+**Everything S2's measurement said was missing is there.** The timer has no
+working directory in any repository, so `--project` names one; `devman run`
+resolved its path from the registry, exported `DEVMAN_PROJECT_DIR`, passed it as
+a parameter, and passed a second parameter through unchanged. The logs landed
+under the project. Compare S2's scheduled run, which worked in
+`${DEVMAN_PROJECT_DIR}/` and failed on the exit handler.
+
+**devman ships no timer, no option and no command for this**, and that is S9's
+answer to the same question about hooks, applied unchanged. The recipe is in
+`groups/base/README.md`.
+
+### Two things this deliverable had to state rather than solve
+
+1. **`KEEP_DAYS` cannot default to the machine's `hist_retention_days`.** That
+   is Dagu's own field in `base.yaml`, inherited into a run rather than readable
+   from one, and reading the file from a step would put a machine-specific
+   absolute path into a group workflow (§9.1, criterion 10). The default is
+   stated in the group, matching the module's own default, and the group's
+   README says the two numbers live in two places.
+2. **Declaring one parameter means declaring `DEVMAN_PROJECT_DIR` too** (S3).
+   `maintain` is the first shipped workflow to do it. It is not §11's forbidden
+   case: it triggers no other DAG, so it targets its own project and holding the
+   name is correct — which is exactly the distinction §11 was amended to make at
+   stage 2 (`STAGE_2_LOG.md`, S8).
+
+**Charter impact:** **none beyond S2's**, which changed §8 in its own commit.
