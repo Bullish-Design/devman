@@ -542,9 +542,19 @@ with enable = true   home.packages -> ["devman-env"]
 with enable = false  home.packages -> []
 ```
 
-49 packages either way. **`nixos-rebuild switch` was not run** — the machine is
-unchanged until it is, and running it is the user's, not this session's
-(STAGE_1_PROMPT §8, rule 5).
+49 packages either way.
+
+**The user ran the rebuild, and it took:**
+
+```
+$ command -v devman
+                          <- nothing
+$ command -v nv
+/etc/profiles/per-user/andrew/bin/nv
+```
+
+`nv` and `claude` are unaffected, as predicted. §13's stage-1 cleanup 1 is
+done.
 
 ### Why this was worth doing before the CLI exists
 
