@@ -1265,7 +1265,7 @@ agent workflows    policy gating
 | 10 | No workflow contains an absolute path | grep the registry and `workflows/`; zero hits |
 | 11 | Identity survives a move or a rename | move and rename the directory, re-enter its shell — same project, same run history |
 | 12 | Queues are real | two workflows naming the `exclusive` queue serialize **when enqueued** — `dagu start` bypasses queues entirely, so the measurement must use the real trigger path (§8) |
-| 13 | The watchers do not chase each other | a file-writing workflow plus a watcher on those files, one save, exactly one run |
+| 13 | The watchers do not chase each other | a file-writing workflow plus a watcher on those files: one save, exactly one run **that does work**, and the sequence stops within one further run, which skips. A workflow that does not write its watched files produces exactly one run. Then edit again immediately — it must run again |
 | 14 | The task graph exists once | no default workflow re-states a dependency devenv already declares |
 | 15 | A rebuild is inconvenient, not catastrophic | delete Dagu state, re-enter every registered shell, every workflow runs again |
 | 16 | devman adopts itself | this repo registers as a project, and its cross-repo workflows run from `.devman/workflows/` (§11) |
@@ -1283,6 +1283,17 @@ completion, because ordinary load drift is larger than the effect and a
 sequential run has reported the enabled repo as the faster one. And remember
 `enterShell` fires twice per entry (§5.2), so the per-firing budget is half of
 whatever the criterion says.
+
+**Criterion 13 counts runs that do work, and that wording is a correction rather
+than a softening.** It was written before E1 measured *where* Dagu skips: §8.1
+proposed skipping before anything is enqueued, and Dagu skips after, so a
+loop-breaking hash produces one run that formats and one run that finds nothing
+to do. Counting every run, the failure this criterion exists to catch is
+**unbounded** — run, write, run, write, forever — and what a correct plane
+produces is **bounded and self-stopping**. Measured at stage 3, in both shapes,
+with the control (`STAGE_3_LOG.md`, S6). The last clause is not decoration: a
+suppression window passes "one save, one run" and fails "edit again
+immediately", which is the whole reason §8 requires a content hash.
 
 **Criterion 17 is the load-bearing one.** It is what lets the registry be
 derived, lets §9.3 promise reconstruction, and lets §5.2 have no manual register
