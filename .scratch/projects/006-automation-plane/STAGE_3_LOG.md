@@ -552,3 +552,86 @@ The format changed while chasing this, and it stays changed:
 repository is canonical; this is a second case, beside S8, where the derivation
 silently stops re-deriving — and the first one where the cause is the input
 rather than the read.
+
+---
+
+## S8 — The runaway is real, and the workflow's own loop break cannot stop it
+
+**Answer:** with the watcher's ignore list removed, **one save produced 107
+dispatches and 60 runs in 45 seconds**, and it was still accelerating when the
+watcher was killed. The loop was not the workflow rewriting its watched files —
+it was **the plane's own log directory**, which Dagu creates inside the project
+for every run (§9.2). With the ignore list in place, the same save produced two
+dispatches and stopped.
+
+**This is the failure §8's content-hash precondition cannot address**, and that
+distinction is the entry:
+
+> A workflow's `preconditions:` break the loop the workflow causes. **The
+> watcher's ignore list breaks the loop the plane causes.** Neither substitutes
+> for the other, because a run writes to `.devman/.runs/` whether its steps do
+> any work or not.
+
+**Tested:** watchexec 2.5.1, Dagu 2.15.0, in the throwaway `s3-ctl`, whose
+trigger mapping was widened to `"**/*" = "look"` for the purpose. `look` runs
+`ruff check` and writes none of the files it watches.
+
+**Command — with the ignore list**, which is what the watcher ships:
+
+```bash
+devman watch          # --ignore **/.devman/.runs/** among six others
+printf 'def g( y ):\n    return   y+3\n' > /tmp/s3-ctl/sample.py
+```
+
+**Evidence:**
+
+```
+dispatches: 2
+runs: 2
+$ cat ~/.local/share/devman/watch/fired.jsonl
+… "path": "/tmp/s3-ctl/sample.py"
+… "path": "/tmp/s3-ctl/.ruff_cache/0.16.2/.tmpMndMQT"     <- the TOOL's cache, not the plane's
+```
+
+**Command — the same save, with `**/.devman/.runs/**` removed** and everything
+else identical:
+
+```bash
+watchexec --emit-events-to=json-stdio --postpone --on-busy-update=queue \
+  --project-origin=$REG --ignore '**/.git/**' --ignore '**/.devenv/**' \
+  --ignore '**/.direnv/**' --watch /tmp/s3-ctl -- devman … watch --dispatch
+```
+
+**Evidence:**
+
+```
+dispatches: 107
+runs:        60          (in 45 seconds, then killed)
+
+15:02:09.409  /tmp/s3-ctl/sample.py                                   <- the save
+15:02:09.821  …/.devman/.runs/logs/s3-ctl-look/dag-run_…034BicqRYq…   <- run 1's log dir
+15:02:10.182  …/.devman/.runs/logs/s3-ctl-look/dag-run_…034Bicr75I…   <- run 2's
+15:02:10.539  …/.devman/.runs/logs/s3-ctl-look/dag-run_…034Bicreud…
+…                                                                      every 0.37s
+```
+
+Each run created its log directory; each directory was an event; each event was
+a run. The `light` queue's limit of 4 slowed the acceleration and did not stop
+it — 19 runs were still queued when the watcher was killed, and they drained
+without producing more, which is what confirms the watcher was the engine.
+
+**No workflow could have stopped this.** A precondition hashing the `.py` files
+would have found them unchanged and skipped the step — and a skipped run still
+creates its log directory, so the loop would have run at the same rate doing
+nothing at all. §8 assigns loop-breaking to the workflow, and that is right for
+the loop §8 describes; this one is the plane's and belongs to the watcher.
+
+**The second finding, from the ignore-list run: a tool's cache is not in the
+list.** `ruff check` wrote `.ruff_cache/`, inside the watched repository, and
+fired a second dispatch. It stopped there only because the second run found its
+cache warm and wrote nothing new — luck, not design. **A group's glob is the
+first filter and the more important one:** `**/*.py` never sees `.ruff_cache/`,
+and the over-broad `**/*` used here is exactly the mistake the ignore list
+cannot fully cover.
+
+**Charter impact:** **changes §8.** Applied in its own commit, per rule 4.
