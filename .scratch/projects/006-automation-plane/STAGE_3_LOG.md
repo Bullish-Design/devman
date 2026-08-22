@@ -908,3 +908,81 @@ is §6's split with one more layer on top, and the new layer holds no edges.
 | repository-level trigger overrides | §15.2's whitelist allows `.devman/workflows/` and `.devman/.runs/` only, and widening it is a charter change no measurement has forced (S4) |
 | pushing the five adopted repositories | still five commits waiting in five working trees, as stage 2 left them |
 | `hist_retention_days` observed at its own predicate | seven days cannot be waited out; S10 used `hist_retention_runs` on the real service, which D5 established shares the same code path |
+
+---
+
+## S13 — The plane acting on its own, on the real machine
+
+**Answer:** the user activated the generation, and **the watcher reproduced S6's
+measurement in a real repository, from a systemd service, with nobody asking**.
+One save of a badly-formatted file: one run that formatted it, one run that
+skipped, and then nothing. The working tree was clean afterwards and `doctor`
+had nothing to report.
+
+**Tested:** the installed generation, `devman 0.3.0` on `PATH`,
+`systemd --user` units `dagu` and `devman-watch` both active. The repository is
+devman itself, which takes `[ base python-format ]` (criterion 16).
+
+**Command:** a save. That is the whole of it, and it is the point.
+
+```bash
+printf 'def probe(  x ):\n  return   x\n' > src/devman/_watch_probe.py
+```
+
+**Evidence — what the plane did, unasked:**
+
+```
+saved                    15:26:47.420
+fired                    15:26:47.868   devman/format  <- src/devman/_watch_probe.py
+run 034BjEKysR98…        19:26:49Z      format [succeeded]
+fired                    15:26:51.438   <- the formatter's own write
+run 034BjEQb4pKc…        19:26:52Z      format [skipped]
+                                        <- and it stopped
+
+$ cat src/devman/_watch_probe.py
+def probe(x):
+    return x
+```
+
+**Evidence — the unit, as `switch-to-configuration` left it:**
+
+```
+● devman-watch.service - devman watcher — one watchexec for every registered repository
+     Active: active (running) since Sat 2026-08-22 15:25:11 EDT
+   Main PID: 1078382 (.devman-wrapped)
+     CGroup: ├─ …/devman --registry …/devman --dagu-home …/dagu watch
+             └─ …/watchexec --emit-events-to=json-stdio --postpone
+                --on-busy-update=queue --project-origin=…/devman
+                --ignore "**/.devman/.runs/**" … --watch …/special-dragon
+                -- …/devman … watch --dispatch
+```
+
+Both flags reached the wrapper, the origin is stated (S5), and the watch set is
+the one registered project that declares triggers — not every registered
+project, which is what "reactivity is opt-in by group" means on a running
+machine (S4).
+
+**And the tree it acted in:**
+
+```
+$ rm src/devman/_watch_probe.py     # one more run, which found nothing to do
+$ git status --porcelain
+                                    <- nothing. No stray file, no literal directory.
+$ devman doctor
+Nothing to report.
+```
+
+### What it costs while nothing happens
+
+```
+idle CPU over 120 s: 67 ms   (0.056% of one core)
+resident memory:     19 MB
+```
+
+Both processes together. Worth recording because §15.3 accepts one shared
+instance as an availability risk and §8 adds a second always-on process to the
+same argument; the cost of the second one is not the reason to worry about it.
+
+**Charter impact:** **none.** This is §8 working as written, on hardware, and
+criteria 13 and 16 measured against the shipped configuration rather than a
+throwaway.
