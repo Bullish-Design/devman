@@ -203,9 +203,10 @@ free. `$HOME` does. `PATH` is set by the module.
 
 ## S4 — Criterion 7, as a paired delta
 
-**Answer:** the stage-1 module adds **+2.04 ms** to a warm `devenv shell --
-true`, against the same repo with `devman.enable = false`. Criterion 7 allows
-10 ms. The delta is not distinguishable from zero at this sample size.
+**Answer:** the stage-1 module's cost is **not distinguishable from zero** at
+this sample size, against the same repo with `devman.enable = false`. Two
+sweeps of 80 paired entries measured **+2.04 ms** and **-0.85 ms**. Criterion 7
+allows 10 ms.
 
 **Tested:** devenv 2.1.2, warm cache, 10 warm-up entries per variant discarded,
 ordinary desktop load.
@@ -223,16 +224,28 @@ N=80 python3 /tmp/s1-paired.py \
 Both repos are byte-identical apart from `enable`, and both import the module,
 so the delta is registration alone rather than the cost of the input.
 
-**Evidence — 80 paired runs:**
+**Evidence — two sweeps of 80 paired runs.** The second is the module as
+shipped; the first is the module before S8 changed group resolution to
+`builtins.readFile`, and it is kept because two sweeps of one effect say more
+about the noise than one does.
 
 ```
-variant                  mean      sd  median   min   max   runs=80
+sweep 1                  mean      sd  median   min   max   runs=80
 off_enable-false       244.1    28.6   249.8   159   311
 on_stage1-guard        246.2    28.4   251.2   150   291
+paired delta = +2.04 ms   sd 23.71   95% CI [-3.16, +7.24]   spread [-80.9, +65.2]
 
-paired delta (on_stage1-guard) - (off_enable-false) = +2.04 ms
-  sd 23.71   95% CI [-3.16, +7.24]   spread [-80.9, +65.2]
+sweep 2, as shipped      mean      sd  median   min   max   runs=80
+off_enable-false       218.5    36.5   225.8   147   275
+on_stage1-final        217.6    40.1   222.6   134   286
+paired delta = -0.85 ms   sd 26.01   95% CI [-6.55, +4.85]   spread [-82.2, +53.3]
 ```
+
+The second sweep is *negative*, which is the same artefact C2 warned about
+arriving in a paired measurement rather than a sequential one: the effect is
+smaller than the noise, so its sign is not meaningful. What both sweeps do
+establish is a bound — the 95% intervals put the cost under 8 ms in the worse
+sweep and under 5 ms in the other, against a 10 ms budget.
 
 The spread is wider than the effect in both directions, which is the same
 picture C2 recorded and the reason the criterion is a paired difference rather
