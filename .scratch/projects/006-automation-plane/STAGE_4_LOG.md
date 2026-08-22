@@ -1525,3 +1525,77 @@ consequences worth carrying forward:
 
 **Charter impact:** **none.** §15.3 already says `doctor` must diagnose a wedged
 plane, and this is `doctor` finally distinguishing one.
+
+---
+
+## S15 — Stage 4 closed out: the timer installed, five repositories on one rev, and what is left running
+
+**Answer:** the last of stage 4's work, done after the user's second rebuild.
+Nothing here is a new measurement; it is what the stage left on the machine.
+
+**1. The nightly timer exists.** §8's third arrow was proved by a transient unit
+in S6; this is the permanent one, hand-written in the developer's own
+`~/.config/systemd/user/`, exactly as §8 says a schedule should be:
+
+```
+$ systemctl --user list-timers devman-maintain.timer
+NEXT                        LEFT      UNIT                   ACTIVATES
+Sun 2026-08-23 00:05:37 EDT 4h 37min  devman-maintain.timer  devman-maintain.service
+```
+
+Five `ExecStart` lines, one per project that takes `base`. `observantic` is
+absent because it takes `python` and `release` only, so it has no `maintain`.
+
+**Evidence — fired once by hand, before the timer's first real firing:**
+
+```
+$ systemctl --user start devman-maintain.service
+$ systemctl --user show devman-maintain.service -p Result -p ExecMainStatus --value
+success 0
+
+$ journalctl --user -u devman-maintain.service -o cat
+Enqueued dag-run dag=siteman-maintain   params="[DEVMAN_PROJECT_DIR=…/siteman KEEP_DAYS=7]"
+Enqueued dag-run dag=pyjutsu-maintain   params="[DEVMAN_PROJECT_DIR=…/pyjutsu KEEP_DAYS=7]"
+Enqueued dag-run dag=nix-paseo-maintain params="[DEVMAN_PROJECT_DIR=…/nix-paseo KEEP_DAYS=7]"
+Enqueued dag-run dag=pydantree-maintain params="[DEVMAN_PROJECT_DIR=…/pydantree KEEP_DAYS=7]"
+Finished devman maintenance — prune old reports, then devman doctor.
+Consumed 1.330s CPU time over 1.303s wall clock time, 29.8M memory peak.
+```
+
+**Five of those runs then failed, and the timer was not why.** They failed on
+S14's queue check, because the `doctor` fix is committed and **not yet
+installed** — the CLI ships from `nixosModules.default`, so it needs a rebuild:
+
+```
+$ grep -c 'NOTHING RUNNING' $(…installed devman…)/site-packages/devman/doctor.py
+0
+```
+
+That is worth recording rather than tidying away: **a `src/devman/` change moves
+the machine closure**, and stage 4 needed three rebuilds — one for the groups,
+one for a shell fix that turned out to be in the wrong place (S13), and one for
+the `doctor` fix. Only the first was avoidable.
+
+**2. All five adopted repositories now sit on one rev**, and `review` and
+`maintain` reach four of them:
+
+| Project | Groups | What it gained |
+|---|---|---|
+| `siteman` | `base` | review, maintain |
+| `pyjutsu` | `base` | review, maintain |
+| `nix-paseo` | `base` | review, maintain |
+| `pydantree` | `base`, `python` | review, maintain |
+| `observantic` | `python`, `release` | release — **and neither review nor maintain** |
+
+**observantic's gap is real and it is left open on purpose.** `review` and
+`maintain` live in `base`, which observantic does not take, so the repository
+that most looks like a publishable library has no review workflow. Three answers
+exist — copies in `python`, observantic taking `base` too, or leaving it — and
+§16's promotion rule decides between them. **No measurement forces one**, and
+stage 4's rule 1 says not to grow the plane without one. It is written into
+`STAGE_5_PROMPT.md` §7 as a decision rather than a defect.
+
+**3. The registry ended at 6 projects and 34 DAGs**, from 19 at the start of the
+stage. `devman doctor` reports eleven checks, all `ok`, exit 0.
+
+**Charter impact:** **none.**
