@@ -1,7 +1,10 @@
 # devman — Concept (the automation plane)
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
-> and D (2026-08-22).**
+> and D (2026-08-22). Amended once during stage 1 (2026-08-22): §9.2 gains the
+> `dags/` directory, because a DAG is keyed by its file's base name and the
+> layout as written made two projects' `check` invisible. See
+> `STAGE_1_LOG.md`, S1.**
 >
 > Every edit made by that reconciliation rests on a measurement recorded in
 > `FINDINGS.md`. **All five investigations are closed**, and
@@ -725,10 +728,15 @@ future remote worker all work without editing a workflow.
 Machine-side holds the registry, and nothing else:
 
 ```
-~/.local/share/devman/projects/<project>/
-├── metadata.json              # identity and path
-└── workflows/*.yaml           # the projection
+~/.local/share/devman/
+├── projects/<project>/
+│   ├── metadata.json                    # identity and path
+│   └── workflows/<workflow>.yaml        # the projection
+└── dags/<project>-<workflow>.yaml       # Dagu's flat view of it
 ```
+
+**`dags/` is Dagu's view, and `projects/` is devman's.** The second directory
+is not a convenience — see the measurement at the end of this section.
 
 Everything a run produces stays with the checkout that produced it:
 
@@ -808,6 +816,29 @@ Dagu reads exactly one DAG directory — there is no list form — so the projec
 reaches per-project files by subdirectory or by symlink, and §5.2's two
 `dag_discovery` knobs are what make either visible. A directory symlink is not
 followed at all, at any setting; only file symlinks are.
+
+> **A DAG is keyed by its file's base name, not by its path under the DAG
+> directory. That is why `dags/` exists.** Pointing `dags_dir` at
+> `projects/` directly looks right and fails: two projects both taking `base`
+> both project a `check.yaml`, Dagu reports `duplicate DAG name "check"`, and
+> **both disappear** from `dagu ls`, from the web UI and from the scheduler
+> while staying runnable by path. That is §5.2's silent-absence hazard arriving
+> by a third route, and it fires the moment a second repository adopts the
+> plane.
+>
+> `dagu enqueue` compounds it. It resolves a name as a path under the DAG
+> directory, so a nested DAG is enqueued as `<project>/workflows/<file>` while
+> `dagu ls` prints `<file>`: one DAG with two names, and §8's trigger has to
+> know which is which.
+>
+> **A DAG name is machine-global, so the projection gives it a machine-global
+> key** — `<project>-<workflow>`, in one flat directory, which `ls`, the
+> scheduler and `enqueue` all agree on. Each entry is a file symlink to
+> `projects/<project>/workflows/<workflow>.yaml`, which is itself a file
+> symlink to the group file in the Nix store or to the repository's own
+> override. Dagu follows the chain. Nothing above changes: the per-project
+> projection is still what §7.3 resolves, what `devman show` prints, and what
+> `doctor` unprojects when it prunes a stale entry (§10).
 
 ### 9.3 Canonical and operational
 
