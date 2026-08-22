@@ -36,6 +36,22 @@ literal. A repository taking two groups defines both sets; if the two mean the
 same command, it should take one group rather than both (§7.4 — "to be rid of
 one, do not take its group").
 
+**Two groups cost two names, not two bodies.** A devenv task needs no `exec` at
+all: one with only `after` runs its dependency and then does nothing itself, and
+a failure in the dependency still fails the run. So a repository that genuinely
+wants both groups aliases rather than duplicates:
+
+```nix
+tasks."python:lint".exec = "ruff check .";
+tasks."base:lint".after  = [ "python:lint" ];   # one line, no second body
+```
+
+Measured on devenv 2.1.2 (`STAGE_2_LOG.md`, S5). It does not change §7.4's
+advice — an inherited workflow you never trigger still costs nothing, and the
+cheapest way to be rid of one is still not to take its group — but it removes
+the "five names for three commands" objection from the case where you do want
+both.
+
 A repository that decomposes differently takes a different group, or shadows the
 file (§7.3). The plane does not police what a name means.
 
@@ -46,6 +62,21 @@ file (§7.3). The plane does not police what a name means.
 | `check.yaml` | `light` | `base:lint` |
 | `validate.yaml` | `normal` | `base:lint`, `base:test` |
 | `full-test.yaml` | `heavy` | `base:lint`, `base:test`, `devenv test` |
+
+## Why every step says `devenv tasks run -v`
+
+`-v` is load-bearing and must not be tidied away. Without it `devenv tasks run`
+captures the task's stdout and prints none of it, on the success path and the
+failure path alike, so a step running `ruff check .` writes a log holding `{}`
+and nothing else. With it, the task's own stdout goes to **stdout** and devenv's
+debug log goes to **stderr** — and Dagu writes those to separate files, so the
+findings land in the file a developer reads and the noise stays out of it.
+
+`full-test.yaml`'s third step is the exception, and it is devenv's limit rather
+than the plane's: `devenv test` captures **both** of `enterTest`'s streams and
+prints neither, with `-v` or without. Its exit code is correct, so the gate
+works; the reason has to be found by re-running `devenv test` by hand. Measured
+on devenv 2.1.2 (`STAGE_2_LOG.md`, S4).
 
 ## What is deliberately absent from every file
 

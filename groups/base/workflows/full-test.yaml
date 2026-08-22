@@ -3,12 +3,25 @@
 # The third step is `devenv test`, not a third repository task. Every devenv
 # repository already has it, so the exhaustive workflow costs a repository
 # nothing beyond the two names `base` already asks for.
+#
+# `-v` on the first two steps is load-bearing: without it a task's stdout never
+# reaches the log (S4).
+#
+# THE THIRD STEP CANNOT BE FIXED THE SAME WAY, and the limit is devenv's.
+# `devenv test` captures BOTH of enterTest's streams and prints neither, with
+# `-v` or without it. A failing run says `Tests failed :(` on stderr and exits
+# 1, and nothing anywhere says which assertion broke. The step is kept because
+# the exit code is correct, so the gate works; the developer re-runs
+# `devenv test` by hand to see why. Do not replace it with the repository's
+# test command — §6 says one logical task has one implementation and every
+# caller reaches it the same way, and a second call path is the thing that
+# drifts.
 queue: heavy
 type: chain
 steps:
   - name: lint
-    run: devenv tasks run base:lint
+    run: devenv tasks run -v base:lint
   - name: test
-    run: devenv tasks run base:test
+    run: devenv tasks run -v base:test
   - name: devenv-test
     run: devenv test

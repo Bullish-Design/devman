@@ -2,7 +2,15 @@
 #
 # No `name:`, no `working_dir`, no `log_dir`: the file name is the identity, and
 # the machine's base.yaml supplies both directories.
+#
+# `-v` IS LOAD-BEARING, NOT DEBUG NOISE. Without it `devenv tasks run` captures
+# the task's stdout and never prints it, so a step running `ruff check .` writes
+# a log containing `{}` and nothing else — on the failure path too. With it, the
+# task's own stdout goes to STDOUT and devenv's debug log goes to STDERR, and
+# Dagu files those separately, so the log a developer reads holds the findings
+# and the noise stays in the `.err` file. Measured on devenv 2.1.2; see
+# STAGE_2_LOG.md S4.
 queue: light
 steps:
   - name: lint
-    run: devenv tasks run base:lint
+    run: devenv tasks run -v base:lint

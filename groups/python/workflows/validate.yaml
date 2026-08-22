@@ -1,10 +1,14 @@
 # python/validate — shadows base/validate (CONCEPT.md §7.3).
+#
+# `-v` is load-bearing. pytest's failure report goes to stdout, and without the
+# flag `devenv tasks run` captures stdout and prints nothing, so a failed test
+# step logs `{}` (S4).
 queue: normal
 type: chain
 steps:
   - name: lint
-    run: devenv tasks run python:lint
+    run: devenv tasks run -v python:lint
   - name: typecheck
-    run: devenv tasks run python:typecheck
+    run: devenv tasks run -v python:typecheck
   - name: test
-    run: devenv tasks run python:test
+    run: devenv tasks run -v python:test

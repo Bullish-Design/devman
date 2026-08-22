@@ -17,10 +17,18 @@ and the namespace is the group's own name, so a group's names cannot collide
 with another group's (see `../base/README.md`).
 
 **A Python repository usually takes `[ "python" ]` alone.** Taking
-`[ "base" "python" ]` means defining `base:lint` and `python:lint` with the same
-body, because python shadows `check` and `validate` while base's `full-test`
-survives and still calls its own names. Take both only when you want that
-`full-test`.
+`[ "base" "python" ]` means defining `base:lint` and `base:test` as well,
+because python shadows `check` and `validate` while base's `full-test` survives
+and still calls its own names. Take both only when you want that `full-test`.
+
+The second set costs two lines rather than two bodies — a devenv task with only
+`after` and no `exec` runs its dependency and fails when that dependency fails
+(`STAGE_2_LOG.md`, S5):
+
+```nix
+tasks."base:lint".after = [ "python:lint" ];
+tasks."base:test".after = [ "python:test" ];
+```
 
 ## Shadowing
 
