@@ -339,3 +339,138 @@ enough to live without a repository's own ignore rules.
 
 **Charter impact:** **none.** §8 names watchexec and D7 chose it; this is what
 it takes to run one of them over many repositories.
+
+---
+
+## S6 — Criterion 13, measured four ways, and it does not hold as written
+
+**Answer:** the watchers do not chase each other — **the sequence always
+terminates, and your own edit always fires.** But criterion 13's wording, *"one
+save, exactly one run"*, holds only when the workflow's write changes nothing.
+When the formatter actually rewrites the file, one save produces **two runs, one
+of which does the work and one of which skips**. That is not a defect in the
+watcher; it is E1's recorded cost, arriving where E1 said it would.
+
+**Tested:** watchexec 2.5.1, Dagu 2.15.0, devenv 2.1.2, on the running service.
+Two throwaway projects, each importing `path:/tmp/s3-devman-src`:
+
+| Project | Group | Workflow | Writes its watched files? |
+|---|---|---|---|
+| `s3-fmt` | `python-format` | `format` — `ruff format .` | **yes** |
+| `s3-ctl` | `s3-control` (throwaway) | `look` — `ruff check --statistics` | no |
+
+Runs are counted from `.devman/.runs/metadata.jsonl`, one line per run, and
+every dispatch is recorded by the watcher in `<registry>/watch/fired.jsonl` with
+millisecond timestamps. `dagu status --run-id` gives each run's step status,
+which is what separates a run that worked from a run that skipped.
+
+### Test 1 — a save the formatter does not change: **exactly one run**
+
+```
+SAVE (already-formatted content)      14:51:00.401
+fired                                 14:51:00.860   s3-fmt/format
+run  034BiLtIqSQhTv7XFy7jLQ           18:51:01Z      succeeded
+```
+
+One save, one dispatch, one run. Criterion 13 as written.
+
+### Test 2 — a save the formatter rewrites: **two runs, one of them a skip**
+
+```
+SAVE (badly formatted)                14:51:43.951
+fired                                 14:51:44.349   <- 0.40s after the save
+run  034BiMziIo8bUgvhqPRdSx           18:51:45Z      format [succeeded]  "1 file reformatted"
+fired                                 14:51:45.854   <- 1.9s after the save: the FORMATTER's write
+run  034BiN23dw8G4rvUWVhn6b           18:51:48Z      format [skipped]
+                                                     <- and then nothing. It stops.
+```
+
+The millisecond stamps are what make this readable: the second dispatch is 1.5
+seconds after the first and half a second after the first run started, so it is
+the formatter's own write and not a duplicate of the save.
+
+**The second run's step is `skipped` and the run is `Succeeded`.** That is E1's
+step-level precondition doing exactly what it was chosen for — and the reason
+the group file uses the step-level form rather than the DAG-level one, which
+would have recorded `Aborted` and filled the history with runs that look like
+failures.
+
+### Test 3 — the test a suppression window passes and must not: **your own edit fires**
+
+`STAGE_3_PROMPT.md` §8 step 4: edit again immediately after the formatter's
+write. A debounce window swallows this; a content hash does not.
+
+```
+SAVE 1 (badly formatted)              14:52:41.210
+fired                                 14:52:41.622
+run  034BiORlNK60XjUEc4r5UT           18:52:43Z   format [succeeded]
+fired                                 14:52:43.947   <- the formatter's write
+SAVE 2, 3.0s after save 1             14:52:44.228   <- while run 2 was still queued
+fired                                 14:52:44.679
+run  034BiOVOG8jUqGoC1JVQn6           18:52:46Z   format [succeeded]   <- WORKED AGAIN
+run  034BiOWXK8lZfY4ee5U6IR           18:52:47Z   format [skipped]
+fired                                 14:52:46.918
+run  034BiOa5Er1opQr0ZmPFJ7           18:52:49Z   format [skipped]
+```
+
+```
+$ cat sample.py
+def f(x):
+    return x + 1
+
+
+def immediately(q):
+    return q                          <- the second edit was formatted
+```
+
+Two saves, four runs, **two of which did work**, and it stopped. The run at
+18:52:46 is the one that matters: it was enqueued by the *formatter's* event,
+and by the time its precondition was evaluated the developer had edited the file
+again, so the hash differed and it ran. A window would have suppressed that run
+and left the second edit unformatted until something else happened.
+
+### Test 4 — the control: a workflow that does not write its watched files
+
+```
+SAVE in s3-ctl                        14:53:42.447
+fired                                 14:53:42.869   s3-ctl/look
+run  034BiQ02xazTZde7HSehnf           18:53:43Z      succeeded
+                                                     <- and nothing else, ever
+```
+
+**Exactly one run.** This is the control the prompt asks for, and it is what
+separates "loop-breaking works" from "nothing ever runs twice": the same watcher,
+the same glob, one run instead of two, because there is no second write.
+
+The run did write inside the watched repository — `ruff check` left a
+`.ruff_cache/` — and that produced no event, because the group's glob is
+`**/*.py`. **The glob is the first filter and the ignore list is the second.**
+
+### What this does to criterion 13
+
+Criterion 13 was written before E1 measured where the skip happens. E1 records
+the cost in one line — *"The check moved from the trigger to the run. §8.1 skips
+before anything is enqueued. Dagu skips after. A skipped run still consumes a
+queue slot and writes a history record"* — and criterion 13's wording was never
+reconciled with it.
+
+Counting runs, the failure criterion 13 exists to catch is **unbounded**: run,
+write, run, write, forever. What was measured is **bounded and self-stopping**,
+with the terminating run doing no work. So the criterion needs to say what it
+means rather than be quietly failed or quietly reinterpreted:
+
+> **13 — the watchers do not chase each other.** A file-writing workflow plus a
+> watcher on those files: one save produces exactly one run **that does work**,
+> and the sequence stops within one further run, which skips. A workflow that
+> does not write its watched files produces exactly one run. Then edit again
+> immediately: it must run again, which is what a content hash gives and a
+> suppression window does not.
+
+**The alternative was considered and rejected.** devman could compare the hash
+*before* enqueueing and get "exactly one run" literally. That is §8.1 — the
+section E1 deleted — rebuilt inside the plane, and §8 is explicit that the plane
+owns neither loop-breaking mechanism. It would also move a per-workflow decision
+into machinery that must not know what a workflow does.
+
+**Charter impact:** **changes §14, criterion 13.** Applied in its own commit,
+per rule 4.
