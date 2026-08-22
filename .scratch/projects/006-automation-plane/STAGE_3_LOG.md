@@ -781,3 +781,130 @@ check fire without waiting a week. `devman doctor` exits 1 when it has findings.
 
 **Charter impact:** **none.** §9.2, §16 and D5 all say this; it had never been
 run on the installed plane.
+
+---
+
+## S11 — The four decisions `STAGE_3_PROMPT.md` §7 asked for, stated
+
+**1. Where the glob-to-workflow mapping lives.** `groups/<group>/triggers.toml`,
+resolved at evaluation time and recorded in the registry entry — **S4**, with the
+format corrected in **S7**. Reactivity is its own group, because §7.4's argument
+for having no per-workflow option does not survive a workflow that triggers
+itself.
+
+**2. Whether `devman run` resolves a cross-repo workflow's parameters.** **Yes,
+by reading the parameter's default value rather than its name** — S3. A declared
+parameter whose default names a registered project is filled with that project's
+path, so parameter *names* stay the workflow's own business and §7.1's closed
+list of four stays closed.
+
+**3. What `doctor` does about a stale entry: it reports by default and prunes
+behind `--prune`.**
+
+§10 allows either. The reason for the flag is not caution about the registry —
+§9.3 makes pruning safe, and a wrongly pruned entry restores itself on the next
+shell entry. It is that **`doctor` is the command a developer runs to find out
+what is wrong**, often when something is already broken, and a diagnostic that
+deletes state by default is one a person hesitates to run. §9.1 also records the
+one case where "the path is gone" is a lie rather than a fact: an unmounted disk.
+Reporting costs a sentence; pruning without being asked costs that project's
+projection until somebody notices.
+
+**Evidence — both halves, on the three throwaways this stage created:**
+
+```
+$ devman doctor
+!!  stale entries  s3-ctl -> /tmp/s3-ctl (gone) — its workflows still project and
+                   would pass, vacuously, in a directory Dagu creates
+                   … s3-fmt, s3-hook …
+                   run `devman doctor --prune` to remove them
+
+$ devman doctor --prune
+!!  stale entries  s3-ctl -> /tmp/s3-ctl (gone) — pruned, 3 links removed
+                   s3-fmt -> /tmp/s3-fmt (gone) — pruned, 3 links removed
+                   s3-hook -> /tmp/s3-hook (gone) — pruned, 7 links removed
+
+DAGs before: 24        DAGs after: 19
+```
+
+That is §10's "`doctor` must also unproject the pruned project's workflows",
+and it is how stage 3's throwaways were removed — by the command that exists for
+it, rather than by hand as stage 2 had to.
+
+**4. Which name the CLI ships under, and where it comes from.** **`devman`, from
+`nixosModules.default` only.**
+
+The name is free: stage 1 removed `devman 0.2.0` from the profile and the user
+activated the removal (`STAGE_1_LOG.md`, S11). `command -v devman` found nothing
+before this stage.
+
+It ships from the machine interface alone, and the reason is §3.1's second rule —
+**what the two interfaces share must be text**, with `nix/dagu.nix` the single
+measured exception. A Python program is not text. Two further arguments point the
+same way:
+
+- Shipping it from the devenv module as well would put **two `devman` binaries
+  on one PATH**, resolved by profile order. That is precisely the hazard §3.3
+  records against `devman 0.2.0`, recreated with two versions of the new one.
+- **A devenv shell inherits the machine profile's PATH**, so one machine-side
+  install already reaches every repository shell on that machine. The second
+  copy would buy nothing and cost a build under each repository's nixpkgs.
+
+`packages.default` is the CLI, which is what §3.1's table says it should be;
+`packages.dagu` stays beside it.
+
+The wrapper carries `--registry` and `--dagu-home` as **flags**, not as
+`DEVMAN_*` variables: Dagu passes every `DEVMAN_*` in the enqueueing process's
+environment through to the run, so a fifth name would arrive in every workflow's
+environment (§7.1, A2).
+
+---
+
+## S12 — Stage 3 against §14, criterion by criterion
+
+Run against the installed service, six real projects, 19 DAGs, and three
+throwaways built and pruned. Compare stage 2's S17.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | one flake, two interfaces, one version | **holds** — `nix flake check` passes, machine re-pinned to `main@60813cf`; the CLI and the watcher come from the same rev as the groups |
+| 2 | a repo adopts in three lines | **holds** — devman's own adoption of `python-format` is one word in `groups` and one task |
+| 3 | a repo may take no groups | **holds** — unchanged from stage 2 |
+| 4 | a repo may rename or replace every default | **holds** — unchanged; `devman show <name>` now prints the file to start an override, and stderr carries the provenance so the redirect stays byte-exact |
+| 5 | shadowing is exact | **holds** — and `doctor` now reports the drift: siteman's `full-test` keeps 7 of 9 executable lines, which reproduces S14's measurement from the registry rather than from a script |
+| 6 | a workflow is portable Dagu | **holds** — unchanged |
+| 7 | devenv stays on the fast path | **holds, not re-measured.** Registration gained one `builtins.fromTOML` at evaluation time and one more field in the entry; nothing new forks in the hook. The paired delta was +7.08 ms at its 95% upper bound with schema 2 (S3 of stage 2) |
+| 8 | registration is idempotent | **holds** — unchanged |
+| 9 | only opted-in repos register | **holds** — unchanged |
+| 10 | no workflow contains an absolute path | **holds** — including the cross-repo workflow, whose parameter defaults are project *names* (S3) |
+| 11 | identity survives a move | **holds** — unchanged, untested again here |
+| 12 | queues are real | **holds** — and S8's runaway is the proof at scale: 60 runs went through the `light` queue's limit of 4, and 19 were still waiting when the watcher was killed |
+| 13 | the watchers do not chase each other | **holds, against the corrected wording** — one save, one run that works, one run that skips, then nothing; the control produces exactly one run; the immediate second edit fires (S6). The criterion's wording changed, in its own commit |
+| 14 | the task graph exists once | **holds** — see below |
+| 15 | a rebuild is inconvenient, not catastrophic | **holds** — `<registry>/watch/` is the only new machine-side state, and deleting it costs the answer to "what did it last fire", which the next event restores |
+| 16 | devman adopts itself | **holds, further** — devman now takes the reactive group as well, and `devman run format` ran `ruff format` in this repository through the plane |
+| 17 | there is one way in | **holds** — and it survived a new pressure: the CLI adds `run`, `show`, `doctor` and `watch`, and **not one of them writes a registry entry.** `doctor --prune` only removes. Nothing in stage 3 gives the registry a second entry path |
+
+### Criterion 14, and the question the prompt asked about it
+
+> *"check the watcher's glob-to-workflow mapping does not become a second graph"*
+
+It does not, and the reason is structural rather than careful. A `triggers.toml`
+line maps **one glob to one workflow name**. It cannot express an order, a
+dependency, or a condition: there is nowhere to put one. What runs after
+`format` is `format`'s own business, stated in `format.yaml` as Dagu steps, and
+what those steps depend on is devenv's, stated as task dependencies.
+
+The mapping says *when*, the workflow says *what*, and devenv says *how*. That
+is §6's split with one more layer on top, and the new layer holds no edges.
+
+### What stage 3 did not do
+
+| Item | Why |
+|---|---|
+| activate the machine change | `nixos-rebuild switch` is the user's. `nix-meta` is committed at `2b30d1f` and checked by evaluation: the unit's ExecStart is `devman watch`, and the toplevel builds |
+| re-measure criterion 7 | nothing new forks in `enterShell`; the added work is one `fromTOML` at evaluation time. Worth a sweep when something else forces one |
+| a second reactive group | `python-format` is the only one, and §16's promotion rule applies — a group begins when a *second* repository wants the same file |
+| repository-level trigger overrides | §15.2's whitelist allows `.devman/workflows/` and `.devman/.runs/` only, and widening it is a charter change no measurement has forced (S4) |
+| pushing the five adopted repositories | still five commits waiting in five working trees, as stage 2 left them |
+| `hist_retention_days` observed at its own predicate | seven days cannot be waited out; S10 used `hist_retention_runs` on the real service, which D5 established shares the same code path |
