@@ -2893,6 +2893,51 @@ catastrophic" becomes "the plane half-works and blames your config".
 **One sentence, and then stopping as §1 requires:** `devman doctor` can detect
 this exactly — compare `config.yaml`'s mtime against the service start time.
 
+### E4 addendum — `handler_on` inherits too, and it can write §9.2's `metadata.json`
+
+Measured during the reconciliation pass, on 2026-08-22, because §9.2's
+`metadata.json` owner turned on it.
+
+`base.yaml`:
+
+```yaml
+working_dir: ${DEVMAN_PROJECT_DIR}
+log_dir: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs
+handler_on:
+  exit:
+    run: |
+      mkdir -p "$DEVMAN_PROJECT_DIR/.devman/.runs"
+      printf '{"dag":"%s","run_id":"%s","status":"%s"}\n' \
+        "$DAG_NAME" "$DAG_RUN_ID" "$DAG_RUN_STATUS" \
+        >> "$DEVMAN_PROJECT_DIR/.devman/.runs/metadata.jsonl"
+```
+
+Two workflows, each holding nothing but `steps:` — one succeeding, one `exit 3`.
+
+**Command:**
+
+```
+DEVMAN_PROJECT_DIR=/tmp/devman-e/projA dagu enqueue r1_meta     -- DEVMAN_PROJECT_DIR=/tmp/devman-e/projA
+DEVMAN_PROJECT_DIR=/tmp/devman-e/projA dagu enqueue r1_metafail -- DEVMAN_PROJECT_DIR=/tmp/devman-e/projA
+```
+
+**Evidence:**
+
+```
+{"dag":"r1_meta","run_id":"034BMd0JlZC0Cpe1gYRMFJ","status":"succeeded"}
+{"dag":"r1_metafail","run_id":"034BMdTBawo91O9mgnEBK4","status":"failed"}
+```
+
+**A machine-written exit handler produces a per-project run record for every
+run, on both the success and the failure path, with no workflow carrying
+anything.** `$DEVMAN_PROJECT_DIR` resolves in the handler because the handler
+runs in the executing process, the same source `working_dir` uses (A7). This
+gives A3's open question — "either a workflow writes `metadata.json` itself, or
+`devman doctor` projects it out of Dagu's history" — a third and better answer.
+
+**Charter impact:** **changes §9.2**, in the direction A3 asked to be made
+explicit.
+
 ---
 
 ## Tier 3 — the catalogue
