@@ -1,0 +1,88 @@
+# base/maintain — keep this project's run tree from growing forever, and ask
+# the plane how it is (CONCEPT.md §13, stage 4).
+#
+# ---------------------------------------------------------------------------
+# WHAT MAINTENANCE IS HERE, AND WHY IT IS TWO THINGS
+#
+# `hist_retention_days` in the machine's base.yaml prunes both halves of a run:
+# Dagu's machine-side history and the per-project log tree under `log_dir` (D5,
+# S10). It does NOT prune `.devman/.runs/reports/` or `.runs/artifacts/`. Those
+# two directories are created at registration and owned by nobody, and stage 4
+# is what starts filling them — `review` writes a report on every run and
+# `release` writes one plus an artifact. Left alone they grow without limit, and
+# §9.2's trap makes it worse: retention is per DAG and runs when that DAG runs,
+# so a project whose workflows stop running keeps everything it ever wrote.
+#
+# So this workflow does the part no other owner has, and then asks `devman
+# doctor` — the one thing in this design allowed to tell the developer something
+# (§5.2) — for everything else.
+#
+# IT PRUNES REPORTS AND NEVER ARTIFACTS. A report is regenerable text; an
+# artifact is the thing you were about to ship. Deleting one unattended is
+# exactly §10-of-the-prompt's failure — a successful run that did the wrong
+# thing — so artifacts are counted and reported, and a person removes them.
+#
+# ---------------------------------------------------------------------------
+# WHY `KEEP_DAYS` IS A PARAMETER AND NOT A READ OF THE MACHINE'S SETTING
+#
+# The right number is the machine's `hist_retention_days`, so that reports age
+# out with the logs they describe. A workflow cannot read it: it is Dagu's own
+# field in `base.yaml`, inherited into the run rather than exposed to it, and
+# reading `base.yaml` from a step would put a machine-specific absolute path in
+# this file (§9.1, criterion 10). So the default is stated here, matching the
+# module's own default, and the drift is named rather than hidden. A repository
+# or a timer that wants another number passes `KEEP_DAYS=30`.
+#
+# DECLARING ONE PARAMETER MEANS DECLARING `DEVMAN_PROJECT_DIR` TOO. Dagu rejects
+# a parameter a DAG did not declare, and `devman run` always passes the
+# directory variable (src/devman/run.py:92). A workflow declares none, or it
+# declares that one first (STAGE_4_LOG.md, S3). It is not the cross-repo case
+# §11 forbids: this workflow triggers no other DAG, so it targets its own
+# project and holding the name is correct.
+queue: light
+type: chain
+steps:
+  - id: prune
+    name: prune
+    run: |
+      set -u
+      report=".devman/.runs/reports/maintain-${context.run.id}.md"
+      mkdir -p .devman/.runs/reports .devman/.runs/artifacts
+
+      before=$(find .devman/.runs/reports -type f | wc -l)
+      find .devman/.runs/reports -type f -mtime +"$KEEP_DAYS" -delete
+      after=$(find .devman/.runs/reports -type f | wc -l)
+
+      {
+        echo "# maintain — ${context.dag.name}"
+        echo
+        echo "- run id: \`${context.run.id}\`"
+        echo "- started: ${context.attempt.started_at}"
+        echo "- keep days: $KEEP_DAYS"
+        echo
+        echo '## this project'
+        echo
+        echo "- reports: $before before, $after after — $((before - after)) pruned"
+        echo "- artifacts: $(find .devman/.runs/artifacts -mindepth 1 | wc -l) entries," \
+             "**never pruned here** — remove them by hand"
+        echo "- log trees: $(find .devman/.runs/logs -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l)," \
+             "pruned by the machine's hist_retention_days when this project's DAGs run"
+        echo
+        echo '## the plane'
+        echo '```'
+      } > "$report"
+      cat "$report"
+
+  - id: doctor
+    name: doctor
+    run: |
+      set -u
+      report=".devman/.runs/reports/maintain-${context.run.id}.md"
+      devman doctor >> "$report" 2>&1
+      rc=$?
+      printf '```\n' >> "$report"
+      cat "$report"
+      exit "$rc"
+params:
+  - DEVMAN_PROJECT_DIR: ""
+  - KEEP_DAYS: "7"

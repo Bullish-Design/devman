@@ -63,6 +63,7 @@ file (§7.3). The plane does not police what a name means.
 | `validate.yaml` | `normal` | `base:lint`, `base:test` |
 | `full-test.yaml` | `heavy` | `base:lint`, `base:test`, `devenv test` |
 | `review.yaml` | `normal` | what changed, `base:lint`, `base:test` — and a report |
+| `maintain.yaml` | `light` | prune this project's old reports, then `devman doctor` |
 
 `review` is the only one that produces a document rather than an exit code. It
 writes `.devman/.runs/reports/review-<run id>.md` holding the head commit, the
@@ -144,6 +145,24 @@ Three things to know before taking it (measured in `STAGE_3_LOG.md`, S9):
   than the tree that was committed.
 - **It costs a devenv input** — about 20 ms on every shell entry — and a
   generated `.pre-commit-config.yaml` in the working tree.
+
+`maintain` needs no task either. It exists because `hist_retention_days` prunes
+Dagu's history and the per-project **log** tree and nothing else: the `reports/`
+and `artifacts/` directories under `.devman/.runs/` are created at registration
+and owned by nobody, and stage 4 is what starts filling them. It prunes reports
+older than `KEEP_DAYS` (default 7, the module's own default), **counts artifacts
+and never deletes one**, and then runs `devman doctor` and appends its output. A
+run fails when `doctor` has findings, which is the signal a timer should carry.
+
+```bash
+devman run maintain                 # keep 7 days
+devman run maintain KEEP_DAYS=30    # keep 30
+```
+
+`KEEP_DAYS` cannot default to the machine's `hist_retention_days`, because that
+is Dagu's own field in `base.yaml` — inherited into a run rather than readable
+from one, and reading the file would put a machine-specific absolute path into a
+group workflow. The two numbers are stated in two places and the group says so.
 
 ## Running one of these on a schedule
 
