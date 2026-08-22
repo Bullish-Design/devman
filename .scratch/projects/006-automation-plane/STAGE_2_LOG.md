@@ -572,3 +572,67 @@ name in `with.params` directs one child deliberately, which is the behaviour
 
 **Charter impact:** **changes §11.** Applied in its own commit, per
 `STAGE_2_PROMPT.md` rule 4.
+
+---
+
+## S9 — Criterion 5, shadowing is exact
+
+**Answer:** **holds.** A group file copied into `.devman/workflows/` unedited
+projects byte-for-byte identically. Edit one step and exactly that step changes.
+
+**Measured in a throwaway repository on purpose.** The five adopted repositories
+are §12.4's sample, and a shadow created to test the mechanism rather than
+because a repository needed one would be a fabricated data point in the very
+measurement this stage exists to make.
+
+**Command:** a repo taking `[ "base" "python" ]`, so the file being copied is
+already the winner of a shadow.
+
+```bash
+cp "$(readlink -f $REG/projects/s2-projS/workflows/check.yaml)" .devman/workflows/check.yaml
+devenv shell -- true
+diff "$SRC" "$REG/projects/s2-projS/workflows/check.yaml"
+```
+
+**Evidence — the unedited copy:**
+
+```
+$ readlink $REG/projects/s2-projS/workflows/check.yaml
+/tmp/s2t/projS/.devman/workflows/check.yaml      <- the repo's file now wins
+$ readlink $REG/dags/s2-projS-check.yaml
+../projects/s2-projS/workflows/check.yaml        <- the flat view follows
+$ diff "$SRC" "$REG/.../check.yaml" && echo IDENTICAL
+IDENTICAL
+```
+
+and the registry records both halves of what `doctor` needs:
+
+```
+"local": ["check"]
+check -> {'group': 'python', 'shadows': ['base'],
+          'source': '/nix/store/...-devman-python-check.yaml'}
+```
+
+`local` names the winner; `source` names what it shadows.
+
+**Evidence — one step edited:**
+
+```diff
+--- /nix/store/...-devman-python-check.yaml
++++ /tmp/s2t/registry/projects/s2-projS/workflows/check.yaml
+@@ -8,4 +8,4 @@
+    - name: typecheck
+-    run: devenv tasks run python:typecheck
++    run: devenv tasks run python:typecheck --verbose
+```
+
+Two changed lines in the unified diff, and nothing else moved.
+
+**One thing worth stating, because it is not obvious from §7.3.** The edit was
+live **without re-projection**. The projection is a symlink into the working
+tree, so editing a shadowing file changes what Dagu reads immediately; the
+rendered entry does not change, so the guard takes the silent branch and the
+projection script never runs. The entry only has to notice a file being **added
+or removed**, which is what `local` is for.
+
+**Charter impact:** **none.** Criterion 5 holds.
