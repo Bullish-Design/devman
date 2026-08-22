@@ -636,3 +636,296 @@ projection script never runs. The entry only has to notice a file being **added
 or removed**, which is what `local` is for.
 
 **Charter impact:** **none.** Criterion 5 holds.
+
+---
+
+## S10 — The plane, running, and criterion 6
+
+**Answer:** the service came up on the real ports and **criterion 6 holds**. One
+group file, unedited, ran correctly in all five adopted repositories — four
+Python/Rust/shell/Nix toolchains, and not one of them needed the file changed.
+
+**Command:** `nixos-rebuild switch` (the user's), then the hand trigger from
+`.devman/workflows/README.md`.
+
+**Evidence — the service:**
+
+```
+$ systemctl --user is-active dagu
+active
+$ ss -ltnp | grep -E ':(8080|50055)'
+LISTEN 127.0.0.1:50055  users:(("dagu",pid=655128,fd=3))
+LISTEN 127.0.0.1:8080   users:(("dagu",pid=655128,fd=11))
+$ dagu ls | wc -l ; dagu ls | grep -c '^example-'
+18
+0
+```
+
+`skip_examples` held (stage 1 S9), `$HOME` expanded correctly in `dags_dir`, and
+there were **no duplicate-name warnings** with five projects each projecting a
+`check.yaml`. S1 predicted that collision would fire "the moment a second
+repository adopts the plane"; the flat `dags/` view carried it five deep.
+
+**Evidence — criterion 6, five repositories, one unedited `check.yaml`:**
+
+| repo | group | result |
+|---|---|---|
+| observantic | python | Succeeded |
+| siteman | base | Succeeded |
+| nix-paseo | base | Succeeded |
+| pyjutsu | base | Succeeded |
+| pydantree | python | **Failed** — 920 ruff findings |
+
+pydantree's failure is a **correct run of a correct file**. Criterion 6 asks
+that a group file runs correctly, not that every repository passes.
+
+### The evidence that S4's fix was worth making
+
+The whole point of S4 was that the log used to hold `{}`. It now holds the
+tool's own output, on both paths:
+
+```
+$ cat observantic/.devman/.runs/logs/.../lint.*.out
+All checks passed!
+{}
+$ cat observantic/.devman/.runs/logs/.../typecheck.*.out
+Success: no issues found in 10 source files
+{}
+
+$ wc -l < pydantree/.devman/.runs/logs/.../lint.*.out
+15824                                    <- ruff's 920 findings, in the log
+```
+
+### The trigger, checked the way §8 says to
+
+A green run is not evidence the trigger was right. It was:
+
+```
+$ tail -1 observantic/.devman/.runs/metadata.jsonl
+{"dag":"observantic-check", ... "status":"succeeded",
+ "log":"/home/andrew/Documents/Projects/observantic/.devman/.runs/logs/..."}
+$ find / -type d -name '${DEVMAN_PROJECT_DIR}'
+(nothing)
+$ git status --porcelain          # in each of the five
+(clean)
+```
+
+Logs in the project that triggered the run, `metadata.jsonl` written by
+`base.yaml`'s handler and by no workflow, no literally-named directory, and no
+repository dirtied by a run.
+
+**Charter impact:** **none.** Criterion 6 holds.
+
+---
+
+## S11 — Criterion 12, three ways
+
+**Answer:** **holds.** Two workflows in two different projects, both naming
+`exclusive`, serialize strictly when enqueued — and the control shows it is the
+queue doing it rather than everything serializing.
+
+**Command:** two throwaway projects, `groups = [ ]`, each carrying its own
+`exclusive.yaml` and `light.yaml`, registered through the ordinary shell-entry
+path and triggered through the real trigger. Each step records an epoch
+timestamp at start and at end.
+
+**Evidence — `exclusive`, `max_concurrency: 1`, enqueued:**
+
+```
+START s2q-a 1787418909.562398254
+END   s2q-a 1787418914.573887734
+START s2q-b 1787418915.571360665     <- 0.997s AFTER a ended
+END   s2q-b 1787418920.581408341
+```
+
+**Evidence — `light`, `max_concurrency: 4`, the control:**
+
+```
+START s2q-b 1787418949.583006689
+START s2q-a 1787418949.585829576     <- 3ms apart, fully overlapped
+END   s2q-b 1787418954.592264384
+END   s2q-a 1787418954.593605742
+```
+
+The queue enforces the configured number, not a fixed one.
+
+**Evidence — the same two `exclusive` DAGs via `dagu start` instead:**
+
+```
+START s2q-b 1787418987.082046559
+START s2q-a 1787418987.088674604     <- 6ms apart. The queue is bypassed.
+END   s2q-b 1787418992.092759400
+END   s2q-a 1787418992.099545848
+```
+
+A6 measured this on a hand-started Dagu; it reproduces on the real service. It
+is why the trigger convention is `enqueue` and why `devman run` must never grow
+a `--now` that calls `start`.
+
+Two different projects, not two runs of one DAG: `max_active_runs` governs one
+DAG and is deprecated, while the queue governs across DAGs, and across-DAGs is
+the claim.
+
+**Charter impact:** **none.** Criterion 12 holds.
+
+---
+
+## S12 — Criterion 16 ran, and took the whole DAG down with it
+
+**Answer:** the cross-repo workflow's children both succeeded in the right
+directories — and the run reported **Failed**, because `base.yaml`'s exit handler
+cannot write anywhere. §11's rule and §9.2's handler were incompatible, and
+nothing but running it would have shown that.
+
+**Evidence — the first run:**
+
+```
+├─observantic-check (…) [succeeded]  subdag: … [DEVMAN_PROJECT_DIR="…/observantic"]
+├─siteman-check     (1.0s) [succeeded]  subdag: … [DEVMAN_PROJECT_DIR="…/siteman"]
+└─onExit (0s) [failed]
+  │   /tmp/dagu_script-291123385.sh:1: no such file or directory:
+  │   /.devman/.runs/metadata.jsonl
+  └─error: exit status 1
+
+Result: Failed
+```
+
+§11 forbids a cross-repo workflow from holding `DEVMAN_PROJECT_DIR`, because a
+parent exports its parameters into every child's environment and outranks the
+child's own `with.params`. `base.yaml`'s handler appends to
+`"$DEVMAN_PROJECT_DIR/.devman/.runs/metadata.jsonl"`. With the variable unset
+that is `/.devman/.runs/metadata.jsonl`, the append fails, and a failed exit
+handler fails the run. **Every cross-repo workflow would have reported Failed,
+forever, after doing its work perfectly.**
+
+### The fix, and the measurement that constrained it
+
+`${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}` in the handler. It works because a
+handler's `run:` is a bash script (S2).
+
+**It does not generalise to `working_dir`, and that was measured rather than
+assumed.** Dagu does **not** support shell-style defaults:
+
+```yaml
+working_dir: ${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}
+```
+
+```
+$ pwd -P        # inside the step
+/home/andrew/.paseo/worktrees/1n48r26y/special-dragon/${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}
+```
+
+The whole string is kept literal and treated as a **relative path**. That is the
+same documentation/behaviour gap E2 found for `$(…)` and backticks, in a third
+form. So a cross-repo workflow still states its own `working_dir` and `log_dir`,
+and only the handler gets the fallback.
+
+**Evidence — after the fix**, applied by hand to `base.yaml` and re-run:
+
+```
+└─onExit (0s) [succeeded]
+Result: Succeeded
+
+$ tail -1 devman/.devman/.runs/metadata.jsonl
+{"dag":"devman-stack-validate", … "status":"succeeded", …}
+```
+
+**And `base.yaml` is read per run, not at startup.** The service was not
+restarted between the failing and the succeeding run. That is worth recording
+beside §5.2's "the instance `config.yaml` is read only at startup", because the
+two files behave differently and only one of them needs a restart.
+
+### `DEVMAN_SELF_DIR` is now a global name, so §7.1's list is four
+
+§11 already required "a second name" and never said which. A workflow choosing
+its own would silently not be recorded, because the machine's handler has to
+know it. The machine states it once, which is §7.1's own design principle.
+
+### What a child run does NOT produce, which §9.2 half-predicted
+
+A child triggered by `action: dag.run` does its work in the right directory and
+leaves **nothing** in that project:
+
+```
+$ cat observantic/.devman/.runs/metadata.jsonl        # after the cross-repo run
+{"dag":"observantic-check", "run_id":"034Bfuyz…"}     <- only the standalone run
+$ ls observantic/.devman/.runs/logs/
+observantic-check                                     <- only the standalone run
+
+$ grep -rl <child-run-id> $DAGU_HOME/data
+…/dag-runs/devman-stack-validate/dag-runs/…/sub/<child-run-id>/…/status.jsonl
+```
+
+§9.2 predicted this for **history** — "a child run is stored nested under its
+parent's record". It is also true of the **logs and `metadata.jsonl`**, for the
+same reason A3 and E2 give: `log_dir` is resolved by the process that enqueues,
+and for a child that process is the parent's. The run output of a cross-repo run
+lands entirely in the parent's project, which is defensible — one run, one
+place — but a developer looking in `observantic` for why a stack validation
+failed will find nothing, so it has to be written down.
+
+**Charter impact:** **changes §7.1, §9.2 and §11.** Applied in its own commit.
+
+---
+
+## S13 — Criteria 15 and 17, at eight projects
+
+**Answer:** **both hold.** Deleting Dagu's state *and* the registry, then
+entering eight shells, restored the plane **byte for byte**.
+
+**Command:**
+
+```bash
+rm -rf ~/.local/share/dagu ~/.local/share/devman
+systemctl --user restart dagu
+# then `devenv shell -- true` in each of the eight registered checkouts
+```
+
+**Evidence — immediately after the delete:**
+
+```
+$ dagu ls
+Rebuilding DAG definition index dir=/home/andrew/.local/share/devman/dags
+No DAGs found
+```
+
+The service came back up and recreated its two directories from `ExecStartPre`;
+the registry was empty, so the plane knew nothing.
+
+**Evidence — after eight shell entries:**
+
+```
+before: 44 links, 8 entries, 22 DAGs
+after : 44 links, 8 entries, 22 DAGs
+
+LINKS:   identical
+ENTRIES: identical
+DAGU LS: identical
+```
+
+Every symlink and its target, every `metadata.json`, and Dagu's own view — all
+three compared byte for byte, all three unchanged. Stage 1's S10 proved this
+with three throwaway repositories; this is eight, five of them real.
+
+**And every workflow runs again**, which is the half of criterion 15 that a
+directory comparison does not show:
+
+```
+observantic-check  Result: Succeeded
+siteman-check      Result: Succeeded
+```
+
+**What was NOT lost, which is the point of §9.2's two locations.** Run output is
+repo-side, so deleting all machine-side state cost nothing:
+
+```
+observantic  metadata.jsonl 2 lines   logs/ 1 workflow
+siteman      metadata.jsonl 2 lines   logs/ 1 workflow
+```
+
+**One thing the exercise demonstrated by accident.** The restart reinstalled
+`base.yaml` from the Nix store, discarding the hand-applied S12 fix. That is
+`ExecStartPre` doing its job — the store is the source of truth for that file,
+and the fix has to ship in the module and arrive by rebuild.
+
+**Charter impact:** **none.** Criteria 15 and 17 hold.
