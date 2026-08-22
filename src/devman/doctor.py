@@ -121,7 +121,28 @@ def check_plane(rep: Report, base_url: str) -> bool:
 
 
 def check_queues(rep: Report, base_url: str) -> None:
-    """A wedged queue explains itself. Read it, do not reimplement it (E5)."""
+    """A wedged queue explains itself. Read it, do not reimplement it (E5).
+
+    **WAITING IS NOT WEDGED, AND THIS CHECK USED TO CONFUSE THE TWO.** It
+    reported `!!` for any queue with a queued item, which is what a queue is
+    for. Nothing noticed until stage 4 gave the machine enough work to have two
+    runs in flight at once: four `maintain` runs fired together filled the
+    `light` queue for about a second, `doctor` called it a finding, exited 1,
+    and failed three of the four runs — a maintenance workflow reporting itself
+    as a fault (`STAGE_4_LOG.md`, S14).
+
+    §15.3 asks this check to diagnose a **wedged** plane, and the difference is
+    whether anything is draining the queue:
+
+    * queued **and** something running — the queue is working. `ok`, with the
+      counts, because a developer wondering why a run has not started should
+      still be able to see it.
+    * queued **and nothing running** — nothing will drain it. `!!`.
+    * an item carrying a failed condition — `!!`, with Dagu's own reason. A
+      merely-queued item carries no conditions at all on 2.15.0; this stays
+      because it is the path E5 measured and it is Dagu reporting, not devman
+      guessing.
+    """
     try:
         data = _get(base_url, "/api/v1/queues")
     except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -135,10 +156,17 @@ def check_queues(rep: Report, base_url: str) -> None:
             "queues", "ok", [f"{len(queues)} queues, {running} running, none waiting"]
         )
         return
+
     lines = []
+    wedged = False
     for q in waiting:
+        draining = q.get("runningCount", 0) > 0
+        state = "draining" if draining else "NOTHING RUNNING — wedged"
+        wedged = wedged or not draining
         lines.append(
-            f"{q['name']}: {q['queuedCount']} waiting, limit {q.get('maxConcurrency')}"
+            f"{q['name']}: {q['queuedCount']} waiting, "
+            f"{q.get('runningCount', 0)} running, limit {q.get('maxConcurrency')}"
+            f" — {state}"
         )
         for run in q.get("running", []):
             lines.append(
@@ -151,11 +179,12 @@ def check_queues(rep: Report, base_url: str) -> None:
         for item in items.get("items", [])[:3]:
             for cond in item.get("conditions", []):
                 if cond.get("status") == "False":
+                    wedged = True
                     lines.append(
                         f"  {item.get('name')}: {cond.get('reason')} — {cond.get('message')}"
                     )
                     break
-    rep.add("queues", "!!", lines)
+    rep.add("queues", "!!" if wedged else "ok", lines)
 
 
 # ---------------------------------------------------------------------------

@@ -1403,3 +1403,125 @@ unchanged, because the shell is not a name the plane shares — it is a property
 of the machine that the trigger must stop overriding. It belongs beside
 `--dagu-home`, which S2 of stage 3 forced for the same reason: **a trigger
 states its target and never inherits it.**
+
+---
+
+## S14 — `maintain` reported itself as a fault, because `doctor` confused waiting with wedged
+
+**Answer:** four `maintain` runs fired together filled the `light` queue for
+about a second. `devman doctor`'s queue check reported that as a finding, exited
+1, and **failed three of the four runs.** The plane was healthy throughout. The
+defect is `doctor`'s, not `maintain`'s, and it had been there since stage 3 —
+invisible until stage 4 gave the machine enough work to have two runs in flight
+at once.
+
+**Command** — the ordinary thing to do after re-pinning four repositories:
+
+```bash
+for p in siteman pyjutsu nix-paseo pydantree; do devman run maintain --project $p; done
+```
+
+**Evidence:**
+
+```
+siteman   maintain: Failed
+pyjutsu   maintain: Failed
+nix-paseo maintain: Failed
+pydantree maintain: Succeeded        <- ran last, by which time the queue had drained
+
+$ dagu status siteman-maintain
+├─prune  (0s) [succeeded]
+├─doctor (2.0s) [failed]  error: exit status 1
+Result: Failed
+```
+
+**Evidence — what `doctor` said, out of the report the failed run still wrote:**
+
+```
+!!  queues        light: 1 waiting, limit 4
+                    held by nix-paseo-maintain 034Bp1wcVPXjfNExhc5Wua since 19:23:08
+                    held by pyjutsu-maintain   034Bp1wG5SOs46lNVfWnKn since 19:23:08
+                    held by siteman-maintain   034Bp1vtlNRyXDLN5m40HL since 19:23:08
+…
+4 findings.
+```
+
+**One waiting item against a limit of four, with three runs in flight.** That is
+a queue doing its job. Run from a prompt thirty seconds later the same `doctor`
+exited 0.
+
+### Why the check was wrong, read rather than assumed
+
+`check_queues` flagged `!!` for **any** queue with a queued item:
+
+```python
+waiting = [q for q in queues if q.get("queuedCount")]
+if not waiting:
+    ... ok ...
+rep.add("queues", "!!", lines)      # <- everything else
+```
+
+§15.3 asks this check to diagnose a **wedged** plane, and §10 records why it
+reads rather than computes: *"a wedged queue, and why — every waiting item
+carries a reason and a message"*. Measured on 2.15.0, a merely-queued item
+carries **no conditions at all**:
+
+```
+$ curl -s http://127.0.0.1:8080/api/v1/queues/light/items
+{"items":[{"dagRunId":"034Bp4Doo5QpvV8bFwpyll","name":"siteman-maintain",
+           "queuedAt":"2026-08-22T19:24:38-04:00","startedAt":"",
+           "status":5,"statusLabel":"queued","triggerType":"manual"}]}
+```
+
+So there was no reason to print, and the check printed a verdict instead.
+
+### The fix: whether anything is draining the queue
+
+| State | Verdict |
+|---|---|
+| queued **and** something running | **`ok`**, with the counts — a developer wondering why a run has not started can still see it |
+| queued **and nothing running** | **`!!`** — nothing will drain it |
+| an item carrying a failed condition | **`!!`**, with Dagu's own reason and message |
+
+The third branch stays because it is the path E5 measured; it is Dagu reporting
+rather than devman guessing.
+
+**Evidence — all three branches, against the built CLI:**
+
+```
+draining (2 waiting, 3 running)    -> ok
+        light: 2 waiting, 3 running, limit 4 — draining
+wedged (2 waiting, 0 running)      -> !!
+        light: 2 waiting, 0 running, limit 4 — NOTHING RUNNING — wedged
+failed condition on an item        -> !!
+        light: 1 waiting, 2 running, limit 4 — draining
+          a-check: Blocked — another run holds it
+```
+
+**Evidence — and against the live plane under real contention**, five `maintain`
+runs fired at once:
+
+```
+ok  queues         light: 4 waiting, 2 running, limit 4 — draining
+                     held by nix-paseo-maintain 034Bp5f21QejxVs74NMI1e
+                     held by pydantree-maintain 034Bp5ezCA3CYluJaatNoH
+```
+
+### What this says about stage 4 rather than about one function
+
+**`maintain` is the first workflow that observes the plane from inside it**, and
+that is what exposed this. Every earlier workflow ran commands in a repository;
+this one asks the plane how it is, while being a thing the plane is doing. Two
+consequences worth carrying forward:
+
+1. **A diagnostic that a workflow's exit code depends on must distinguish "busy"
+   from "broken".** `maintain` propagating `doctor`'s exit code is right — a
+   maintenance run that finds a real problem should be red — and it is only
+   useful if `doctor` is right about what a problem is.
+2. **The failure was self-inflicted and self-reported**, which is the shape D6
+   asked for: three runs failed, and each still wrote the report that explains
+   why, because the `prune` step had already written it before the `doctor` step
+   ran.
+
+**Charter impact:** **none.** §15.3 already says `doctor` must diagnose a wedged
+plane, and this is `doctor` finally distinguishing one.
