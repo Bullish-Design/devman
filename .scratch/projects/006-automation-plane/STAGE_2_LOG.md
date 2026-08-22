@@ -167,11 +167,11 @@ paired delta = -2.57 ms   sd 85.32   95% CI [-12.23, +7.08]   spread [-511.9, +5
 
 **Two honest caveats, and the first matters more than the number.**
 
-The absolute entry cost is **856 ms**, against S4's 218 ms. Nothing in the
-module explains that: the machine was at load average 4.4, largely from the
-agent session doing this work, and these repositories carry a `path:` devman
-input that S4's did not. Criterion 7 is a paired delta precisely because the
-absolute figure measures the machine.
+The absolute entry cost is **856 ms**, against the 218 ms `STAGE_1_LOG.md` S4
+recorded. Nothing in the module explains that: the machine was at load average
+4.4, largely from the agent session doing this work, and these repositories
+carry a `path:` devman input that stage 1's did not. Criterion 7 is a paired
+delta precisely because the absolute figure measures the machine.
 
 An 80-run sweep taken first gave a 95% CI of **[-51.18, +13.92]** — wider than
 the budget it is meant to test, so it bounded nothing. That is why this entry
