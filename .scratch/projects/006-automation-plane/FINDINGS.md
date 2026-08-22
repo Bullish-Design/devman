@@ -4505,3 +4505,222 @@ which is vindicated.** Three additions:
 There is still **no `devman unregister`**, and none is needed. Criterion 17
 survives: the way out is deleting the repository, and `doctor` is what reconciles
 the derived state afterwards.
+
+---
+
+## C7 — Does NixOS restart a systemd *user* service on activation?
+
+**Answer:** **yes, on this machine's nixpkgs, and §5.2's requirement is met.**
+`switch-to-configuration` visits the user scope, spawns itself as each user
+logind lists, and stops-then-starts a user unit whose file changed — which a
+`restartTriggers` change is, because it rewrites the `X-Restart-Triggers=` line.
+**No extra mechanism is needed.** Investigation B's parenthetical — "NixOS does
+not restart user services on activation" — is wrong for nixpkgs
+`26.11.20260705.d407951`.
+
+But §5.2's *description of the symptom* is wrong, and that half is a real change.
+When the restart does not happen, **nothing reports an error**. The run is
+accepted, it runs, and the only trace is a line in the server's own log giving
+the wrong concurrency.
+
+**Tested:** nixpkgs `26.11.20260705.d407951` (the tree `nixos-rebuild` uses on
+this machine), dagu 2.15.0, devman `c9426b6`, on 2026-08-22. Run in a
+throwaway NixOS test VM. **The machine was not modified**: no `nixos-rebuild
+switch`, no `/etc/nixos/` edit, and the real Dagu instance was never contacted.
+
+**Command:**
+
+```bash
+cd .scratch/projects/006-automation-plane/c-scratch
+nix build .#checks.x86_64-linux.c7
+```
+
+The scratch flake defines one node importing this repo's
+`nix/nixos-module.nix`, plus a **`specialisation`** carrying the only
+difference — `services.devman-dagu.queues` gains `light = 4` and `heavy = 2`.
+A specialisation rather than a second `nixosConfiguration` is deliberate: the
+two generations then differ in exactly one thing, so a restart that happens can
+only be the unit file change. The user is `tester` with `linger = true`, so a
+user manager exists and logind lists them.
+
+### 1. Does activation act on a user unit at all? Yes.
+
+**Evidence — `switch-to-configuration test`, stdout verbatim:**
+
+```
+Checking switch inhibitors... done
+activating the configuration...
+setting up /etc...
+reloading user units for tester...
+stopping the following user units: dagu.service
+starting the following user units: dagu.service
+restarting the following user units: nixos-activation.service
+restarting sysinit-reactivation.target
+reloading the following units: dbus-broker.service
+the following new units were started: sysinit-reactivation.target, systemd-tmpfiles-resetup.service
+```
+
+and the VM's journal, from the **user** manager (`systemd[620]`, not PID 1):
+
+```
+systemd[620]: Stopping Dagu — devman automation plane...
+dagu[712]: level=INFO msg="Received shutdown signal" signal=terminated
+systemd[620]: Stopped Dagu — devman automation plane.
+systemd[620]: Reexecution requested from client PID 954 ('switch-to-confi')...
+systemd[620]: Reloading...
+systemd[620]: Starting Dagu — devman automation plane...
+systemd[620]: Started Dagu — devman automation plane.
+```
+
+The service restarted **inside the activation**, before
+`switch-to-configuration` returned:
+
+```
+X-Restart-Triggers (A) = /nix/store/sxlpv98vpx8d7yxd4802pn1bj0sc87wc-X-Restart-Triggers-dagu
+X-Restart-Triggers (B) = /nix/store/mjscgga9fjv3258kv18kscpvgidwy7f4-X-Restart-Triggers-dagu
+unit file changed : True
+trigger changed   : True
+dagu InvocationID (A) = ec6f3f7baa8148ff8dbedf7b1f5051a9   MainPID (A) = 712
+dagu InvocationID (B) = 35a15d12f8da485bbc942ee82aa64032   MainPID (B) = 972
+>>> RESTARTED IN THE SAME ACTIVATION: True
+config.yaml rewritten: True
+```
+
+`config.yaml` was rewritten because the unit's `ExecStartPre` reinstalls it, and
+`ExecStartPre` ran because the unit restarted. **The two facts §5.2 needs to
+happen together did happen together.**
+
+### 2. Why it works, from the source rather than from the option's existence
+
+`pkgs/by-name/sw/switch-to-configuration-ng/src/main.rs` in the machine's
+nixpkgs, 3107 lines. Two things matter.
+
+**`X-Restart-Triggers` is never read by name.** Searching the file finds only
+`X-Reload-Triggers`, nine times. `restartTriggers` needs no special handling:
+it renders a line into the unit file, the unit file therefore differs between
+generations, and the generic "this unit changed → restart it" path fires.
+`X-Reload-Triggers` is the one that needs special handling, because it must
+downgrade a restart to a reload.
+
+**The user scope runs the same comparison as the system scope.** After the
+system units are done, the main path iterates logind's users and re-executes
+itself as each one:
+
+```rust
+// Reload user units
+match logind.list_users() {
+    ...
+    for (uid, name, user_dbus_path) in users {
+        eprintln!("reloading user units for {name}...");
+        let status = std::process::Command::new(&myself)
+            .uid(uid).gid(gid).env_clear()
+            .env("XDG_RUNTIME_DIR", runtime_path)
+            .env("__NIXOS_SWITCH_TO_CONFIGURATION_PARENT_EXE", &myself)
+            .env("TOPLEVEL", &toplevel).env("OLD_TOPLEVEL", &old_toplevel)
+            .env("NIXOS_ACTION", Into::<&'static str>::into(action))
+            .spawn()...
+```
+
+The child runs `do_user_switch`, which builds `UnitScope::User`
+(`etc/systemd/user`, `/etc/systemd/user`) and then calls the **same**
+`collect_unit_changes` the system scope calls, with the same
+`units_to_stop` / `units_to_start` / `units_to_restart` / `units_to_reload`
+maps. That is why the mechanism works and why nothing devman-specific is needed.
+
+**Two boundaries, both from that code.**
+
+- **Only users logind lists.** A user who is neither logged in nor lingering has
+  no user manager, so nothing is restarted for them — and nothing was running
+  for them either, so there is no divergence. The unit is correct the next time
+  they log in. `linger = true` is what makes a headless machine's Dagu both run
+  and get restarted; the test VM sets it.
+- **Units shadowed by `~/.config/systemd/user` are deferred**, not skipped: pass
+  1 filters them by `FragmentPath`, and pass 2 acts once the per-user activation
+  (home-manager's `sd-switch`) has removed its copy. A repo-side or
+  home-manager-side `dagu.service` would therefore shadow the NixOS one until
+  that second pass. Worth knowing; not a problem for §4 as written.
+
+`systemd.user.startServices` does not exist in this nixpkgs — `grep -rn
+startServices nixos/` returns nothing. It is a home-manager option, not a NixOS
+one, and it is not the mechanism here.
+
+### 3. What the developer sees when the restart does not happen
+
+Built by hand, so the answer exists on record independently of question 1:
+generation A's server left running, generation B's `config.yaml` installed
+underneath it, then a workflow enqueued to the queue only generation B knows.
+
+```yaml
+# generation A's config.yaml — what the server is running
+queues:
+  config:
+  - max_concurrency: 1
+    name: exclusive
+  enabled: true
+
+# generation B's config.yaml — what is on disk
+queues:
+  config:
+  - max_concurrency: 1
+    name: exclusive
+  - max_concurrency: 2
+    name: heavy
+  - max_concurrency: 4
+    name: light
+  enabled: true
+```
+
+```
+$ dagu enqueue c7probe --run-id c7run1        # c7probe declares `queue: light`
+level=INFO msg="Enqueued dag-run" dag=c7probe run-id=c7run1 params=[]     rc=0
+
+$ dagu status c7probe
+Status: Running                                                          rc=0
+
+$ dagu ps
+DAG      RUN_ID  ATTEMPT  STARTED               GROUP  FRESH
+c7probe  c7run1  5ec7e2   2026-08-22T13:18:51Z  light  yes
+```
+
+**Everything reports success.** No error, no warning, no non-zero exit, and
+`dagu ps` even prints `GROUP=light` as though the queue were real. The single
+trace of the divergence is one line in the server's own log:
+
+```
+level=INFO msg="Processing batch of items" queue=light count=1 max-concurrency=1 alive=0
+```
+
+**`max-concurrency=1`.** The queue was configured for 4. After a restart, the
+same DAG, the same command, the same config file on disk:
+
+```
+level=INFO msg="Processing batch of items" queue=light count=1 max-concurrency=4 alive=1
+```
+
+So the failure mode of a missed restart is not an error message — it is **a
+queue silently running at the wrong concurrency**, at `INFO` level, in a log
+nobody reads. That is §15.4's "a misspelled queue is not a migration problem, it
+is an unobservable one", arriving by a second route: a queue that is spelled
+correctly and simply has not reached the server yet.
+
+### 4. What the charter must change
+
+**Charter impact:** **changes §5.2**, in two places, and **none for §4** or the
+module.
+
+- **The requirement is met, not merely stated.** §5.2's "a machine module that
+  rewrites `config.yaml` must restart the service in the same activation" is
+  satisfied by `restartTriggers` alone, on nixpkgs 26.11.20260705. §5.2 should
+  say so and name the nixpkgs revision the answer was measured on, because it is
+  a property of `switch-to-configuration`, not of NixOS in general — and
+  Investigation B's note assuming otherwise should be struck.
+- **The symptom description is wrong.** §5.2 says the CLI "honours the new
+  config while the server does not — reporting an error that names the very
+  setting you already added". Measured: **no error is reported at all.** The
+  enqueue succeeds, the run runs, and the queue silently takes a concurrency the
+  developer did not configure. Replace the sentence with the measured symptom.
+- **§4 or §5.2 should require `users.users.<name>.linger = true`** for the user
+  that owns the plane, or state that the plane is only live while that user is
+  logged in. The restart mechanism reaches exactly the users logind lists.
+
+**`kills §5.2` was a live outcome and did not happen.** The guarantee holds.

@@ -1,0 +1,24 @@
+{
+  "nodes": {
+    "machine-nixpkgs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 0,
+        "narHash": "sha256-8i/87eeoqiGE4yOTjwSA3Eh/ziJRQEmd/unYU+K27sk=",
+        "path": "/nix/store/ifpab9hxqmk2biwy594da8ipxzsp3y4s-source",
+        "type": "path"
+      },
+      "original": {
+        "path": "/nix/store/ifpab9hxqmk2biwy594da8ipxzsp3y4s-source",
+        "type": "path"
+      }
+    },
+    "root": {
+      "inputs": {
+        "machine-nixpkgs": "machine-nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
