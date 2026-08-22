@@ -1,0 +1,141 @@
+{
+  "tombstones": [],
+  "units": [
+    {
+      "derived": {
+        "body": "return \" \".join(value.strip().lower().split())",
+        "docstring": "Return a normalized catalog name.",
+        "end_byte": 641,
+        "fingerprint": "98ef75449a952764261cda04c4647066de8c622690b6580f4137a7de7b64dea5",
+        "imports": [],
+        "signature": "def normalize_name(value: str) -> str:",
+        "source": "def normalize_name(value: str) -> str:\n    \"\"\"Return a normalized catalog name.\"\"\"\n    return \" \".join(value.strip().lower().split())",
+        "start_byte": 508
+      },
+      "examples": [],
+      "kind": "function",
+      "module": "catalog",
+      "parent_id": "u-d51d1592c2bedd9a",
+      "qualified_name": "normalize_name",
+      "spec": "{\"source_contract\":\"def normalize_name(value: str) -> str:\\n    \\\"\\\"\\\"Return a normalized catalog name.\\\"\\\"\\\"\\n    return \\\" \\\".join(value.strip().lower().split())\",\"summary\":\"Preserve catalog::normalize_name.\"}",
+      "unit_id": "u-1c506ad1f47ba8ba"
+    },
+    {
+      "derived": {
+        "body": "return tuple(self.entries)",
+        "docstring": "Return all catalog names.",
+        "end_byte": 1107,
+        "fingerprint": "8e27abe011240e5d0191dd96da8ea9a5ed531303badd4d7830e21abda8f17b55",
+        "imports": [],
+        "signature": "def names(self) -> tuple[str, ...]:",
+        "source": "def names(self) -> tuple[str, ...]:\n        \"\"\"Return all catalog names.\"\"\"\n        return tuple(self.entries)",
+        "start_byte": 997
+      },
+      "examples": [],
+      "kind": "method",
+      "module": "catalog",
+      "parent_id": "u-42daa932da4a5683",
+      "qualified_name": "Catalog.names",
+      "spec": "{\"source_contract\":\"def names(self) -> tuple[str, ...]:\\n        \\\"\\\"\\\"Return all catalog names.\\\"\\\"\\\"\\n        return tuple(self.entries)\",\"summary\":\"Preserve catalog::Catalog.names.\"}",
+      "unit_id": "u-3ce69179b7619e18"
+    },
+    {
+      "derived": {
+        "body": "entries: list[str]",
+        "docstring": "Hold normalized catalog entries.",
+        "end_byte": 1364,
+        "fingerprint": "65132045469a803e91085a4fbdaec4f30823aad2098ce64f536dafd3b32e8c63",
+        "imports": [
+          "from dataclasses import dataclass"
+        ],
+        "signature": "class Catalog:",
+        "source": "@dataclass(frozen=True, slots=True)\nclass Catalog:\n    \"\"\"Hold normalized catalog entries.\"\"\"\n\n    entries: list[str]",
+        "start_byte": 680
+      },
+      "examples": [],
+      "kind": "class",
+      "module": "catalog",
+      "parent_id": "u-d51d1592c2bedd9a",
+      "qualified_name": "Catalog",
+      "spec": "{\"source_contract\":\"@dataclass(frozen=True, slots=True)\\nclass Catalog:\\n    \\\"\\\"\\\"Hold normalized catalog entries.\\\"\\\"\\\"\\n\\n    entries: list[str]\",\"summary\":\"Preserve catalog::Catalog.\"}",
+      "unit_id": "u-42daa932da4a5683"
+    },
+    {
+      "derived": {
+        "body": "wanted = normalize_name(prefix)\nreturn [entry for entry in self.entries if entry.startswith(wanted)]",
+        "docstring": "Return entries that start with a normalized prefix.",
+        "end_byte": 991,
+        "fingerprint": "2842d38386689412b09d001d41b473d3de337dc0b18f9dd2f6396564c76f47b5",
+        "imports": [],
+        "signature": "def find(self, prefix: str) -> list[str]:",
+        "source": "def find(self, prefix: str) -> list[str]:\n        \"\"\"Return entries that start with a normalized prefix.\"\"\"\n        wanted = normalize_name(prefix)\n        return [entry for entry in self.entries if entry.startswith(wanted)]",
+        "start_byte": 767
+      },
+      "examples": [],
+      "kind": "method",
+      "module": "catalog",
+      "parent_id": "u-42daa932da4a5683",
+      "qualified_name": "Catalog.find",
+      "spec": "{\"source_contract\":\"def find(self, prefix: str) -> list[str]:\\n        \\\"\\\"\\\"Return entries that start with a normalized prefix.\\\"\\\"\\\"\\n        wanted = normalize_name(prefix)\\n        return [entry for entry in self.entries if entry.startswith(wanted)]\",\"summary\":\"Preserve catalog::Catalog.find.\"}",
+      "unit_id": "u-4519b2f3b79e1890"
+    },
+    {
+      "derived": {
+        "constants": [
+          "DEFAULT_LIMIT = 10"
+        ],
+        "docstring": "\"\"\"Provide a small searchable catalog.\"\"\"",
+        "future_imports": [
+          "from __future__ import annotations"
+        ]
+      },
+      "examples": [],
+      "kind": "module",
+      "module": "catalog",
+      "parent_id": null,
+      "qualified_name": "<module>",
+      "spec": "{\"source_contract\":\"\\\"\\\"\\\"Provide a small searchable catalog.\\\"\\\"\\\"\",\"summary\":\"Preserve module material.\"}",
+      "unit_id": "u-d51d1592c2bedd9a"
+    },
+    {
+      "derived": {
+        "body": "wanted = normalize_name(name)\nfor entry in self.entries:\n            if entry == wanted:\n                return entry\nraise KeyError(wanted)",
+        "docstring": "Return one entry or raise KeyError.",
+        "end_byte": 1364,
+        "fingerprint": "64118e1755c53b99894062fc604d9bedcccbbd7741ce6a3b37c8c633d2b549c3",
+        "imports": [],
+        "signature": "def require(self, name: str) -> str:",
+        "source": "def require(self, name: str) -> str:\n        \"\"\"Return one entry or raise KeyError.\"\"\"\n        wanted = normalize_name(name)\n        for entry in self.entries:\n            if entry == wanted:\n                return entry\n        raise KeyError(wanted)",
+        "start_byte": 1113
+      },
+      "examples": [],
+      "kind": "method",
+      "module": "catalog",
+      "parent_id": "u-42daa932da4a5683",
+      "qualified_name": "Catalog.require",
+      "spec": "{\"source_contract\":\"def require(self, name: str) -> str:\\n        \\\"\\\"\\\"Return one entry or raise KeyError.\\\"\\\"\\\"\\n        wanted = normalize_name(name)\\n        for entry in self.entries:\\n            if entry == wanted:\\n                return entry\\n        raise KeyError(wanted)\",\"summary\":\"Preserve catalog::Catalog.require.\"}",
+      "unit_id": "u-e563bd38662f87d4"
+    },
+    {
+      "derived": {
+        "body": "entries = [normalize_name(value) for value in values if value.strip()]\nif len(entries) > limit:\n        raise ValueError(f\"catalog limit exceeded: {limit}\")\nreturn Catalog(entries)",
+        "docstring": "Build a catalog from non-empty normalized values.",
+        "end_byte": 505,
+        "fingerprint": "369ed82aac816238c4c1951b36af6ac432d0db7edb162f2993a2c95967a6982d",
+        "imports": [
+          "from collections.abc import Iterable"
+        ],
+        "signature": "def build_catalog(values: Iterable[str], limit: int=DEFAULT_LIMIT) -> Catalog:",
+        "source": "def build_catalog(values: Iterable[str], limit: int = DEFAULT_LIMIT) -> Catalog:\n    \"\"\"Build a catalog from non-empty normalized values.\"\"\"\n    entries = [normalize_name(value) for value in values if value.strip()]\n    if len(entries) > limit:\n        raise ValueError(f\"catalog limit exceeded: {limit}\")\n    return Catalog(entries)",
+        "start_byte": 172
+      },
+      "examples": [],
+      "kind": "function",
+      "module": "catalog",
+      "parent_id": "u-d51d1592c2bedd9a",
+      "qualified_name": "build_catalog",
+      "spec": "{\"source_contract\":\"def build_catalog(values: Iterable[str], limit: int = DEFAULT_LIMIT) -> Catalog:\\n    \\\"\\\"\\\"Build a catalog from non-empty normalized values.\\\"\\\"\\\"\\n    entries = [normalize_name(value) for value in values if value.strip()]\\n    if len(entries) > limit:\\n        raise ValueError(f\\\"catalog limit exceeded: {limit}\\\")\\n    return Catalog(entries)\",\"summary\":\"Preserve catalog::build_catalog.\"}",
+      "unit_id": "u-ee9eacb282587e5a"
+    }
+  ]
+}

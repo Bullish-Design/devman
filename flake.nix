@@ -1,132 +1,26 @@
 {
-  description = "devman - DevEnv project templating system for NixOS";
+  description = "devman - development automation plane";
+
+  # The development environment is driven by `devenv.yaml` and entered with
+  # `devenv shell`. It is not duplicated here: an earlier `devShells` output
+  # re-declared a partial copy of devenv.yaml's inputs and had been broken for
+  # some time in two independent ways, which is what an unused second path
+  # looks like.
+  #
+  # This flake is a placeholder for the plane's own outputs, which arrive at
+  # stage 1:
+  #
+  #   nixosModules.default   one Dagu service, queues, registry paths
+  #   modules/               the repo interface, imported via devenv.yaml
+  #   packages.default       the devman CLI
+  #
+  # See .scratch/projects/006-automation-plane/CONCEPT.md §3.1. Nothing is
+  # added here until the investigations in KICKOFF_PROMPT.md answer whether one
+  # flake can carry both module interfaces (§12.3).
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    devenv = {
-      url = "github:cachix/devenv";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    codex-cli = {
-      url = "github:sadjow/codex-cli-nix?ref=main";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    claude-code = {
-      url = "github:sadjow/claude-code-nix?ref=main";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = inputs@{ self, nixpkgs, devenv, codex-cli, claude-code, ... }:
-    let
-      lib = nixpkgs.lib;
-      mkDevmanCore = system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          python = pkgs.python313;
-        in
-        python.pkgs.buildPythonApplication {
-          pname = "devman";
-          version = "0.2.0";
-          format = "pyproject";
-          src = ./.;
-
-          nativeBuildInputs = with python.pkgs; [
-            hatchling
-          ];
-
-          propagatedBuildInputs = with python.pkgs; [
-            typer
-            rich
-            pathlib-abc
-            pydantic
-            pyyaml
-            tomli-w
-          ];
-
-          doCheck = false;
-
-          meta = with pkgs.lib; {
-            description = "DevEnv project templating system for NixOS development environments";
-            homepage = "https://github.com/Bullish-Design/devman";
-            license = licenses.mit;
-            maintainers = [ ];
-            mainProgram = "devman";
-          };
-        };
-      mkDevmanEnv = {
-        system,
-        withCodexCli ? true,
-        withClaudeCode ? true,
-      }:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          devman-core = mkDevmanCore system;
-          toolPaths = [
-            devman-core
-          ]
-          ++ lib.optional withCodexCli codex-cli.packages.${system}.default
-          ++ lib.optional withClaudeCode claude-code.packages.${system}.default;
-          description = "devman with codex-cli and claude-code";
-        in
-        pkgs.buildEnv {
-          name = "devman-env";
-          paths = toolPaths;
-          meta = {
-            inherit description;
-            mainProgram = "devman";
-          };
-        };
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
-    in
-    {
-      packages = forAllSystems (system:
-        let
-          devman-core = mkDevmanCore system;
-        in
-        ({
-          devman = devman-core;
-          devman-tools = mkDevmanEnv { inherit system; };
-          default = mkDevmanEnv { inherit system; };
-          codex-cli = codex-cli.packages.${system}.default;
-          claude-code = claude-code.packages.${system}.default;
-        })
-      );
-
-      devShells = forAllSystems (system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          inputs = {
-            inherit nixpkgs devenv codex-cli claude-code;
-          };
-        in
-        {
-          default = devenv.lib.mkShell {
-            inherit pkgs;
-            modules = [
-              { _module.args = { inherit inputs; }; }
-              ./devenv.nix
-            ];
-          };
-        }
-      );
-
-      homeManagerModules.default = { config, lib, pkgs, ... }: {
-        options.programs.devman = {
-          enable = lib.mkEnableOption "devman";
-        };
-
-        config = lib.mkIf config.programs.devman.enable {
-          home.packages = [ self.packages.${pkgs.system}.default ];
-        };
-      };
-
-      lib.mkDevmanEnv = mkDevmanEnv;
-    };
+  outputs = { self, nixpkgs, ... }: { };
 }

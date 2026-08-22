@@ -1,0 +1,5 @@
+status=failed
+boundary=evidence environment metadata collection
+error=PackageNotFoundError: pydantree-sitter has no installed distribution metadata
+last_confirmed=artifact directory created; no parsing or rendering started
+fix=fall back to pydantree_sitter.__version__ for source-tree dependencies

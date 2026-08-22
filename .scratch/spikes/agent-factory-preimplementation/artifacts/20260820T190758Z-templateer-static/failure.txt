@@ -1,0 +1,8 @@
+status=failed
+boundary=static lint and format checks
+classification=probe code quality
+first_failure=F401 unused import textwrap
+additional_failure=I001 import ordering and two files not formatted
+runtime_started=false
+accepted_state_mutated=false
+fix=remove unused import and run Ruff formatting

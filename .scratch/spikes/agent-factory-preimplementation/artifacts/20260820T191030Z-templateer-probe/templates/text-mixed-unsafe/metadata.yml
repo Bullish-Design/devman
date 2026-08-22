@@ -1,0 +1,22 @@
+name: text-mixed-unsafe
+description: Local raw Python boundary probe.
+
+output:
+  path: module.py
+  language: text
+
+schema:
+  module: schema
+  class: MixedModel
+
+prompt:
+  file: prompt.md
+
+renderer:
+  engine: minijinja
+  file: template.j2
+
+validators:
+  - kind: parse
+    language: python
+

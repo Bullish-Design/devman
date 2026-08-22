@@ -1,0 +1,35 @@
+xE
+======================================================================
+ERROR: test_current_and_comparison_boundaries (test_templateer_contract.TemplateerBoundaryProbeTests.test_current_and_comparison_boundaries)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-preimplementation/test_templateer_contract.py", line 20, in test_current_and_comparison_boundaries
+    results = run_probe(Path(directory) / "artifacts")
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-preimplementation/templateer_probe.py", line 175, in run_probe
+    registry.render_from_model("text-validated", {"sections": ["def broken("]})
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/andrew/Documents/Projects/devman/../templateer_v2/src/templateer/api.py", line 237, in render_from_model
+    model = schema_class.model_validate(model_data)
+  File "/home/andrew/Documents/Projects/devman/../pydantree/.devenv/state/venv/lib/python3.13/site-packages/pydantic/main.py", line 732, in model_validate
+    return cls.__pydantic_validator__.validate_python(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        obj,
+        ^^^^
+    ...<5 lines>...
+        by_name=by_name,
+        ^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/tmp/tmpi3z5k_77/artifacts/templates/text-validated/schema.py", line 12, in validate_python_fragment
+  File "/nix/store/3rhyvh4qcq9f3dljdwfcsvnz9gzlgps4-python3-3.13.14-env/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+  File "<unknown>", line 1
+    def broken(
+              ^
+SyntaxError: '(' was never closed
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.023s
+
+FAILED (errors=1, expected failures=1)

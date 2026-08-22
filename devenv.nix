@@ -48,10 +48,8 @@
   '';
 
   # https://devenv.sh/tasks/
-  # tasks = {
-  #   "myproj:setup".exec = "mytool build";
-  #   "devenv:enterShell".after = [ "myproj:setup" ];
-  # };
+  # No tasks yet. The plane's own workflows call `devenv tasks run <name>`;
+  # what those names are is the repository's business, not devman's.
 
   # https://devenv.sh/tests/
   enterTest = ''

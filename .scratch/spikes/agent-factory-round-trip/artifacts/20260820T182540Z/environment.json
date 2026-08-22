@@ -1,0 +1,11 @@
+{
+  "command": ".scratch/spikes/agent-factory-round-trip/run_spike.py --artifacts .scratch/spikes/agent-factory-round-trip/artifacts/20260820T182540Z",
+  "network": "disabled by spike contract",
+  "pydantic": "2.13.4",
+  "pydantree-sitter": "0.2.0",
+  "python": "3.13.14",
+  "ruff": "ruff 0.15.20",
+  "started_utc": "2026-08-20T18:25:49.874393+00:00",
+  "templateer": "0.2.0",
+  "tree-sitter-python": "0.25.0"
+}

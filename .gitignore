@@ -13,6 +13,13 @@ __pycache__/
 **archive**
 .tmuxp*
 
+# Design work under .scratch/ is tracked on purpose. The broad rules above --
+# **archive**, **.hidden**, **.agents/** -- would otherwise swallow reference
+# material kept beside a concept document. A directory must be re-included
+# before anything inside it can be.
+!.scratch/**/.archive
+!.scratch/**/.archive/**
+
 # C extensions
 *.so
 
