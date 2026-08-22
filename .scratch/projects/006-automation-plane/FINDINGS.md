@@ -1693,3 +1693,233 @@ declare that, and the reason hashes beat a timer.
 **One sentence, and then stopping as §1 requires:** `devman doctor` could read
 `data/materializations/manifests/` to explain why a workflow did no work. That is
 a reconciliation decision, not this session's.
+
+---
+
+## E2 — What actually invokes Dagu?
+
+**Bucket:** **answers** — §8's open mechanism, and D7.
+
+**Answer:** **six surfaces, and only one of them can serve devman.** Dagu has a
+rich trigger surface, and every HTTP-side member of it is queue-governed and
+accepts parameters. But **every HTTP surface resolves `log_dir` in the server
+process**, so none of them can put a run's logs under the project that triggered
+it. §8's trigger must stay a **local process that runs `dagu enqueue`**.
+
+**Tested:** dagu 2.15.0, on 2026-08-21, against a second instance on port 8090
+with `auth.mode: builtin` (the first instance runs `auth.mode: none`).
+
+### The surfaces
+
+| Surface | Queue-governed | Arbitrary params | Notes |
+|---|---|---|---|
+| `dagu start` | **no** (A6) | yes | local process |
+| `dagu enqueue` | **yes** | yes | local process |
+| `POST /api/v1/dags/{f}/start` | no | yes | server process |
+| `POST /api/v1/dags/{f}/start-sync` | no | yes | server process, blocks |
+| `POST /api/v1/dags/{f}/enqueue` | **yes** | yes | server process |
+| `POST /api/v1/webhooks/{f}` | **yes** | **no** | server process, token/HMAC |
+| MCP `dagu_execute` at `/mcp` | **yes** (`action=enqueue`) | yes | server process |
+| `schedule:` | **yes** | defaults only | Dagu's own cron |
+
+The HTTP `enqueue` body carries more than the CLI does:
+
+```
+params  dagRunId  dagName  profile  queue  singleton  noReuse  labels  tags
+```
+
+`queue` overrides the DAG's own queue at trigger time. `singleton` and `noReuse`
+have **no CLI equivalent** — `dagu enqueue --help` lists `--params`, `--queue`,
+`--profile`, `--labels`, `--no-reuse`, `--run-id`, `--name`, `--trigger-type`,
+and `--default-working-dir`, and no `--singleton`.
+
+### The finding that decides §8 — HTTP cannot write logs to the project
+
+A7 established that `log_dir` is resolved by **the process that enqueues**, from
+that process's environment. Over HTTP that process is the server, and a server
+has one environment. Measured with the exact devman shape:
+
+```yaml
+# e2_probe.yaml
+params:
+  - DEVMAN_PROJECT_DIR: /tmp/devman-e/projA
+working_dir: ${DEVMAN_PROJECT_DIR}
+log_dir: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs
+queue: exclusive
+```
+
+**Command:**
+
+```
+curl -s -X POST 'http://127.0.0.1:8080/api/v1/dags/e2_probe/enqueue' \
+  -H 'Content-Type: application/json' \
+  -d '{"params":"DEVMAN_PROJECT_DIR=/tmp/devman-e/projB"}'
+```
+
+**Evidence:**
+
+```
+{"dagRunId":"034BL5NBzkU7ClyfTYLFr6"}
+
+├─log: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/e2_probe/dag-run_.../dag-run_....log
+└─probe (0s) [succeeded]
+Result: Succeeded
+
+$ cat '<repo>/${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/e2_probe/.../probe....out'
+cwd=/tmp/devman-e/projB           <- working_dir DID resolve, from the param
+$ git status --porcelain
+?? ${DEVMAN_PROJECT_DIR}/         <- and the log path did not
+```
+
+**`working_dir` resolved and `log_dir` did not, in the same run.** Dagu created
+a directory literally named `${DEVMAN_PROJECT_DIR}` inside the daemon's working
+directory — this repository — and dirtied the tree. This is exactly the A3
+symptom, and over HTTP it is **not avoidable**: there is no per-request
+environment to supply the variable from.
+
+So the choice is a real one, and it is forced:
+
+- **local `dagu enqueue`** — logs land in the project (A3 measured it), the
+  trigger exports the variable and passes the param.
+- **any HTTP surface** — logs land in one machine-wide place, and §9.2's
+  "run output stays with the checkout that produced it" is lost.
+
+### Webhooks — real, queue-governed, and narrow
+
+**They require `auth.mode: builtin`.** With the instance's `auth.mode: none`,
+every webhook endpoint returns 401:
+
+```
+$ curl -X POST 'http://127.0.0.1:8080/api/v1/dags/e2_probe/webhook' -d '{}'
+{"code":"unauthorized","message":"Webhook management is not enabled"}
+```
+
+The gate is the store, not the role — `internal/service/frontend/api/v1/webhooks.go`:
+
+```go
+if a.authService == nil || !a.authService.HasWebhookStore() {
+    return &Error{ ... Message: "Webhook management is not enabled" ... }
+}
+```
+
+and the webhook store is only constructed on the builtin-auth path
+(`internal/service/frontend/file/stores.go`). So webhooks cost the plane a user
+store, a token secret, and an encryption key.
+
+**They are queue-governed.** Two webhook calls fired concurrently at a DAG with
+`queue: exclusive` (`max_concurrency: 1`), each sleeping 4 seconds:
+
+```
+START 1787367943.820990798    END 1787367947.837747818
+START 1787367949.811342117    END 1787367953.823032498     <- starts 2.0s after the first ends
+```
+
+Strictly serialized. **Unlike `dagu start`, a webhook run goes through the
+queue** — the API description says so ("The DAG run is enqueued and the endpoint
+returns immediately") and the run confirms it.
+
+**They cannot carry arbitrary parameters.** `WebhookRequest` has two fields:
+
+```yaml
+WebhookRequest:
+  properties:
+    dagRunId:   # optional idempotency key
+    payload:    # arbitrary JSON, passed as WEBHOOK_PAYLOAD
+```
+
+The payload does arrive as a **parameter**, not only an environment variable —
+`buildWebhookRuntimeParams` builds the string `WEBHOOK_PAYLOAD="..."
+WEBHOOK_HEADERS="..."`, and the run history shows it in the `PARAMS` column:
+
+```
+e2_hook  01a0276e-...  Succeeded  4s  WEBHOOK_PAYLOAD={"n":1,"project":"/tm...
+```
+
+But the names are fixed. A webhook cannot set `DEVMAN_PROJECT_DIR`.
+
+**And the payload cannot be turned into a path.** A2 recorded the schema's claim
+that interpolation accepts "shell-style expressions and command substitution".
+For `working_dir` that is **false**:
+
+```yaml
+working_dir: $(cat /tmp/devman-e/wdfile)      # file holds /tmp/devman-e/projB
+```
+
+```
+cwd=<...>/.vend/dagu/$(cat /tmp/devman-e/wdfile)
+```
+
+Backticks behave the same way:
+
+```yaml
+working_dir: "`cat /tmp/devman-e/wdfile`"
+```
+
+```
+cwd=/tmp/devman-e/dagu2/dags/`cat /tmp/devman-e/wdfile`
+```
+
+Both are kept literal, and Dagu creates the directory. **A fifth
+documentation/behaviour gap.** So a webhook payload cannot be parsed into
+`working_dir`, because nothing runs before the working directory is resolved.
+
+### MCP is a full trigger surface
+
+The server logs `MCP route configured path=/mcp` at startup. Three tools, after
+the standard initialize handshake:
+
+```
+- dagu_change  : Validate and optionally apply DAG definition or Markdown Wiki changes
+- dagu_execute : Run control entry point. action=start or enqueue ... retry and stop
+- dagu_read    : Read DAG specs, Wiki pages, DAG-run details, logs, list views
+```
+
+`dagu_execute` takes the full enqueue vocabulary — `params` as a JSON string,
+`queue`, `singleton`, `noReuse`, `labels`, plus `spec` for an **inline DAG**
+never written to `dags_dir`. It is the HTTP path, so the `log_dir` constraint
+applies unchanged.
+
+### `singleton` is the debounce E1 said was missing
+
+E1 noted that a Dagu-side skip still consumes a queue slot. `singleton` fixes
+that at the trigger. Three enqueues of a 4-second `exclusive` DAG, 0.3s apart:
+
+```
+{"dagRunId":"034BLCz8b2uCSP0WbRN4NT"}                                  http=200
+{"code":"already_exists","message":"DAG e2_hook is already in queue"}  http=409
+{"code":"already_exists","message":"DAG e2_hook is already running"}   http=409
+```
+
+One run. It distinguishes "already in queue" from "already running". **It is not
+available from the CLI**, so a local trigger cannot use it without going through
+the server — and going through the server costs the log path.
+
+### Charter impact
+
+**changes §8**, and it closes **D7**.
+
+§8 draws `filesystem change → watchexec → Dagu` and `commit / push → hook →
+Dagu` and leaves the arrow undefined. Define it:
+
+> **A trigger is a local process that runs `dagu enqueue`**, with
+> `DEVMAN_PROJECT_DIR` exported in its environment and passed as a parameter
+> (A3, A6). Dagu's HTTP, webhook, and MCP surfaces are real and queue-governed,
+> but they resolve `log_dir` in the server process, so a run triggered through
+> them cannot write its logs into the project that triggered it.
+
+Two consequences for §8's table, which currently says only "watchexec, hooks:
+detect that something happened":
+
+- The trigger layer is **not** a thin detector. It resolves the project, exports
+  a variable, passes a parameter, and — if debouncing is wanted — implements it,
+  because `singleton` is HTTP-only. That is §10's `devman run` doing the work,
+  which is consistent with §10's "`devman run` triggers a workflow", but §8
+  should stop implying the detector talks to Dagu directly.
+- **Triggers stay plane machinery.** They are not group content. The prompt asked
+  which; the answer is machinery, because the mechanism is fixed by A3 and cannot
+  vary per group.
+
+**One sentence, and then stopping as §1 requires:** if the plane ever wants
+webhook or MCP triggering (a CI push, an agent), §9.2 would have to give up
+per-project logs for those runs, or accept them under the machine-wide default.
+That is a reconciliation decision.
