@@ -151,3 +151,242 @@ proposed, evaluated, and handed over (rule 8 of the prompt's §8).
 
 **Charter impact:** **none.** This entry is stage 4's own definition of done,
 not an amendment to §14.
+
+---
+
+## S2 — Decision 1: Dagu's own scheduler cannot trigger a devman workflow, and the plane must stop saying it can
+
+**Answer:** a `schedule:` on any workflow the plane projects produces a run that
+**writes a directory named literally `${DEVMAN_PROJECT_DIR}` into the daemon's
+own tree, does its work in that directory, and then fails on the machine's exit
+handler.** Measured, all three at once. §8's table names `schedule → Dagu's own
+timer` as one of three trigger arrows; that arrow does not reach this plane.
+
+**Scheduled work is therefore triggered the same way a commit is: by a local
+process that runs `devman run` (S9 of stage 3).** The timer belongs to whoever
+wants the schedule, exactly as the hook does, and devman supplies no option and
+no command for it.
+
+**Tested:** Dagu 2.15.0, on a **throwaway instance** — `DAGU_HOME=/tmp/s4-dagu`,
+ports 8090 and 50065, its own `dags_dir` — carrying a byte copy of the installed
+plane's `base.yaml` and a port-shifted copy of its `config.yaml`. A throwaway,
+because the scheduler had to fire for real and the real plane's DAG directory is
+the registry: writing a DAG into it by hand is the second entry path D8 forbids.
+
+**Command** — the whole workflow, and it declares nothing unusual:
+
+```yaml
+# /tmp/s4-dagu/dags/s4_sched.yaml
+schedule: "* * * * *"
+steps:
+  - name: probe
+    run: |
+      echo "cwd=$(pwd)"
+      echo "PROJ=[$DEVMAN_PROJECT_DIR]"
+```
+
+```bash
+mkdir -p /tmp/s4-daemon-cwd && cd /tmp/s4-daemon-cwd
+DAGU_HOME=/tmp/s4-dagu dagu start-all          # the daemon's cwd is now visible
+```
+
+**Evidence — the daemon fired it twice, one minute apart:**
+
+```
+17:04:01 INFO msg="Dispatching planned run" dag=s4_sched scheduleType=Start
+17:05:00 INFO msg="Dispatching planned run" dag=s4_sched scheduleType=Start
+```
+
+**Evidence — what one firing left behind:**
+
+```
+$ ls -a /tmp/s4-daemon-cwd
+${DEVMAN_PROJECT_DIR}                          <- the S15 symptom, from a schedule
+
+$ cat '.../${DEVMAN_PROJECT_DIR}/.../probe....out'
+cwd=/tmp/s4-daemon-cwd/${DEVMAN_PROJECT_DIR}   <- working_dir did not resolve either
+PROJ=[]
+
+$ dagu status s4_sched
+├─probe  (0s) [succeeded]
+└─onExit (0s) [failed]  error: exit status 1
+Result: Failed
+$ cat '.../onExit....err'
+/tmp/dagu_script-161377995.sh:1: no such file or directory: /.devman/.runs/metadata.jsonl
+```
+
+**Three failures in one run, and they are not the same failure.**
+
+1. **`log_dir` did not resolve.** Known — fact 1, A3, E2, E8. The enqueueing
+   process is the daemon and the daemon has one environment for the machine.
+2. **`working_dir` did not resolve either**, which fact 1 does *not* say. A3's
+   table records `params` resolving `working_dir` and leaving `log_dir` literal,
+   but that is a run **given** a parameter. Under `schedule:` there is no
+   trigger to give one, and E2's table already records the schedule surface as
+   carrying **"defaults only"**. The declared default of `DEVMAN_PROJECT_DIR`
+   is empty, so *both* fields stay literal and the step runs in a directory
+   named after the variable that failed.
+3. **`base.yaml`'s exit handler failed and took the run down with it.** With
+   both of §7.1's directory names empty, the handler's fallback
+   `"${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}/.devman/.runs/metadata.jsonl"`
+   expands to `/.devman/.runs/metadata.jsonl` — which is stage 2's S12 failure,
+   arriving by a second route.
+
+**The third one is the only reason this is survivable**, and it is worth saying
+plainly. Failure 1 and failure 2 are both silent: a `Succeeded` run that did its
+work in the wrong directory is §10-of-the-prompt's *successful run that did the
+wrong thing*. What makes a scheduled run visible is an accident of the exit
+handler — the run reports `Failed`. **Remove `base.yaml`'s handler and a
+scheduled workflow would report success forever, in a garbage directory.**
+
+**And the real plane's daemon runs in `$HOME`:**
+
+```
+$ pid=$(systemctl --user show dagu -p MainPID --value)
+$ readlink /proc/$pid/cwd
+/home/andrew
+```
+
+So a `schedule:` on a projected workflow does not litter a scratch directory. It
+creates `~/${DEVMAN_PROJECT_DIR}/` and fills it, on the developer's own machine.
+
+### The three shapes, and why the second one wins
+
+`STAGE_4_PROMPT.md` §7 names three and asks for a measurement before the choice.
+
+| Shape | Verdict |
+|---|---|
+| `schedule:` in the workflow, accepting machine-side logs | **rejected.** It does not give machine-side logs. It gives a literally-named directory, an unresolved `working_dir`, and a failed handler. §9.2 would not be "changed", it would be abandoned |
+| a local trigger — a fourth arrow in §8 | **taken.** `devman run` already resolves the project, exports the variable, passes the parameter and refuses when it cannot |
+| some arrangement that makes the daemon's enqueue resolve per project | **closed.** A3, E2 and E8 each failed to find one; this adds `schedule:` as the fourth surface with the same defect |
+
+**Whose timer, and why devman ships none.** The plane needs the schedule to
+reach `devman run`, and it does not need to own the clock. S9 answered the same
+question for commits: the hook is the repository's own three lines and devman
+supplies no option and no `hook install`. A schedule is selection, like a hook,
+and every alternative is worse in the same way:
+
+| Alternative | Why not |
+|---|---|
+| `services.devman-dagu.schedules = { … project; workflow; }` | the machine module would hold a project name and a workflow name — the one thing §4 says it never learns |
+| a `devman schedule` command | §10's list is closed, and this needs no addition to it |
+| a `devman.schedules` option in the repo interface | a per-workflow Nix option, which §7.4 refuses, and a second way to express a trigger |
+
+So a schedule is a **systemd user timer the developer writes**, running
+`devman run <workflow> --project <name>`. It inherits every refusal in
+`src/devman/run.py`, which is the property the Dagu scheduler cannot have: a
+timer that fires a workflow whose parameters cannot be filled gets a non-zero
+exit and a message naming what is missing, instead of a directory named after a
+variable.
+
+The recipe is in `groups/base/README.md`, beside the hook recipe, where a
+repository that wants one will look. It is proved end to end in S6.
+
+**Charter impact:** **changes §8.** Its diagram's third line names Dagu's own
+timer as a trigger arrow, and it is not one. Applied in its own commit, per
+rule 4, before the first scheduled deliverable was written.
+
+**Cleanup:** the throwaway instance stopped, `/tmp/s4-dagu`, `/tmp/s4-proj` and
+`/tmp/s4-daemon-cwd` removed with the literal directory inside the last.
+
+> **One thing went wrong doing this, and rule 1 says to report it.** The
+> throwaway daemon was stopped with `pkill -f "dagu start-all"`, which is also
+> the installed service's command line, so it stopped the **real** Dagu as well.
+> The service exited 0, so `Restart=on-failure` did not bring it back; it was
+> restarted by hand 20 seconds later, `devman doctor` reported `Nothing to
+> report`, and no run was in flight. A throwaway instance is only isolated by
+> its `DAGU_HOME` and its ports — **not by its process name** — so stop one by
+> pid.
+
+---
+
+## S3 — Three things every stage-4 workflow file has to know, and one of them deletes the run record
+
+**Answer:** measured on the same throwaway instance, against a byte copy of the
+installed `base.yaml`, before any deliverable was written.
+
+**1. A workflow that declares one parameter must declare every parameter it will
+be given.** Dagu rejects an undeclared one at load time, and `devman run` always
+passes the directory variable.
+
+**Command:**
+
+```yaml
+params:
+  - TASK: "a free-text default"        # and nothing else
+```
+
+```bash
+DEVMAN_PROJECT_DIR=/tmp/s4-proj dagu enqueue s4_ctx -- DEVMAN_PROJECT_DIR=/tmp/s4-proj
+```
+
+**Evidence:**
+
+```
+Error: failed to load DAG from s4_ctx: failed to build DAG: field 'params':
+  unknown parameter(s): "DEVMAN_PROJECT_DIR"; accepted parameters are: TASK
+```
+
+`src/devman/run.py:92` sets `params[dir_var]` unconditionally — an ordinary
+workflow declares no parameters at all and still receives `DEVMAN_PROJECT_DIR`,
+because `working_dir` and `log_dir` come from `base.yaml` and name it. So the
+rule for a stage-4 file is **declare none, or declare `DEVMAN_PROJECT_DIR`
+first.** It is loud rather than silent, which is why it is a rule and not a
+hazard: the run refuses to load and the message names the parameter.
+
+**2. `${context.run.id}` interpolates in an ordinary step's `run:`, and a
+parameter reaches the step's shell environment.** `nix/nixos-module.nix` records
+the first only for a *handler's* `run:`. Both hold for a step:
+
+```
+ctx_runid=[034Bld6un3RauljHRYx6Dv]      <- ${context.run.id}
+ctx_dag=[s4_ctx]                        <- ${context.dag.name}
+shell_TASK=[hello world; echo INJECTED] <- "$TASK", the shell's own expansion
+cwd=/tmp/s4-proj
+```
+
+That is what lets a report name itself after the run that wrote it, so a reader
+can find the log tree from the report and the report from the log tree (D6).
+**Use the shell form `"$TASK"`, not Dagu's `${TASK}`**, for a value a person
+typed: the two produce the same string here, and only the first is quoted by the
+shell. The probe passed `hello world; echo INJECTED` and it stayed one value.
+
+**3. A workflow that defines its own `handler_on.exit` silently stops recording
+its runs.** This is the sharp one.
+
+**Command** — a DAG whose only unusual line is a handler of its own:
+
+```yaml
+handler_on:
+  exit:
+    name: my-own-exit
+    run: echo "MY OWN HANDLER RAN"
+steps:
+  - name: probe
+    run: echo hello
+```
+
+**Evidence:**
+
+```
+metadata.jsonl lines: before=1  after=1        <- nothing was appended
+onExit....out: MY OWN HANDLER RAN              <- the workflow's handler ran instead
+Result: Succeeded
+```
+
+`base.yaml` is inherited **whole-field**, so a DAG that sets `handler_on`
+replaces the machine's and `metadata.jsonl` gains no line. The run succeeds, the
+logs land in the right project, `dagu status` is clean, and the one file §9.2
+promises survives every retention setting simply has a hole in it. Nothing
+reports this — §7.3's whole-file shadowing arriving one level lower down, in the
+machine's own defaults rather than in a group's.
+
+**So no stage-4 workflow defines `handler_on`**, and the deliverables below use
+an ordinary step to write what they want a person to read. A workflow that
+genuinely needs an exit handler has to re-state `base.yaml`'s `printf` as well,
+which is an absolute promise nobody can keep across a machine-module change.
+
+**Charter impact:** **none for 1 and 2.** **3 adds a sentence to §9.2**, which
+currently says `metadata.jsonl` "is written by Dagu, and no workflow carries a
+line of it" — true, and it omits that a workflow can take the writer away.
+Applied in its own commit with the §8 change, per rule 4.
