@@ -11,6 +11,10 @@
 #   imports:
 #     - devman/modules
 #
+# The file MUST be named devenv.nix. devenv resolves `<input>/<subdir>` to
+# `inputs.<input> + /<subdir>` and then looks for `devenv.nix` inside it; a
+# `default.nix` is never consulted (B4).
+#
 # The module takes `pkgs` from the consuming repo's devenv, which pins
 # `devenv-nixpkgs/rolling`. The NixOS module takes `pkgs` from the machine.
 # Whether those two can disagree without cost is the whole of Investigation B.

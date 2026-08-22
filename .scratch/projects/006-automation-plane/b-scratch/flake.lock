@@ -1,0 +1,101 @@
+{
+  "nodes": {
+    "devman": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1787375316,
+        "narHash": "sha256-Bcyp15Ne6Fh+4xw9U7Psaopur7/Y45z6taiXWv4egcI=",
+        "path": "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon",
+        "type": "path"
+      },
+      "original": {
+        "path": "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon",
+        "type": "path"
+      }
+    },
+    "machine-nixpkgs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 0,
+        "narHash": "sha256-8i/87eeoqiGE4yOTjwSA3Eh/ziJRQEmd/unYU+K27sk=",
+        "path": "/nix/store/ifpab9hxqmk2biwy594da8ipxzsp3y4s-source",
+        "type": "path"
+      },
+      "original": {
+        "path": "/nix/store/ifpab9hxqmk2biwy594da8ipxzsp3y4s-source",
+        "type": "path"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1787135253,
+        "narHash": "sha256-RD2kNWCG+Bjo6h+JVjWVNntZs2GtRoeY2xHjts/FNkA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "ffb3c9b700e759be2ef13237c9d8f953b32a1e46",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786858016,
+        "narHash": "sha256-Vczr2zxD0orq6N2QQe5uqOGF7TRDcQJRRuAcsdHr4kg=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "54ba4bcec4043e72a4006d825e0d7aff5562008f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "rolling": {
+      "inputs": {
+        "nixpkgs-src": "nixpkgs-src"
+      },
+      "locked": {
+        "lastModified": 1787002832,
+        "narHash": "sha256-DGkHh88/7YLVGZ7HzSVN4YmUmR+wGKudIp6H9UsUNT0=",
+        "owner": "cachix",
+        "repo": "devenv-nixpkgs",
+        "rev": "ee3d58d53cfcddfc0ae6fc7f04f4fe2a0c7cf0ed",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cachix",
+        "ref": "rolling",
+        "repo": "devenv-nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "devman": "devman",
+        "machine-nixpkgs": "machine-nixpkgs",
+        "rolling": "rolling",
+        "rolling-src": [
+          "rolling",
+          "nixpkgs-src"
+        ],
+        "unstable": [
+          "devman",
+          "nixpkgs"
+        ]
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

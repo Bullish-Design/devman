@@ -1,23 +1,25 @@
-# Investigation B scratch flake — three nixpkgs, one devman.
+# Investigation B scratch flake — one devman, several nixpkgs.
 #
-# This exists to answer B1 and B2 without touching the machine. It imports
-# devman's `nixosModules.default` into three test NixOS configurations, each
-# built against a different nixpkgs:
+# This exists to answer B1, B2, and B3 without touching the machine. It imports
+# devman's `nixosModules.default` into test NixOS configurations, each built
+# against a different nixpkgs, and builds `nix/dagu.nix` under each.
 #
-#   machine   the running machine's own nixpkgs, taken from the flake registry
-#             (26.11, the store path nixos-rebuild would use)
-#   unstable  devman's own flake input (github:NixOS/nixpkgs/nixos-unstable)
-#   rolling   github:cachix/devenv-nixpkgs/rolling, which is what this repo's
-#             devenv.yaml pins and therefore what `modules/` is evaluated under
+#   machine     the running machine's own nixpkgs, taken from the flake
+#               registry (26.11, rev d407951, the tree nixos-rebuild uses)
+#   unstable    devman's own flake input, github:NixOS/nixpkgs/nixos-unstable
+#   rolling     github:cachix/devenv-nixpkgs/rolling, the tree this repo's
+#               devenv.yaml pins and therefore what `modules/` evaluates under
 #
-# `rolling` is not a nixpkgs a NixOS machine would use. It is here because B1
-# asks whether the SAME module file evaluates under the repo's nixpkgs and the
-# machine's, and building a NixOS toplevel under rolling is the cheapest way to
-# ask that of the NixOS half.
+# `rolling` is NOT a nixpkgs checkout. It is a wrapper flake: it takes
+# `nixpkgs-src` (plain nixpkgs), applies patches to it with `applyPatches`, and
+# exposes the result as `legacyPackages.<system>`. So it has no
+# `nixos/lib/eval-config.nix` at its root, and reaching its package set needs
+# import-from-derivation. `rolling-src` below is the unpatched tree underneath
+# it, which is what the NixOS half can be evaluated against.
 #
 # Throwaway. Nothing here ships.
 {
-  description = "Investigation B — one flake, two module interfaces, three nixpkgs";
+  description = "Investigation B — one flake, two module interfaces, several nixpkgs";
 
   inputs = {
     devman.url = "path:/home/andrew/.paseo/worktrees/1n48r26y/special-dragon";
@@ -30,20 +32,27 @@
 
     unstable.follows = "devman/nixpkgs";
 
-    # Pinned to the rev in the repo's devenv.lock, so this flake sees exactly
-    # the nixpkgs the repo's devenv shell sees.
+    # Locked to the rev in the repo's devenv.lock, so this flake sees exactly
+    # the package set the repo's devenv shell sees.
     rolling.url = "github:cachix/devenv-nixpkgs/rolling";
+    rolling-src.follows = "rolling/nixpkgs-src";
   };
 
-  outputs = { self, devman, machine-nixpkgs, unstable, rolling, ... }:
+  outputs = { self, devman, machine-nixpkgs, unstable, rolling, rolling-src, ... }:
     let
       system = "x86_64-linux";
 
+      # Plain nixpkgs trees — these carry nixos/lib/eval-config.nix.
       trees = {
         machine = machine-nixpkgs;
         unstable = unstable;
-        rolling = rolling;
+        rolling-src = rolling-src;
       };
+
+      # Package sets, one per tree, plus rolling's patched set.
+      pkgsSets =
+        builtins.mapAttrs (_: tree: import "${tree}" { inherit system; config = { }; overlays = [ ]; }) trees
+        // { rolling = rolling.legacyPackages.${system}; };
 
       # A NixOS configuration built from a bare nixpkgs tree, so `machine` can
       # be a non-flake source and still work.
@@ -63,15 +72,14 @@
           })
         ];
       };
-
-      pkgsFor = name: import "${trees.${name}}" { inherit system; config = { }; overlays = [ ]; };
     in
     {
-      nixosConfigurations = builtins.mapAttrs (name: _: testConfig name) trees;
+      # B1 — the same module file, evaluated under each tree.
+      nixosConfigurations = builtins.mapAttrs (_: tree: testConfig tree) trees;
 
-      # B2 — the same nix/dagu.nix under each tree.
+      # B2 — the same nix/dagu.nix under each package set, rolling included.
       packages.${system} = builtins.mapAttrs
-        (name: _: (pkgsFor name).callPackage "${devman}/nix/dagu.nix" { })
-        trees;
+        (_: pkgs: pkgs.callPackage "${devman}/nix/dagu.nix" { })
+        pkgsSets;
     };
 }
