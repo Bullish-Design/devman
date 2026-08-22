@@ -242,7 +242,7 @@ in
 
           **It is safe to leave on, because it watches nothing by default.**
           Reactivity is opt-in per repository: the watcher fires a workflow only
-          for a project that takes a group whose `triggers.nix` names a glob. A
+          for a project that takes a group whose  `triggers.toml` names a glob. A
           machine where no project takes such a group runs a service that exits
           reporting it has nothing to do.
 

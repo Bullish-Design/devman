@@ -100,7 +100,7 @@ let
   # ---------------------------------------------------------------------------
   # Reactivity — which glob fires which workflow (§8)
   #
-  # `groups/<group>/triggers.nix` is an attribute set of `<glob> = <workflow>`.
+  # `groups/<group>/triggers.toml` is a table of `<glob> = <workflow>`.
   # It is GROUP CONTENT, and where it sits was the sharpest design question in
   # stage 3, because three obvious homes are all closed:
   #
@@ -116,19 +116,31 @@ let
   # recorded in the registry entry. The watcher reads the entry and nothing else.
   #
   # Resolution is WHOLE-FILE, like §7.3's: the last group the repository lists
-  # that ships a `triggers.nix` wins outright. There is no merge, for the same
+  # that ships a `triggers.toml` wins outright. There is no merge, for the same
   # reason §7.3 refuses one — the result would be hard to predict from either
   # file alone.
   #
-  # `import` rather than a path, for S8's reason: devenv's evaluation cache does
-  # not track a file whose PATH is interpolated, and it does track a file that is
-  # read at evaluation time.
+  # TOML READ WITH `readFile`, FOR TWO REASONS, AND NOT FOR A THIRD.
+  #
+  #   1. It is the construct stage 1's S8 measured as tracked by devenv's
+  #      evaluation cache. `import` is untested there, and this file's content
+  #      decides what the machine does when a developer saves — it must not go
+  #      stale silently.
+  #   2. A mapping is DATA. A `.nix` file would let a group evaluate arbitrary
+  #      Nix, including an import from a derivation, in every repository that
+  #      takes it. Workflows are inert YAML for the same reason (§7.2).
+  #
+  # The reason it is NOT: a first draft of S7 blamed `import` for a stale
+  # mapping, and the cause was elsewhere — a group file inside a `path:` flake
+  # input is invisible to devenv's evaluation cache whatever construct reads it,
+  # until `.devenv/nix-eval-cache.db` is deleted. Both constructs behave the same
+  # there, and the entry says so.
   groupTriggers = group:
     let
-      file = groupsRoot + "/${group}/triggers.nix";
+      file = groupsRoot + "/${group}/triggers.toml";
     in
     if builtins.pathExists file
-    then { inherit group; map = import file; }
+    then { inherit group; map = builtins.fromTOML (builtins.readFile file); }
     else null;
 
   triggers = lib.foldl'

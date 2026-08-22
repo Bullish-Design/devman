@@ -15,6 +15,15 @@
 # It is resolved at evaluation time by `modules/devenv.nix`, whole-file and in
 # the order the repository lists its groups, and recorded in the registry entry.
 #
+# WHY TOML RATHER THAN NIX.
+#
+# Nix reads it with `builtins.fromTOML (builtins.readFile …)`, which is the
+# construct stage 1's S8 measured as tracked by devenv's evaluation cache — and
+# a mapping that decides what happens when a developer saves must not go stale
+# silently. It is also inert data: a `.nix` file would let a group evaluate
+# arbitrary Nix in every repository that takes it, and a workflow is inert YAML
+# for the same reason (§7.2).
+#
 # TAKING THIS GROUP IS THE OPT-IN, AND THAT IS THE POINT.
 #
 # §7.4 says an inherited workflow you never trigger costs nothing, so there is
@@ -23,6 +32,4 @@
 # group, with no workflows of its own to inherit — take it and your saves fire
 # `format`; do not take it and nothing watches you. "To be rid of one, do not
 # take its group" (§7.4) is free here, because there is nothing else in it.
-{
-  "**/*.py" = "format";
-}
+"**/*.py" = "format"

@@ -10,7 +10,7 @@ direnv entry, not `devenv test`. Reactivity would then apply to whichever
 repositories somebody happened to have open (C1, D7).
 
 **Which glob triggers which workflow is group content** (§8). A group declares
-its own reactivity in `groups/<group>/triggers.nix`; the devenv module resolves
+its own reactivity in `groups/<group>/triggers.toml`; the devenv module resolves
 it at evaluation time, exactly as it resolves workflows (§7.3), and records the
 outcome in the registry entry. This process reads the registry and nothing else:
 it never parses a group file, never scans the disk for repositories (§15.1), and
@@ -31,12 +31,12 @@ The plane owns neither mechanism. Both are Dagu's and watchexec's own.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import shutil
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
@@ -49,8 +49,31 @@ from .registry import Project, Registry
 WATCH_DIR = "watch"
 
 # A run writes its logs under `.devman/.runs/`, inside the tree being watched.
-# Without this every run is its own next event, whatever the workflow declares.
-DEFAULT_IGNORES = ("**/.devman/.runs/**", "**/.devenv/**", "**/.direnv/**")
+# Without the first pattern every run is its own next event, whatever the
+# workflow declares. The rest are directories a repository generates rather than
+# edits — a write in one is not a save.
+#
+# This list matters more than it looks, because watchexec's own project and VCS
+# ignore discovery is switched off below: the watcher gives `--project-origin`
+# explicitly, so no repository's `.gitignore` is read. A group's globs and this
+# list are therefore the whole filter, and a glob like `**/*.py` would otherwise
+# fire on a write inside a virtual environment.
+DEFAULT_IGNORES = (
+    "**/.devman/.runs/**",
+    "**/.git/**",
+    "**/.devenv/**",
+    "**/.direnv/**",
+    "**/.venv/**",
+    "**/__pycache__/**",
+    "**/node_modules/**",
+)
+
+
+def _now() -> str:
+    """Millisecond resolution, because a loop is measured in fractions of a
+    second and a second-resolution stamp cannot tell one save's two events from
+    a save and the formatter's answer to it (S6)."""
+    return dt.datetime.now().astimezone().isoformat(timespec="milliseconds")
 
 
 @dataclass
@@ -97,7 +120,7 @@ class WatchState:
             json.dumps(
                 {
                     "pid": os.getpid(),
-                    "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "started_at": _now(),
                     "watching": [
                         {
                             "project": e.project,
@@ -125,7 +148,7 @@ class WatchState:
         self.dir.mkdir(parents=True, exist_ok=True)
         line = json.dumps(
             {
-                "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "at": _now(),
                 "project": project,
                 "workflow": workflow,
                 "path": path,
@@ -160,11 +183,38 @@ def watchexec_command(
 
     watchexec applies its filters across every `--watch` path, so the mapping
     from a path back to a project and a workflow is done here rather than there:
-    `--emit-events-to=json-stdin` hands the dispatcher the paths that changed,
+    `--emit-events-to=json-stdio` hands the dispatcher the paths that changed,
     and the dispatcher matches each one against the project it sits in.
     """
     binary = shutil.which("watchexec") or "watchexec"
-    argv = [binary, "--emit-events-to=json-stdin", "--on-busy-update=queue"]
+    argv = [
+        binary,
+        # One JSON object per event on the child's stdin. The spelling is
+        # `json-stdio`; `json-stdin` is rejected at start-up with a list of the
+        # valid modes, which is the loud kind of failure.
+        "--emit-events-to=json-stdio",
+        # Without this, watchexec runs the command once at start-up with an
+        # empty batch — which would mean every mapped workflow fires whenever
+        # the service restarts, and nobody saved anything.
+        "--postpone",
+        # Events that arrive while a dispatch is running are handled after it,
+        # rather than killing it. A dispatch only enqueues, so it is short.
+        "--on-busy-update=queue",
+        # STATE THE ORIGIN, OR WATCHEXEC GOES LOOKING FOR IT.
+        #
+        # Watchexec resolves a "project origin" at start-up to find ignore files
+        # and the VCS in use. Left to search, one watcher over several
+        # repositories resolves their common ancestor — `/tmp`, or
+        # `~/Documents/Projects`, or `$HOME` for a service systemd starts there —
+        # and walks it. Measured: the same command line spun a core at 99.4% for
+        # over a minute with the origin searched, and sat at 0.3% with it given
+        # (S5). The registry root is the honest answer: it is devman's own
+        # directory, it is small, and it is where this process's state lives.
+        #
+        # The cost is that no repository's `.gitignore` is consulted, which is
+        # what `DEFAULT_IGNORES` above is for.
+        f"--project-origin={reg.root}",
+    ]
     for pattern in DEFAULT_IGNORES:
         argv += ["--ignore", pattern]
     for path in sorted({str(e.path) for e in entries}):
@@ -205,7 +255,7 @@ def main(args, reg: Registry) -> int:
         print(
             "devman watch: no registered project takes a group that declares triggers.\n"
             "  Nothing to watch. This is not an error — reactivity is opt-in, by\n"
-            "  taking a group whose triggers.nix names the globs (§8).",
+            "  taking a group whose triggers.toml names the globs (§8).",
             file=sys.stderr,
         )
         # Exit 0 and stop. A user service that fails here would restart forever.

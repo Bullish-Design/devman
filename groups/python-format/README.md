@@ -10,7 +10,7 @@ typing anything.
 
 | File | What it is |
 |---|---|
-| `triggers.nix` | `"**/*.py" = "format"` — the mapping the watcher reads (§8) |
+| `triggers.toml` | `"**/*.py" = "format"` — the mapping the watcher reads (§8) |
 | `workflows/format.yaml` | one step, `python-format:fmt`, guarded by a content hash |
 
 ## The task name this group calls

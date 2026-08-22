@@ -230,9 +230,9 @@ current project, and §11 leaves the mechanism to the trigger.
 
 ---
 
-## S4 — Decision 1: the mapping is a group's own `triggers.nix`, and reactivity is its own group
+## S4 — Decision 1: the mapping is a group's own triggers file, and reactivity is its own group
 
-**Answer:** `groups/<group>/triggers.nix` holds `<glob> = <workflow>`. It is
+**Answer:** `groups/<group>/triggers.toml` holds `<glob> = <workflow>`. It is
 resolved at evaluation time by `modules/devenv.nix`, whole-file and in the order
 the repository lists its groups, and recorded in the registry entry as **schema
 3**. The watcher reads the entry and never a group file.
@@ -266,7 +266,7 @@ plenty** — it rewrites the developer's files while they are editing them. So
 reactivity cannot ride along inside `python`, where taking the group for its
 `check` would silently also mean "and format my files when I save".
 
-`python-format` therefore holds one workflow and one `triggers.nix`, and taking
+`python-format` therefore holds one workflow and one `triggers.toml`, and taking
 it is the whole opt-in. §7.4's own remedy — "to be rid of one, do not take its
 group" — is free here, because there is nothing else in the group to lose.
 
@@ -277,10 +277,13 @@ forced. A repository that wants different globs takes a different group, or
 none. That is §7.3's promotion rule doing its ordinary work — a group begins
 when a second repository wants the same file.
 
+**The file was `triggers.nix` when this entry was written**, and S7 changed the
+format. What it holds and where it sits did not change.
+
 **Charter impact:** **none.** §8 already says the watcher is plane machinery and
 the mapping is group content. This is what "group content" turned out to mean,
 and §7.2's "a group is a directory, and devman reads only `workflows/*.yaml` in
-it" needs no change: `triggers.nix` is read by the devenv module at evaluation
+it" needs no change: `triggers.toml` is read by the devenv module at evaluation
 time, not by the plane at run time.
 
 ---
@@ -474,3 +477,78 @@ into machinery that must not know what a workflow does.
 
 **Charter impact:** **changes §14, criterion 13.** Applied in its own commit,
 per rule 4.
+
+---
+
+## S7 — A group file inside a `path:` input is invisible to devenv's evaluation cache
+
+**Answer:** editing a group file — a workflow or a triggers mapping — changes
+**nothing** in a repository that takes the group through a `path:` flake input.
+Every shell entry keeps projecting the previous content. `devenv update` does not
+fix it. Deleting `.devenv/nix-eval-cache.db*` does. **The construct that reads
+the file makes no difference**, which is what separates this from stage 1's S8.
+
+**Tested:** devenv 2.1.2, a throwaway repository whose `devenv.yaml` declares
+`devman: {url: "path:/tmp/s3-devman-src"}`.
+
+**How it was found, and the first diagnosis was wrong.** The mapping was a
+`triggers.nix` read with `import`. An edit to it did not reach the registry, and
+`import` was the obvious suspect: stage 1's S8 measured that devenv's cache does
+not track a group file whose *path* is interpolated, and that `builtins.readFile`
+is a read it does track. Converting the mapping to TOML read with
+`fromTOML (readFile …)` changed nothing, which is what forced the control.
+
+**Command — the control that settles it.** Edit a *workflow* file, which
+`modules/devenv.nix` has read with `builtins.readFile` since stage 1:
+
+```bash
+printf '\n# cache-probe-s7\n' >> /tmp/s3-devman-src/groups/s3-control/workflows/look.yaml
+cd /tmp/s3-ctl && devenv shell -- true
+grep -c 'cache-probe-s7' ~/.local/share/devman/projects/s3-ctl/workflows/look.yaml
+```
+
+**Evidence:**
+
+```
+after the edit, plain re-entry          0     <- stale
+after `devenv update devman`            0     <- still stale
+after rm .devenv/nix-eval-cache.db*     1     <- the eval cache was the blocker
+```
+
+The same three lines hold for the triggers mapping, in both formats.
+
+**What it means, stated as two cases rather than one rule:**
+
+| The group file reaches the repository through | An edit to it is |
+|---|---|
+| a local `imports: - ./modules` (devman itself, criterion 16) | **tracked** — S8 measured it, with `readFile` |
+| a `path:` flake input | **not tracked**, whatever construct reads it |
+| a `git+https` rev | not applicable — a changed group file is a changed rev, and the whole input re-resolves |
+
+Stage 1 and stage 2 never met this, and the reason is worth writing down: this
+repository imports `./modules` directly, so every group-file edit was in the
+tracked case. **A throwaway repository built to test a group is in the untracked
+one**, which is precisely where somebody iterating on a group will be.
+
+**What to do about it: nothing in the module, one line in a test procedure.**
+The cache is devenv's, the `path:` input is a testing convenience (B4 already
+says it is not a pin), and a repository that pins a rev cannot meet the problem.
+Iterating on a group against a throwaway means `rm -f .devenv/nix-eval-cache.db*`
+between edits.
+
+### And the mapping is TOML anyway, for reasons that survive the correction
+
+The format changed while chasing this, and it stays changed:
+
+1. **`fromTOML (readFile …)` is the construct S8 measured as tracked** in the
+   case that matters — a repository importing groups locally. `import` is
+   untested there, and a mapping that decides what happens when a developer
+   saves must not go stale silently.
+2. **A mapping is data.** A `.nix` file would let a group evaluate arbitrary Nix
+   in every repository that takes it. A workflow is inert YAML for the same
+   reason (§7.2), and TOML carries the comments a `.json` file could not.
+
+**Charter impact:** **none.** §9.3 says the registry is derived and the
+repository is canonical; this is a second case, beside S8, where the derivation
+silently stops re-deriving — and the first one where the cause is the input
+rather than the read.
