@@ -91,8 +91,7 @@ devman/
 ├── groups/                    # content, not contract (§7.2)
 │   ├── base/                  # check, validate, full-test
 │   ├── python/ nix/ rust/     # ecosystem groups
-├── lib/                       # registry schema, registration helpers
-└── src/devman/                # the CLI, deferred to stage 3 (§10)
+└── src/devman/                # the CLI — run, show, doctor, and the watcher (§10)
 ```
 
 | Output | Consumer |
@@ -101,6 +100,12 @@ devman/
 | `modules/` *(a path — §3.2)* | every repo's `devenv.yaml` |
 | `packages.default` | the `devman` CLI — put on `PATH` by the NixOS module |
 | `checks` | integration tests for the plane |
+
+There is no `lib/`. An earlier draft of this diagram gave one to the registry
+schema and to registration helpers; three stages ran without it. The schema is
+text, stated once in `modules/devenv.nix` where the hook renders it, and the CLI
+reads that text back. Shared *code* between the two interfaces is the one thing
+§3.1's second rule warns against (`STAGE_3_LOG.md`, S17).
 
 One flake version defines both interfaces. That is the point: it removes drift
 between Dagu config, queue names, registry layout, and repo integration. Those
