@@ -157,10 +157,28 @@ def child_env(params: dict[str, str], dir_var: str) -> dict[str, str]:
     caller's shell sends every child into that directory, successfully and
     silently. That is the `env -u DEVMAN_PROJECT_DIR` in the hand-written
     trigger, made unnecessary to remember.
+
+    **`SHELL` is cleared for the same reason, and it is a third thing baked at
+    enqueue time.** Dagu resolves a step's shell from `$SHELL` and falls back to
+    the instance's `default_shell` only when `$SHELL` is unset — and, like
+    `log_dir`, it reads that from whichever process enqueues. So without this
+    line every workflow step on the machine runs under the login shell of
+    whoever happened to trigger it: a developer's zsh at a prompt, the systemd
+    user manager's copy of it under the watcher, and the machine's `bash` only
+    when the daemon itself enqueues. A group file would then have to be correct
+    in every shell any user of the machine might log in with.
+
+    Clearing it rather than setting it is deliberate. The machine already states
+    the shell once, as `default_shell` in `config.yaml` (§7.1's shape), and a
+    second statement here would be a store path compiled into the CLI and a
+    value to keep in step. Measured on the rebuilt machine: with `SHELL` set the
+    step ran zsh, with it unset the step ran the `default_shell` bash
+    (`STAGE_4_LOG.md`, S13).
     """
     env = dict(os.environ)
     env.pop(PROJECT_DIR, None)
     env.pop(SELF_DIR, None)
+    env.pop("SHELL", None)
     env[dir_var] = params[dir_var]
     return env
 

@@ -76,20 +76,28 @@ let
     # the real ones.
     skip_examples = true;
 
-    # The shell every step and every handler runs under.
+    # The shell every step and every handler runs under — and this is the ONE
+    # place that states it (§7.1's shape: the machine states it once).
     #
-    # THIS LINE IS NOT SUFFICIENT ON ITS OWN, and the comment that used to sit
-    # here said it was: "a user unit usually has no SHELL at all". Measured
-    # false. Dagu prefers `$SHELL` over this setting, and the systemd user
-    # manager carries `SHELL` — imported from the login session — so the daemon
-    # inherits it and every step ran under the developer's login shell. On this
-    # machine that is zsh, and the first workflow to use a bash-only expansion
-    # failed with `EPOCHREALTIME: parameter not set` (STAGE_4_LOG.md, S9).
+    # IT APPLIES ONLY WHEN `$SHELL` IS UNSET, and the comment that used to sit
+    # here claimed that was the normal case: "a user unit usually has no SHELL
+    # at all". Measured false, twice over. Dagu resolves a step's shell from
+    # `$SHELL` first — and it reads it from **whichever process enqueues the
+    # run**, exactly as it reads `log_dir` (A3, A7). So the shell a step runs
+    # under was, for three stages, the login shell of whoever triggered it: zsh
+    # here, from a developer's prompt and from the systemd user manager under
+    # the watcher alike.
     #
-    # The failure is silent until then: POSIX-shaped steps behave identically in
-    # both, so a plane can run for three stages under the wrong shell and say
-    # nothing. The unit therefore STATES `SHELL` below rather than letting it be
-    # inherited — the same rule S2 forced on `DAGU_HOME` for the same reason.
+    # The failure is silent until a workflow uses a shell-specific construct:
+    # POSIX-shaped steps behave identically in both. The first one to try —
+    # a benchmark campaign reading bash's `$EPOCHREALTIME` — failed with
+    # `parameter not set` (STAGE_4_LOG.md, S9, corrected by S13).
+    #
+    # THE FIX IS IN THE TRIGGER, NOT HERE. `devman run` clears `SHELL` from the
+    # environment it hands `dagu enqueue`, beside the two directory names it
+    # already clears, so this setting is what governs (src/devman/run.py). Setting
+    # `SHELL` on this unit was tried and does nothing for any run the plane
+    # makes: the daemon enqueues only under a `schedule:`, which §8 does not use.
     default_shell = "${pkgs.bash}/bin/bash";
 
     queues = {
@@ -408,17 +416,12 @@ in
       description = "Dagu — devman automation plane";
       wantedBy = [ "default.target" ];
 
-      environment = {
-        DAGU_HOME = cfg.dagHome;
-
-        # Dagu resolves a step's shell from `$SHELL` first and from
-        # `default_shell` only when `$SHELL` is unset, and the systemd user
-        # manager carries the developer's login `SHELL`. Without this line the
-        # instance config's `default_shell` above never applies, and every step
-        # and handler on the machine runs under whatever shell the developer
-        # happens to log in with — silently, until one uses a bashism (S9).
-        SHELL = "${pkgs.bash}/bin/bash";
-      };
+      # `SHELL` is DELIBERATELY ABSENT here, and it was present for one commit.
+      # Dagu reads `$SHELL` from the process that enqueues a run, so setting it
+      # on this unit governs only the runs the daemon enqueues itself — which,
+      # under §8, is none. The trigger clears it instead, in one place, so that
+      # `default_shell` above governs every path into the plane (S13).
+      environment.DAGU_HOME = cfg.dagHome;
 
       # Prepended to NixOS's own minimal unit PATH, which the default
       # `enableDefaultPath` appends after this list. See `servicePath`.

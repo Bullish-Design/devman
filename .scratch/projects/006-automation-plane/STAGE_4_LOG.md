@@ -1297,3 +1297,109 @@ Nothing to report.                                                   exit 0
 | re-measure criterion 7 | nothing new forks in `enterShell` and no evaluation work was added. `bench-entry` now exists for whoever needs the absolute figure |
 | a `doctor` check for a workflow that defines `handler_on` | S3 measured that such a workflow silently stops recording its runs. It is written into §9.2 and into every stage-4 file's comments; whether `doctor` should check it mechanically is a stage-5 question, and no shipped workflow does it |
 | push the adopted repositories | seven commits now wait in seven working trees, as stages 2 and 3 left them |
+
+---
+
+## S13 — S9's fix was in the wrong place: a step's shell follows the process that ENQUEUES
+
+**Answer:** the user activated the generation, and the step still ran zsh.
+**S9's diagnosis was half right and its fix was wrong.** Dagu does prefer
+`$SHELL` over `default_shell` — that part held — but it reads `$SHELL` from
+**whichever process enqueues the run**, exactly as it reads `log_dir` (A3, A7).
+Setting `SHELL` on the Dagu unit therefore governs only the runs the *daemon*
+enqueues, which under §8 is none.
+
+**The fix is in `devman run`**, beside the two directory names it already
+clears, and it is one line.
+
+**Tested:** the rebuilt generation. `systemctl --user show dagu -p Environment`
+carries `SHELL=…bash-interactive-5.3p9/bin/bash`, and so does
+`/proc/<mainpid>/environ`. The daemon restarted at 17:52:03.
+
+**Command — a throwaway workflow in this repository's own
+`.devman/workflows/`**, projected by an ordinary shell entry, run through the
+plane, and deleted afterwards:
+
+```yaml
+steps:
+  - name: which-shell
+    run: |
+      echo "BASH_VERSION=[${BASH_VERSION:-unset}]"
+      echo "ZSH_VERSION=[${ZSH_VERSION:-unset}]"
+      echo "EPOCHREALTIME=[${EPOCHREALTIME:-unset}]"
+```
+
+**Evidence — three triggers, differing only in the caller's `SHELL`:**
+
+```
+$ devman run _s4-shellprobe                       # this shell: SHELL=…/zsh
+BASH_VERSION=[unset]      ZSH_VERSION=[5.9.1]     EPOCHREALTIME=[unset]
+
+$ SHELL=…/bash devman run _s4-shellprobe
+BASH_VERSION=[5.3.9(1)-release]   ZSH_VERSION=[unset]   EPOCHREALTIME=[1787435639.892207]
+
+$ env -u SHELL devman run _s4-shellprobe          # falls back to default_shell
+BASH_VERSION=[5.3.9(1)-release]   ZSH_VERSION=[unset]   EPOCHREALTIME=[1787435648.900362]
+```
+
+The daemon's own `SHELL` was bash in all three. **It decided nothing.** The
+trigger's did.
+
+**So the shell joins `log_dir` on the short list of things baked at enqueue
+time**, and it has the same consequence: the machine cannot state it once
+unless the trigger stops passing its own. Three callers, three shells — a
+developer's login shell at a prompt, the systemd user manager's copy of it under
+the watcher, and the daemon's only under a `schedule:` the plane does not use.
+A group file would otherwise have to be correct in every shell any user of that
+machine might log in with.
+
+### The fix, and why it clears rather than sets
+
+```python
+env.pop(PROJECT_DIR, None)
+env.pop(SELF_DIR, None)
+env.pop("SHELL", None)          # <- S13
+```
+
+Clearing lets `config.yaml`'s `default_shell` govern, which is §7.1's own shape:
+the machine states it once, in the file it writes. Setting it here would compile
+a store path into the CLI and create a second value to keep in step — the drift
+§3.1 exists to prevent.
+
+It covers every path into the plane, because they all go through `devman run`:
+a person at a prompt, a VCS hook (S9 of stage 3), a systemd timer (S6), and the
+watcher, whose dispatcher re-invokes `devman run` as a subprocess and hands it
+its own environment.
+
+**Evidence — the built CLI, from an unmodified zsh shell, against the running
+service:**
+
+```
+$ echo $SHELL
+/run/current-system/sw/bin/zsh
+$ /nix/store/p9hda2r2jzkv71j40hx7wb9n3ampg8q3-devman-0.3.0/bin/devman … run _s4-shellprobe
+BASH_VERSION=[5.3.9(1)-release]   ZSH_VERSION=[unset]   EPOCHREALTIME=[1787435778.032981]
+"status":"succeeded"
+```
+
+### And the unit's `SHELL` line is reverted
+
+It was present for one commit, `a77dc30`, and this measurement says it does
+nothing for any run the plane makes. **D4 says grow only under a measurement**,
+and the measurement now points elsewhere, so the line goes rather than staying
+as harmless insurance. `default_shell` in `config.yaml` is the one statement of
+the shell, and the comment above it now records what it competes with.
+
+**What this cost, stated plainly:** one rebuild that changed nothing
+operationally, and a `nix-meta` commit that has to be re-pinned again. The
+mistake was diagnosing from a symptom that two hypotheses explained — the daemon
+inherits the login shell, and the *trigger* does — and testing only the first.
+S9's own throwaway probe used `dagu start`, where the triggering process and the
+executing process are the same one, so it could not tell them apart. **A probe
+that cannot separate two hypotheses is not a measurement of either.**
+
+**Charter impact:** **none**, and that is worth stating: §7.1's four names are
+unchanged, because the shell is not a name the plane shares — it is a property
+of the machine that the trigger must stop overriding. It belongs beside
+`--dagu-home`, which S2 of stage 3 forced for the same reason: **a trigger
+states its target and never inherits it.**
