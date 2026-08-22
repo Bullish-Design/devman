@@ -62,6 +62,18 @@ file (§7.3). The plane does not police what a name means.
 | `check.yaml` | `light` | `base:lint` |
 | `validate.yaml` | `normal` | `base:lint`, `base:test` |
 | `full-test.yaml` | `heavy` | `base:lint`, `base:test`, `devenv test` |
+| `review.yaml` | `normal` | what changed, `base:lint`, `base:test` — and a report |
+
+`review` is the only one that produces a document rather than an exit code. It
+writes `.devman/.runs/reports/review-<run id>.md` holding the head commit, the
+uncommitted files, the diffstat, the last five commits and one verdict line per
+check. It needs no task beyond the two above, so every repository taking this
+group has it already.
+
+**It finishes even when a check fails.** Both check steps carry
+`continue_on: {failure: true}`, so the chain reaches the end and the report gets
+its verdict — and the run still reports `Partially Succeeded`, which is not
+`succeeded` in `metadata.jsonl`. A review that found something is not a success.
 
 ## Why every step says `devenv tasks run -v`
 
@@ -132,6 +144,46 @@ Three things to know before taking it (measured in `STAGE_3_LOG.md`, S9):
   than the tree that was committed.
 - **It costs a devenv input** — about 20 ms on every shell entry — and a
   generated `.pre-commit-config.yaml` in the working tree.
+
+## Running one of these on a schedule
+
+**Not with Dagu's `schedule:` key.** It is Dagu's own timer, and the daemon that
+fires it has one environment for the whole machine and no parameter to fill, so
+`working_dir` **and** `log_dir` both stay literal: the run works inside a
+directory named `${DEVMAN_PROJECT_DIR}` in the daemon's own tree — `$HOME` on a
+normal machine — and then fails on the exit handler. Measured in
+`STAGE_4_LOG.md`, S2.
+
+A schedule reaches the plane the same way a commit does, through `devman run`.
+The timer is the developer's own, exactly as the hook is the repository's own,
+and devman supplies no option and no command for it (CONCEPT.md §8):
+
+```ini
+# ~/.config/systemd/user/devman-nightly.service
+[Service]
+Type=oneshot
+ExecStart=/run/current-system/sw/bin/devman run validate --project siteman
+```
+
+```ini
+# ~/.config/systemd/user/devman-nightly.timer
+[Timer]
+OnCalendar=daily
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now devman-nightly.timer
+```
+
+`--project` is what makes this work from a timer, which has no working
+directory in any repository. Everything else `devman run` already does: it
+resolves the path from the registry, exports `DEVMAN_PROJECT_DIR`, passes it as
+a parameter, and **refuses with a message** when it cannot — which is the whole
+difference from the Dagu scheduler, whose failure is a directory named after the
+variable that did not resolve.
 
 ## Why the multi-step files say `type: chain`
 

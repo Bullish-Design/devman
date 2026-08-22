@@ -1,0 +1,100 @@
+# base/review — what changed here, and does it still pass (CONCEPT.md §13, stage 4).
+#
+# `validate` is a gate: it returns an exit code and a person acts on the number.
+# THIS ONE PRODUCES A DOCUMENT, and that is the whole difference. Stage 4 is the
+# first stage whose output matters rather than merely whether it ran, and the
+# plane has no check for a successful run that did the wrong thing — §15.7 is
+# explicit that nothing checks whether a default still fits. What the plane owes
+# instead is visibility, so this workflow leaves behind enough for a person to
+# see what it looked at without running it again:
+#
+#   .devman/.runs/reports/review-<run id>.md    the change, and each verdict
+#   .devman/.runs/logs/<dag>/<run>/…            what each check actually said
+#   .devman/.runs/metadata.jsonl                one line, the run's own status
+#
+# The report is named after the run id, so a reader who has one has the other.
+# `${context.run.id}` interpolates in an ordinary step's `run:`, not only in a
+# handler's (STAGE_4_LOG.md, S3).
+#
+# NO NEW TASK NAME. It calls `base:lint` and `base:test`, which every repository
+# taking this group already defines (groups/base/README.md). That is why it sits
+# in `base` rather than in a group of its own: it reaches five of the six
+# registered repositories with no edit to any of them.
+#
+# THE REPORT IS WRITTEN EVEN WHEN A CHECK FAILS, and `continue_on` is what does
+# it. A chain stops at the first failed step, so without it a failing lint would
+# leave a report with no verdict in it — the one case a reader most needs one.
+# `continue_on: {failure: true}` lets the chain finish and the run still reports
+# `Partially Succeeded`, which is not `succeeded` in metadata.jsonl. It does NOT
+# say `mark_success`, because a review that found something is not a success.
+#
+# WHY IT DOES NOT DEFINE `handler_on`. It would replace base.yaml's, and the
+# run would then write no metadata.jsonl line at all — silently, with a clean
+# `dagu status` and correct logs (§9.2, S3). Nothing here needs one.
+#
+# `git` is called directly rather than through a devenv task. Reading what
+# changed is the workflow's own business and not one of the repository's
+# primitives, so §6's one-implementation rule does not reach it — the same
+# licence base.yaml's `printf` and python-format's `sha256sum` already take. It
+# needs `git` on the service PATH, which `servicePath` supplies from the
+# machine's profiles.
+#
+# Paths are relative, because `working_dir` is already the project (§7.2). That
+# is what keeps criterion 10 true: there is no absolute path in this file and no
+# project name either.
+queue: normal
+type: chain
+steps:
+  - id: changes
+    name: changes
+    run: |
+      set -u
+      report=".devman/.runs/reports/review-${context.run.id}.md"
+      {
+        echo "# review — ${context.dag.name}"
+        echo
+        echo "- run id: \`${context.run.id}\`"
+        echo "- started: ${context.attempt.started_at}"
+        echo "- head: \`$(git rev-parse --short HEAD 2>/dev/null || echo 'no git')\`" \
+             "on \`$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '-')\`"
+        echo
+        echo '## uncommitted'
+        echo '```'
+        git status --porcelain 2>/dev/null || echo '(no git)'
+        echo '```'
+        echo
+        echo '## working tree against HEAD'
+        echo '```'
+        git diff --stat HEAD 2>/dev/null || echo '(no git)'
+        echo '```'
+        echo
+        echo '## last five commits'
+        echo '```'
+        git log --oneline -5 2>/dev/null || echo '(no git)'
+        echo '```'
+        echo
+        echo '## verdict'
+      } > "$report"
+      cat "$report"
+
+  - id: lint
+    name: lint
+    continue_on:
+      failure: true
+    run: |
+      set -u
+      report=".devman/.runs/reports/review-${context.run.id}.md"
+      if devenv tasks run -v base:lint; then verdict=pass; else verdict=FAIL; fi
+      printf -- '- `base:lint` %s\n' "$verdict" >> "$report"
+      test "$verdict" = pass
+
+  - id: test
+    name: test
+    continue_on:
+      failure: true
+    run: |
+      set -u
+      report=".devman/.runs/reports/review-${context.run.id}.md"
+      if devenv tasks run -v base:test; then verdict=pass; else verdict=FAIL; fi
+      printf -- '- `base:test` %s\n' "$verdict" >> "$report"
+      test "$verdict" = pass
