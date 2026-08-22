@@ -1292,9 +1292,124 @@ each closed off by a measurement.
 
 ### Still open, and deliberately not explored
 
-- **One Dagu instance per user rather than per machine.** §4 fixes one per
-  machine and §15.3 accepts the shared-availability cost. A second instance
-  would give per-project service environments and remove the A3 split entirely.
-  Not tested; it reopens §4, which is outside Investigation A.
 - **Triggering over Dagu's HTTP API rather than the CLI.** That is D7's
   question, and the answer may differ from the CLI's on both env and params.
+
+---
+
+## A7 — How many Dagu instances, and what that does and does not fix
+
+An earlier draft of A6 claimed that "one instance per user rather than per
+machine" would remove A3's split between `log_dir` and `working_dir`. **That was
+wrong on two counts, and both are now measured.** This section replaces it.
+
+**Tested:** dagu 2.15.0, on 2026-08-21, with a second instance on
+`DAGU_HOME=/tmp/devman-a2/dagu2`.
+
+### Which process resolves which field
+
+This is the fact everything else follows from:
+
+| field | resolved by | so its value comes from |
+|---|---|---|
+| `log_dir`, `artifacts.dir` | the process that **enqueues** | the **trigger's** environment |
+| `working_dir` | the process that **executes** | the **daemon's** environment, or params |
+
+**Proof, second half.** A daemon started with the variable in *its own*
+environment, then triggered from a shell with the variable unset and no params:
+
+```
+DAGU_HOME=$H2 DEVMAN_PROJECT_DIR=/tmp/devman-a2/projB dagu start-all &
+env -u DEVMAN_PROJECT_DIR DAGU_HOME=$H2 dagu enqueue p2_wdonly
+```
+
+```
+cwd=/tmp/devman-a2/projB
+Result: Succeeded
+```
+
+The daemon supplied `working_dir`. **No param was needed.**
+
+**Proof, first half.** The same daemon, same clean trigger, but with `log_dir`
+also written as `${DEVMAN_PROJECT_DIR}/...`:
+
+```
+├─log: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/p1_noparams/...
+Result: Failed
+```
+
+```
+level=ERROR msg="Failed to execute DAG" queue=exclusive err="...
+  failed to create/open log file ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/...:
+  no such file or directory"
+```
+
+**The daemon having the variable did not help.** The literal string was baked in
+at enqueue time by the CLI, stored in the queue entry, and the daemon merely
+opened what it was handed — and failed.
+
+### What follows
+
+**"Per user" is not a distinct option for a single-user machine.** One user
+means one daemon means one environment, exactly as "per machine" does. It
+changes nothing about A2 or A3.
+
+**"Per project" is the option that would change something — and it changes
+almost nothing.** A daemon per project would supply `working_dir` from its own
+environment, so the trigger could drop the param. It would **not** fix
+`log_dir`, because that is resolved by the trigger no matter how many daemons
+exist. So the trade is:
+
+| | machine-wide instance | per-project instance |
+|---|---|---|
+| trigger exports `DEVMAN_PROJECT_DIR` | required (for `log_dir`) | **still required** |
+| trigger passes it as a param | required (for `working_dir`) | not required |
+| daemons to supervise | 1 | one per project |
+| ports to allocate | 1 set | one set per project |
+
+The measured cost of a second instance is not only process count. Two instances
+collide on fixed ports until told otherwise:
+
+```
+Error: failed to initialize coordinator: failed to create listener on
+  127.0.0.1:50055: listen tcp 127.0.0.1:50055: bind: address already in use
+```
+
+A per-project instance needs `port`, `coordinator.port`,
+`coordinator.health_port`, and `scheduler.port` assigned per project — four
+allocations each — and it would break §7.1 outright, because a queue's
+concurrency limit is per instance. Ten project daemons each holding
+`exclusive: max_concurrency 1` give ten concurrent "exclusive" runs, not one.
+**Success criterion 12 cannot hold under per-project instances.**
+
+**Conclusion: no instance arrangement removes the dual mechanism.** §4's
+one-per-machine choice stands, and it stands for a stronger reason than the
+charter gives — machine-wide queues are only meaningful in a machine-wide
+instance.
+
+### What "per user" *does* decide, and it is worth deciding on purpose
+
+The per-machine / per-user question is real, but it is about **which identity
+the service runs as**, not about environments or A3. It matters because §6
+routes every step through `devenv tasks run`, which needs a developer's own
+context:
+
+| runs as | reaches |
+|---|---|
+| a system service (root or a `dagu` user) | needs explicit plumbing for `$HOME`, the Nix profile, `~/.cache`, git credentials, SSH agent, direnv |
+| a systemd **user** service | all of the above, already correct, because it is you |
+
+A workflow step that runs `devenv tasks run test` in a repository under
+`~/Documents/Projects/` wants the second. It also makes §9.4's secret injection
+a user-scope problem rather than a system-scope one, and puts `DAGU_HOME` at
+`~/.local/share/dagu` next to §9.2's registry rather than in `/var/lib`.
+
+**Charter impact:** **changes §4.** §4 says "One Dagu instance per machine or
+user" and leaves the choice open. Investigation A gives a reason to close it:
+the module should define a **systemd user service**, because every workflow step
+runs a developer's own `devenv` in a developer's own checkout. Say so, and drop
+"or user" as an undecided alternative — it is the decision, not an option.
+
+This is a §4 wording change with a real consequence for Investigation B, which
+builds `nixosModules.default`: the module writes `systemd.user.services.dagu`,
+not `systemd.services.dagu`.
