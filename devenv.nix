@@ -37,11 +37,21 @@ in
   };
   # https://devenv.sh/processes/
   #
-  # One Dagu instance, started with `devenv up`. `start-all` runs the
-  # scheduler, the coordinator, and the web UI in one process. Put DAGs in
-  # `.devenv/state/dagu/dags/` and open http://127.0.0.1:8080.
+  # `processes.dagu` is DELIBERATELY ABSENT (CONCEPT.md §4, §13 stage 1).
+  #
+  # It used to start one instance here with `devenv up`, which is how the
+  # investigations got a Dagu to measure. It cannot stay. Dagu binds a web port
+  # and a coordinator port, and a second instance fails on the coordinator with
+  # `bind: address already in use` even when it has its own DAGU_HOME — so a
+  # project-local Dagu in THIS repo holds the ports the plane's own user service
+  # needs, and criterion 16 says devman adopts itself (D3).
+  #
+  # Stage 1 installs the service from `nix/nixos-module.nix`. Until then, run a
+  # throwaway instance by hand with its own DAGU_HOME rather than restoring this
+  # line.
+  #
+  # DAGU_HOME stays: the client on PATH needs it, and it costs nothing.
   env.DAGU_HOME = daguHome;
-  processes.dagu.exec = "dagu start-all";
 
   # https://devenv.sh/services/
   # services.postgres.enable = true;
