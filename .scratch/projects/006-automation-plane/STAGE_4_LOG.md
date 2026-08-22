@@ -1143,3 +1143,157 @@ trees; neither is pushed, which matches how stages 2 and 3 left the other five.
 `maintain`. That is the plane working as designed: a group file reaches a
 repository through that repository's own pin (§3.2), and re-pinning three more
 would have proved nothing S11 has not already proved.
+
+---
+
+## S12 — Stage 4 against §14, criterion by criterion
+
+Run against the installed service, six real projects and **27 DAGs** — 19 at the
+start of the stage. Compare stage 3's S12.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | one flake, two interfaces, one version | **holds, re-measured.** `nix build .#checks.x86_64-linux.groups-validate` and `.dagu-service` both exit 0 with stage 4's files in the tree, and `nix-meta` re-pinned to `main@e1a5f6a` builds `system.build.toplevel` (exit 0) |
+| 2 | a repo adopts in three lines | **holds** — `observantic` took `release` by adding one word to `groups` and one task |
+| 3 | a repo may take no groups | **holds** — unchanged. `agent-review` and `bench-entry` are `.devman/workflows/` files, which is the `groups = [ ]` case with groups beside it |
+| 4 | a repo may rename or replace every default | **holds** — unchanged. Nothing in stage 4 reserves a workflow name; the release gate reads `<project>-validate` and *refuses loudly* in a repository that renamed it, which is the criterion working rather than failing |
+| 5 | shadowing is exact | **holds** — unchanged; `doctor` still reports siteman's `full-test` keeping 7 of 9 executable lines |
+| 6 | a workflow is portable Dagu | **holds, and harder than before.** `review` and `maintain` ran unedited in `siteman`, which has **no Python at all** and whose `base:test` is a Hugo CI script; `release` ran unedited in `observantic` and built a real wheel (S11) |
+| 7 | devenv stays on the fast path | **holds, not re-measured, and now measurable on demand.** Stage 3's paired figure was -0.17 ms, 95% CI [-6.24, +5.91], against a 10 ms budget. Stage 4 added no evaluation work to the hook — the new group files are read by the same `readDir`/`readFile` the module already ran. `bench-entry` is the harness for the absolute half of it |
+| 8 | registration is automatic and idempotent | **holds** — unchanged. Every projection in this stage came from a shell entry |
+| 9 | only opted-in repos register | **holds** — unchanged |
+| 10 | no workflow contains an absolute path | **holds, re-measured.** `grep -rn '/home/\|/nix/store\|/run/\|/etc/' groups/*/workflows/*.yaml .devman/workflows/*.yaml` → **zero hits**, including the release gate, the campaign and the agent workflow. `bench-entry` names its target as a project *name* and `devman run` resolves it (S10) |
+| 11 | identity survives a move | **holds** — unchanged, untested again here |
+| 12 | queues are real | **holds, re-measured with a stage-4 workflow.** Two `bench-entry` runs enqueued 0.3 s apart on the `exclusive` queue: the first started 17:42:45 and ran 7.0 s, the second started **17:42:54** — after the first finished |
+| 13 | the watchers do not chase each other | **holds, re-measured.** One save of a badly-formatted file with all of stage 4's workflows projected: **2 dispatches, 2 runs**, `format [succeeded]` then `format [skipped]`, then nothing, and the file was formatted. Stage 4's workflows write only under `.devman/.runs/`, which the watcher ignores, so they add no event source |
+| 14 | the task graph exists once | **holds** — see below |
+| 15 | a rebuild is inconvenient, not catastrophic | **holds** — stage 4 added **no** machine-side state. Reports and artifacts are repo-side under `.devman/.runs/`, which §9.2 already calls run output, and `maintain` is what keeps them bounded |
+| 16 | devman adopts itself | **holds, further** — devman now takes `release` as well, and `devman run release` built `packages.devman` through the plane, gated on its own recorded `validate` |
+| 17 | there is one way in | **holds, and it survived the stage that pressures it hardest.** A release, an agent run and a campaign each need to know *which project*, and all three get it from `devman run` reading the registry. `grep` over `src/devman/` finds no writer of `projects/<p>/metadata.json` — `doctor --prune` only `unlink`s. **Nothing in stage 4 gives the registry a second entry path** |
+
+### Criterion 14, under the pressure stage 4 puts on it
+
+> *"no default workflow re-states a dependency devenv already declares"*
+
+Three of stage 4's six deliverables want an order, so this is worth stating
+rather than asserting.
+
+- **`review`** runs `changes`, then `base:lint`, then `base:test`. That is Dagu
+  composing two independent devenv tasks and adding a third step of its own. No
+  repository declares `lint` before `test` in devenv; `pyjutsu` and `pydantree`
+  declare their *internal* order with `after`, and this workflow does not
+  restate it — it calls the one task each exposes.
+- **`release`** runs `gate`, then `build`, then `record`. `release:build` is one
+  task, whose internals are the repository's; the other two steps are the
+  workflow's own and exist in no devenv file.
+- **`bench-entry`** has one step. The loop inside it is a measurement, not a
+  graph.
+
+**And the policy gate is the case that could have gone wrong.** A gate is a
+dependency — "release depends on validate having passed" — and the tempting
+expression is a devenv task dependency or a Dagu `depends:` on another DAG.
+Neither was used. The gate reads a *record* of a past run rather than causing
+one, so the dependency exists in exactly one place and it is not an edge in
+anybody's graph. A `release` that ran `validate` itself would have restated
+`validate`'s two steps inside a third file.
+
+### The six decisions `STAGE_4_PROMPT.md` §7 asked for, stated
+
+**1. How scheduled work is triggered.** A **systemd user timer running `devman
+run`**, and devman ships no timer, no option and no command for it. Dagu's own
+`schedule:` cannot trigger anything this plane projects: the daemon enqueues, so
+`log_dir` **and** `working_dir` both stay literal, the run works in a directory
+named `${DEVMAN_PROJECT_DIR}` in `$HOME`, and `base.yaml`'s exit handler then
+fails and takes the run down (S2). Proved the other way in S6, from a real
+timer. **Changes §8**, in its own commit.
+
+**2. Whether stage 4 needs a secret.** **No, and the machine module grows
+nothing.** Every deliverable runs under the developer's own identity in the
+developer's own checkout, and §4's whole argument for a *user* service is that it
+already has that `$HOME`, its git credentials and its SSH agent. The agent
+workflow — the one deliverable that would want a hosted key — authenticated with
+none (S7). §9.4 stays specified and unused, and S7 names exactly what would
+change the answer and what the module would gain if it did: **one**
+`EnvironmentFile=` option, never an `environment.X = value`, because a value in
+a NixOS module is a value in the world-readable store.
+
+**3. Whether agent workflows fit the contract.** **Yes.** Steps calling `devenv
+tasks run agent:review`, like everything else. Input arrives as a declared
+parameter with a **real default**, overridden by `NAME=VALUE`, because `devman
+run` refuses a parameter that would have no value — and that refusal is correct:
+an agent run with an empty prompt is a run nobody asked for. The queue is
+`exclusive`, named for the stronger claim. What keeps it away from the watcher is
+not the queue but what it writes: one file under `.devman/.runs/` (S7).
+
+**4. Whether policy gating fits the four global names.** **It does, and §7.1
+stays closed at four.** The gate reads `git status --porcelain` and this
+project's own `.devman/.runs/metadata.jsonl`, which the machine already writes
+for every run on both paths and which survives retention. No fifth name, no new
+command, no new registry field. **A gate fails rather than skips** — the opposite
+of `python-format`'s precondition, for the reason S1's D7 states in advance
+(S5, S8).
+
+**5. Which queue a benchmark campaign names.** **`exclusive`**, and `gpu` stays
+named by nothing. Nothing here is GPU work, and §15.4 makes a wrong queue name
+invisible rather than merely inconvenient. **And `exclusive` does not buy quiet**:
+Dagu's queues are independent, so light, normal and heavy runs proceed beside an
+exclusive one. The plane serializes a class and cannot quiesce a host, which is
+why the report carries the load average at both ends (S10).
+
+**6. Where each deliverable lives.**
+
+| Deliverable | Home | Why |
+|---|---|---|
+| `review` | `groups/base/` | needs no task beyond the two `base` already asks for, so it reaches five repositories with **no edit to any of them** |
+| `maintain` | `groups/base/` | same — and every repository has a `.devman/.runs/` that nothing else prunes |
+| `release` | `groups/release/` | §16's promotion rule: a second repository wanted the same file. `base` reaches three repositories that have nothing to release |
+| policy gating | inside `release.yaml` | it is a step, which is content. It was never a file of its own |
+| `agent-review` | `.devman/workflows/` | one repository ships an agent CLI. §16's promotion rule, applied honestly |
+| `bench-entry` | `.devman/workflows/` | a campaign measuring a *named other* project belongs to no project, and §11 says such a workflow belongs to devman |
+
+### Stage 4 against its own definition of done (S1)
+
+| | Condition | Result |
+|---|---|---|
+| D1 | six deliverables, each run | **met.** review S4/S11, release S5/S11, maintain S6/S11, campaign S10, agent S7, gating S5/S8 — each with its `metadata.jsonl` line and its log or report quoted |
+| D2 | coverage, not count | **met.** `review` and `maintain` reach five repositories with no repository edit; `siteman` ran both unedited after a one-line pin bump; `observantic` ran `release` unedited (S11) |
+| D3 | every criterion still holds, measured | **met.** The table above; 1, 10, 12, 13 and 17 re-run by command |
+| D4 | grow only under a measurement | **met.** §7.1 still four names, §10 still four commands, §7.4 still three keys, the queue list still five. One module line changed, and S9 records the failed run that forced it |
+| D5 | six decisions, none deferred | **met**, above |
+| D6 | every run leaves something readable | **met.** Every deliverable writes `.devman/.runs/reports/<workflow>-<run id>.md` and every run appends to `metadata.jsonl` |
+| D7 | a gate fails, it does not skip | **met.** Two refused releases recorded `"status":"failed"`, in two repositories (S5, S11), and S8 checks the near-miss |
+| D8 | no second entry path | **met.** Criterion 17 above |
+| D9 | charter changes in their own commit | **met.** One charter commit, `6a2acd7`, after S2 and S3 were written |
+| D10 | machine left as found | **met**, and detailed below |
+
+### D10 — what was left behind, and what was not
+
+```
+$ devman doctor
+devman doctor — 6 projects, 27 workflows
+ok  plane / queues / validate / queue names / literal dir / shadowing /
+    stale entries / run output / cross-repo / watcher
+Nothing to report.                                                   exit 0
+```
+
+- **6 projects**, the same six. No throwaway was ever registered — every probe
+  ran against a throwaway `DAGU_HOME` on its own ports, so `doctor --prune` was
+  never needed.
+- **No directory named literally `${DEVMAN_PROJECT_DIR}` or `${DEVMAN_SELF_DIR}`
+  anywhere.** The one S2 created was inside `/tmp/s4-daemon-cwd`, removed with
+  the rest of the throwaway state.
+- **Every touched repository is committed and named** in S11, plus `nix-meta` at
+  `62e3b5a`. `nix-meta`'s unrelated `machines/server.nix` change was left alone.
+- **No `nixos-rebuild switch` was run.** The machine change is proposed, proved
+  by evaluation and by the VM test, and handed over.
+
+### What stage 4 did not do
+
+| Item | Why |
+|---|---|
+| activate the machine change | `nixos-rebuild switch` is the user's. Until they run it, every step still runs under zsh — which is why every stage-4 file is written for either shell (S9) |
+| re-pin `pyjutsu`, `nix-paseo`, `pydantree` | they keep `main@9610f97` and do not yet see `review` or `maintain`. Re-pinning three more would prove nothing S11 has not |
+| publish anything | `release` builds and does not push a tag or upload a wheel. Each is irreversible and each wants a credential, and S7's decision follows from that rather than the other way round |
+| re-measure criterion 7 | nothing new forks in `enterShell` and no evaluation work was added. `bench-entry` now exists for whoever needs the absolute figure |
+| a `doctor` check for a workflow that defines `handler_on` | S3 measured that such a workflow silently stops recording its runs. It is written into §9.2 and into every stage-4 file's comments; whether `doctor` should check it mechanically is a stage-5 question, and no shipped workflow does it |
+| push the adopted repositories | seven commits now wait in seven working trees, as stages 2 and 3 left them |
