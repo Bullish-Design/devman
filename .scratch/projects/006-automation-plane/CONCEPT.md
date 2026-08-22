@@ -1,9 +1,15 @@
 # devman — Concept (the automation plane)
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
-> and D (2026-08-22). Amended twice during stage 1 and twice during stage 2
-> (2026-08-22), each time because building the thing measured something the
-> investigations had not. §11's `doctor` check now distinguishes a workflow that
+> and D (2026-08-22). Amended twice during stage 1, twice during stage 2 and
+> twice during stage 3 (2026-08-22), each time because building the thing
+> measured something the investigations had not. Stage 3's two: §8 now names
+> **two** loops rather than one, because removing the watcher's ignore of
+> `.devman/.runs/` produced 107 dispatches and 60 runs from one save, and no
+> workflow-level mechanism can stop that (`STAGE_3_LOG.md`, S8); and criterion 13
+> counts runs that **do work**, because E1 measured that Dagu skips after
+> enqueueing rather than before, so a correct plane produces one run that formats
+> and one that skips (S6). §11's `doctor` check now distinguishes a workflow that
 > *holds* `DEVMAN_PROJECT_DIR` from one that *passes* it to a child, because the
 > rule as written reported the first real cross-repo workflow as broken
 > (`STAGE_2_LOG.md`, S8). And §7.1's closed list is **four** names rather than
@@ -668,12 +674,41 @@ triggers which workflow is data the single watcher reads, so a group still
 declares its own reactivity and §7.1's "the machine states how much, never what"
 stays intact.
 
+> **The mapping is `groups/<group>/triggers.toml`** — a table of
+> `<glob> = <workflow>`, resolved at evaluation time by the devenv module,
+> whole-file and in the order the repository lists its groups, and recorded in
+> the registry entry. Three other homes are closed: a workflow file may not carry
+> it, because Dagu rejects an unknown top-level key and §7.2 makes a workflow
+> Dagu configuration throughout; a Nix option may not, because §7.4 has no
+> per-workflow option and a machine-side one would teach the machine a project
+> fact; and a file the watcher reads at run time may not, because the watcher
+> would then need §7.3's resolution too.
+>
+> **Reactivity is its own group.** §7.4's "an inherited workflow you never
+> trigger costs nothing" does not carry over — a *triggered* workflow rewrites
+> the developer's files while they are editing them — so a group that declares
+> triggers ships the workflows they fire and nothing else. Taking it is the
+> opt-in; not taking it is the whole opt-out (`STAGE_3_LOG.md`, S4).
+
 The cost is honest and already accepted elsewhere: one watcher is a second
 shared-availability failure alongside the one instance (§15.3). It is also why
 loop-breaking below is now a question inside one process rather than between
 many.
 
-**Loop-breaking belongs to the workflow, and Dagu supplies the mechanism.** Any
+**There are two loops, and only one of them belongs to the workflow.**
+
+The first is the plane's own. Every run creates a log directory under
+`.devman/.runs/` inside the project (§9.2), so a watcher watching that project
+sees its own runs. **The watcher must ignore the run-state directory**, and
+nothing a workflow declares can substitute: a run whose every step is skipped
+still creates its log directory. Measured — with that one ignore removed, a
+single save produced 107 dispatches and 60 runs in 45 seconds, from a workflow
+that writes none of the files it watches (`STAGE_3_LOG.md`, S8). The watcher
+also ignores `.git`, `.devenv`, `.direnv`, `.venv`, `__pycache__` and
+`node_modules`, and a group's glob is the first filter: a tool's own cache
+directory is not on any list somebody can finish.
+
+The second is the workflow's, and **Dagu supplies the mechanism.** Any
 workflow that writes files a watcher watches will chase itself: you save
 `foo.py`, the watcher fires `format`, `format` rewrites `foo.py`, the watcher
 sees that write and fires again. Two Dagu features stop it, and the plane owns
