@@ -10,10 +10,11 @@
 # `DEVMAN_PROJECT_DIR`, the `.devman/.runs/` path shape, and the registry
 # layout (§3.1, §7.1).
 #
-# What it deliberately does not do:
-#   * the watcher (§8) is stage 3. Nothing here makes adding one awkward: it is
-#     a second systemd user service reading the same registry.
-#   * the CLI (§10) is stage 3.
+# STAGE 3 adds the other two halves of the plane: the CLI (§10) and the watcher
+# (§8). Both come from here and from nowhere else — the CLI because §3.1's
+# second rule says what the two interfaces share must be text, and a Python
+# program is not text; the watcher because a per-repository one would live only
+# as long as somebody's `devenv up` (C1, D7).
 { config, lib, pkgs, ... }:
 
 let
@@ -157,6 +158,28 @@ let
     };
   };
 
+  # The CLI (§10), wrapped with the two directories this machine chose.
+  #
+  # Both are FLAGS rather than `DEVMAN_*` variables, and that is deliberate:
+  # Dagu passes every `DEVMAN_*` in the enqueueing process's environment through
+  # to the run (`env_passthrough_prefixes` above), and §7.1's list of four names
+  # is closed. A fifth would arrive in every workflow's environment.
+  #
+  # `%h` and `$HOME` become `~`, which the CLI expands itself. The options carry
+  # a systemd specifier and a shell form respectively, because that is what the
+  # unit and the shell hook each need; the CLI is neither.
+  home = lib.replaceStrings [ "%h" "$HOME" ] [ "~" "~" ];
+  cliUnwrapped = pkgs.callPackage ./devman-cli.nix { dagu = cfg.package; };
+  cli = pkgs.runCommand "devman-${cliUnwrapped.version}"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta = cliUnwrapped.meta // { mainProgram = "devman"; };
+    } ''
+    makeWrapper ${cliUnwrapped}/bin/devman $out/bin/devman \
+      --add-flags "--registry ${home cfg.registryDir}" \
+      --add-flags "--dagu-home ${home cfg.dagHome}"
+  '';
+
   # Nix evaluation cannot write into $HOME, so the unit installs its two files
   # on every start. `install -m` rather than a symlink: Dagu reads these once at
   # startup, and a store symlink would hide which revision is live.
@@ -191,6 +214,65 @@ in
       type = types.bool;
       default = true;
       description = "Put the Dagu client on the system PATH, so a trigger can run `dagu enqueue` locally. Only a local process resolves `log_dir` into the project that triggered the run (E2).";
+    };
+
+    installCli = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Put the `devman` command on the system PATH — `run`, `show`, `doctor`
+        (§10), and the watcher's own entry point (§8).
+
+        It ships from here and not from the devenv module. §3.1's second rule
+        says what the two interfaces share must be text, and a Python program is
+        not text; shipping it from both would also put two `devman` binaries on
+        one PATH, resolved by profile order, which is the hazard §3.3 records
+        against `devman 0.2.0`. A devenv shell inherits this profile's PATH, so
+        one install reaches every repository shell on this machine.
+      '';
+    };
+
+    watch = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Run the watcher: one `watchexec` user service for the whole machine,
+          reading the registry for the paths to watch (§8, D7).
+
+          **It is safe to leave on, because it watches nothing by default.**
+          Reactivity is opt-in per repository: the watcher fires a workflow only
+          for a project that takes a group whose `triggers.nix` names a glob. A
+          machine where no project takes such a group runs a service that exits
+          reporting it has nothing to do.
+
+          Not one watcher per repository. A per-repository watcher's only home
+          is a devenv `processes.` entry, and those run under `devenv up` and
+          nothing else — so reactivity would apply to whichever repositories
+          somebody happened to have open (C1, D7).
+        '';
+      };
+
+      package = mkOption {
+        type = types.package;
+        default = pkgs.watchexec;
+        defaultText = lib.literalExpression "pkgs.watchexec";
+        description = "The watchexec the watcher execs. nixpkgs ships 2.5.1 (D7).";
+      };
+
+      watchexecArgs = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "--debounce" "200ms" ];
+        description = ''
+          Extra arguments for watchexec.
+
+          A debounce coalesces the events of one save into one batch. It is NOT
+          the loop break, and it must never be used as one: §8 requires a
+          content hash, so that your own edit right after a formatter's write
+          still fires. A window would swallow it (E1).
+        '';
+      };
     };
 
     dagHome = mkOption {
@@ -306,7 +388,9 @@ in
 
     users.users = lib.genAttrs cfg.lingerUsers (_: { linger = true; });
 
-    environment.systemPackages = lib.optional cfg.installClient cfg.package;
+    environment.systemPackages =
+      lib.optional cfg.installClient cfg.package
+      ++ lib.optional cfg.installCli cli;
 
     systemd.user.services.dagu = {
       description = "Dagu — devman automation plane";
@@ -347,6 +431,57 @@ in
       # A new DAG *file* needs no restart: discovery is a directory scan and the
       # running daemon picks one up immediately (A5).
       restartTriggers = [ configFile baseFile ];
+    };
+
+    # §8: the watcher. One process for the machine, beside Dagu, from the same
+    # module and with the same lifetime — which is the whole reason it is here
+    # rather than in a repository (D7).
+    #
+    # It needs no port and no state of its own beyond `<registry>/watch/`, which
+    # is derived like everything else under the registry root (§9.3).
+    systemd.user.services.devman-watch = mkIf cfg.watch.enable {
+      description = "devman watcher — one watchexec for every registered repository";
+      wantedBy = [ "default.target" ];
+
+      # Ordering only. The watcher enqueues through the queue store on disk, so
+      # a trigger while Dagu is down is not lost — it waits (E2, A1).
+      after = [ "dagu.service" ];
+
+      # `devman watch` resolves its own name from PATH when it re-invokes itself
+      # per event, so the CLI has to be on it. Dagu and watchexec are already
+      # wrapped onto the CLI's own PATH; naming them here as well keeps the unit
+      # readable in `systemctl --user cat`.
+      path = [ cli cfg.package cfg.watch.package ] ++ cfg.servicePath;
+
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = lib.escapeShellArgs (
+          [ "${cli}/bin/devman" "watch" ]
+          ++ lib.concatMap (a: [ "--watchexec-arg" a ]) cfg.watch.watchexecArgs
+        );
+        Restart = "on-failure";
+        RestartSec = 5;
+      };
+
+      # A machine whose registry declares no triggers has nothing to watch, and
+      # `devman watch` says so and exits 0. `Restart=on-failure` leaves that
+      # alone; an unconditional restart would spin.
+      startLimitIntervalSec = 60;
+      startLimitBurst = 5;
+
+      # THE LIMIT, STATED RATHER THAN HIDDEN. The set of watched PATHS is read
+      # from the registry when the service starts, because that is what
+      # watchexec is given on its command line. The MAPPING is re-read on every
+      # event, so changing which glob fires which workflow is live.
+      #
+      # So a repository that adopts reactivity — or a new project altogether —
+      # is watched after `systemctl --user restart devman-watch`, not before.
+      # `devman doctor` compares the running watcher's own record of what it
+      # watches against the registry and says so.
+      #
+      # `restartTriggers` covers a devman upgrade. It cannot cover the registry:
+      # that changes at shell entry, which no activation sees.
+      restartTriggers = [ cli ];
     };
   };
 }

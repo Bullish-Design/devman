@@ -11,10 +11,32 @@ workflow is simply one of its own files (§11).
 |---|---|
 | `stack-validate.yaml` | a cross-repository workflow: it triggers other projects' `check` and runs no command itself |
 
-## Triggering, by hand, until `devman run` exists
+## Triggering
 
-§10 defers the CLI to stage 3 and says to prove the conventions by hand first.
-Both conventions below are forced by measurement, not taste.
+```bash
+devman run check                     # in any registered repository
+devman run stack-validate            # here — the cross-repo one
+```
+
+`devman run` resolves the project from the current directory, exports
+`DEVMAN_PROJECT_DIR`, passes it as a parameter, and enqueues. For
+`stack-validate` it does the other two things this file used to ask a person to
+do: it sets `DEVMAN_SELF_DIR` instead, because the file declares that parameter,
+and it fills `OBSERVANTIC_DIR` and `SITEMAN_DIR` from the registry, because each
+one's default names a registered project.
+
+**It refuses rather than enqueueing a run that would write to the wrong place.**
+A directory variable that would be empty, a path that is not a directory, a
+parameter nothing fills, a parent that holds `DEVMAN_PROJECT_DIR` — each is a
+refusal naming the file and the field. That is what would have prevented the
+literally-named `${DEVMAN_PROJECT_DIR}` directory this repository committed
+once (S15).
+
+## Triggering by hand, which is still the specification
+
+The section below is what `devman run` does, written out. It stays because the
+conventions are forced by measurement rather than taste, and because a CLI that
+hides them would leave nobody able to check them.
 
 **Use `enqueue`, never `start`.** `dagu start` ignores queues entirely — two
 DAGs naming `exclusive` ran 0.3 s apart under `start` and serialized strictly

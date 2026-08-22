@@ -29,13 +29,27 @@
 #
 # Criterion 10 says no workflow contains an absolute path, and only the registry
 # knows where a project sits. So this file names the projects it needs as
-# parameters and the trigger fills them in from the registry — which is exactly
-# what §10's `devman run` is for. Until that exists (stage 3), the trigger is a
-# hand-written `dagu enqueue`; see .devman/workflows/README.md.
+# parameters and the trigger fills them in from the registry.
+#
+# EACH DEFAULT IS A PROJECT NAME, AND THAT IS THE CONVENTION `devman run` READS.
+#
+# A declared parameter whose default names a registered project is filled with
+# that project's path (§10). The name of the parameter is this file's own
+# business — the plane reserves no name shape and §7.1's list of four stays
+# closed. What it reads is the value, which is an identity rather than a path,
+# so criterion 10 still holds and the file still contains no absolute path.
+#
+# `DEVMAN_SELF_DIR` needs no such default: `devman run` knows which project owns
+# the workflow it is triggering, because it found the file in that project's
+# projection.
+#
+# Triggered by hand instead, each parameter is resolved from the registry by the
+# person doing it — see .devman/workflows/README.md, which is still the
+# specification this file is written against.
 params:
   - DEVMAN_SELF_DIR: ""
-  - OBSERVANTIC_DIR: ""
-  - SITEMAN_DIR: ""
+  - OBSERVANTIC_DIR: observantic
+  - SITEMAN_DIR: siteman
 
 working_dir: ${DEVMAN_SELF_DIR}
 log_dir: ${DEVMAN_SELF_DIR}/.devman/.runs/logs
