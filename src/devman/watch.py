@@ -124,11 +124,35 @@ class WatchEntry:
 
 
 def watch_map(reg: Registry) -> list[WatchEntry]:
-    """Every `(project, globs, workflow)` the registry declares, deepest last."""
+    """Every `(project, globs, workflow)` the registry declares, deepest last.
+
+    **A project whose registered path is gone is skipped, and that is not a
+    tidiness rule — it is what keeps one repository's move from stopping
+    reactivity for every repository on the machine.** watchexec exits
+    immediately when any `--watch` path does not exist:
+
+        Error:   × No such file or directory (os error 2)
+
+    The supervisor exits with it, `Restart=on-failure` tries five times, and
+    `startLimitBurst` then leaves the unit **failed** — 30 seconds from the
+    first restart, with every other repository's saves going nowhere. Nothing
+    brings it back: not the registry healing when the repository is entered
+    again, because a failed unit is not restarted by anything except a person or
+    an activation (`STAGE_5_LOG.md`, S2).
+
+    The window is ordinary. A registry entry names a path that is not a
+    directory between a repository moving and its shell being entered again, and
+    a watcher restart in that window is a rebuild, a reboot, or another
+    repository adopting a reactive group.
+
+    Skipping is right rather than merely safe: watching a path that does not
+    exist watches nothing, and §10 check 5 already owns a registered path that
+    is gone. `unwatchable` below is what says so out loud.
+    """
     out: list[WatchEntry] = []
     for proj in reg.projects().values():
         triggers = proj_triggers(proj)
-        if not triggers:
+        if not triggers or not proj.exists:
             continue
         group = (proj.raw_triggers() or {}).get("group", "?")
         by_workflow: dict[str, list[str]] = {}
@@ -142,6 +166,21 @@ def watch_map(reg: Registry) -> list[WatchEntry]:
 def proj_triggers(proj: Project) -> dict[str, str]:
     raw = proj.raw_triggers()
     return (raw or {}).get("map", {}) or {}
+
+
+def unwatchable(reg: Registry) -> list[Project]:
+    """Registered projects that declare triggers and whose path is gone.
+
+    `watch_map` drops them so that watchexec still starts. This names them, so
+    that the smaller watch set is a sentence in the journal and in `devman
+    doctor` rather than a silence — the developer is told which repository is
+    missing, which watchexec's own message never says.
+    """
+    return [
+        proj
+        for proj in reg.projects().values()
+        if proj_triggers(proj) and not proj.exists
+    ]
 
 
 class WatchState:
@@ -294,11 +333,18 @@ def dispatch_command(reg: Registry, dagu_home: str) -> list[str]:
     ]
 
 
-def announce(entries: list[WatchEntry]) -> None:
+def announce(entries: list[WatchEntry], skipped: list[Project] = ()) -> None:
     for entry in entries:
         print(
             f"devman watch: {entry.project} {entry.globs} -> {entry.workflow}"
             f" [{entry.group}]",
+            file=sys.stderr,
+        )
+    for proj in skipped:
+        print(
+            f"devman watch: skipping {proj.name} — its registered path"
+            f" {proj.path} is not a directory, and watchexec exits on one."
+            " Enter its shell to re-register it, or `devman doctor --prune`",
             file=sys.stderr,
         )
 
@@ -358,13 +404,14 @@ def supervise(args, reg: Registry) -> int:
                     child = None
                 paths = watch_paths(entries)
                 if entries:
-                    announce(entries)
+                    announce(entries, unwatchable(reg))
                     argv = watchexec_command(
                         reg, entries, args.watchexec_arg, args.dagu_home
                     )
                     child = subprocess.Popen(argv)
                 else:
                     argv = []
+                    announce([], unwatchable(reg))
                     print(nothing_to_watch(args.poll_seconds), file=sys.stderr)
                 shape = None
             if watch_shape(entries) != shape:
@@ -392,9 +439,10 @@ def main(args, reg: Registry) -> int:
     if args.print_only:
         entries = watch_map(reg)
         if not entries:
+            announce([], unwatchable(reg))
             print(nothing_to_watch(args.poll_seconds), file=sys.stderr)
             return 0
-        announce(entries)
+        announce(entries, unwatchable(reg))
         print(
             " ".join(
                 watchexec_command(reg, entries, args.watchexec_arg, args.dagu_home)

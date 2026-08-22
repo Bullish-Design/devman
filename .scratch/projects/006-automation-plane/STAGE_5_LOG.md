@@ -194,3 +194,212 @@ machine change is proposed, evaluated and handed over.
 
 **Charter impact:** **none.** This entry is stage 5's own definition of done, not
 an amendment to §14.
+
+---
+
+## S2 — One repository moving stops reactivity for every repository, and nothing brings it back
+
+**Answer:** watchexec exits immediately when **any** `--watch` path does not
+exist. The supervisor exits with it, `Restart=on-failure` tries five times,
+`startLimitBurst` gives up, and `devman-watch` is left **failed** — 30 seconds
+after the first restart, for every registered repository at once. **It does not
+recover when the moved repository comes back**, because a failed unit is
+restarted by nothing except a person or an activation.
+
+This was invisible for two stages because the watch set has had **one** entry
+since stage 3, and that entry is this repository, which has never moved.
+
+**Tested:** the installed plane. devman 0.3.0, watchexec 2.5.1, Dagu 2.15.0.
+
+### The probe repository, and the two things it proved before it broke anything
+
+`~/s5-probe` — a throwaway taking `base` and `python-format`, `project =
+"s5-probe"`, registered the only way there is (§5.2, criterion 17):
+
+```bash
+cd ~/s5-probe && devenv shell -- true
+```
+
+**Evidence — the watcher picked up a second repository by itself**, which S16 of
+stage 3 built and which no measurement had ever exercised with two:
+
+```
+$ devman doctor
+ok  watcher        devman:   **/*.py -> format  [python-format]
+                   s5-probe: **/*.py -> format  [python-format]
+                   watching this set since 2026-08-22T19:49:12.625-04:00
+```
+
+**Evidence — and reactivity works in it**, one save, one run, unedited group
+files:
+
+```
+$ printf 'y  =  2\n' >> ~/s5-probe/a.py
+{"at":"19:49:38.272","project":"s5-probe","workflow":"format",
+ "path":"/home/andrew/s5-probe/a.py","outcome":"enqueued"}
+$ tail -1 ~/s5-probe/.devman/.runs/metadata.jsonl
+{"dag":"s5-probe-format","run_id":"034BpgG8sIRVVOfNEyHZJN","status":"succeeded", …}
+```
+
+### The move, and the two hypotheses it had to separate
+
+**Command:**
+
+```bash
+mv ~/s5-probe ~/s5-probe-moved
+```
+
+**Nothing happened for the next 42 seconds**, and that is the first half of the
+finding:
+
+```
+19:50:05 active running success 0        <- NRestarts, Result
+19:50:41 active running success 0
+```
+
+**Two readings, and they are not the same claim.** Either the plane tolerates a
+move, or the watcher is holding an inode rather than a path and the damage waits
+for the next restart. A save in the moved tree separates them:
+
+```
+$ printf 'z  =  3\n' >> ~/s5-probe-moved/a.py
+{"at":"19:51:01.817","project":"s5-probe","workflow":"format",
+ "path":"/home/andrew/s5-probe/a.py","outcome":"refused (1)"}   <- the OLD path
+
+$ journalctl --user -u devman-watch
+devman: refusing to enqueue in 's5-probe'
+devman:  its registered path /home/andrew/s5-probe is not a directory
+devman:  run `devman doctor --prune` to reconcile the registry (§10 check 5)
+```
+
+**That part is the design working, and it is worth saying before the part that
+is not.** watchexec kept watching the moved *inode* and reported the path it was
+given, the dispatcher matched it, and `devman run` **refused** — the check at
+`src/devman/run.py:196`, which exists because Dagu creates a missing
+`working_dir` and reports success (§9.2). A run in a directory that is no longer
+the project is exactly what it prevents, and the refusal is recorded in
+`fired.jsonl` and in the journal.
+
+### The restart, which is where it breaks
+
+**Command** — one restart, which is what a rebuild, a reboot, or another
+repository adopting a reactive group each cause:
+
+```bash
+systemctl --user restart devman-watch
+```
+
+**Evidence:**
+
+```
+19:51:28 activating auto-restart exit-code 0
+19:51:33 activating auto-restart exit-code 1
+19:51:38 activating auto-restart exit-code 2
+19:51:43 activating auto-restart exit-code 3
+19:51:48 activating auto-restart exit-code 4
+19:51:53 failed      failed       start-limit-hit 5
+
+$ journalctl --user -u devman-watch
+devman watch: devman   ['**/*.py'] -> format [python-format]
+devman watch: s5-probe ['**/*.py'] -> format [python-format]
+Error:   × No such file or directory (os error 2)
+devman-watch.service: Start request repeated too quickly.
+Failed to start devman watcher — one watchexec for every registered repository.
+```
+
+**Thirty seconds, five restarts, and reactivity is off for the whole machine.**
+watchexec's message names **no path**, so the journal does not say which
+repository is missing. `devman`'s own saves stopped firing, and `devman` had not
+moved.
+
+**And it does not heal.** Re-entering the moved repository's shell fixes the
+registry, and the unit stays down:
+
+```
+$ cd ~/s5-probe-moved && devenv shell -- true
+$ grep '"path"' ~/.local/share/devman/projects/s5-probe/metadata.json
+  "path": "/home/andrew/s5-probe-moved",          <- identity survived the move
+$ systemctl --user show devman-watch -p ActiveState -p Result --value
+failed  start-limit-hit                            <- the watcher did not
+```
+
+`Restart=on-failure` is the right setting and it is not the problem: it did what
+it says, five times, against a condition that could not resolve itself.
+
+### What `devman doctor` said, and the sentence it did not have
+
+```
+!!  stale entries  s5-probe -> /home/andrew/s5-probe (gone) — its workflows still
+                   project and would pass, vacuously, in a directory Dagu creates
+!!  watcher        devman: **/*.py -> format  [python-format]
+                   s5-probe: **/*.py -> format  [python-format]
+                   it is NOT running — the last one started … as pid 2041626 and is gone
+                   nothing is watching these repositories: systemctl --user start devman-watch
+```
+
+**Both facts, four lines apart, and no connection between them.** A developer
+reading that runs the command it suggests, and the unit fails again inside 30
+seconds. Worse, the watcher check lists `s5-probe` as something being watched.
+
+### The fix: a stale entry is dropped from the watch set, by name
+
+`watch_map` skips a project whose registered path is not a directory, and
+`unwatchable` names it — in the journal when the supervisor starts, and in
+`doctor`. Skipping is right rather than merely safe: watching a path that does
+not exist watches nothing, and §10 check 5 already owns a registered path that
+is gone.
+
+**Evidence — both branches, against the built CLI and one throwaway registry
+holding one live project and one stale one:**
+
+```
+$ timeout 10 devman --registry /tmp/s5-reg watch          # installed 0.3.0
+devman watch: devman   ['**/*.py'] -> format [python-format]
+devman watch: s5-probe ['**/*.py'] -> format [python-format]
+Error:   × No such file or directory (os error 2)
+exit=1                                                    <- dead in under a second
+
+$ timeout 10 /nix/store/lgz81gz…-devman-0.3.0/bin/devman --registry /tmp/s5-reg watch
+devman watch: devman ['**/*.py'] -> format [python-format]
+devman watch: skipping s5-probe — its registered path /home/andrew/s5-gone is not
+              a directory, and watchexec exits on one. Enter its shell to
+              re-register it, or `devman doctor --prune`
+exit=124                                                  <- still alive at 10s
+```
+
+**Evidence — and it still fires for the repository that is there**, which is the
+claim that matters. The fixed supervisor, run against that same registry with
+the stale entry still in it:
+
+```
+$ printf '# s5 probe touch\n' >> src/devman/_s5_touch.py
+$ cat /tmp/s5-reg/watch/fired.jsonl
+{"at":"19:55:51.237","project":"devman","workflow":"format",
+ "path":"…/src/devman/_s5_touch.py","outcome":"enqueued"}
+```
+
+`doctor` gains one line in the same place, so the two facts are connected:
+
+```
+s5-probe: NOT watched — /home/andrew/s5-gone is not a directory.
+          Enter its shell to re-register it, or `devman doctor --prune`
+```
+
+**The watcher check stays `ok` when the watcher is healthy**, and the stale entry
+stays the one `!!`. That is S14's lesson applied rather than restated: the
+watcher is working correctly on the repositories that exist, and calling it a
+fault would be calling a busy queue wedged.
+
+### What this cost, and what it needs
+
+`src/devman/` moves the machine closure, so **this needs a rebuild and has not
+had one**. Proved by the built CLI above and by both checks:
+
+```
+$ nix build .#checks.x86_64-linux.dagu-service   --no-link    # exit 0
+$ nix build .#checks.x86_64-linux.groups-validate --no-link   # exit 0
+```
+
+**Charter impact:** **none.** §8 already says one watcher serves every
+repository and §15.3 already accepts that as a shared availability failure. This
+is the plane finally not *causing* one out of an ordinary `mv`.

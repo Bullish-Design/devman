@@ -514,6 +514,16 @@ def check_watcher(rep: Report, reg: Registry) -> None:
             f"{entry.project}: {', '.join(entry.globs)} -> {entry.workflow}"
             f"  [{entry.group}]"
         )
+    # A stale entry that declares triggers is dropped from the watch set, or
+    # watchexec would refuse to start and take reactivity down for every
+    # repository (S2). The stale-entry check above says the path is gone; this
+    # says what it costs, because the two facts were reported side by side and
+    # unconnected the first time this happened.
+    for proj in watch.unwatchable(reg):
+        lines.append(
+            f"{proj.name}: NOT watched — {proj.path} is not a directory."
+            " Enter its shell to re-register it, or `devman doctor --prune`"
+        )
     # Liveness comes from the process table. The state file says what a watcher
     # recorded; the kernel says what is running, and those differ in both of the
     # ways that matter — a state file outlives the process that wrote it, and a
