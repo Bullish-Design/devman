@@ -2282,3 +2282,214 @@ needs an owner.
 machine-wide file, a `secrets:` block placed there grants every workflow on the
 machine every secret — which is the cost of E3's tidiest answer, and a
 reconciliation decision.
+
+---
+
+## E5 — Can Dagu diagnose a wedged plane?
+
+**Bucket:** **answers** — §15.3's one condition, and part of §10.
+
+**Answer:** **a wedged queue explains itself; a failed-to-load DAG does not.**
+Dagu's queue API states, per waiting item, why it is not running. `doctor` should
+read it rather than reimplement it. But `dagu ls` lists a DAG that cannot load
+with no indication, so `doctor` must run `dagu validate` per file. Zombie
+detection exists with documented knobs, and I could not observe it firing.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### A stuck queue explains itself — read it, do not reimplement it
+
+Four runs enqueued to `exclusive` (`max_concurrency: 1`), each sleeping 20s.
+
+**Command:**
+
+```
+curl -s http://127.0.0.1:8080/api/v1/queues
+curl -s http://127.0.0.1:8080/api/v1/queues/exclusive/items
+```
+
+**Evidence:**
+
+```json
+{"queues":[{"name":"exclusive","type":"global","maxConcurrency":1,
+  "runningCount":1,"queuedCount":3,
+  "running":[{"dagRunId":"e5run1","name":"e5_slow","statusLabel":"running",
+              "queuedAt":"...23:17:12-04:00","startedAt":"...23:17:13-04:00",
+              "triggerType":"manual","workerId":"local"}]}]}
+```
+
+```json
+{"items":[{"dagRunId":"e5run2","name":"e5_slow","statusLabel":"queued",
+  "conditions":[
+    {"type":"Runnable","status":"False","reason":"MaxConcurrencyReached",
+     "message":"The DAG-run cannot start because the queue active-run concurrency limit has been reached."},
+    {"type":"ConcurrencyReady","status":"False","reason":"MaxConcurrencyReached",
+     "message":"The queue active-run concurrency limit has been reached."}],
+  "queuedAt":"...","triggerType":"manual"}]}
+```
+
+**Each waiting item carries a machine-readable reason and a human message.**
+§15.3 requires that `devman doctor` diagnose a wedged plane. For the
+shared-availability failure §15.3 actually names — one queue blocking every
+repo — Dagu already produces the diagnosis, including which run is holding the
+slot and since when.
+
+`dagu ps` is the CLI view, and it names the queue:
+
+```
+DAG      RUN_ID  ATTEMPT  STARTED               GROUP      FRESH
+e5_slow  e5run1  735166   2026-08-22T03:17:13Z  exclusive  yes
+```
+
+`GROUP` is the queue. `FRESH` is the process-liveness heartbeat.
+
+Also available and read-only: `GET /health` (`{"status":"healthy","uptime":6057,
+"version":"2.15.0"}`), `GET /metrics` (Prometheus text, including
+`dagu_dag_run_duration_seconds` per DAG and `dagu_cache_entries_total`), and
+`GET /audit`. The `audit`, `event_store`, and `monitoring` config blocks are
+retention and interval settings only — `audit.retention_days` 7,
+`event_store.retention_days` 1, `monitoring.interval` 5s — and all three default
+to enabled.
+
+### A DAG that failed to load is invisible to `ls`
+
+**Command:**
+
+```
+# e5_broken.yaml carries a top-level `x-not-a-key`
+dagu ls | grep e5_broken
+dagu start e5_broken
+dagu validate $DAGS/e5_broken.yaml
+```
+
+**Evidence:**
+
+```
+e5_broken                                  <- listed, no error column, no warning
+
+Error: failed to load DAG from e5_broken: 'spec.dag' has invalid keys: x-not-a-key
+
+Error: Validation failed for .../e5_broken.yaml
+- 'spec.dag' has invalid keys: x-not-a-key
+```
+
+`dagu ls` has one column, `NAME`, and lists the file regardless. So **the
+projection can contain a DAG that can never run, and nothing reports it until
+someone triggers it.** `dagu validate` is the check, and its exit code is usable:
+
+```
+dagu validate <broken>  → exit 1, message on stderr
+dagu validate <good>    → exit 0, prints nothing at all
+```
+
+**`devman doctor` should run `dagu validate` over every projected file.** That is
+one exec per workflow, and it is the only way to see a load failure.
+
+### `--show-unresolved` sees the A3 trap — but only in a spelling that breaks `log_dir`
+
+`dagu validate --show-unresolved` reports references that had no value:
+
+```
+msg="${env.SOME_OPERATOR_VAR} was left unchanged because env.SOME_OPERATOR_VAR had
+     no value when steps[0].run[0].cmd_with_args was evaluated." reason=unknown_env_binding
+msg="${context.paths.artifacts_dir} was left unchanged ..." reason=namespace_unavailable
+```
+
+It reports the `${env.NAME}` and `${namespace.x}` forms. It reports **nothing**
+for the bare `${NAME}` form, which is the form every A2/A3 example uses:
+
+```
+# e5_unres.yaml: working_dir ${DEVMAN_PROJECT_DIR}, run echo ${NOT_DEFINED_ANYWHERE}
+$ env -u DEVMAN_PROJECT_DIR dagu validate --show-unresolved $DAGS/e5_unres.yaml
+$ echo $?
+0            <- silent
+```
+
+Switching to `${env.DEVMAN_PROJECT_DIR}` makes validation see it:
+
+```
+msg="${env.DEVMAN_PROJECT_DIR} was left unchanged because env.DEVMAN_PROJECT_DIR had
+     no value when working_dir was evaluated." reason=unknown_env_binding
+```
+
+**But that spelling breaks `log_dir`.** The same DAG, triggered with the variable
+exported *and* passed:
+
+```
+├─log: ${env.DEVMAN_PROJECT_DIR}/.devman/.runs/logs/e5_envform/...
+      cwd=/tmp/devman-e/projB
+```
+
+`working_dir` resolved from the param; `log_dir` stayed literal, and Dagu created
+the directory. **`log_dir` understands only the bare `${NAME}` form.** So:
+
+| spelling | `working_dir` | `log_dir` | visible to `validate --show-unresolved` |
+|---|---|---|---|
+| `${NAME}` | resolves | **resolves** | **no** |
+| `${env.NAME}` | resolves | **stays literal** | **yes** |
+
+**Neither spelling gives both.** The plane must use `${NAME}` (A3), and therefore
+cannot use `validate` to catch the unresolved case. A6's recommendation stands:
+`doctor` looks for the directory named `${DEVMAN_PROJECT_DIR}` instead.
+
+### Zombie detection — documented, not observed
+
+The knobs are real (`config.schema.json`, `SchedulerDef` and `ProcDef`):
+
+```
+scheduler.zombie_detection_interval   default 45s   ("0" disables)
+scheduler.failure_threshold           default 3     consecutive stale checks
+proc.stale_threshold                  default 90s
+proc.heartbeat_interval               default 5s
+```
+
+So a run whose agent dies stays visible as running for **at least 90 seconds**,
+and up to roughly three detection intervals beyond that.
+
+**Command:**
+
+```
+dagu enqueue e5_zombie -r zrun1      # step is `sleep 120`
+kill -9 <matched agent pid>
+```
+
+**Evidence:**
+
+```
+t+4s    e5_zombie  zrun1  light  FRESH=yes     Status: Running
+t+45s   e5_zombie  zrun1  light  FRESH=yes     Status: Running
+t+100s  e5_zombie  zrun1  light  FRESH=yes     Status: Running
+t+205s  No running processes                   Result: Succeeded
+```
+
+**Report what happened:** the run cleared and was recorded **Succeeded**, so I did
+not produce a durable zombie and **the detection path is unverified**. What is
+established is the window: `dagu ps` reports `FRESH=yes` for a run whose agent is
+gone, for at least 90 seconds. A `doctor` that reads `FRESH` must say "not yet
+stale", not "healthy".
+
+### Charter impact
+
+**changes §10**, and it satisfies **§15.3** for the failure §15.3 names.
+
+§10 gives `devman doctor` one line: "diagnose the plane, and report shadowed
+files and their drift". Name what it reads rather than computes:
+
+| symptom | source | reimplement? |
+|---|---|---|
+| a wedged queue | `GET /queues`, `GET /queues/{name}/items` `conditions` | **no** |
+| what holds the slot, and since when | the same, `running[]` with `startedAt` | **no** |
+| a run whose process is gone | `dagu ps` `FRESH`, after 90s | **no** |
+| the plane is up at all | `GET /health` | **no** |
+| a DAG that failed to load | `dagu validate` per file, exit 1 | **yes — one exec per workflow** |
+| a misspelled queue name (A1) | nothing in Dagu | **yes** |
+| an unresolved `${DEVMAN_PROJECT_DIR}` (A3) | nothing usable — see the table above | **yes** |
+| shadowed files and their drift (§15.6) | nothing in Dagu | **yes** |
+
+**§15.3's condition is met** for the shared-availability failure it names. That
+was the accepted risk's one requirement, and the diagnosis is a `GET` away.
+
+**One sentence, and then stopping as §1 requires:** three of the four things
+`doctor` must compute itself are file checks over the projection, not queries
+against a running Dagu, which suggests `doctor` works without the daemon and
+degrades when it is absent — a design note for whoever writes §10.
