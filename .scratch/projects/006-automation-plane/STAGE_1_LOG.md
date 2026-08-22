@@ -409,6 +409,21 @@ example-05-template-and-file
 though `config.schema.json` does not list it. The NixOS test now asserts that
 no `example-` name appears.
 
+**Two things Dagu still writes there, and both are fine.** After adopting this
+repository and running one workflow:
+
+```
+$ ls -a ~/.local/share/devman/dags/
+.dag.index   devman-check.yaml   devman-full-test.yaml   devman-validate.yaml   wiki/
+```
+
+`.dag.index` is Dagu's discovery cache and `wiki/` is an empty directory it
+creates. Neither is a DAG, neither is listed, and the projection's cleanup
+touches neither — it removes only links whose target it recognises. Worth
+recording because it means `dags/` is Dagu's view of the registry rather than
+devman's private directory, and a `doctor` that treats every file there as its
+own would be wrong.
+
 **Charter impact:** **none.** It is a setting, and the module sets it.
 
 ---
