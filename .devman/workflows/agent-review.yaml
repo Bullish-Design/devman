@@ -1,0 +1,95 @@
+# devman/agent-review — an agent reviews a commit, and leaves its answer behind
+# (CONCEPT.md §13, stage 4).
+#
+# ---------------------------------------------------------------------------
+# WHY IT IS THIS REPOSITORY'S OWN FILE AND NOT A GROUP
+#
+# §16's promotion rule: a group begins when a *second* repository wants the same
+# file. One repository ships an agent CLI — this one, which carries `claude-code`
+# and `codex-cli` in `devenv.nix`'s packages. So this is `.devman/workflows/`
+# content until a second repository wants it, exactly as a TypeScript group
+# would be (§16). Nothing about the file would change on promotion: it calls
+# `devenv tasks run agent:review`, and the group would name the task and never
+# the tool (§7.1), so `claude`, `codex` or a script all fit.
+#
+# ---------------------------------------------------------------------------
+# HOW AN ARGUMENT REACHES A RUN
+#
+# `devman run` REFUSES a declared parameter that would have no value
+# (src/devman/run.py:118). A free-text parameter with an empty default is
+# therefore refused at the trigger, and that is correct — an agent run with an
+# empty prompt is a run that does something nobody asked for.
+#
+# So each input has a REAL default, and a person overrides it with NAME=VALUE:
+#
+#     devman run agent-review
+#     devman run agent-review AGENT_REF=HEAD~3
+#     devman run agent-review AGENT_PROMPT='List every place this breaks a repo that has no git.'
+#
+# A parameter whose default names a registered project would be filled with that
+# project's path (S3 of stage 3). Neither default here does, and neither could
+# be mistaken for one, so both pass through unchanged.
+#
+# `DEVMAN_PROJECT_DIR` is declared FIRST because Dagu rejects a parameter a DAG
+# did not declare, and `devman run` always passes the directory variable
+# (STAGE_4_LOG.md, S3). This workflow triggers no other DAG, so holding the name
+# is correct and §11's rule does not reach it.
+#
+# ---------------------------------------------------------------------------
+# THE QUEUE IS `exclusive`, AND IT IS NAMED ON PURPOSE
+#
+# `heavy` says "this costs a lot of machine". `exclusive` says "this must not
+# overlap with other exclusive work". Both are `max_concurrency: 1` on this
+# machine, and the second is the stronger claim, so it is the honest one: an
+# agent run is long, non-deterministic, and reads a working tree that another run
+# may be rewriting. One at a time.
+#
+# WHAT IT DOES NOT COMPETE WITH IS THE WATCHER, and that is a property of what it
+# writes rather than of its queue. It writes one file, under
+# `.devman/.runs/reports/`, which the watcher ignores and git ignores (§8, §9.2).
+# An agent workflow that rewrote source files would fire `format` on every write
+# and would have to be reasoned about the way `python-format` is; this one has
+# nothing to reason about.
+#
+# ---------------------------------------------------------------------------
+# WHAT IT LEAVES BEHIND
+#
+# `.devman/.runs/reports/agent-review-<run id>.md` — the prompt, what was
+# reviewed, and the agent's answer, in the project's own tree. An agent run that
+# printed to a log a person has to go and find would fail D6 of STAGE_4_LOG.md's
+# S1: the whole risk of stage 4 is a successful run that did the wrong thing, and
+# the only defence the plane offers is that you can read what it did.
+#
+# The report path is exported to the task rather than interpolated into the
+# command, so nothing a person typed is ever expanded by a shell.
+params:
+  - DEVMAN_PROJECT_DIR: ""
+  - AGENT_REF: "HEAD"
+  - AGENT_PROMPT: "Review this change. Report correctness problems first, then anything unclear. At most ten bullet points, and say plainly if you find nothing wrong."
+
+queue: exclusive
+type: chain
+steps:
+  - id: review
+    name: review
+    run: |
+      set -u
+      report=".devman/.runs/reports/agent-review-${context.run.id}.md"
+      {
+        echo "# agent review — ${context.dag.name}"
+        echo
+        echo "- run id: \`${context.run.id}\`"
+        echo "- started: ${context.attempt.started_at}"
+        echo "- reviewed: \`$AGENT_REF\` = \`$(git rev-parse --short "$AGENT_REF")\`"
+        echo
+        echo '## prompt'
+        echo
+        printf '> %s\n' "$AGENT_PROMPT"
+        echo
+        echo '## answer'
+        echo
+      } > "$report"
+
+      export AGENT_REPORT="$report"
+      devenv tasks run -v agent:review
+      cat "$report"

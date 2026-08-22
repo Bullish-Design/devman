@@ -134,6 +134,29 @@ in
     "release:build".exec = ''
       nix build .#devman --out-link .devman/.runs/artifacts/devman
     '';
+
+    # What `.devman/workflows/agent-review.yaml` runs. The workflow names a task
+    # and the task names the tool, which is §6's split — swap `claude` for
+    # `codex` here and no workflow changes.
+    #
+    # THE AGENT IS GIVEN TEXT AND NO TOOLS. The commit is piped in as the prompt,
+    # so the run cannot read or write anything outside this pipeline whatever it
+    # decides to do. An agent with repository access, fired by a timer with
+    # nobody watching, is the shape §10 of STAGE_4_PROMPT.md warns about; this
+    # one cannot reach the repository at all.
+    #
+    # `head -c` bounds the input: an unbounded diff is an unbounded bill.
+    #
+    # `$AGENT_REPORT`, `$AGENT_REF` and `$AGENT_PROMPT` come from the workflow's
+    # parameters through the step's environment. `set -u` is what makes a broken
+    # hand-off loud rather than a report written to a file called nothing.
+    "agent:review".exec = ''
+      set -euo pipefail
+      {
+        printf '%s\n\n' "$AGENT_PROMPT"
+        git show --stat --patch "$AGENT_REF"
+      } | head -c 60000 | claude -p --output-format text >> "$AGENT_REPORT"
+    '';
   };
 
   # https://devenv.sh/tests/

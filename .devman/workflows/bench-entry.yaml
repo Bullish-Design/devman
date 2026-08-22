@@ -1,0 +1,125 @@
+# devman/bench-entry — a benchmark campaign over a registered project
+# (CONCEPT.md §13, stage 4).
+#
+# It measures what §14's criterion 7 is about and what §15.7 says nothing will
+# ever check for you: **how long it costs to enter a repository's shell.** Every
+# workflow step in this plane runs `devenv tasks run`, so that number is under
+# every run the machine makes, and §15.7 is explicit that the plane holds no
+# opinion about what a default costs — "notice it yourself". This is the file
+# that notices.
+#
+# ---------------------------------------------------------------------------
+# A TIMING WITHOUT A SPREAD IS NOT A TIMING
+#
+# The report carries n, mean, median, standard deviation, min and max, and the
+# machine's load average at both ends of the campaign. Stage 3's S15 is why: the
+# same repository measured 267 ms at load average 5 and 255 ms at load average
+# 13, and the plane's own contribution was -0.17 ms. **The absolute figure
+# measures the machine, not the repository.** A single number here would be a
+# number somebody trusts and should not.
+#
+# ---------------------------------------------------------------------------
+# THE QUEUE IS `exclusive`, AND WHAT THAT DOES NOT BUY
+#
+# `gpu` is declared by the machine with `max_concurrency: 1` and named by no
+# workflow anywhere. It stays that way: nothing here is GPU work, and naming a
+# queue for a resource you do not use misdeclares it — §15.4 makes a queue name a
+# one-way door, and a misspelled or wrong one is accepted silently with no limit
+# at all.
+#
+# `exclusive` is the honest name, because a campaign must not overlap with other
+# exclusive work. **It does not give the campaign the machine.** Dagu's queues
+# are independent, so `light`, `normal` and `heavy` runs proceed beside an
+# exclusive one — the plane can serialize a class and cannot quiesce a host. That
+# is why the load average is in the report rather than assumed away.
+#
+# ---------------------------------------------------------------------------
+# WHY IT IS THIS REPOSITORY'S OWN FILE
+#
+# §16's promotion rule. A campaign that measures a *named other* project belongs
+# to no project, and §11 says such a workflow belongs to devman. It is not a
+# cross-repo workflow in §11's mechanical sense — it uses no `action: dag.run` —
+# so it targets its own project, holds `DEVMAN_PROJECT_DIR`, and writes its
+# report into this repository's run tree. What it measures is somebody else's.
+#
+# `TARGET`'s default is a project NAME, and `devman run` fills a declared
+# parameter whose default names a registered project with that project's path
+# (S3 of stage 3). So this file holds no absolute path and criterion 10 stays
+# true, while the campaign still knows where to go:
+#
+#     devman run bench-entry                       # observantic, 20 entries
+#     devman run bench-entry TARGET=pyjutsu RUNS=40
+#
+# ONE SIDE EFFECT, STATED. Entering a repository's shell registers it (§5.2). The
+# campaign therefore re-registers whatever it measures, through the one entry
+# path that exists, idempotently and by the hash guard. It is not a second entry
+# path (criterion 17): it is the first one, used.
+params:
+  - DEVMAN_PROJECT_DIR: ""
+  - TARGET: observantic
+  - RUNS: "20"
+  - WARMUP: "3"
+
+queue: exclusive
+type: chain
+steps:
+  - id: campaign
+    name: campaign
+    run: |
+      set -u
+      report=".devman/.runs/reports/bench-entry-${context.run.id}.md"
+      samples=$(mktemp)
+      trap 'rm -f "$samples"' EXIT
+
+      load_before=$(cut -d' ' -f1-3 /proc/loadavg)
+
+      cd "$TARGET"
+      i=0
+      while [ "$i" -lt "$WARMUP" ]; do
+        devenv shell -- true >/dev/null 2>&1 || true
+        i=$((i + 1))
+      done
+
+      i=0
+      while [ "$i" -lt "$RUNS" ]; do
+        t0=${EPOCHREALTIME/./}
+        devenv shell -- true >/dev/null 2>&1
+        t1=${EPOCHREALTIME/./}
+        echo $(( (t1 - t0) / 1000 )) >> "$samples"
+        i=$((i + 1))
+      done
+
+      load_after=$(cut -d' ' -f1-3 /proc/loadavg)
+      cd - >/dev/null
+
+      {
+        echo "# bench-entry — ${context.dag.name}"
+        echo
+        echo "- run id: \`${context.run.id}\`"
+        echo "- started: ${context.attempt.started_at}"
+        echo "- target: \`$TARGET\`"
+        echo "- devenv: \`$(cd "$TARGET" && devenv version 2>/dev/null | head -1)\`"
+        echo "- warm-up entries discarded: $WARMUP"
+        echo "- load average before: $load_before"
+        echo "- load average after:  $load_after"
+        echo
+        echo '## devenv shell -- true, milliseconds'
+        echo
+        sort -n "$samples" | awk '
+          {v[NR] = $1; s += $1}
+          END {
+            n = NR; mean = s / n
+            for (i = 1; i <= n; i++) d += (v[i] - mean) ^ 2
+            sd = (n > 1) ? sqrt(d / (n - 1)) : 0
+            median = (n % 2) ? v[(n + 1) / 2] : (v[n / 2] + v[n / 2 + 1]) / 2
+            printf "| n | mean | median | sd | min | max |\n"
+            printf "|---|---|---|---|---|---|\n"
+            printf "| %d | %.1f | %.1f | %.1f | %d | %d |\n", n, mean, median, sd, v[1], v[n]
+          }'
+        echo
+        echo 'The absolute figure measures the machine as much as the repository:'
+        echo 'stage 3 saw the same repository move 12 ms between load average 5 and 13,'
+        echo 'against a plane cost of -0.17 ms (`STAGE_3_LOG.md`, S15). Compare a target'
+        echo 'against itself over time, and read the spread before the mean.'
+      } > "$report"
+      cat "$report"

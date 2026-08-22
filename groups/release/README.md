@@ -99,3 +99,12 @@ steps.
 Do not use Dagu's `schedule:` — see the recipe and the reason in
 `groups/base/README.md`. A timer runs `devman run release --project <name>`, and
 inherits every refusal `devman run` already makes.
+
+### A partially-succeeded validate does not open the gate
+
+`review`'s checks carry `continue_on: {failure: true}`, so a run whose lint
+failed reports `Partially Succeeded` — and `base.yaml`'s exit handler records it
+as `"status":"partially_succeeded"`, measured. The gate matches the full string
+`"status":"succeeded"`, which that does not contain, so such a run does not open
+the gate. It is checked here because the two strings share a substring and the
+failure would have been silent (`STAGE_4_LOG.md`, S8).
