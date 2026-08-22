@@ -352,14 +352,20 @@ def check_ageing(rep: Report, reg: Registry, dagu_home: Path) -> None:
         logs = proj.runs_dir / "logs"
         if not logs.is_dir():
             continue
-        stale = [
-            d for d in logs.iterdir() if d.is_dir() and d.stat().st_mtime < cutoff
-        ]
-        if stale:
-            names = ", ".join(sorted(d.name for d in stale)[:3])
+        # The newest run in the project, not the oldest. Retention prunes a
+        # DAG's history when that DAG runs, so what matters is whether anything
+        # still runs here: once the newest run is older than the window, every
+        # run in the project is, and nothing will ever prune any of it.
+        runs = [d for d in logs.glob("*/dag-run_*") if d.is_dir()]
+        if not runs:
+            continue
+        newest = max(d.stat().st_mtime for d in runs)
+        if newest < cutoff:
+            age = int((time.time() - newest) / 86400)
             lines.append(
-                f"{proj.name}: {len(stale)} log trees older than {days} days ({names})"
-                " — its workflows have stopped running"
+                f"{proj.name}: {len(runs)} run log trees, newest {age} days old,"
+                f" retention {days} — its workflows have stopped running, so"
+                " nothing here will age out"
             )
     if lines:
         rep.add("run output", "!!", lines)

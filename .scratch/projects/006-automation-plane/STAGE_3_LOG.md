@@ -702,3 +702,67 @@ is in `groups/base/README.md` where a repository that wants it will look.
 
 **Charter impact:** **none.** §8's table already gives the hook layer one job —
 "detect that something happened" — and `devman run` is the layer below it.
+
+---
+
+## S10 — Retention, observed on the real service: 110 log trees to 1, and the record survives
+
+**Answer:** retention prunes **both halves** — Dagu's machine-side history and
+the per-project log tree under `log_dir` — and **`metadata.jsonl` survives it**,
+exactly as D5 predicted and §9.2 states. Stage 2 left this "set but never
+observed"; it is now observed, on the installed service, with a control.
+
+**Command.** `hist_retention_days: 7` cannot be waited out, so the throwaway's
+workflow overrides it per DAG with the other predicate — D5 established that both
+end in the same `removeDAGRun`:
+
+```yaml
+hist_retention_runs: 1        # in the throwaway group's look.yaml
+```
+
+Then one run, through the ordinary trigger:
+
+```bash
+cd /tmp/s3-ctl && devman run look
+```
+
+**Evidence:**
+
+```
+                          before      after
+per-project log trees        110          1
+machine-side run records     110          1
+metadata.jsonl lines         110        111     <- the record of what ran survives
+```
+
+**The control**, in the other throwaway, which overrides nothing and therefore
+keeps `base.yaml`'s seven days:
+
+```
+s3-fmt   log trees 9   machine-side run records 9   metadata.jsonl 9
+```
+
+Nothing there is seven days old, so nothing was pruned. That is what makes the
+comparison a measurement rather than a coincidence.
+
+**§9.2's trap, seen rather than argued.** Those 110 runs accumulated over an
+afternoon under `hist_retention_days: 7` and none of them aged out, because
+**retention is per DAG and runs when that DAG runs**. A project whose workflows
+stop running keeps its `.runs/` forever, and no setting changes that.
+
+### So `doctor` check 6 asks about the newest run, not the oldest
+
+The first implementation looked for log trees older than the window, which is
+the wrong question: a busy project has old runs and prunes them on every run. The
+right question is whether anything still runs here.
+
+```
+!!  run output   s3-fmt: 9 run log trees, newest 52 days old, retention 7 —
+                 its workflows have stopped running, so nothing here will age out
+```
+
+Measured by backdating a throwaway's log tree, which is the only way to see this
+check fire without waiting a week. `devman doctor` exits 1 when it has findings.
+
+**Charter impact:** **none.** §9.2, §16 and D5 all say this; it had never been
+run on the installed plane.
