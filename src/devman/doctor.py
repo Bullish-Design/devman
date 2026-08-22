@@ -136,9 +136,13 @@ def check_queues(rep: Report, base_url: str) -> None:
         return
     lines = []
     for q in waiting:
-        lines.append(f"{q['name']}: {q['queuedCount']} waiting, limit {q.get('maxConcurrency')}")
+        lines.append(
+            f"{q['name']}: {q['queuedCount']} waiting, limit {q.get('maxConcurrency')}"
+        )
         for run in q.get("running", []):
-            lines.append(f"  held by {run.get('name')} {run.get('dagRunId')} since {run.get('startedAt')}")
+            lines.append(
+                f"  held by {run.get('name')} {run.get('dagRunId')} since {run.get('startedAt')}"
+            )
         try:
             items = _get(base_url, f"/api/v1/queues/{q['name']}/items")
         except (urllib.error.URLError, OSError, ValueError):
@@ -146,7 +150,9 @@ def check_queues(rep: Report, base_url: str) -> None:
         for item in items.get("items", [])[:3]:
             for cond in item.get("conditions", []):
                 if cond.get("status") == "False":
-                    lines.append(f"  {item.get('name')}: {cond.get('reason')} — {cond.get('message')}")
+                    lines.append(
+                        f"  {item.get('name')}: {cond.get('reason')} — {cond.get('message')}"
+                    )
                     break
     rep.add("queues", "!!", lines)
 
@@ -194,14 +200,18 @@ def check_queue_names(rep: Report, reg: Registry, dagu_home: Path) -> None:
     for proj, name, path in reg.projected_files():
         for queue in Workflow.read(path).queues():
             if queue not in declared:
-                bad.append(f"{proj.name}-{name} names queue '{queue}', which the machine does not declare")
+                bad.append(
+                    f"{proj.name}-{name} names queue '{queue}', which the machine does not declare"
+                )
     if bad:
         rep.add("queue names", "!!", bad)
     else:
         rep.add(
             "queue names",
             "ok",
-            [f"every queue named is one of: {', '.join(sorted(declared))} (default {default})"],
+            [
+                f"every queue named is one of: {', '.join(sorted(declared))} (default {default})"
+            ],
         )
 
 
@@ -284,7 +294,9 @@ def check_drift(rep: Report, reg: Registry) -> None:
                 continue
             group = (proj.workflows.get(name) or {}).get("group", "?")
             same_all, of_all = _same_lines(group_text, own_text)
-            same_exe, of_exe = _same_lines(_executable(group_text), _executable(own_text))
+            same_exe, of_exe = _same_lines(
+                _executable(group_text), _executable(own_text)
+            )
             # Both figures, because the gap between them is the story: the group
             # files are mostly comment, so a whole-file percentage measures
             # documentation rather than duplication (`STAGE_2_LOG.md`, S14).
@@ -325,7 +337,9 @@ def check_stale(rep: Report, reg: Registry, prune: bool) -> None:
     for proj in stale:
         if prune:
             removed = reg.unproject(proj)
-            lines.append(f"{proj.name} -> {proj.path} (gone) — pruned, {len(removed)} links removed")
+            lines.append(
+                f"{proj.name} -> {proj.path} (gone) — pruned, {len(removed)} links removed"
+            )
         else:
             lines.append(
                 f"{proj.name} -> {proj.path} (gone) — its workflows still project "
@@ -370,7 +384,9 @@ def check_ageing(rep: Report, reg: Registry, dagu_home: Path) -> None:
     if lines:
         rep.add("run output", "!!", lines)
     else:
-        rep.add("run output", "ok", [f"nothing older than hist_retention_days ({days})"])
+        rep.add(
+            "run output", "ok", [f"nothing older than hist_retention_days ({days})"]
+        )
 
 
 def check_cross_repo(rep: Report, reg: Registry) -> None:
@@ -390,13 +406,19 @@ def check_cross_repo(rep: Report, reg: Registry) -> None:
         parents += 1
         held = wf.holds_project_dir()
         if held:
-            lines.append(f"{proj.name}-{name} holds {PROJECT_DIR} in: {', '.join(held)}")
+            lines.append(
+                f"{proj.name}-{name} holds {PROJECT_DIR} in: {', '.join(held)}"
+            )
         elif SELF_DIR not in wf.params():
             lines.append(f"{proj.name}-{name} declares no {SELF_DIR} parameter")
     if lines:
         rep.add("cross-repo", "!!", lines)
     else:
-        rep.add("cross-repo", "ok", [f"{parents} workflows trigger others, all name {SELF_DIR}"])
+        rep.add(
+            "cross-repo",
+            "ok",
+            [f"{parents} workflows trigger others, all name {SELF_DIR}"],
+        )
 
 
 def check_watcher(rep: Report, reg: Registry) -> None:
@@ -462,7 +484,9 @@ def main(args, reg: Registry) -> int:
     base_url = f"http://{host}:{port}"
 
     projects = reg.projects()
-    print(f"devman doctor — {len(projects)} projects, {len(reg.projected_files())} workflows")
+    print(
+        f"devman doctor — {len(projects)} projects, {len(reg.projected_files())} workflows"
+    )
     print(f"    registry   {reg.root}")
     print(f"    dagu home  {dagu_home}")
     print()

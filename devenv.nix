@@ -5,12 +5,6 @@ let
   # version, so this repo carries the expression and both interfaces call the
   # same file — this shell now, the NixOS module at stage 1 (§3.1).
   dagu = pkgs.callPackage ./nix/dagu.nix { };
-
-  # All Dagu state lives under devenv's state directory: git-ignored,
-  # disposable, and rebuilt by re-entering the shell. That is §9.3's
-  # "inconvenient, not catastrophic" applied to the investigation setup.
-  # DAGU_HOME is the one knob; Dagu derives dags/, logs/, and data/ from it.
-  daguHome = "${config.devenv.state}/dagu";
 in
 {
   # https://devenv.sh/basics/
@@ -50,8 +44,19 @@ in
   # throwaway instance by hand with its own DAGU_HOME rather than restoring this
   # line.
   #
-  # DAGU_HOME stays: the client on PATH needs it, and it costs nothing.
-  env.DAGU_HOME = daguHome;
+  # `env.DAGU_HOME` is DELIBERATELY ABSENT, and its removal is stage 3's.
+  #
+  # It used to point at `${config.devenv.state}/dagu`, which was right while the
+  # investigations started Dagu by hand from `processes.dagu`. The plane's own
+  # service now owns `~/.local/share/dagu`, so the variable pointed a developer's
+  # `dagu` at an empty home inside this repository's devenv state: `dagu ls`
+  # listed nothing and `dagu enqueue` reached a Dagu that has never heard of the
+  # registry.
+  #
+  # Nothing needs it. `devman run` states `--dagu-home` rather than inheriting
+  # one, because an unset `DAGU_HOME` makes `dagu` build a fresh home and seed
+  # five example DAGs (S2). A person who wants to talk to the plane directly
+  # exports it themselves, and `STAGE_3_PROMPT.md` §4 says how.
 
   # https://devenv.sh/services/
   # services.postgres.enable = true;
@@ -82,13 +87,20 @@ in
   # it imports `./modules` directly. Every other repository pins a rev with
   # `git+https` (§3.2), because `git+file` records neither `rev` nor `narHash`
   # and silently follows the branch head (B4).
-  # `base` only. This repository carries no Python source, so taking `python`
-  # would put a `typecheck` step in its `check` with nothing to type-check —
-  # §15.7's "nothing checks that a default still fits", self-inflicted.
+  # `base` for the workflows, `python-format` for the reactivity (§8).
+  #
+  # Not `python`: that group's `check` adds a `typecheck` step, and this
+  # repository has no type checker configured — §15.7's "nothing checks that a
+  # default still fits", self-inflicted.
+  #
+  # `python-format` is the group that fires on a save, and taking it is the whole
+  # opt-in (groups/python-format/README.md). devman adopts its own reactive group
+  # for the same reason criterion 16 has it adopt its own workflows: a plane
+  # nobody runs against themselves is a plane nobody has tested.
   devman = {
     enable = true;
     project = "devman";
-    groups = [ "base" ];
+    groups = [ "base" "python-format" ];
   };
 
   # https://devenv.sh/tasks/
@@ -98,6 +110,11 @@ in
   tasks = {
     "base:lint".exec = "ruff check .";
     "base:test".exec = "nix flake check";
+
+    # What `python-format`'s workflow runs when a `.py` file is saved. The group
+    # names a task and never a tool (§7.1), so this line is the whole of what
+    # this repository decides about formatting.
+    "python-format:fmt".exec = "ruff format .";
   };
 
   # https://devenv.sh/tests/

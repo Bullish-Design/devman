@@ -44,28 +44,60 @@ def parser() -> argparse.ArgumentParser:
     # variables on purpose: Dagu passes every `DEVMAN_*` in the enqueueing
     # process's environment through to the run, and §7.1's list of four names is
     # closed.
-    ap.add_argument("--registry", default=DEFAULT_REGISTRY, help="the registry root (§9.2)")
-    ap.add_argument("--dagu-home", default=DEFAULT_DAGU_HOME, help="the plane's DAGU_HOME (S2)")
+    ap.add_argument(
+        "--registry", default=DEFAULT_REGISTRY, help="the registry root (§9.2)"
+    )
+    ap.add_argument(
+        "--dagu-home", default=DEFAULT_DAGU_HOME, help="the plane's DAGU_HOME (S2)"
+    )
     sub = ap.add_subparsers(dest="command", required=True)
 
     p_run = sub.add_parser("run", help="trigger a workflow in the current project")
     p_run.add_argument("workflow")
     p_run.add_argument("params", nargs="*", metavar="NAME=VALUE")
-    p_run.add_argument("-p", "--project", help="name a project instead of using the current directory")
-    p_run.add_argument("--print", dest="print_only", action="store_true", help="print the trigger and enqueue nothing")
+    p_run.add_argument(
+        "-p", "--project", help="name a project instead of using the current directory"
+    )
+    p_run.add_argument(
+        "--print",
+        dest="print_only",
+        action="store_true",
+        help="print the trigger and enqueue nothing",
+    )
 
     p_show = sub.add_parser("show", help="print the resolved workflow file")
     p_show.add_argument("workflow", nargs="?")
-    p_show.add_argument("-p", "--project", help="name a project instead of using the current directory")
-    p_show.add_argument("--path", action="store_true", help="print the resolved path, not the file")
+    p_show.add_argument(
+        "-p", "--project", help="name a project instead of using the current directory"
+    )
+    p_show.add_argument(
+        "--path", action="store_true", help="print the resolved path, not the file"
+    )
 
     p_doc = sub.add_parser("doctor", help="diagnose the plane")
-    p_doc.add_argument("--prune", action="store_true", help="remove stale registry entries (§10 check 5)")
+    p_doc.add_argument(
+        "--prune",
+        action="store_true",
+        help="remove stale registry entries (§10 check 5)",
+    )
 
     p_watch = sub.add_parser("watch", help="the watcher service's entry point (§8)")
-    p_watch.add_argument("--dispatch", action="store_true", help="handle one batch of events on stdin")
-    p_watch.add_argument("--print", dest="print_only", action="store_true", help="print the watchexec command and run nothing")
-    p_watch.add_argument("--watchexec-arg", action="append", default=[], metavar="ARG", help="pass one more argument to watchexec")
+    p_watch.add_argument(
+        "--dispatch", action="store_true", help="handle one batch of events on stdin"
+    )
+    p_watch.add_argument(
+        "--print",
+        dest="print_only",
+        action="store_true",
+        help="print the watchexec command and run nothing",
+    )
+    p_watch.add_argument(
+        "--watchexec-arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        help="pass one more argument to watchexec",
+    )
 
     return ap
 
@@ -73,12 +105,20 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     reg = Registry(args.registry)
-    handler = {"run": run.main, "show": show.main, "doctor": doctor.main, "watch": watch.main}
+    handler = {
+        "run": run.main,
+        "show": show.main,
+        "doctor": doctor.main,
+        "watch": watch.main,
+    }
     try:
         return handler[args.command](args, reg)
     except RegistryError as exc:
         for line in str(exc).splitlines():
-            print(f"devman: {line}" if not line.startswith(" ") else f"devman:{line}", file=sys.stderr)
+            print(
+                f"devman: {line}" if not line.startswith(" ") else f"devman:{line}",
+                file=sys.stderr,
+            )
         return 1
     except BrokenPipeError:
         return 0

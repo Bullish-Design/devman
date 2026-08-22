@@ -97,9 +97,7 @@ def watch_map(reg: Registry) -> list[WatchEntry]:
         for pattern, workflow in triggers.items():
             by_workflow.setdefault(workflow, []).append(pattern)
         for workflow, globs in by_workflow.items():
-            out.append(
-                WatchEntry(proj.name, proj.path, sorted(globs), workflow, group)
-            )
+            out.append(WatchEntry(proj.name, proj.path, sorted(globs), workflow, group))
     return out
 
 

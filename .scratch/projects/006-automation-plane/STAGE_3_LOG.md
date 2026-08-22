@@ -548,10 +548,25 @@ The format changed while chasing this, and it stays changed:
    in every repository that takes it. A workflow is inert YAML for the same
    reason (§7.2), and TOML carries the comments a `.json` file could not.
 
+### And the tracked half, confirmed rather than assumed
+
+The same edit, in the repository that imports `./modules` directly:
+
+```
+$ printf '"**/*.pyi" = "format"\n' >> groups/python-format/triggers.toml
+$ devenv shell -- true                       # no cache clearing
+after edit:   {'**/*.py': 'format', '**/*.pyi': 'format'}
+$ git checkout groups/python-format/triggers.toml && devenv shell -- true
+after revert: {'**/*.py': 'format'}
+```
+
+Both directions, one shell entry each. That is stage 1's S8 cache-probe in its
+stage-3 form, and it is the case the format choice was made for.
+
 **Charter impact:** **none.** §9.3 says the registry is derived and the
-repository is canonical; this is a second case, beside S8, where the derivation
-silently stops re-deriving — and the first one where the cause is the input
-rather than the read.
+repository is canonical; this is a second case, beside stage 1's S8, where the
+derivation silently stops re-deriving — and the first one where the cause is the
+input rather than the read.
 
 ---
 

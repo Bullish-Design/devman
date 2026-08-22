@@ -174,9 +174,7 @@ def main(args, reg: Registry) -> int:
         key, _, value = item.partition("=")
         overrides[key] = value
 
-    project = (
-        reg.project(args.project) if args.project else reg.project_for(Path.cwd())
-    )
+    project = reg.project(args.project) if args.project else reg.project_for(Path.cwd())
     if not project.exists:
         raise RegistryError(
             f"refusing to enqueue in '{project.name}'\n"
