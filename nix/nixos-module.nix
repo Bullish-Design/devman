@@ -76,8 +76,20 @@ let
     # the real ones.
     skip_examples = true;
 
-    # Every step and every handler runs under one known shell, whatever the
-    # developer's login shell is. A user unit usually has no SHELL at all.
+    # The shell every step and every handler runs under.
+    #
+    # THIS LINE IS NOT SUFFICIENT ON ITS OWN, and the comment that used to sit
+    # here said it was: "a user unit usually has no SHELL at all". Measured
+    # false. Dagu prefers `$SHELL` over this setting, and the systemd user
+    # manager carries `SHELL` — imported from the login session — so the daemon
+    # inherits it and every step ran under the developer's login shell. On this
+    # machine that is zsh, and the first workflow to use a bash-only expansion
+    # failed with `EPOCHREALTIME: parameter not set` (STAGE_4_LOG.md, S9).
+    #
+    # The failure is silent until then: POSIX-shaped steps behave identically in
+    # both, so a plane can run for three stages under the wrong shell and say
+    # nothing. The unit therefore STATES `SHELL` below rather than letting it be
+    # inherited — the same rule S2 forced on `DAGU_HOME` for the same reason.
     default_shell = "${pkgs.bash}/bin/bash";
 
     queues = {
@@ -396,7 +408,17 @@ in
       description = "Dagu — devman automation plane";
       wantedBy = [ "default.target" ];
 
-      environment.DAGU_HOME = cfg.dagHome;
+      environment = {
+        DAGU_HOME = cfg.dagHome;
+
+        # Dagu resolves a step's shell from `$SHELL` first and from
+        # `default_shell` only when `$SHELL` is unset, and the systemd user
+        # manager carries the developer's login `SHELL`. Without this line the
+        # instance config's `default_shell` above never applies, and every step
+        # and handler on the machine runs under whatever shell the developer
+        # happens to log in with — silently, until one uses a bashism (S9).
+        SHELL = "${pkgs.bash}/bin/bash";
+      };
 
       # Prepended to NixOS's own minimal unit PATH, which the default
       # `enableDefaultPath` appends after this list. See `servicePath`.

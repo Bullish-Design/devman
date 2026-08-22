@@ -54,6 +54,23 @@
 # campaign therefore re-registers whatever it measures, through the one entry
 # path that exists, idempotently and by the hash guard. It is not a second entry
 # path (criterion 17): it is the first one, used.
+#
+# ---------------------------------------------------------------------------
+# THE CLOCK IS `date`, AND THAT COSTS ONE FORK PER SAMPLE
+#
+# The first version read bash's fork-free `$EPOCHREALTIME`, and the run failed:
+# `EPOCHREALTIME: parameter not set`. **A step does not run under the shell the
+# machine's `config.yaml` names.** Dagu prefers `$SHELL`, the daemon inherits it
+# from the systemd user manager, and on this machine that is zsh (S9). So a
+# workflow file may use no bashism until the module states the shell rather than
+# inheriting it — and even then, a group file that runs in anybody's repository
+# should not need a particular one.
+#
+# `date +%s%N` is POSIX and works under both. It costs one fork per timestamp,
+# which lands inside the measured interval as a roughly constant bias of about a
+# millisecond against a figure of a few hundred. It is stated rather than
+# corrected: the report is for comparing a target against itself over time, and a
+# constant bias does not move that comparison.
 params:
   - DEVMAN_PROJECT_DIR: ""
   - TARGET: observantic
@@ -82,10 +99,10 @@ steps:
 
       i=0
       while [ "$i" -lt "$RUNS" ]; do
-        t0=${EPOCHREALTIME/./}
+        t0=$(date +%s%N)
         devenv shell -- true >/dev/null 2>&1
-        t1=${EPOCHREALTIME/./}
-        echo $(( (t1 - t0) / 1000 )) >> "$samples"
+        t1=$(date +%s%N)
+        echo $(( (t1 - t0) / 1000000 )) >> "$samples"
         i=$((i + 1))
       done
 
