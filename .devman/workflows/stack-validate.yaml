@@ -1,0 +1,61 @@
+# devman/stack-validate — a cross-repository workflow (CONCEPT.md §11).
+#
+# A workflow spanning several projects belongs to none of them, so it belongs to
+# this repository: devman registers itself like any other project, and this is
+# simply one of its own files. Its steps trigger other projects' workflows
+# rather than running commands, so it resolves nothing itself.
+#
+# ---------------------------------------------------------------------------
+# THE ONE RULE, AND WHY EVERY LINE BELOW BENDS AROUND IT (§11, finding A6)
+#
+# `DEVMAN_PROJECT_DIR` names the project a run TARGETS, and is set only by
+# whatever triggers the run. A parent exports its parameters into every child's
+# environment, and that environment outranks the child's own `params:`, its
+# `env:` block, and even an explicit `with.params` override — whenever the names
+# collide. So a parent holding `DEVMAN_PROJECT_DIR` silently drags every child
+# into ITS directory: the children run, succeed, and do the work in the wrong
+# place, and nothing reports it.
+#
+# Hence `DEVMAN_SELF_DIR`. Once the names differ, `with.params` works exactly as
+# documented and a parent can direct each child deliberately.
+#
+# `working_dir` and `log_dir` are stated here rather than inherited, because
+# base.yaml's copies name `DEVMAN_PROJECT_DIR` — the very name this file must
+# not hold. An unset variable is not an error in Dagu: it creates a directory
+# named literally `${DEVMAN_PROJECT_DIR}` and carries on (A3).
+#
+# ---------------------------------------------------------------------------
+# WHY THE TARGETS ARE PARAMETERS AND NOT PATHS
+#
+# Criterion 10 says no workflow contains an absolute path, and only the registry
+# knows where a project sits. So this file names the projects it needs as
+# parameters and the trigger fills them in from the registry — which is exactly
+# what §10's `devman run` is for. Until that exists (stage 3), the trigger is a
+# hand-written `dagu enqueue`; see .devman/workflows/README.md.
+params:
+  - DEVMAN_SELF_DIR: ""
+  - OBSERVANTIC_DIR: ""
+  - SITEMAN_DIR: ""
+
+working_dir: ${DEVMAN_SELF_DIR}
+log_dir: ${DEVMAN_SELF_DIR}/.devman/.runs/logs
+
+# `normal` rather than `light`: this fans out into two child runs, each of which
+# takes a slot in its own queue.
+queue: normal
+type: chain
+
+steps:
+  - name: observantic-check
+    action: dag.run
+    with:
+      dag: observantic-check
+      params:
+        DEVMAN_PROJECT_DIR: ${OBSERVANTIC_DIR}
+
+  - name: siteman-check
+    action: dag.run
+    with:
+      dag: siteman-check
+      params:
+        DEVMAN_PROJECT_DIR: ${SITEMAN_DIR}

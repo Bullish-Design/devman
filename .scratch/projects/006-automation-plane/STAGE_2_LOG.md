@@ -357,3 +357,158 @@ deliberately — for base's `full-test` — which S7 priced at five bodies and i
 really five names and two extra lines.
 
 **Charter impact:** **none.** Both group READMEs record it.
+
+---
+
+## S6 — Five repositories, chosen for decomposition rather than convenience
+
+**Answer:** five adopted, plus devman itself. **Nothing in any group file
+mentions ruff, mypy, pytest, shellcheck, shfmt, Hugo, maturin, cargo or Nix**,
+and the same three unedited files now serve four different toolchains.
+
+`~/Documents/Projects` holds 68 checkouts and `devenv.nix` appears in most, so
+the choice was deliberate. Five Python libraries would have answered a narrower
+question than §12.4 asks.
+
+| # | Repo | Shape | Groups | What the names map onto |
+|---|---|---|---|---|
+| 1 | `observantic` | plain Python library, no verification tasks of its own | `python` | `uv run ruff check .`, `uv run mypy`, `uv run pytest` |
+| 2 | `pydantree` | Python library, uv workspace, own venv tasks, **no tool config** | `base`+`python` | `ruff check .`, **`mypy src`**, `pytest`, plus two alias tasks |
+| 3 | `pyjutsu` | Python **and Rust**, compiled extension, own `pyjutsu:` namespace | `base` | aliases onto `pyjutsu:lint` / `pyjutsu:test` |
+| 4 | `siteman` | **no Python at all** — shell scripts, shellcheck, shfmt, Hugo | `base` | `fmt-check && lint`, `ci` |
+| 5 | `nix-paseo` | **no application source** — a flake and NixOS modules | `base` | `nix flake check --no-build`, `nix flake check` |
+
+`fsdantic` was passed over deliberately. It carries a `.devman/store/`, so
+§15.2's whitelist refuses it — that is the rule working, and widening the
+whitelist to adopt one repository would delete the sentence the rule exists for.
+
+### What "three lines" actually cost, per repository
+
+`STAGE_2_PROMPT.md` fact 4 says three lines plus the group's task names, and
+that held. The full cost of each adoption:
+
+| Repo | devenv.yaml | devenv.nix | Total |
+|---|---|---|---|
+| observantic | input + 1 import line | 3 lines + 3 tasks | 5 declarations |
+| pydantree | input + 1 import line | 3 lines + 3 tasks + 2 aliases | 7 |
+| pyjutsu | input + 1 import line | 3 lines + 2 aliases + 1 ordering fix | 5 |
+| siteman | input + 1 import line | 3 lines + 2 tasks | 4 |
+| nix-paseo | input + 1 import line | 3 lines + 2 tasks | 4 |
+
+**No repository wrote a line of Dagu YAML**, and none needed a per-workflow
+option. Criterion 2 holds with fact 4's caveat, which is a real one and belongs
+in the sentence rather than in a footnote.
+
+### The three things a real repository needed that a throwaway did not
+
+1. **`mypy src`, not `mypy`.** pydantree has no `[tool.mypy]` in
+   `pyproject.toml`, so a bare invocation has nothing to check. The group file
+   names a task and never a tool or its arguments — which is exactly why it did
+   not have to change.
+2. **An ordering that already existed twice.** pyjutsu's `enterTest` ran
+   `maturin develop` before pytest, while `pyjutsu:test` did not, so
+   `devenv tasks run pyjutsu:test` tested whatever was last built. §6 says a
+   repo with genuinely internal ordering expresses it as a task dependency and
+   exposes one task; `pyjutsu:test` now declares `after = [ "pyjutsu:build" ]`.
+   **This is a change to someone else's repository beyond adoption**, committed
+   there and not pushed.
+3. **A repository with no unit tests at all.** siteman's `base:test` is its `ci`
+   script, because its test *is* an offline end-to-end build. This is the one
+   adoption that creates redundancy — see S9.
+
+### The registry, with five projects in it
+
+```
+$ ls ~/.local/share/devman/dags/ | wc -l
+17
+```
+
+Six projects, seventeen uniquely-named DAGs. **Five of them project a
+`check.yaml`**, which under the layout `CONCEPT.md` §9.2 originally described
+would have collided: `duplicate DAG name "check"`, and all five gone from
+`dagu ls`, from the web UI and from the scheduler. S1 predicted this would fire
+"the moment a second repository adopts the plane". It is now five deep and the
+flat `dags/<project>-<workflow>.yaml` view holds.
+
+**Charter impact:** **none.**
+
+---
+
+## S7 — The two decisions with no measurement to force them
+
+### Decision 2 — this repository keeps importing `./modules`
+
+`STAGE_2_PROMPT.md` §7 offers two readings and asks for one. **Taken: the local
+checkout is the rev, so criterion 1 holds and the local import is the honest
+expression of it.**
+
+The reason is not the ~20 ms an input costs. It is that a pinned self-import
+makes the plane unable to develop itself: every group-file edit would need a
+commit, a push and a re-pin before it could be run once. S4 is the case in
+point — the `-v` fix was found by editing a group file and re-entering a shell,
+which a pinned self-import forbids. S8 of stage 1 built `builtins.readFile`
+into the module for exactly this path, and measured that it works.
+
+**The honest statement of criterion 1 that follows:** the machine and this
+repository import the same rev **whenever this repository's working tree is
+clean and pushed**. It was, at `b5e4aad`, when the five repositories were
+pinned. The failure mode is real and worth naming: a dirty tree means devman
+runs group files that no other repository has, and nothing says so.
+
+### Decision 3 — the main checkout owns `project = "devman"`
+
+The registry holds one `path` per project, so two live checkouts cannot both be
+it. **Decided: the tracked `devenv.nix` names `devman`, and it belongs to the
+durable checkout — `/home/andrew/Documents/Projects/devman`.** A paseo worktree
+is transient, and a registry entry pointing at a deleted worktree is a workflow
+that keeps passing in an empty directory, which nothing but §10's stale-entry
+check ever notices.
+
+The entry currently points at this worktree, because the main checkout is on
+`spike/agent-factory-round-trip` and does not carry the module. That resolves
+itself when the branch lands: whichever checkout enters a shell second is
+refused, and the refusal names both paths.
+
+**§9.1's refusal stays the mechanism, and it was tested against a real second
+checkout** rather than a throwaway:
+
+```
+$ git worktree add --detach /tmp/s2-devman-second HEAD
+$ cd /tmp/s2-devman-second && devenv shell -- true
+devman: refusing to register 'devman'
+devman:   already registered at /home/andrew/.paseo/worktrees/1n48r26y/special-dragon, which still exists
+devman:   this repo is        /tmp/s2-devman-second
+devman:   set a different devman.project in one of them
+
+$ devenv shell -- echo "SHELL STILL OPENED"
+SHELL STILL OPENED                       <- a refusal does not stop the shell
+```
+
+The registry's `path` was unchanged afterwards.
+
+**And the escape hatch, for a worktree that does want its own membership.**
+`devenv.local.nix` is read and is untracked, which is the right shape — but the
+tracked `devenv.nix` defines `devman.project` at normal priority, so overriding
+it needs `lib.mkForce`. Without it devenv refuses to evaluate at all:
+
+```
+error: The option `devman.project' has conflicting definition values:
+       - In `<unknown-file>': "devman-worktree-probe"
+       - In `<unknown-file>': "devman"
+```
+
+That failure is loud, which is the right kind. With `mkForce` the second
+checkout registers as a distinct project.
+
+**A prefix collision, tested for free while that probe existed.** The projection
+removes a `dags/` link only when it still points at its own project's file,
+because `<project>-<workflow>` is ambiguous when one project name is a prefix of
+another. `devman` and `devman-worktree-probe` are exactly that pair, and it is
+the first time the case has been live rather than commented:
+
+```
+probe links before:                          3
+probe links after devman re-projected:       3
+```
+
+**Charter impact:** **none.** Both decisions are choices the charter leaves open.
