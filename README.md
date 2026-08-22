@@ -10,16 +10,39 @@ executes nothing itself.
 
 ## Status
 
-**Stages 1, 2 and 3 are shipped**, and the plane runs on the development
-machine. Stage 4 — higher-level automation — is not started.
+**Stages 1 to 4 are shipped**, and the plane runs on the development machine.
 
 | Stage | What it delivered |
 |---|---|
 | 1 | the flake: `nixosModules.default` (one Dagu user service, queues, ports, state paths), `modules/devenv.nix` (the repo interface), the `base` and `python` groups, hash-guarded registration in `enterShell` |
 | 2 | the plane turned on: automatic registration, the registry schema, queues and their limits, the `.devman/` run-state layout, whole-file shadowing, and a cross-repo workflow — six projects adopted |
 | 3 | reactivity: the `devman` CLI, one `watchexec` user service reading the registry, the `python-format` trigger group, and log retention |
+| 4 | work worth doing: `base/review`, `base/maintain`, the `release` group with a policy gate, and this repository's own agent-review and benchmark-campaign workflows |
 
-Six projects and 19 DAGs are registered on that machine (`STAGE_3_LOG.md`, S12).
+Six projects and 27 DAGs are registered on that machine (`STAGE_4_LOG.md`, S12).
+
+**Stage 4 added no machinery.** The contract is still four global names, the CLI
+is still four commands, the repo interface is still three keys, and the queue
+list is still five. Every deliverable is a file.
+
+## What the plane will do for you
+
+| Run | What you get afterwards |
+|---|---|
+| `devman run review` | `.devman/.runs/reports/review-<run id>.md` — what changed, plus a verdict per check |
+| `devman run validate` | the gate, as an exit code |
+| `devman run release` | the same report shape, and a **refusal** unless the tree is clean and this project's last recorded `validate` succeeded |
+| `devman run maintain` | old reports pruned, artifacts counted, and `devman doctor`'s output appended |
+
+Every run appends one line to that repository's `.devman/.runs/metadata.jsonl`,
+on the success path and the failure path alike. **A stage-4 workflow's job is to
+leave enough behind that you can see what it did without running it again** —
+nothing in the plane checks whether a run did the *right* thing, and nothing is
+going to.
+
+**A schedule is a systemd user timer running `devman run`, never Dagu's own
+`schedule:`.** The recipe is in `groups/base/README.md`; the measurement that
+rules the other one out is `STAGE_4_LOG.md`, S2.
 
 ## How a repository adopts it
 
@@ -100,7 +123,7 @@ without that ignore one save produced 107 dispatches and 60 runs
 ```
 nix/            the machine interface — NixOS module, the Dagu package, the CLI package, tests
 modules/        the repo interface — devenv.nix, the name is required
-groups/         workflow content: base, python, python-format
+groups/         workflow content: base, python, python-format, release
 src/devman/     the CLI — run, show, doctor, watch
 ```
 
@@ -120,6 +143,7 @@ Run output stays with the checkout that produced it, in `<repo>/.devman/` —
 | [`STAGE_1_LOG.md`](.scratch/projects/006-automation-plane/STAGE_1_LOG.md) | what building the two modules measured |
 | [`STAGE_2_LOG.md`](.scratch/projects/006-automation-plane/STAGE_2_LOG.md) | what turning the plane on measured |
 | [`STAGE_3_LOG.md`](.scratch/projects/006-automation-plane/STAGE_3_LOG.md) | what making the plane react measured |
+| [`STAGE_4_LOG.md`](.scratch/projects/006-automation-plane/STAGE_4_LOG.md) | what giving the plane work to do measured |
 | [`FINDINGS.md`](.scratch/projects/006-automation-plane/FINDINGS.md) | the five investigations, all closed |
 
 Every non-obvious line in this repository has a measurement behind it. The stage
