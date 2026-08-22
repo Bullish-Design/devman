@@ -5866,5 +5866,6 @@ charter's shape stands.
 5. **`FINDINGS.md` lists every `changes §N` and `kills §N` in one place** —
    this section.
 
-**The gate is met. The remaining work before planning is the reconciliation
-pass** over B, C and D, applying the list above to `CONCEPT.md`.
+**The gate is met.** The reconciliation pass applying this list to
+`CONCEPT.md` was carried out on 2026-08-22; the charter's status block now reads
+"Reconciled against Investigations A, E, B, C and D". **Planning may start.**
