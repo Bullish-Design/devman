@@ -1017,3 +1017,78 @@ from the registry — so the fact stays visible without anybody running a study.
 
 **Charter impact:** **changes §12.4 and §16.** Applied in its own commit, per
 rule 4.
+
+---
+
+## S15 — Criterion 7, re-measured against schema 3 and the triggers file
+
+**Answer:** the cost is still not distinguishable from zero. **300 paired
+entries: -0.17 ms, 95% CI [-6.24, +5.91].** Criterion 7 allows 10 ms, and it
+holds.
+
+**Tested:** devenv 2.1.2, warm cache, 10 warm-up entries per variant discarded.
+Two throwaway repositories under `/tmp`, byte-identical apart from
+`devman.enable`, **both importing the module**, so the delta is registration
+alone rather than the cost of the input. Both take `[ "base" "python"
+"python-format" ]`, so the enabled one performs the evaluation work stage 3
+added: one `builtins.fromTOML (builtins.readFile …)` for `python-format`'s
+`triggers.toml`, and a `triggers` field in the entry. The enabled repository
+registered at schema 3 with `{"group": "python-format", "map": {"**/*.py":
+"format"}}` before the sweep started, so the work was in the measurement.
+
+**Command:** the variants interleave one entry at a time, because C2 found load
+drift larger than the effect and a sequential sweep once reported the enabled
+repository as the faster one.
+
+```bash
+N=300 python3 /tmp/s3b-paired.py \
+  "off_enable-false|/tmp/s3b-time/off" "on_schema3-triggers|/tmp/s3b-time/on"
+```
+
+**Evidence — two sweeps, the second is the one the answer quotes:**
+
+```
+ 16:16:57 load average: 4.99, 3.70, 3.01
+variant                      mean      sd   median    min    max   runs=150
+off_enable-false            267.5    87.8    283.6    137    605
+on_schema3-triggers         266.1    82.0    287.4    136    481
+
+paired delta = -1.42 ms   sd 59.77   95% CI [-10.98, +8.15]   spread [-280.5, +173.8]
+ 16:18:23 load average: 12.74, 6.37, 4.00
+
+ 16:18:31 load average: 13.24, 6.58, 4.08
+variant                      mean      sd   median    min    max   runs=300
+off_enable-false            254.8    89.6    254.1    131    530
+on_schema3-triggers         254.6    94.2    253.4    131    778
+
+paired delta = -0.17 ms   sd 53.68   95% CI [-6.24, +5.91]   spread [-157.6, +270.3]
+ 16:21:10 load average: 11.28, 8.99, 5.43
+```
+
+**The 150-run sweep is reported rather than dropped.** Its interval reaches
++8.15 ms — inside the budget, but with 1.85 ms to spare, which bounds nothing
+usefully. That is why the answer quotes 300, as stage 2 did for the same reason.
+A run count chosen after seeing an interval is worth stating.
+
+**The machine was loaded, and that is the point of the design.** Load average
+was 4.99 at the start of the first sweep and 13.24 at the start of the second;
+other agents were running work on this machine throughout. The absolute entry
+cost moved with it — 267 ms, then 255 ms, against stage 2's 856 ms and stage 1's
+218 ms on the same module. **Criterion 7 is a paired difference precisely
+because the absolute figure measures the machine, not the module.** Interleaving
+one entry at a time is what keeps that drift inside both variants instead of
+inside the delta.
+
+The sign of the point estimate is negative for the third stage running, and it
+is meaningless for the third time: the effect is far smaller than the noise. The
+spread, [-157.6, +270.3] ms, is two orders of magnitude wider than the budget.
+
+**Nothing new forks in the hook**, and the measurement is what says so rather
+than the argument. `builtins.fromTOML` runs at evaluation time and the guard in
+`enterShell` compares one string; the entry grew one field.
+
+**Charter impact:** **none.** Criterion 7 still holds.
+
+**Cleanup:** both throwaway repositories and the copied source tree removed,
+`devman doctor --prune` run, registry back to six projects.
+
