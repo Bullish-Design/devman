@@ -4060,3 +4060,448 @@ devenv's internals.
 documented and stable. One rule the charter should state: **the registration
 hook may use `DEVENV_ROOT`, `DEVENV_DOTFILE`, `DEVENV_STATE`, `DEVENV_PROFILE`
 and `DEVENV_RUNTIME`, and nothing else from the `DEVENV_*` namespace.**
+
+---
+
+## C4 — Can the module add `.devman/.runs/` to the ignore rules safely?
+
+**Answer:** **`.gitignore` is not safe and `.git/info/exclude` is.** Appending
+to `.gitignore` works on two of the three shapes and fails on the third — a
+`.gitignore` symlinked into the Nix store is read-only, and the hook prints a
+permission error on **every** shell entry, forever, because the guard can never
+see its own line. `.git/info/exclude` works on all three, never dirties the
+tree, and is the recommendation. devenv is a second writer to `.gitignore`, but
+only through `devenv init`, and it appends rather than clobbers.
+
+**Tested:** devenv 2.1.2, git 2.x on NixOS 26.11, devman `c9426b6`, on 2026-08-22.
+
+**Command:** two candidate hooks, run against four repo shapes. Both guard on
+the line already being present, and both avoid `grep` for the reason C2 gives.
+
+```bash
+# candidate A — .gitignore
+line='.devman/.runs/'
+gi="$DEVENV_ROOT/.gitignore"
+cur=""; [ -f "$gi" ] && cur=$(<"$gi")
+if [[ $'\n'"$cur"$'\n' != *$'\n'"$line"$'\n'* ]]; then printf '%s\n' "$line" >> "$gi"; fi
+
+# candidate B — .git/info/exclude
+ex=$(git -C "$DEVENV_ROOT" rev-parse --git-path info/exclude 2>/dev/null) || exit 0
+case "$ex" in /*) ;; *) ex="$DEVENV_ROOT/$ex" ;; esac
+cur=""; [ -f "$ex" ] && cur=$(<"$ex")
+if [[ $'\n'"$cur"$'\n' != *$'\n'"$line"$'\n'* ]]; then printf '%s\n' "$line" >> "$ex"; fi
+```
+
+**Evidence:**
+
+| repo shape | `.gitignore` | `.git/info/exclude` |
+|---|---|---|
+| no `.gitignore` | creates it, one line | appends, one line |
+| hand-written `.gitignore` | **appends, keeps every existing line** | appends |
+| `.gitignore` → `/nix/store/...` symlink | **`Permission denied`** | appends |
+| no `.git` at all | creates a `.gitignore` in a non-repo | skips, says so |
+
+The hand-written case is not clobbered:
+
+```
+# my ignore file
+*.pyc
+/build/
+.devman/.runs/
+```
+
+The symlinked case is:
+
+```
+/tmp/c4/hook-gitignore.sh: line 7: /tmp/c4/symlinked/.gitignore: Permission denied
+```
+
+and the file is unchanged, so the guard fails the same way on the next entry,
+and the next. Both hooks are idempotent on a second run — silent, no second
+line — except that the `.gitignore` hook on a store symlink can never become
+idempotent.
+
+**A failing write does not stop shell entry.** Worth knowing before deciding how
+loud a failure may be. `enterShell` does not run under `set -e`:
+
+```
+before-failure
+/tmp/c4-fail/.devenv/shell-81d0151e0df9735c.sh: line 2347: /nix/store/...: Permission denied
+after-failure
+SHELL-ENTERED-OK
+rc=0
+```
+
+So the symlinked case is noise on every entry, not a broken repo. That makes it
+easier to miss, not easier to live with.
+
+**Both mechanisms actually work.** In the hand-written repo, after the rule was
+added, `git status --porcelain` reported only `?? .gitignore` — the run
+directory itself was ignored.
+
+**And that `?? .gitignore` is the second argument against `.gitignore`.**
+`.gitignore` is a *tracked* file. Adding the rule makes the working tree dirty
+until the developer commits it. §9.2 adds the ignore rule precisely so that
+"an un-ignored `.runs/` turns the first failed run into a dirty tree" — writing
+the rule into a tracked file trades one dirty tree for another.
+
+### devenv is a second writer, and a well-behaved one
+
+From devenv's own `devenv/src/commands/init.rs`:
+
+```rust
+/// Append to the file (with a leading newline). Used for `.gitignore`
+/// so we don't clobber existing ignore entries.
+Append,
+...
+Template { source: "gitignore", target: ".gitignore", on_exists: OnExists::Append },
+```
+
+Its bundled template is `.devenv*`, `devenv.local.nix`, `devenv.local.yaml`,
+`.direnv`, `.pre-commit-config.yaml`. It is written **only by `devenv init`**,
+never at shell entry — no `.gitignore` reference exists anywhere else in
+devenv's sources. So the two writers cannot race, but they do both append to one
+tracked file, and a developer re-running `devenv init` gets devenv's block
+appended a second time.
+
+### One caveat on `.git/info/exclude`: it is not per-checkout in a git worktree
+
+`.git/info/exclude` is per-clone, which is what §9.2 wants — run output belongs
+to a working tree. But git treats `info/` as a **common** path, so a linked
+`git worktree` shares the main repository's exclude file:
+
+```
+$ cd /tmp/c4/wt-linked && git rev-parse --git-path info/exclude
+/tmp/c4/wt-main/.git/info/exclude
+```
+
+and the linked worktree's private directory has no `info/` of its own
+(`commondir gitdir HEAD index logs ORIG_HEAD refs`). Writing the rule from one
+worktree therefore writes it for all of them. The rule is `.devman/.runs/`, which
+is correct in every worktree of the same repository, so this is harmless — but
+it must be stated, because it means "per checkout" is really "per clone".
+
+Using `git rev-parse --git-path info/exclude` rather than a literal
+`.git/info/exclude` is what makes the worktree case work at all: in a linked
+worktree, `.git` is a **file**, not a directory, so the literal path does not
+exist.
+
+**Charter impact:** **changes §9.2.** The sentence "The devenv module adds the
+ignore rule at registration" must name the file: **the rule goes in
+`.git/info/exclude`, located with `git rev-parse --git-path info/exclude`, not
+in `.gitignore`.** Three reasons, in order: `.gitignore` may be read-only, it is
+tracked and so the write dirties the tree it is meant to keep clean, and it is
+shared with devenv's own `devenv init`. The registry being derived (§9.3) is
+what makes a per-clone rule sufficient — a fresh clone re-registers, and
+re-registration re-adds the rule.
+
+One cost to accept: a repo with no `.git` gets no ignore rule. That is correct.
+There is nothing to ignore.
+
+---
+
+## C5 — Two repos both declaring `project = "test"`. Refuse or replace?
+
+**Answer:** **refuse — but only when the recorded path still exists.** Refuse is
+the recommendation for a reason that is not a matter of taste: **replace is
+silent and refuse is not**, as a direct consequence of C1's double firing. And
+the charter's contradiction resolves in §5's favour: `project` is stated, never
+defaulted from the directory name, because §9.1's directory-name default cannot
+survive criterion 11.
+
+**Tested:** devenv 2.1.2, devman `c9426b6`, on 2026-08-22.
+
+### What the current module does: replace, silently, on every entry
+
+`/tmp/c5-A` and `/tmp/c5-B` both declare `project = "test"` and share a registry.
+
+**Command:**
+
+```bash
+for i in 1 2 3; do for d in A B; do
+  (cd /tmp/c5-$d && devenv shell -- true)
+  jq -r .path /tmp/c5-registry/projects/test.json
+done; done
+```
+
+**Evidence:**
+
+```
+entry 1 into c5-A: <silent, no write>  registry path = /tmp/c5-A
+entry 1 into c5-B: <silent, no write>  registry path = /tmp/c5-B
+entry 2 into c5-A: <silent, no write>  registry path = /tmp/c5-A
+entry 2 into c5-B: <silent, no write>  registry path = /tmp/c5-B
+entry 3 into c5-A: <silent, no write>  registry path = /tmp/c5-A
+entry 3 into c5-B: <silent, no write>  registry path = /tmp/c5-B
+```
+
+One registry file, `test.json`, whose `path` flips on every shell entry. Every
+projection built from it points at whichever repo was entered last. Two
+developers, or one developer in two terminals, would see workflows run in the
+other repo with no indication that anything is wrong.
+
+### Replace cannot announce itself. Refuse can.
+
+`<silent, no write>` above is not a reporting artefact. The module ends its
+write branch with `echo "devman: registered ${cfg.project}"`, and **the
+developer never sees it**, not even on a genuine first registration:
+
+```
+$ rm -f /tmp/c5-registry/projects/test.json
+$ cd /tmp/c5-A && devenv shell -- true 2>&1 | grep -v "out of date" | cat -A
+                                    <- nothing at all
+$ ls /tmp/c5-registry/projects/
+test.json                           <- it registered
+```
+
+C1 explains it. The **first** firing is devenv's environment-capture subprocess,
+whose stdout is redirected into a temporary `env -0` file and thrown away. That
+firing does the write. By the time the **second**, real firing runs, the entry on
+disk already matches, so the guard takes the no-op branch and says nothing.
+**Every one-shot message a registration hook emits is invisible, on stdout and
+on stderr alike.**
+
+A refusal does not have that problem, because refusing means **not writing**.
+Both firings reach the same branch, and the second one is the real shell:
+
+```
+devman: refusing to register 'test'
+devman:   already registered at /tmp/c5-refA, which still exists
+devman:   this repo is        /tmp/c5-refB
+devman:   set a different devman.project in one of them
+```
+
+Printed once, visible, and the registry stayed at `/tmp/c5-refA`.
+
+**This is the argument.** A policy whose interesting case is a *write* announces
+itself into a discarded stream. A policy whose interesting case is a *refusal to
+write* announces itself to the developer. Choose refuse.
+
+### What distinguishes a move from a collision
+
+Criterion 11 requires that a moved or renamed repo keep its identity, and §9.2
+allows one project to be checked out twice. To the registry, "the same project
+from a new path" and "two projects sharing a name" look alike — both are an
+entry whose `path` differs from `$DEVENV_ROOT`.
+
+**The distinguishing fact is whether the recorded path still exists.** It costs
+one `[ -d ]`, which is a bash builtin and forks nothing.
+
+| recorded path | this repo | reading | action |
+|---|---|---|---|
+| absent from disk | anywhere | the project moved (criterion 11) | **replace** |
+| exists, equals `$DEVENV_ROOT` | same | nothing changed, or the groups changed | write if different |
+| exists, differs | different | two live checkouts claim one identity | **refuse and report** |
+
+Implemented in a scratch copy of the module and exercised:
+
+```nix
+if [ -n "$devman_recorded" ] && [ "$devman_recorded" != "$DEVENV_ROOT" ] \
+   && [ -d "$devman_recorded" ]; then
+  echo "devman: refusing to register '${cfg.project}'" >&2
+  ...
+else
+  printf '%s\n' "$devman_rendered" > "$devman_entry"
+fi
+```
+
+Criterion 11, end to end — the repo was moved **and** renamed, then re-entered:
+
+```
+$ mv /tmp/c5-refA /tmp/c5-renamed-elsewhere
+$ cd /tmp/c5-renamed-elsewhere && devenv shell -- true
+  registry path = /tmp/c5-renamed-elsewhere      <- identity kept, entry rewritten
+$ cd /tmp/c5-refB && devenv shell -- true
+devman: refusing to register 'test'
+devman:   already registered at /tmp/c5-renamed-elsewhere, which still exists
+  registry path = /tmp/c5-renamed-elsewhere      <- collision still refused
+```
+
+The refusal is not fatal: C4 established that `enterShell` runs without `set -e`,
+so the repo's shell still opens. The repo simply is not in the plane, which is
+the correct outcome for a repo whose identity is already taken.
+
+**Two live checkouts of the genuinely same project also refuse, and that is
+correct.** §9.2 says run output belongs to a working tree, and run output is
+repo-side and unaffected by this. The registry holds one `path` per project, so
+two checkouts cannot both be it. The second checkout must state a distinct
+`project`.
+
+**One limit to record.** This test cannot tell a *deleted* repo from an
+*unmounted* one. If the recorded path is on a filesystem that is not mounted,
+the entry is replaced and the original checkout is dropped from the registry
+until it is next entered. Since the registry is derived (§9.3), re-entering
+restores it, so the failure is recoverable rather than lossy.
+
+### The charter contradicts itself, and §5 wins
+
+- §5: "`project` is stated, never inferred from the directory name — identity
+  that depends on where a checkout sits changes when you rename the directory."
+- §9.1: "Identity defaults to the repo's directory name. Registration refuses a
+  duplicate."
+
+`modules/devenv.nix` follows §5: `project` is `types.str` with no default, so
+omitting it is an evaluation error.
+
+**§5 wins, and criterion 11 is why.** A directory-name default breaks criterion
+11 by construction: rename the directory and the default changes, so the repo
+re-registers as a new project and loses its run history. §9.1's own next
+paragraph — "this is what makes moving a repo … work without editing a
+workflow" — argues against §9.1's own default.
+
+§9.1's second sentence survives intact and is the answer to this question:
+"registration refuses a duplicate."
+
+**Charter impact:** **changes §9.1.** Delete "Identity defaults to the repo's
+directory name", keep "registration refuses a duplicate", and add the test that
+makes refusal compatible with criterion 11: **a duplicate is refused only when
+the recorded path still exists; a recorded path that is gone means the project
+moved, and the entry is replaced.**
+
+Also **changes §5.2**, for a reason C5 discovered rather than assumed: **a
+registration hook cannot report anything on the write path**, because devenv
+discards the output of the firing that does the write. §5.2 must not promise a
+"devman: registered" line. Anything the developer must see has to be on a path
+that does **not** write — a refusal, or `devman doctor`.
+
+---
+
+## C6 — A repo is deleted from disk without unregistering. How does the registry notice?
+
+**Answer:** **it does not notice, and Dagu does not either — it recreates the
+deleted directory and reports success.** That is worse than a failure. Detection
+belongs to `devman doctor`, it costs one `[ -d ]` per entry, it needs no
+filesystem scan, and §9.3 makes pruning safe rather than merely cheap: a wrongly
+pruned entry restores itself on the repo's next shell entry.
+
+**Tested:** devenv 2.1.2, dagu 2.15.0, devman `c9426b6`, on 2026-08-22.
+
+### The registry after the delete
+
+**Command:**
+
+```bash
+# two repos register, then one is deleted from disk
+rm -rf /tmp/c6-projY
+ls /tmp/c6-reg/projects/
+(cd /tmp/c6-projX && devenv shell -- true)
+```
+
+**Evidence:**
+
+```
+registry after the delete:
+c6projX.json
+c6projY.json
+  c6projY.json still says: {"groups":["base"],"path":"/tmp/c6-projY","project":"c6projY","schema":1}
+
+=== re-entering projX does not notice, and must not ===
+registry unchanged: c6projX.json  c6projY.json
+```
+
+The entry is intact and points at nothing. Nothing in the registration path can
+see it: registration runs in the shell of the repo that is entering, and the
+deleted repo will never enter a shell again. Re-entering a *different* repo must
+not touch a neighbour's entry, and does not.
+
+### What breaks: nothing, loudly. Dagu recreates the directory.
+
+This was the case worth measuring, and the result is the opposite of the
+expected one.
+
+**Command:**
+
+```bash
+# $DAGU_HOME/dags/c6_stale.yaml
+#   working_dir: /tmp/c6-projGONE
+#   steps: [{ name: where, command: "/run/current-system/sw/bin/pwd -P; ls -a .; touch ./sentinel && echo WROTE" }]
+rm -rf /tmp/c6-projGONE
+[ -e /tmp/c6-projGONE ] && echo "still there" || echo "confirmed deleted"
+dagu start c6_stale
+ls -la /tmp/c6-projGONE
+```
+
+**Evidence:**
+
+```
+confirmed deleted
+...
+└─where (0s) [succeeded]
+Result: Succeeded
+
+stdout:
+    /tmp/c6-projGONE
+    PWD=/tmp/c6-projGONE
+    .
+    ..
+    WROTE
+
+after the run:
+.rw-r--r-- 0 andrew 22 Aug 09:07 sentinel
+```
+
+**Dagu created the missing `working_dir` and ran the workflow in it.** The run
+succeeded. The step's own `ls -a` shows an empty directory — `.` and `..` and
+nothing else. The deleted repository's path is now back on disk as an empty
+directory containing whatever the workflow wrote.
+
+`dagu validate` does not catch it either:
+
+```
+$ dagu validate $DAGU_HOME/dags/c6_stale.yaml >/dev/null 2>&1; echo $?
+0
+```
+
+So the stale-entry failure mode is: **a scheduled workflow keeps succeeding,
+against an empty directory, at the path of a repository that no longer exists.**
+Every check E5 gave `doctor` — `dagu validate` per file, the queue `conditions`,
+`FRESH` — reports healthy. A build workflow finds no sources and its `check`
+step passes vacuously; a workflow that writes finds a writable directory and
+writes there.
+
+### Detection is `doctor`'s job, and §9.3 is what makes the fix safe
+
+§15.1 forbids solving registration by scanning the filesystem for repos. **This
+is not that.** Reading `~/.local/share/devman/projects/` is reading devman's own
+state, and it is O(registered projects), not O(the disk):
+
+```bash
+for f in /tmp/c6-reg/projects/*.json; do
+  p=$(jq -r .path "$f")
+  [ -d "$p" ] && echo "live  $(basename $f) $p" || echo "STALE $(basename $f) $p"
+done
+```
+
+```
+  live  c6projX.json  /tmp/c6-projX
+  STALE c6projY.json  /tmp/c6-projY
+```
+
+That is the whole check. It cannot be done by registration — registration only
+ever sees one repo, the one entering — so it is `doctor`'s (§10, §15.3).
+
+**§9.3's cheap answer is the right one, and it is stronger than "cheap".**
+Because the registry is derived and the repository is canonical, pruning a
+stale entry **cannot lose anything**. If `doctor` prunes an entry whose path is
+temporarily absent — an unmounted disk, a detached external drive — the repo
+re-registers the next time its shell is entered, because C1 established that
+every entry path registers. So `doctor` may prune automatically, not merely
+report. That is a stronger guarantee than §10 currently claims for any other
+`doctor` action.
+
+**Charter impact:** **changes §10 and §15.2's neighbourhood; none for §9.3,
+which is vindicated.** Three additions:
+
+- §10: `devman doctor` gains a stale-entry check — every registry entry whose
+  `path` is not a directory — and may **prune** rather than only report, because
+  §9.3 makes pruning non-destructive and C1 makes restoration automatic.
+- §10: `doctor` must also unproject the pruned project's workflows. Pruning the
+  registry entry alone leaves the projection, and E5's checks all pass on a
+  projected DAG whose `working_dir` is gone.
+- §7.2 or §9.2 should record the Dagu behaviour that makes this urgent:
+  **Dagu creates a missing `working_dir` and succeeds.** It does not fail, and
+  `dagu validate` does not flag it. Nothing except this check will ever notice.
+
+There is still **no `devman unregister`**, and none is needed. Criterion 17
+survives: the way out is deleting the repository, and `doctor` is what reconciles
+the derived state afterwards.
