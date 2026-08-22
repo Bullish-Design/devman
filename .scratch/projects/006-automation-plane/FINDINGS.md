@@ -1095,3 +1095,206 @@ reconciled into `CONCEPT.md`.
 Per §7 of the kickoff, **A4's "no" is reported without being worked around.**
 The one-rule fix in A4 is measured and recorded, not applied — reconciling it is
 the later pass's decision.
+
+---
+
+## A6 — Alternatives considered, and why three of the four changes are forced
+
+Added after A1–A5, to answer a direct question: is the recorded design the best
+available, or is there a cleaner one? Each alternative below was **run**, not
+reasoned about. One of them improves on what A4 recorded; the rest are closed
+off by measurement.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### The tempting simplification: carry no variable at all
+
+Every one of A2, A3 and A4's problems comes from the same source — the design
+carries a project path in a variable. Dagu appears to offer three ways to avoid
+that. **All three fail.**
+
+**1. Let `working_dir` default to the DAG file's own directory.** The schema
+promises this: *"Defaults to the directory containing the DAG file."* If each
+project's workflow files physically lived in that project, no variable would be
+needed. But `dags_dir` is a single directory (`dags` is deprecated, and there is
+no list form), so the files must be reached by link.
+
+**Command:**
+
+```
+ln -sfn /tmp/devman-a2/projA/.devman/workflows/h1_defaults.yaml $DAGU_HOME/dags/
+dagu start h1_defaults        # file has no working_dir at all
+```
+
+**Evidence:**
+
+```
+cwd=/home/andrew/.../special-dragon/.devenv/state/dagu/dags
+```
+
+The default is the **symlink's** directory, not the target's. And a *directory*
+symlink is not followed at all, even with `dag_discovery.symlinks: true` — that
+option covers file symlinks only:
+
+```
+$ ln -sfn /tmp/devman-a2/projB/.devman/workflows $DAGU_HOME/dags/projB
+$ dagu ls | grep h2
+not listed
+```
+
+**2. Use a relative `working_dir`.** Both the schema and the generated
+`base.yaml` say relative paths resolve *"against DAG file location"*.
+
+**Command:**
+
+```
+# $DAGU_HOME/dags/nest/h3_rel.yaml, working_dir: ../../../../../tmp/devman-a2/projA
+dagu start nest/h3_rel
+```
+
+**Evidence:**
+
+```
+cwd=/home/andrew/.../special-dragon/tmp/devman-a2/projA
+```
+
+It resolved against the **process working directory**, not the DAG file. The
+documentation is wrong. A relative `working_dir` is unusable for this purpose.
+
+**3. Give each project its own instance config at trigger time.** `enqueue`
+accepts `-c/--config`, and it does work — with no variable anywhere:
+
+```
+$ printf 'log_dir: /tmp/devman-a2/projB/.devman/.runs/logs\n' > cfg/projB.yaml
+$ dagu enqueue --config cfg/projB.yaml t5_cfg
+├─log: /tmp/devman-a2/projB/.devman/.runs/logs/t5_cfg/dag-run_.../dag-run_....log
+Result: Succeeded
+```
+
+But `--config` **replaces** the instance config rather than merging with it —
+the `auth.mode: none` set in the shared config was lost, and the queue
+definitions would be too. It also still leaves `working_dir` needing a param.
+A per-project config file to maintain, and no fewer mechanisms. **Not better.**
+
+### Why the dual env-var + param requirement is forced, not clumsy
+
+A3 concluded that a trigger must **export** `DEVMAN_PROJECT_DIR` (for `log_dir`)
+*and* **pass it as a param** (for `working_dir`). One mechanism would do if the
+trigger used `dagu start` instead of `dagu enqueue`, because a locally executed
+run resolves both fields in the caller's own process.
+
+That would cost queues. **Measured:**
+
+**Command:**
+
+```
+dagu start a1_excl_x &        # both DAGs declare queue: exclusive
+dagu start a1_excl_y &        # max_concurrency: 1
+wait
+```
+
+**Evidence:**
+
+```
+START x 1787364543.990688281
+START y 1787364544.295752367     <- 0.3s later, while x is still running
+END   x 1787364549.002072628
+END   y 1787364549.307689935
+```
+
+**`dagu start` ignores the queue entirely.** Only `enqueue` is governed —
+compare A1, where the same two DAGs serialized strictly under `enqueue`.
+
+Since §7.1 makes queue names the plane's *only* global vocabulary, and success
+criterion 12 requires that two workflows naming `exclusive` serialize, **the
+trigger must use `enqueue`**. The dual mechanism follows from wanting queues at
+all. It is not an accident of the design and there is no cleaner route to it.
+
+The practical cost is small: `devman run` is the one place that triggers a
+workflow, so both mechanisms live in one implementation.
+
+| trigger | queue enforced | one exported variable is enough |
+|---|---|---|
+| `dagu start` | **no** | yes |
+| `dagu enqueue` | **yes** | no — needs the variable *and* the param |
+
+### A better fix for A4 than the one recorded above
+
+A4 recorded this rule:
+
+> A cross-repo workflow must not define `DEVMAN_PROJECT_DIR`, in `params`, in
+> `env:`, or in `working_dir`.
+
+That works, but it makes a cross-repo workflow **a second shape of file** — it
+may not carry §7.2's standard `working_dir` line, so it cannot run local steps
+in its own directory. There is a cleaner fix, and it is measured.
+
+The A4 collision is purely a **name** collision. Once the names differ,
+`with.params` works exactly as upstream documents it. One parent, one run:
+
+```yaml
+# t2_parent.yaml — the parent names its OWN directory with a second variable
+params:
+  - DEVMAN_SELF_DIR: /tmp/devman-a2/projA
+working_dir: ${DEVMAN_SELF_DIR}
+steps:
+  - id: self
+    run: echo "PARENT cwd=$(pwd)"
+  - id: child_default                       # child keeps its own project
+    action: dag.run
+    with: {dag: a4_child_diag}
+  - id: child_directed                      # parent directs this one
+    action: dag.run
+    with:
+      dag: a4_child_diag
+      params: {DEVMAN_PROJECT_DIR: /tmp/devman-a2/projA}
+```
+
+**Command:**
+
+```
+env -u DEVMAN_PROJECT_DIR dagu start t2_parent
+```
+
+**Evidence:**
+
+```
+PARENT cwd=/tmp/devman-a2/projA                                    <- parent's own dir works
+params=DEVMAN_PROJECT_DIR=/tmp/devman-a2/projB   cwd=.../projB     <- undirected child kept its own
+params=DEVMAN_PROJECT_DIR=/tmp/devman-a2/projA   cwd=.../projA     <- directed child obeyed the parent
+Result: Succeeded
+```
+
+All three behaviours at once. **This restores `with.params` as a working way for
+a parent to direct a child**, which A4 had recorded as broken — it is not broken,
+it is shadowed.
+
+**Recommended over A4's rule:**
+
+> `DEVMAN_PROJECT_DIR` names **the project a run targets**, and is set only by
+> whatever triggers the run. A workflow that triggers other workflows must not
+> hold that name itself; if it needs its own directory for local steps, it uses
+> a second name. A parent directs a child with `with.params`.
+
+This keeps the contract at one name for the common case, keeps cross-repo
+workflows ordinary files, and gains the ability to point a child at a different
+project — which §11's "synchronized releases" and "coordinated migrations" will
+want.
+
+### Charter impact
+
+**changes §11** — same section as A4, better rule. Supersedes A4's "must not
+define" wording with the role-based rule above.
+
+**No change to the §7.2 / §9.2 conclusions.** The dual mechanism is forced by
+the decision to have queues at all, and the three variable-free alternatives are
+each closed off by a measurement.
+
+### Still open, and deliberately not explored
+
+- **One Dagu instance per user rather than per machine.** §4 fixes one per
+  machine and §15.3 accepts the shared-availability cost. A second instance
+  would give per-project service environments and remove the A3 split entirely.
+  Not tested; it reopens §4, which is outside Investigation A.
+- **Triggering over Dagu's HTTP API rather than the CLI.** That is D7's
+  question, and the answer may differ from the CLI's on both env and params.
