@@ -635,3 +635,70 @@ and the over-broad `**/*` used here is exactly the mistake the ignore list
 cannot fully cover.
 
 **Charter impact:** **changes §8.** Applied in its own commit, per rule 4.
+
+---
+
+## S9 — VCS hooks are the repository's own three lines, and devman supplies no option
+
+**Answer:** §13's "VCS hooks" needs nothing in devman beyond `devman run`. A
+repository installs the hook through devenv's own `git-hooks` module, and the
+hook is one command. **It works from a plain shell with neither `devenv` nor
+`DAGU_HOME` in the environment**, which is the property S2 built into the CLI.
+
+**Command — the repository's whole side of it:**
+
+```nix
+git-hooks.hooks.devman-validate = {
+  enable = true;
+  name = "devman validate";
+  entry = "devman run validate";
+  stages = [ "post-commit" ];
+  pass_filenames = false;
+  always_run = true;
+};
+```
+
+**Evidence — a commit made from an ordinary shell:**
+
+```
+$ git commit -m "a change that should trigger validate"
+Using config file: /tmp/s3-hook/.pre-commit-config.yaml
+devman validate..........................................................Passed
+[master e1d4698] a change that should trigger validate
+
+$ cat .devman/.runs/metadata.jsonl
+{"dag":"s3-hook-validate", … "status":"succeeded","started_at":"2026-08-22T19:08:03Z"}
+```
+
+**Why this is the answer rather than a devman feature.** §7.4 gives Nix
+selection and identity, and YAML the workflows; a hook is selection. Every
+alternative was worse:
+
+| Alternative | Why not |
+|---|---|
+| registration installs `.git/hooks/post-commit` | the hook must fork nothing (C1) and it would overwrite a hook the developer wrote, silently, in their own repository |
+| a `devman.hooks` Nix option | a per-workflow option, which §7.4 refuses, and a second way to express a trigger |
+| a `devman hook install` command | §10's list is closed at three, and this needs no fourth |
+
+### Three costs, all of them the repository's to accept
+
+1. **It costs a second devenv input.** devenv 2.1.2 refuses to evaluate
+   `git-hooks` until the repository runs
+   `devenv inputs add git-hooks github:cachix/git-hooks.nix --follows nixpkgs`,
+   and §3.2 prices an input at about 20 ms on every shell entry, forever.
+2. **It writes `.pre-commit-config.yaml` into the working tree**, generated and
+   marked `# DO NOT MODIFY`. That is git-hooks.nix's file, not devman's.
+3. **An enqueued run reads the tree later, not the tree that was committed.**
+   The hook returns immediately — that is the point, and it is why the trigger
+   is `enqueue` — so the workflow starts a second or two afterwards, against
+   whatever the working tree holds by then. For `validate` after a commit that
+   is almost always the same thing. It is not a gate, and a repository that
+   wants a gate wants a `pre-commit` hook that runs the task directly.
+
+**This repository does not adopt one**, and that is a decision rather than an
+omission: devman's own `validate` is `ruff check` and `nix flake check`, the
+second of which takes minutes, and the input cost buys nothing here. The recipe
+is in `groups/base/README.md` where a repository that wants it will look.
+
+**Charter impact:** **none.** §8's table already gives the hook layer one job —
+"detect that something happened" — and `devman run` is the layer below it.
