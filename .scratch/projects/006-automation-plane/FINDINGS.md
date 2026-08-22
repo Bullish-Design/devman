@@ -439,3 +439,659 @@ file. Point 2 changes *who supplies* the value, not whether the file is
 portable.
 
 ---
+
+## A3 — Per-run log destination
+
+**Answer:** **yes** — a run's logs and artifacts can be written under the
+triggering project's `.devman/.runs/`, and the §12.1 measurement passes. But
+`log_dir` interpolates from a **different** source than `working_dir` does, and
+run history is **not** relocatable at all.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### Both directories are per-DAG fields
+
+`internal/cmn/schema/dag.schema.json`:
+
+```json
+"log_dir": {
+  "type": "string",
+  "description": "Base directory for storing logs. Defaults to
+    ${HOME}/.local/share/logs if not specified."
+},
+"artifacts": {
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {"description": "Enable per-DAG-run artifact storage."},
+    "dir":     {"description": "Base directory for storing artifacts for this
+                 DAG. Defaults to the global artifact_dir when omitted."}
+  }
+}
+```
+
+Per DAG, not only per instance. The instance-wide `log_dir` and `artifact_dir`
+in `config.schema.json` are defaults.
+
+### The §12.1 measurement — one file, two projects
+
+```yaml
+# a3_combined.yaml
+params:
+  - DEVMAN_PROJECT_DIR: /tmp/devman-a2/projA
+working_dir: ${DEVMAN_PROJECT_DIR}
+log_dir: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs
+steps:
+  - name: emit
+    run: |
+      echo "cwd=$(pwd)"
+      echo "err" 1>&2
+```
+
+**Command:**
+
+```
+for P in projA projB; do
+  DEVMAN_PROJECT_DIR=/tmp/devman-a2/$P \
+    dagu enqueue a3_combined -- DEVMAN_PROJECT_DIR=/tmp/devman-a2/$P
+done
+find /tmp/devman-a2 -type f
+```
+
+**Evidence:**
+
+```
+projA/.devman/.runs/logs/a3_combined/dag-run_20260822_014552Z_034BJC61.../dag-run_....log
+projA/.devman/.runs/logs/a3_combined/dag-run_20260822_014552Z_034BJC61.../run_.../emit....out
+projA/.devman/.runs/logs/a3_combined/dag-run_20260822_014552Z_034BJC61.../run_.../emit....err
+projB/.devman/.runs/logs/a3_combined/dag-run_20260822_014600Z_034BJCIl.../dag-run_....log
+projB/.devman/.runs/logs/a3_combined/dag-run_20260822_014600Z_034BJCIl.../run_.../emit....out
+projB/.devman/.runs/logs/a3_combined/dag-run_20260822_014600Z_034BJCIl.../run_.../emit....err
+```
+
+**One unedited file, two projects, logs under each project's own
+`.devman/.runs/`.** This is the §12.1 spike, and it passes.
+
+Artifacts behave the same way. With `artifacts.enabled: true` and
+`artifacts.dir` set alongside:
+
+```
+projB/.devman/.runs/artifacts/a3_artifacts/dag-run_20260822_014653Z_034BJDde.../reports/report.md
+```
+
+### `log_dir` takes the process environment ONLY
+
+This is the trap. `working_dir` accepts the variable from three sources;
+`log_dir` accepts it from **one**.
+
+| source of `DEVMAN_PROJECT_DIR` | `working_dir` | `log_dir` / `artifacts.dir` |
+|---|---|---|
+| Dagu process environment (via `env_passthrough`) | resolves | **resolves** |
+| `params`, including a trigger-time override | resolves | **stays literal** |
+| the DAG's own `env:` block | resolves | **stays literal** |
+
+**Command (params only, no environment variable):**
+
+```
+env -u DEVMAN_PROJECT_DIR dagu enqueue a3_artifacts -- DEVMAN_PROJECT_DIR=/tmp/devman-a2/projA
+dagu status a3_artifacts
+```
+
+**Evidence:**
+
+```
+├─log: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/a3_artifacts/dag-run_...
+```
+
+Dagu then **creates a directory literally named `${DEVMAN_PROJECT_DIR}`**,
+relative to the working directory of the process that resolved the DAG:
+
+```
+$ find '<repo>/${DEVMAN_PROJECT_DIR}' -type f
+${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/a3_artifacts/.../dag-run_....log
+${DEVMAN_PROJECT_DIR}/.devman/.runs/artifacts/a3_artifacts/.../reports/report.md
+
+$ git status --porcelain
+?? ${DEVMAN_PROJECT_DIR}/
+```
+
+**An unresolved log path is silent, and it dirties the repository.** No error,
+no warning, exit 0. Because the resolving process is often the daemon, whose
+working directory is wherever it was started, this litters an unrelated tree.
+
+The practical consequence: **a trigger must export `DEVMAN_PROJECT_DIR` in its
+own environment *and* pass it as a param.** The environment reaches `log_dir`,
+the param reaches `working_dir`. That is what the passing measurement above
+does. One is not a substitute for the other.
+
+### What Dagu writes, and what a workflow must write itself
+
+**Dagu writes,** under `log_dir`:
+
+- one DAG-run log per run
+- per step, `.out` and `.err` (`log_output: separate`), or one `.log`
+  (`log_output: merged`)
+
+**Dagu writes,** under `artifacts.dir`, when `artifacts.enabled: true`: whatever
+a step declares through `stdout.artifact`, `stderr.artifact`, or the
+`artifact.write` / `artifact.read` / `artifact.list` actions. Steps read the
+resolved location as `${context.paths.artifacts_dir}`.
+
+**A workflow must write for itself:** §9.2's `reports/` and `metadata.json`.
+Dagu keeps its own run record, but not where §9.2 wants it — see below.
+
+### Run history is separable from logs, and is machine-side only
+
+Run history lives under `data_dir`, inside `DAGU_HOME`, and **no per-DAG field
+relocates it**:
+
+```
+$DAGU_HOME/data/dag-runs/a3_combined/dag-runs/2026/08/22/
+  dag-run_20260822_014552Z_034BJC61pnn47kjB8ep8aX/
+    a_20260822_014552_337Z_978d0f/
+      dag.json        <- the DAG spec as executed
+      status.jsonl    <- the run record
+```
+
+The record is rich, and it stores the resolved log paths:
+
+```json
+{"name":"a3_combined","dagRunId":"034BJC61pnn47kjB8ep8aX","status":4,
+ "nodes":[{"step":{"name":"emit"},
+   "stdout":"/tmp/devman-a2/projA/.devman/.runs/logs/.../emit....out",
+   "stderr":"/tmp/devman-a2/projA/.devman/.runs/logs/.../emit....err",
+   "workingDir":"/tmp/devman-a2/projA",
+   "startedAt":"2026-08-21T21:45:53-04:00","status":4}], ...}
+```
+
+So history and logs are **fully separable** — but only in one direction. Logs
+follow the project; history stays on the machine.
+
+### Charter impact
+
+**changes §9.2**, on two points:
+
+1. **The two-location layout survives.** Logs and artifacts do land in
+   `<repo>/.devman/.runs/`, from one shared group file. §9.2's core claim holds
+   and §12.1 passes.
+2. **`metadata.json` cannot come from Dagu's run store.** §9.2 lists
+   `.devman/.runs/<run-id>/metadata.json` beside the logs. Dagu's own record is
+   machine-side under `data_dir` and no per-DAG field moves it. Either a
+   workflow writes `metadata.json` itself, or `devman doctor` projects it out of
+   Dagu's history. Say which; do not leave it implied.
+
+One addition for **§8.1 and §9.2**: the machine module must set
+`env_passthrough_prefixes: [DEVMAN_]`, and every trigger must export
+`DEVMAN_PROJECT_DIR` as well as pass it. A trigger that forgets the environment
+variable does not fail — it writes a directory named `${DEVMAN_PROJECT_DIR}`
+into whatever tree the daemon was started in. **`devman doctor` should look for
+that directory**; it is the visible symptom of a broken trigger.
+
+---
+
+## A4 — DAG-to-DAG triggering
+
+**Answer:** **yes for triggering, waiting, failure, and results — but NO for the
+one thing §11 relies on.** A child DAG does *not* reliably run with its own
+`working_dir`. When the parent defines a variable of the same name, the
+parent's value wins, and **not even an explicit `with.params` override can
+defeat it.**
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### The three sub-questions that pass
+
+**Trigger by name and wait — yes.** `action: dag.run`, `with.dag`:
+
+```yaml
+steps:
+  - id: child
+    action: dag.run
+    with:
+      dag: a4_child
+```
+
+It is synchronous. The parent step ends when the child ends.
+
+**Failure propagates — yes, with the exact exit status.**
+
+```
+dagu start a4_parent_fail     # child runs `exit 3`
+```
+
+```
+├─child (0s) [failed]
+│ └─error: exit status 3
+└─after [aborted]
+Result: Failed
+Error: failed to execute the dag-run a4_parent_fail (...): exit status 3
+```
+
+The downstream step aborted rather than running.
+
+**The parent can read the child's result — yes.** The child publishes with
+`stdout.outputs`; the parent reads `${<step_id>.outputs.<name>}`:
+
+```yaml
+# child
+    stdout:
+      outputs:
+        fields:
+          verdict: {decode: json, select: .verdict}
+# parent
+  - id: after
+    run: echo "PARENT read child verdict=${child.outputs.verdict}"
+```
+
+```
+PARENT read child verdict=child-ok
+```
+
+The `dag.run` step's own stdout is a JSON summary:
+
+```json
+{"name":"a4_child","dagRunId":"BBZFdtwPDzwCfBCzYosWi5RXM8V3eyr61JqJ2EomSTi9",
+ "params":"DEVMAN_PROJECT_DIR=/tmp/devman-a2/projB",
+ "outputs":{},"outputValues":{"verdict":"child-ok"},"status":"succeeded"}
+```
+
+Note the reference form. `${steps.<id>.outputs.<name>}` is **only** for
+declared step outputs; for a `dag.run` step it is `${<id>.outputs.<name>}`. The
+wrong form is not an error — it reaches the shell verbatim and fails there
+(`zsh:1: bad substitution`).
+
+### The sub-question that fails
+
+**The child inherits the parent's variable.** The same child file, run two ways:
+
+**Command:**
+
+```
+dagu start a4_child            # standalone
+dagu start a4_parent           # parent's own param is /tmp/devman-a2/projA
+```
+
+**Evidence:**
+
+```
+standalone        CHILD cwd=/tmp/devman-a2/projB     <- its own default param
+under the parent  resolved cwd = /tmp/devman-a2/projA <- the PARENT's value
+```
+
+The child's stored spec is untouched — it still reads `queue: exclusive`,
+`workingDir: ${DEVMAN_PROJECT_DIR}`, and
+`defaultParams: DEVMAN_PROJECT_DIR="/tmp/devman-a2/projB"`. Only the
+*resolution* is wrong. The parent exports its parameters into the child's
+process environment, and that environment outranks the child's own definitions.
+
+**Three defences were tried. All three failed:**
+
+| the child's defence | resolved cwd | wanted |
+|---|---|---|
+| its own `params:` default | `/tmp/devman-a2/projA` | projB |
+| its own `env:` block | `/tmp/devman-a2/projA` | projB |
+| the parent's explicit `with.params: DEVMAN_PROJECT_DIR: .../projB` | `/tmp/devman-a2/projA` | projB |
+
+The third is the surprising one. The parameter is passed, recorded, and
+visible — and still loses:
+
+```
+└─subdag: DBoCSJmAfrEAytDpFuVLv5iHxceA9iRt2W1jaHgF2m2j [DEVMAN_PROJECT_DIR="/tmp/devman-a2/projB"]
+   ...resolved cwd = /tmp/devman-a2/projA
+```
+
+This contradicts upstream's own documentation, `skills/dagu/references/steptypes.md`:
+
+> Sub-DAGs do not inherit parent env vars. Pass values explicitly via `with.params`.
+
+### It is a name collision, and that is what makes it fixable
+
+One parent, two children, run in the same DAG:
+
+```yaml
+# a4_parent_diag.yaml — parent's own param is DEVMAN_PROJECT_DIR=.../projA
+steps:
+  - id: same_name        # child uses DEVMAN_PROJECT_DIR, default .../projB
+    action: dag.run
+    with: {dag: a4_child_diag, params: {DEVMAN_PROJECT_DIR: /tmp/devman-a2/projB}}
+  - id: distinct_name    # child uses CHILD_DIR, default .../projB
+    action: dag.run
+    with: {dag: a4_child_distinct}
+    depends: [same_name]
+```
+
+**Evidence:**
+
+```
+a4_child_diag        resolved cwd = /tmp/devman-a2/projA    <- collided
+a4_child_distinct    resolved cwd = /tmp/devman-a2/projB    <- correct
+```
+
+Only the *shared name* breaks. So the fix is to stop sharing it at the parent.
+
+### The fix, measured
+
+A cross-repo parent that never defines `DEVMAN_PROJECT_DIR` at all:
+
+```yaml
+# a4_parent_clean.yaml — no params, no env, no working_dir
+steps:
+  - id: lib_a
+    action: dag.run
+    with: {dag: a4_child_diag}      # pins its project via params
+  - id: lib_b
+    action: dag.run
+    with: {dag: a4_child_env}       # pins its project via env:
+    depends: [lib_a]
+```
+
+**Command:**
+
+```
+env -u DEVMAN_PROJECT_DIR dagu start a4_parent_clean
+```
+
+**Evidence:**
+
+```
+a4_child_diag    resolved cwd = /tmp/devman-a2/projB
+a4_child_env     resolved cwd = /tmp/devman-a2/projB
+Result: Succeeded
+```
+
+**Both children resolved their own project correctly.** §11's goal is reachable.
+
+### One more thing — a child's history nests under the parent
+
+A child run is not an independent run of that DAG. It is stored beneath the
+parent's record:
+
+```
+data/dag-runs/a4_parent/dag-runs/2026/08/22/dag-run_<parent-id>/
+  sub/<child-run-id>/a_.../{dag.json,status.jsonl}
+```
+
+There is no `data/dag-runs/a4_child/` directory at all. `status.jsonl` carries
+`"parent": {"name": "a4_parent", "id": "..."}`.
+
+### Charter impact
+
+**changes §11**, and it is the sentence at the centre of it. §11 says:
+
+> Its steps trigger other projects' workflows rather than running commands, so
+> it resolves nothing itself — each triggered workflow already carries its own
+> project's `workingDir` (§7.2). Nothing needs a path.
+
+**"Already carries its own project's `working_dir`" is false as written**, and
+would have been false in exactly the configuration the charter specifies: §7.2
+mandates one variable name for every workflow, and §11's parent is itself a
+registered devman project, so it would carry `DEVMAN_PROJECT_DIR` too. Every
+parent-child pair in the design collides, and the collision is silent — the
+child runs, succeeds, and does the work in the wrong directory.
+
+**What to do instead — add one rule to §11:**
+
+> A cross-repo workflow must not define `DEVMAN_PROJECT_DIR`, in `params`, in
+> `env:`, or in `working_dir`. It names other workflows and nothing else.
+
+That keeps §11's conclusion ("nothing needs a path") intact and costs one
+sentence. But it does mean **a cross-repo workflow is not shaped like an
+ordinary workflow** — it cannot carry §7.2's standard `working_dir` line. §11
+currently claims a cross-repo workflow is "simply one of devman's own files";
+after this it is one of devman's own files *of a second shape*. Say so.
+
+Two consequences worth recording while the charter is open:
+
+- **§10 — `devman doctor` should check this.** A parent that defines the
+  variable is a silent misconfiguration Dagu will not report. It is mechanically
+  detectable: any workflow containing `action: dag.run` must not also mention
+  `DEVMAN_PROJECT_DIR`.
+- **§9.2 — a child's run history goes to the parent's tree**, not the child
+  project's. Child *logs* still follow `log_dir` and land in the child project;
+  only the history record nests. §9.2 should not promise that a cross-repo run
+  appears in each participating project's run history.
+
+---
+
+## A5 — Unknown keys, and DAG discovery
+
+**Answer:** unknown top-level keys are **rejected**. Discovery is a **directory
+scan**, and a new DAG needs **no restart** — but subdirectories and symlinks are
+both off by default.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### Unknown top-level keys are rejected
+
+`dag.schema.json` sets `"additionalProperties": false`, and the loader enforces
+it.
+
+**Command:**
+
+```
+dagu validate $DAGU_HOME/dags/a5_unknown.yaml    # file has an `x-devman:` block
+dagu start a5_unknown
+```
+
+**Evidence:**
+
+```
+Error: Validation failed for .../a5_unknown.yaml
+- failed to process document 0: decoding failed due to the following error(s):
+  'spec.dag' has invalid keys: x-devman
+
+Error: failed to load DAG from a5_unknown: failed to process document 0:
+  decoding failed due to the following error(s):
+  'spec.dag' has invalid keys: x-devman
+```
+
+A hard load failure, not a warning. **If devman ever needs per-workflow
+metadata, a sidecar file is the only option** — the DAG file cannot carry it.
+
+**Charter impact: none.** §7.2 already removed `x-devman`. This records what it
+would cost to bring one back.
+
+### A top-level `name:` is rejected by `validate`
+
+Found while testing the above, and worth recording because most upstream
+examples include it.
+
+**Command:**
+
+```
+dagu validate $DAGU_HOME/dags/a2-env.yaml    # file starts with `name: a2-env`
+```
+
+**Evidence:**
+
+```
+Error: Validation failed for .../a2-env.yaml
+- entrypoint document must not define name
+```
+
+Removing the `name:` key makes `validate` pass silently. `start` and `enqueue`
+tolerate it, so the three commands disagree. **A DAG's identity is its file
+name**, which is what `ls` reports and what every command resolves. This
+*confirms* §7.2's "the directory names the group; the file names the workflow" —
+and means group files should carry no `name:` key at all.
+
+### Step `id` values may not contain a hyphen
+
+```
+Error: ... invalid step ID format: must match ^[a-zA-Z][a-zA-Z0-9_]*$
+  (use '_' instead of '-') (value: step-wd)
+```
+
+Step `name:` accepts hyphens; step `id:` does not. Only `id:` participates in
+`${<id>.outputs.<name>}` references, so a step whose result another step reads
+must use an underscore.
+
+### Discovery is a directory scan, and needs no restart
+
+The daemon had been running for 978 seconds when a brand-new file was dropped
+into `dags/`:
+
+**Command:**
+
+```
+pgrep -af "dagu start-all"        # pid 1771311, uptime 978s
+cat > $DAGU_HOME/dags/a5_brandnew.yaml <<'EOF'
+steps:
+  - id: fresh
+    run: echo "brand new DAG, no restart"
+EOF
+dagu ls | grep brandnew
+dagu enqueue a5_brandnew
+dagu status a5_brandnew
+```
+
+**Evidence:**
+
+```
+uptime_seconds=978
+a5_brandnew                        <- listed immediately
+run-id=034BJM1gtkJ2n20Aiyf1qt
+      brand new DAG, no restart
+Result: Succeeded
+```
+
+The **already-running** daemon executed it. Dagu logs `Rebuilding DAG
+definition index` when the directory changes. **§5.2's assumption is correct:
+registration can add a project's workflows without restarting the service.**
+
+### But subdirectories and symlinks are off by default
+
+`config.schema.json`:
+
+```json
+"DAGDiscoveryDef": {
+  "recursive": {"default": false, "description": "Discover DAG definitions in subdirectories."},
+  "symlinks":  {"default": false, "description": "Include file symlinks in recursive DAG
+     discovery and allow file symlinks whose targets are outside the configured DAG directory."}
+}
+```
+
+With both unset, a symlinked DAG and a DAG in a subdirectory are **not listed**:
+
+```
+$ dagu ls | grep symlink
+NOT LISTED
+$ dagu ls | grep a5_nested
+(nothing)
+```
+
+A symlinked DAG is nonetheless **runnable by name**, which is a trap:
+
+```
+$ dagu start a5_symlink
+      from a symlinked group file
+Result: Succeeded
+```
+
+So listing, the web UI, and the scheduler ignore it while `start` accepts it.
+
+Setting both knobs fixes both cases:
+
+```yaml
+dag_discovery:
+  recursive: true
+  symlinks: true
+```
+
+```
+$ dagu ls | grep -E "symlink|nested"
+a5_nested
+a5_symlink
+```
+
+**Charter impact:** **changes §5.2 / §9.2**, in one sentence. §9.2 projects
+workflows into `~/.local/share/devman/projects/<project>/workflows/*.yaml`.
+Whether that projection is a **copy** or a **symlink into the Nix store**, and
+whether projects get one directory each, both depend on these two knobs. The
+machine module must set `dag_discovery.recursive: true` and
+`dag_discovery.symlinks: true` if the projection uses per-project subdirectories
+or symlinks — which §9.2's layout does. Neither is on by default, and neither
+failure mode announces itself.
+
+---
+
+## Summary — every `changes §N` and `kills §N`
+
+Nothing in Investigation A **kills** a section. Four sections change.
+
+| ID | Assumption | Supported | Charter impact |
+|---|---|---|---|
+| A1 | a DAG can name a queue | **yes** | none |
+| A1 | the limit is set centrally | **yes** | none |
+| A1 | a concurrency-1 queue serializes | **yes** | none |
+| A1 | an undefined queue is caught | **no — silent** | changes §15.4 |
+| A2 | `workingDir` interpolates | **yes**, as `working_dir` | changes §7.2 |
+| A2 | it resolves at run time | **yes** | none |
+| A2 | the machine module sets it per project | **no** | changes §7.2 |
+| A3 | logs can go to the project | **yes** | none |
+| A3 | `log_dir` takes the same variable source | **no** | changes §9.2 |
+| A3 | run history follows the logs | **no** | changes §9.2 |
+| A4 | one DAG triggers another and waits | **yes** | none |
+| A4 | failure propagates | **yes** | none |
+| A4 | the parent reads the child's result | **yes** | none |
+| A4 | **the child keeps its own `working_dir`** | **no** | **changes §11** |
+| A5 | unknown top-level keys | rejected | none |
+| A5 | discovery needs no restart | **yes** | none |
+| A5 | subdirectories and symlinks are found | **no — off by default** | changes §5.2, §9.2 |
+
+### The list, by section
+
+- **changes §7.2** — three edits. Spell the key `working_dir`, not `workingDir`;
+  camelCase fails to load. The per-project value must arrive as a **`params`
+  override at trigger time**, because a variable in Dagu's service environment
+  holds one value for the whole instance. And the machine module must set
+  `env_passthrough_prefixes: [DEVMAN_]`, or the variable never reaches a DAG.
+  *§7.2's headline claims survive: one group file serves every repo, and devman
+  still never parses a workflow.*
+
+- **changes §9.2** — three edits. A trigger must export `DEVMAN_PROJECT_DIR` in
+  its environment **as well as** pass it as a param, because `log_dir` reads only
+  the process environment while `working_dir` reads only params. `metadata.json`
+  cannot come from Dagu's run store, which is machine-side and not relocatable —
+  say whether a workflow writes it or `doctor` projects it. And a cross-repo
+  run's child history nests under the parent, so it does not appear in each
+  participating project's history.
+
+- **changes §11** — one added rule. *A cross-repo workflow must not define
+  `DEVMAN_PROJECT_DIR`, in `params`, in `env:`, or in `working_dir`.* Without it
+  the parent's value silently overrides every child's, and the work runs in the
+  wrong directory. With it, §11's conclusion holds. Note the consequence: a
+  cross-repo workflow is a second shape of file, not an ordinary one.
+
+- **changes §5.2** — one sentence. The machine module must set
+  `dag_discovery.recursive: true` and `dag_discovery.symlinks: true` if the
+  projection uses per-project subdirectories or symlinks. Both default to off.
+
+- **changes §15.4** — one addition. Queue names are not only a rename hazard. A
+  *misspelled* queue name is accepted silently and runs the workflow with no
+  concurrency limit at all. `devman doctor` should check every resolved
+  workflow's `queue:` against the machine module's queue list.
+
+- **changes §4** — already applied. nixpkgs packages no Dagu, so the plane
+  carries `nix/dagu.nix`. See E0.1.
+
+### Two things `devman doctor` must check, both from this investigation
+
+Neither failure produces an error from Dagu, and both are mechanically
+detectable:
+
+1. **A workflow containing `action: dag.run` that also mentions
+   `DEVMAN_PROJECT_DIR`** — the A4 collision. Silent wrong-directory execution.
+2. **A directory literally named `${DEVMAN_PROJECT_DIR}`** anywhere the daemon
+   might have been started — the A3 symptom of a trigger that passed the param
+   but forgot the environment variable.
+
+### Where this leaves planning
+
+`KICKOFF_PROMPT.md` §6 item 1 is satisfied: every A-series assumption has a
+yes/no with evidence. No section is killed, so the charter's shape stands and
+Investigations B, C, and D may proceed once the four `changes §N` above are
+reconciled into `CONCEPT.md`.
+
+Per §7 of the kickoff, **A4's "no" is reported without being worked around.**
+The one-rule fix in A4 is measured and recorded, not applied — reconciling it is
+the later pass's decision.
