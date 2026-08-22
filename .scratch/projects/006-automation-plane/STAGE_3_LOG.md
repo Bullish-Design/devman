@@ -986,3 +986,34 @@ same argument; the cost of the second one is not the reason to worry about it.
 **Charter impact:** **none.** This is §8 working as written, on hardware, and
 criteria 13 and 16 measured against the shipped configuration rather than a
 throwaway.
+
+---
+
+## S14 — §12.4 is closed by decision, not by measurement
+
+**Answer:** whole-file shadowing stays as §7.3 defines it. **A repository that
+must change a default writes a whole workflow file of its own.** There will be
+no field merging, no smaller group files split for the purpose, and no further
+measurement of the override rate.
+
+**Who decided and why.** The owner, on 2026-08-22, after S14 of stage 2 reported
+one override in eighteen workflows. The reasoning is that the cost §12.4 worries
+about — a file copied to change one line — is a cost the repository pays once, in
+its own tree, and every alternative moves complexity into the plane, which is the
+thing the plane exists to avoid.
+
+**What that closes.** §12.4 asked whether the coarseness is liveable and named
+two remedies if it is not. Neither will be applied:
+
+| Remedy §12.4 named | Status |
+|---|---|
+| smaller group files, split into what varies and what does not | **not taken.** One override in eighteen is not the "common" case the remedy was reserved for |
+| a merge algorithm | **not taken**, and §7.3 already refused it. The one real override was a *deletion*, which merge semantics express badly |
+
+**What does not change.** §15.6 stands: an overriding file stops tracking its
+group, and `devman doctor` reports how far each has diverged. That report is now
+a command rather than a measurement exercise — it reproduces stage 2's figures
+from the registry — so the fact stays visible without anybody running a study.
+
+**Charter impact:** **changes §12.4 and §16.** Applied in its own commit, per
+rule 4.
