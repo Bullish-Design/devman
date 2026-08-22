@@ -2667,3 +2667,228 @@ Two things worth carrying into reconciliation, each one sentence, as §1 require
 - **`dagu profile set-secret` scopes a secret to a project**, which is the
   per-project answer E3 and E4 could not give, since a `secrets:` block in
   `base.yaml` grants every workflow every secret.
+
+---
+
+## E6 — Could `git_sync` replace the projection?
+
+**Bucket:** **answers** — no.
+
+**Answer:** **no.** `git_sync` syncs **one** repository, one branch, one
+subdirectory, into the single `dags_dir`. §9.2's projection needs N project
+repositories. It also requires a network remote with token or SSH credentials,
+and it defaults to **pushing DAG edits back**.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### The schema is singular
+
+`config.schema.json`, `GitSyncDef` — an **object**, not an array:
+
+```
+enabled  repository  branch  path  auth  auto_sync  push_enabled  commit
+```
+
+One `repository`, one `branch`, one `path`. A6 already established that
+`dags_dir` is a single directory with no list form. So the most Dagu can do is
+mirror one repository into the one DAG directory.
+
+That is the wrong shape for §9.2 twice over: the plane has many project
+repositories, and §5.1's rule is that "the repo supplies its own location at
+registration, so nothing has to go looking". A single central repository of
+workflows is the **central config every repo edits** that §4 exists to prevent.
+
+### It needs a network remote
+
+**Command:**
+
+```yaml
+git_sync:
+  enabled: true
+  repository: /tmp/devman-e/gitrepo.git    # a local bare repo
+  branch: master
+  path: workflows
+  auth: {type: token, token: dummytoken}
+```
+
+**Evidence:**
+
+```
+Repository:  /tmp/devman-e/gitrepo.git
+Status:      error
+Last Error:  network error during clone: Get "https:///tmp/devman-e/gitrepo.git.git/info/refs
+             ?service=git-upload-pack": http: no Host in request URL
+```
+
+With no `auth` block at all it fails earlier:
+
+```
+Last Error:  validation error for auth.token: token is required for token auth
+```
+
+The path is rewritten as an HTTPS URL. **A local path is not a valid
+repository**, so the plane could not sync a checkout that is already on disk —
+which is the only thing §9.2 has.
+
+### It treats `dags_dir` as a working copy, and pushes by default
+
+`dagu sync` has `status`, `pull`, `publish`, `discard`, `delete`, and `cleanup`.
+With sync enabled, the DAGs already in `dags_dir` were reported against the
+remote:
+
+```
+Sync Item Status Counts:
+  Synced:    0
+  Modified:  0
+  Untracked: 4
+  Conflict:  0
+```
+
+`push_enabled` **defaults to true**. So an instance with `git_sync` on will
+commit and push DAG changes made through the UI. §9.3 requires that everything
+under the machine's Dagu state be reconstructable and disposable; a Dagu that
+pushes to a repository has made its own state canonical, which inverts §5.1.
+
+### Charter impact
+
+**none.** §9.2's projection and §5.2's registration stand, and the tension §6
+anticipated with §5.1 does not arise, because the mechanism does not fit.
+
+**One sentence, and then stopping as §1 requires:** `git_sync` is the right shape
+for a team with one shared workflow repository, which is a different product from
+one plane serving many independently-owned checkouts — worth recording as a
+non-goal rather than an option.
+
+---
+
+## E7 — Does Dagu already have a registry concept?
+
+**Bucket:** **answers** — partly, and only on the query side.
+
+**Answer:** **Dagu has labels, and they answer the selection half of §5 and
+§7.2 — but only through the API, not the CLI.** `labels` are key-value pairs
+that can be filtered on; `group` is a UI-only display string. Neither resolves an
+identity to a path, so devman's registry is not duplicating Dagu.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### What each field is
+
+- **`labels`** — string, map, or array. `"env=prod team=platform"` or
+  `{devman_project: pyjutsu}`. Key-value, and queryable.
+- **`tags`** — **deprecated**, an alias for `labels`. Do not use it.
+- **`group`** — "An organizational label used to group related DAGs together.
+  Useful for categorizing DAGs in the UI". A display string, nothing more.
+- **`dag_discovery`** — `recursive` and `symlinks`, both off by default (A5).
+
+### Labels are filterable, from the API only
+
+```yaml
+# e7_labelled.yaml
+group: pyjutsu
+labels:
+  devman_project: pyjutsu
+  devman_group: python
+```
+
+**Command:**
+
+```
+curl -s --get 'http://127.0.0.1:8080/api/v1/dags' --data-urlencode 'labels=devman_group=python'
+curl -s 'http://127.0.0.1:8080/api/v1/dags/labels'
+```
+
+**Evidence:**
+
+```
+labels=devman_project=pyjutsu   count: 1
+labels=devman_group=python      count: 2
+
+{"labels":["devman_group","devman_group=python","devman_project",
+           "devman_project=other-repo","devman_project=pyjutsu"]}
+```
+
+**The CLI cannot do it.** `dagu ls --help`: "Optional pattern filters by DAG name
+or file name (substring match)". Its flags are `--next`, `--last`, `--history`,
+`--sort-last`, `--reverse`. There is no `--label`, and `ls` prints one column,
+`NAME` — neither labels nor group are displayed.
+
+### What this does and does not give the plane
+
+**Gives:** if projected workflows carry `devman_project` and `devman_group`
+labels, "every workflow of project X" and "every workflow from group Y" become
+one API call, and the web UI can group by them. That is §7.3's resolution result
+made visible without devman parsing anything — the labels are added by the
+projection, not by the group file author.
+
+**Does not give:** an identity-to-path mapping. §5's registry exists to answer
+"where is `pyjutsu` checked out", and no Dagu field holds that. E8's `dagu
+profile` is closer — it maps a name to values — but it is a second store to keep
+in step, not a replacement.
+
+**A caution.** §7.2 says a workflow is "Dagu configuration from the first line to
+the last" with "no devman-specific key anywhere in the file". A `devman_project`
+label is a Dagu key holding a devman word. It stays inside the rule only because
+the **projection** writes it and the group file does not.
+
+### `errors` — an extra discovery signal E5 did not have
+
+`GET /api/v1/dags` returns an `errors` array alongside the DAG list:
+
+```json
+{"errors":["DAG discovery failed: a5_symlink.yaml: DAG file symlink resolves
+  outside the configured DAG directory; enable dag_discovery.symlinks to load
+  it: external DAG file symlinks are disabled"], "labels":[...]}
+```
+
+It reports files that could not be **discovered**. It does **not** report files
+that fail to **load**: `e5_broken.yaml` appeared in the same response as an
+ordinary DAG among 70. So E5's conclusion stands — `doctor` still runs
+`dagu validate` per file — but this array is a cheaper first check.
+
+### The instance config needs a restart, and says the opposite
+
+Found while measuring the above, and it belongs to §5.2. The instance config sets
+`dag_discovery.symlinks: true`, the CLI honours it, and the running server does
+not:
+
+```
+CLI:     dagu ls | grep -c a5_symlink   →  1
+CLI:     dagu start a5_symlink          →  Result: Succeeded
+Server:  GET /api/v1/dags               →  "...enable dag_discovery.symlinks to load it"
+```
+
+**The error names the knob that is already set.** The cause is startup order:
+
+```
+server started   Fri Aug 21 21:36:04 2026
+config.yaml      mtime 2026-08-21 21:53:04
+```
+
+Reproduced deliberately on the second instance — add the knob to a running
+server's config, change nothing else:
+
+```
+before knob, running server   errors: ['DAG discovery failed: e7_linked.yaml ...']
+after  knob, no restart       errors: ['DAG discovery failed: e7_linked.yaml ...']
+CLI, no restart               dagu ls | grep -c e7_linked  →  1
+after  knob, with restart     errors: None
+```
+
+**A5 established that a new DAG file needs no restart. An instance config change
+does**, and the CLI and the server disagree in the meantime.
+
+### Charter impact
+
+**changes §5.2**, one sentence added to A5's.
+
+A5 already requires the machine module to set `dag_discovery.recursive: true` and
+`dag_discovery.symlinks: true`. Add: **changing the instance config requires
+restarting the Dagu service**, and until it is restarted the CLI and the server
+disagree, with the server reporting an error that names a setting that is
+already present. A machine module that writes `config.yaml` must restart the
+service in the same activation, or §9.3's "rebuild is inconvenient, not
+catastrophic" becomes "the plane half-works and blames your config".
+
+**One sentence, and then stopping as §1 requires:** `devman doctor` can detect
+this exactly — compare `config.yaml`'s mtime against the service start time.
