@@ -5635,3 +5635,236 @@ one.
   lifetimes, from C1's matrix — and `watchexec`'s availability.
 - **`CONCEPT.md` was not edited.** Every contradiction is recorded and left for
   the reconciliation pass, which now owes the charter B's changes, C's, and D's.
+
+---
+---
+
+# Reconciliation input — every charter change, by section
+
+**This section satisfies `KICKOFF_PROMPT.md` §6 item 5.** It is a merge of the
+five per-investigation summaries above — A, E, B, C, D — ordered by the
+`CONCEPT.md` section a reader would edit, rather than by the investigation that
+found it. Nothing new is claimed here; every line points at a finding above.
+
+**`CONCEPT.md` was last reconciled against A and E only** (commit `9474b4a`).
+It therefore owes **B, C and D**. The A and E entries below are marked, so the
+pass can tell what is already applied from what is not.
+
+> **Read the three supersessions first.** They are the only places where a later
+> investigation contradicts an earlier one, and applying the earlier wording
+> would put a measured falsehood into the charter.
+
+## The three supersessions
+
+| # | Earlier | Later | What to do |
+|---|---|---|---|
+| 1 | **E's `changes §5.2`**: a stale `config.yaml` makes the server report "an error naming the setting that is already present" | **C7** measured it: **no error at all** — the enqueue succeeds, the run runs, and the queue silently takes `max-concurrency=1` where 4 was configured | Take C7's wording. E's sentence is already in the charter and is **wrong as written**. |
+| 2 | **§16's "Partly settled"**: `hist_retention_days` "does **not** prune the log tree under `log_dir`" | **D5** measured it: it **does** — four runs with `hist_retention_runs: 1` left one log directory, the control left four, and both retention predicates end in the same `removeDAGRun` | Strike the caveat. The log half needs no owner. |
+| 3 | **B's closing note**: "NixOS does not restart user services on activation" | **C7** measured it: it **does** — `switch-to-configuration` visits the user scope and `dagu.service` stopped and started inside the activation | Strike the note. `restartTriggers` alone is sufficient. |
+
+## §3 — The flake
+
+- **§3.1 diagram, §3.2** — the repo interface is **`modules/devenv.nix`**. devenv
+  resolves `<input>/<subdir>` to `inputs.<input> + /<subdir>` and then requires
+  `devenv.nix` inside it; `default.nix` is never read. And "pin with `git+`"
+  needs a qualifier: **`git+https` records `rev` and `narHash`; `git+file`
+  records neither and follows the branch head**, so a local checkout is never
+  pinned and nothing warns. (**B4**)
+- **§3.1 — two free rules that are the reason the premise holds.** The modules
+  take `pkgs` from their consumer, never from the flake's own `nixpkgs`. What the
+  two interfaces share must be **text**, with `nix/dagu.nix` the one measured
+  exception. (**B**)
+- **§3.3 — "the current source is deleted" is not the whole story.** The
+  installed binary survives the repository: `devman 0.2.0` is on this user's
+  `PATH` today. Removing it is a stage-1 task. (**D1**)
+
+## §4 — Machine responsibility
+
+- nixpkgs packages no Dagu at any version, so the plane carries `nix/dagu.nix`.
+  (**A / E0.1 — already applied**)
+- **Document the foreign-Dagu conflict concretely.** It is a **port** collision
+  on **50055 and 8080**, not a state collision: a second instance with its own
+  `DAGU_HOME` still fails, `bind: address already in use`, exit 1. Give the
+  module a **port option**, and **bound `Restart=on-failure`** so an
+  unresolvable bind failure does not retry every five seconds forever. (**D3**)
+- **Require `users.users.<name>.linger = true`** for the user that owns the
+  plane, or state that the plane is live only while that user is logged in:
+  `switch-to-configuration` reaches exactly the users logind lists. (**C7**)
+- **This repo's own `devenv.nix` starts a competing instance** through
+  `processes.dagu`. Criterion 16 makes reconciling that a stage-1 task. (**D3**)
+
+## §5.2 — Registration runs at shell entry
+
+The most-changed section in the charter. Six edits, from four investigations.
+
+- The machine module must set `dag_discovery.recursive: true` and
+  `dag_discovery.symlinks: true`; both default to off and neither failure
+  announces itself. (**A5 — already applied**)
+- **Changing the instance config requires restarting the Dagu service**; a new
+  DAG *file* does not. (**E7 — already applied**)
+- **The restart requirement is met, not merely stated.** `restartTriggers` alone
+  restarts the user service in the same activation on nixpkgs
+  `26.11.20260705.d407951`. Name the revision — it is a property of
+  `switch-to-configuration`, not of NixOS in general. (**C7**)
+- **Replace the symptom sentence.** See supersession 1: a missed restart reports
+  **nothing**. (**C7**)
+- **`enterShell` runs twice** per `devenv shell`, once in devenv's
+  environment-capture subprocess and once for real; `devenv up` and `devenv
+  tasks run` fire it once. The hash guard is what makes the repeat free, and a
+  hook that is not idempotent breaks here. Reproduced on devenv **2.1.2 and
+  2.2.2**. (**C1**)
+- **The hook must fork nothing** — it is on the critical path of every shell and
+  its cost is charged twice. (**C1, C2**)
+- **A registration hook cannot report anything on the write path.** devenv
+  discards the output of the firing that writes, so drop any promise of a
+  "devman: registered" line. Anything the developer must see belongs on a
+  non-writing path — a refusal, or `doctor`. (**C5**)
+- **Restoring a deleted registry means entering a shell**, not `cd`-ing back
+  into a directory whose direnv environment is already loaded in the process.
+  (**C1**)
+
+## §7 — The contract
+
+- **§7.2 — spell the key `working_dir`**, not `workingDir`; camelCase fails to
+  load. The per-project value must arrive as a **`params` override at trigger
+  time**. The machine module must set `env_passthrough_prefixes: [DEVMAN_]`.
+  (**A2 — already applied**)
+- **§7.2, and it shortens §7.1** — `working_dir`, `log_dir`, `queue`, `env`,
+  retention, `secrets` and step `defaults` all inherit from `base.yaml`; a group
+  workflow can be `steps:` and nothing else. §7.1's "queue names are the entire
+  shared vocabulary" is false: the true list is queue names, the variable name
+  `DEVMAN_PROJECT_DIR`, and the `.devman/.runs/` path shape. (**E4 — already
+  applied**)
+- **§7.2 or §9.2 — record what Dagu does with a missing `working_dir`: it
+  creates the directory and succeeds.** `dagu validate` exits 0. A workflow
+  projected from a stale registry entry keeps passing, in an empty directory, at
+  the path of a repository that no longer exists. (**C6**)
+
+## §8 — Triggers
+
+- **deletes §8.1.** "Loop-breaking is plane infrastructure" describes a token
+  Dagu already keeps. Drop `generation.json` from §8.1 and from §9.2's layout.
+  (**E1 — already applied**)
+- **A trigger is a local process that runs `dagu enqueue`**, exporting
+  `DEVMAN_PROJECT_DIR` and passing it as a parameter. Every HTTP surface
+  resolves `log_dir` in the server process. (**E2 — already applied**)
+- **Close the remaining mechanism: one watcher per machine**, a systemd user
+  service from the same NixOS module as Dagu, reading the registry for paths and
+  invoking `dagu enqueue` locally with `DEVMAN_PROJECT_DIR` set per event.
+  `watchexec` 2.5.1 from nixpkgs. **Not one per repo** — devenv `processes.` run
+  only under `devenv up`, so a per-repo watcher lives only as long as the
+  developer's foreground session. **Glob-to-workflow mapping is group content;
+  the watcher is not.** (**D7**, refining E2)
+
+## §9 — State
+
+- **§9.2** — a trigger must export `DEVMAN_PROJECT_DIR` **and** pass it as a
+  param, because `log_dir` reads only the process environment while
+  `working_dir` reads only params. `metadata.json` cannot come from Dagu's run
+  store. A cross-repo run's child history nests under the parent. (**A3 —
+  already applied**)
+- **§9.1 — delete "identity defaults to the repo's directory name."** It breaks
+  criterion 11 by construction, and §5 already says the opposite. Keep
+  "registration refuses a duplicate", and add the test that makes refusal
+  compatible with criterion 11: **refuse only when the recorded path still
+  exists**; a recorded path that is gone means the project moved. (**C5**)
+- **§9.2 — name the ignore file.** The rule goes in **`.git/info/exclude`**,
+  located with `git rev-parse --git-path info/exclude`, not in `.gitignore`.
+  `.gitignore` may be a read-only store symlink, it is tracked so writing to it
+  dirties the tree it exists to keep clean, and devenv writes to it too. A repo
+  with no `.git` gets no rule, which is correct. Caveat: git treats `info/` as a
+  common path, so a linked `git worktree` shares its main repository's exclude
+  file — "per checkout" is really "per clone". (**C4**)
+- **§9.2 — `metadata.jsonl` survives every retention setting**, because nothing
+  in Dagu writes or owns it. Say so, or a later reader looks for a knob. (**D5**)
+- **§9.4** — Dagu resolves secrets itself: a DAG-level `secrets:` block names a
+  provider and a key, Dagu masks the value in logs and fails the run with a
+  named error when it is missing. Keep `provider: env`. (**E3 — already
+  applied**)
+
+## §10 — The CLI, deferred
+
+- Say what `doctor` **reads** rather than computes: a wedged queue explains
+  itself through `GET /queues/{name}/items`. Four things it must compute itself —
+  a DAG that fails to load, a misspelled queue name, an unresolved
+  `${DEVMAN_PROJECT_DIR}`, and shadowed-file drift. (**E5 — already applied**)
+- **A stale-entry check, which may prune rather than only report.** Every
+  registry entry whose `path` is not a directory is stale; the check is O(
+  registered projects) and reads only devman's own state, so §15.1's ban on
+  scanning does not apply. §9.3 makes pruning safe — a wrongly pruned entry
+  restores itself on the repo's next shell entry. `doctor` must also unproject
+  the pruned project's workflows. (**C6**)
+- **A stale-`.runs/` check.** Retention is scoped per DAG and runs when that DAG
+  runs, so a project whose workflows stop running keeps its `.runs/` forever.
+  (**D5**)
+- **The `devman` command name is already taken.** `devman 0.2.0` is on this
+  user's `PATH` with its own `doctor`, `init`, `up`, `down`, `switch`,
+  `bootstrap` and `index`. The new CLI must replace it in the profile or take a
+  different name; shipping both makes `devman doctor` depend on profile order.
+  (**D1**)
+
+## §11 — Cross-repository workflows
+
+- **A cross-repo workflow must not define `DEVMAN_PROJECT_DIR`** — not in
+  `params`, not in `env:`, not in `working_dir`. Without the rule the parent's
+  value silently overrides every child's. A cross-repo workflow is therefore a
+  second shape of file, not an ordinary one. (**A4 — already applied**)
+
+## §14 — Success criteria
+
+- **Criterion 7 must become a delta.** Measure against the same repo with
+  `devman.enable = false`, not an absolute wall-clock number: bare devenv
+  already sits at 0.23 s warm under ordinary load on this machine, and 0.16 s
+  quiet. Proposed replacement: **no more than 10 ms added to a warm `devenv
+  shell -- true`, as a paired difference**. The fork-free guard meets it; the
+  `sed`-and-`cat` guard does not. (**C2**)
+
+## §15 — Sharp edges
+
+- **§15.4** — a *misspelled* queue name is accepted silently and runs with no
+  concurrency limit at all. (**A1 — already applied**)
+- **§15.2 — the detection test is a whitelist.** "`.devman/` may hold only
+  `workflows/` and `.runs/`; any other top-level entry is refused and reported."
+  Not a check for a known-old marker: the survey of 77 checkouts found **four**
+  shapes, and the one §15.2 was written against occurs **zero** times while
+  `context/` and `store/` occur twice. **State the reverse hazard too** —
+  `devman 0.2.0`'s `init --force` calls `shutil.rmtree` on `.devman/`, which
+  destroys the tracked `workflows/`. (**D6**)
+
+## §16 — Open questions
+
+**All five can be closed.**
+
+| Question | Resolution |
+|---|---|
+| Registry root | **free** — `~/.local/share/devman/` is unclaimed; the *name* `devman` is not (**D1**) |
+| Groups in this flake? | **yes, in-repo** — a second flake input costs ~20 ms per shell entry (**D2**, using **C2**) |
+| Manage a foreign Dagu? | **no** — the conflict is a loud port collision (**D3**) |
+| Which ecosystem groups? | **Python and Nix** — `devenv.nix` in 57 of 71 repos, `pyproject.toml` in 52; TypeScript and Rust one repo each (**D4**) |
+| Retention | **settled** — strike the "Partly settled" caveat; see supersession 2 (**D5**) |
+
+## Nothing is killed
+
+Across A, E, B, C and D, **no finding kills a section.** One section is deleted
+(§8.1, by E1). `kills §5.2` was a live outcome on C7 and did not happen. The
+charter's shape stands.
+
+## Where this leaves planning
+
+`KICKOFF_PROMPT.md` §6, item by item:
+
+1. **Every A-series assumption has a yes/no with evidence** — yes (A1–A5, plus
+   A6, A7).
+2. **B has a yes/no on the single-flake premise** — yes: the premise holds and
+   the module needs no nixpkgs pin of its own.
+3. **C has answers and a timing number** — yes: seven answers, and the guarded
+   no-op costs **+23 ms** as written, **+4 ms** fork-free, on both devenv 2.1.2
+   and 2.2.2.
+4. **D1–D7 have leans confirmed or overturned** — yes: all five leans confirmed,
+   two of them with reasons they did not have, and D6 and D7 answered from a
+   survey and from C1's lifetimes.
+5. **`FINDINGS.md` lists every `changes §N` and `kills §N` in one place** —
+   this section.
+
+**The gate is met. The remaining work before planning is the reconciliation
+pass** over B, C and D, applying the list above to `CONCEPT.md`.
