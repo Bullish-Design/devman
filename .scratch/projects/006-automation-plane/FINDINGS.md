@@ -4897,15 +4897,86 @@ never touches the machine.
   edit, no writes to `~/.local/share/devman/`, no contact with the running Dagu
   instance. Every registry in C is under `/tmp`. C7 ran in a test VM, and the
   separate Dagu used for C6 ran under `DAGU_HOME=/tmp/c6-dagu`.
-- **devenv 2.2.2 was not tested.** The kickoff suggested comparing it where a
-  result looked version-sensitive, which C1 is. `nix build
-  github:cachix/devenv/v2.2.2#devenv` began compiling devenv from source; it was
-  stopped because it was saturating the machine and corrupting C2's timings, and
-  not restarted. **Every C1 and C2 result is devenv 2.1.2 only.** The
-  double-firing in particular is a behaviour of
-  `capture_shell_environment`, which stage 1 should re-check on whatever devenv
-  it ships against.
+- **devenv 2.2.2 was tested after all**, once the package could be substituted
+  from `devenv.cachix.org` rather than compiled. **Every C1 and C2 result
+  reproduces unchanged**, including the double firing and the silent
+  registration. See the C1-C2 addendum above. The first attempt began compiling
+  devenv from source, saturated the machine, and was corrupting C2's timings; it
+  was stopped, and the second attempt used `--max-jobs 0` so nix would refuse to
+  build locally.
 - **The not-logged-in user was reasoned about, not run.** C7's VM used
   `linger = true`. That a non-lingering user's service is neither running nor
   restarted follows from `logind.list_users()` in the source, and was not
   measured in a VM of its own.
+
+---
+
+## C1–C2 addendum — do the answers survive devenv 2.2.2?
+
+**Answer:** **yes, all of them, unchanged.** The entry matrix is identical, the
+double firing is identical, and the cost of the guard is the same within noise.
+The charter does not need to name a devenv version.
+
+**Tested:** devenv **2.2.2+b8030c5**, devman `c9426b6`, on 2026-08-22, against
+the same `/tmp` repos C1 and C2 used.
+
+**Command:** the package was **substituted, never built**, so it could not
+contaminate the timings the way the earlier source build did:
+
+```bash
+nix build --no-link --print-out-paths 'github:cachix/devenv/v2.2.2#devenv' \
+  --max-jobs 0 \
+  --extra-substituters https://devenv.cachix.org \
+  --extra-trusted-public-keys devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+```
+
+`--max-jobs 0` is the guard: nix refuses to build locally, so the command either
+downloads or fails fast. It downloaded. Result:
+`/nix/store/cvz3j052k1z95pscj1w2iki187ywfcjw-devenv-wrapped-2.2.2`.
+
+### C1 — the entry matrix is unchanged
+
+| entry path | 2.1.2 | **2.2.2** | registered |
+|---|---|---|---|
+| `devenv shell -- true` | 2 | **2** | yes |
+| `devenv shell`, interactive on a pty | 2 | **2** | yes |
+| `devenv test` | 2 | **2** | yes |
+| `devenv tasks run` | 1 | **1** | yes |
+| `devenv up -d` | 1 | **1** | yes |
+| direnv `use devenv`, fresh shell | 2 | **2** | yes |
+| `devenv info` / `eval` / `build` | 0 | **0** | no |
+
+**The double firing is not a 2.1.2 quirk.** `capture_shell_environment` behaves
+the same way in 2.2.2, so C1's two additions to §5.2 stand, and so does C5's
+argument that a registration hook cannot report on the write path — re-checked
+directly:
+
+```
+$ rm -f /tmp/c5-registry/projects/test.json
+$ cd /tmp/c5-A && devenv shell -- true 2>&1 | grep -v "out of date" | cat -A
+                                    <- nothing at all
+  registry written? test.json
+```
+
+### C2 — the cost is the same within noise
+
+80 paired runs, warm, interleaved.
+
+| variant | mean | sd | delta vs `enable = false` |
+|---|---|---|---|
+| bare devenv repo, no devman input | 232.7 ms | 25.7 | — |
+| module imported, `devman.enable = false` | 259.3 ms | 26.8 | — |
+| registered, current `sed`+`cat` guard | 280.5 ms | 30.2 | **+21.3 ms** |
+| registered, fork-free bash guard | 256.1 ms | 26.7 | **−3.2 ms** |
+
+Against 2.1.2's +23.0 ms and +4.4 ms. Both are the same measurement to within
+the spread. The fork-free guard landing 3 ms *below* the disabled baseline is
+noise, not a speed-up: its 95% CI against bare is `[+16.6, +30.3]` and the
+disabled baseline's is `[+21.1, +32.1]`, and those overlap. **The honest
+statement is that the fork-free guard is not distinguishable from zero on
+either devenv version.**
+
+**Charter impact:** **none, and it removes a caveat.** C1's and C2's findings
+are not version-specific across 2.1.2 → 2.2.2, so §5.2 and criterion 7 need no
+devenv version qualifier. The `--max-jobs 0` substitution recipe above is worth
+keeping: it is how to test a devenv upgrade without a two-hour Rust build.
