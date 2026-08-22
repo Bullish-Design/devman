@@ -48,7 +48,7 @@ in
 
     groups = mkOption {
       type = types.listOf types.str;
-      default = [ "base" ];
+      default = [ "base" "PIN-TEST" ];
       example = [ "base" "python" ];
       description = "Workflow groups this repository inherits (§7.3).";
     };
