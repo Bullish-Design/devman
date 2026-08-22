@@ -126,3 +126,216 @@ rather than the plane's.
 **Charter impact:** **none.** §8 already says a trigger is a local process
 running `dagu enqueue`; this says which Dagu it must enqueue into and how it
 says so.
+
+---
+
+## S3 — `devman run`, against the real plane, including a hostile environment
+
+**Answer:** the CLI triggers both shapes of workflow correctly on the running
+service, and it removes the two things `.devman/workflows/README.md` asked a
+person to remember. **A stray `DEVMAN_PROJECT_DIR` in the caller's shell no
+longer reaches the children.**
+
+**Command — the ordinary case**, in a real adopted repository:
+
+```bash
+cd ~/Documents/Projects/observantic && devman run check
+```
+
+**Evidence:**
+
+```
+level=INFO msg="Enqueued dag-run" dag=observantic-check run-id=034BhwjMUai8gXhJLUc8xV
+    params="[DEVMAN_PROJECT_DIR=/home/andrew/Documents/Projects/observantic]"
+
+$ tail -1 .devman/.runs/metadata.jsonl
+{"dag":"observantic-check", … "status":"succeeded",
+ "log":"/home/andrew/Documents/Projects/observantic/.devman/.runs/logs/…"}
+$ git status --porcelain
+                                    <- the tree stays clean
+```
+
+**Command — the cross-repo case, with the failure deliberately armed.** §11's
+whole rule is that a parent must not hold `DEVMAN_PROJECT_DIR`, because a parent
+exports its parameters into every child's environment and that environment
+outranks the child's own `with.params`. The hand-written trigger says
+`env -u DEVMAN_PROJECT_DIR` for exactly this reason. So the test exports it:
+
+```bash
+DEVMAN_PROJECT_DIR=/tmp devman run stack-validate
+```
+
+**Evidence:**
+
+```
+$ dagu status devman-stack-validate
+├─observantic-check (…) [succeeded]  subdag: … [DEVMAN_PROJECT_DIR="…/observantic"]
+├─siteman-check     (…) [succeeded]  subdag: … [DEVMAN_PROJECT_DIR="…/siteman"]
+└─onExit (0s) [succeeded]
+Result: Succeeded
+
+$ ls -d /tmp/.devman
+No such file or directory              <- nothing landed in the hostile directory
+```
+
+`devman run` clears **both** of §7.1's directory names from the child
+environment and then sets the one the workflow needs. The `env -u` is now a
+property of the trigger rather than a line somebody must not forget.
+
+### Decision 2, answered: `devman run` does resolve a cross-repo workflow's parameters
+
+`STAGE_3_PROMPT.md` §7 asks whether it should, and warns that the answer makes
+parameter names a contract. **It does resolve them, and it does not make the
+names a contract, because it reads the value rather than the name.**
+
+> **A declared parameter whose default names a registered project is filled with
+> that project's path.**
+
+```yaml
+params:
+  - DEVMAN_SELF_DIR: ""
+  - OBSERVANTIC_DIR: observantic       # <- the default IS the project name
+  - SITEMAN_DIR: siteman
+```
+
+The alternative — reserving the shape `<PROJECT>_DIR` — would add a fifth entry
+to §7.1's closed list, and a name shape is harder to check than a name. Reading
+the value costs nothing: a project name is an identity, not a path, so
+criterion 10 still holds and the file still contains no absolute path.
+
+**And the refusals, which are the point.** Every one of these is a run that
+would have written somewhere wrong:
+
+```
+$ devman run stack-validate                 # before the defaults were changed
+devman: refusing to enqueue 'stack-validate' in 'devman'
+devman:   these declared parameters have no value: OBSERVANTIC_DIR, SITEMAN_DIR
+devman:   give each one a registered project name as its default, or pass NAME=VALUE
+```
+
+The others are: a directory variable that would be empty or is not a directory
+(S15's literally-named directory, refused at the source), a workflow that fails
+to load (§10 check 1, arriving at the trigger instead of at `doctor`), a
+cross-repo parent that holds `DEVMAN_PROJECT_DIR` for itself, and a cross-repo
+parent that declares no `DEVMAN_SELF_DIR`.
+
+**How it knows the difference between the two shapes.** The workflow's own
+top-level `params:` block: a file declaring `DEVMAN_SELF_DIR` is self-directed,
+and everything else targets a project. That is a read of what the trigger is
+required to fill in, not §7.2's forbidden parse — and §10 already has `doctor`
+reading workflow text for §11's `action: dag.run` check.
+
+**Charter impact:** **none.** §10 says `devman run` triggers a workflow in the
+current project, and §11 leaves the mechanism to the trigger.
+
+---
+
+## S4 — Decision 1: the mapping is a group's own `triggers.nix`, and reactivity is its own group
+
+**Answer:** `groups/<group>/triggers.nix` holds `<glob> = <workflow>`. It is
+resolved at evaluation time by `modules/devenv.nix`, whole-file and in the order
+the repository lists its groups, and recorded in the registry entry as **schema
+3**. The watcher reads the entry and never a group file.
+
+**Why not the three obvious homes**, each closed by something already measured:
+
+| Home | Why not |
+|---|---|
+| the workflow file | Dagu rejects an unknown top-level key outright, and §7.2 says a workflow is Dagu configuration from the first line to the last (A5) |
+| a Nix option in the repo interface | §7.4 says there is no per-workflow Nix option, and a machine-side option would make the machine learn a project fact (§4) |
+| a file the watcher reads at run time | the watcher would then need §7.3's resolution too, and the plane would hold two implementations of it |
+
+**Evidence — the entry, derived rather than written down:**
+
+```json
+{
+  "schema": 3,
+  "project": "s3-fmt",
+  "groups": ["python-format"],
+  "workflows": {"format":{"group":"python-format","shadows":[],"source":"/nix/store/…"}},
+  "triggers": {"group":"python-format","map":{"**/*.py":"format"}}
+}
+```
+
+### The part that is a design decision rather than a mechanism
+
+**Reactivity is its own group.** §7.4 argues that there is no per-workflow Nix
+option because *"an inherited workflow you never trigger costs nothing"*. That
+argument does not survive contact with §8: **a triggered workflow costs
+plenty** — it rewrites the developer's files while they are editing them. So
+reactivity cannot ride along inside `python`, where taking the group for its
+`check` would silently also mean "and format my files when I save".
+
+`python-format` therefore holds one workflow and one `triggers.nix`, and taking
+it is the whole opt-in. §7.4's own remedy — "to be rid of one, do not take its
+group" — is free here, because there is nothing else in the group to lose.
+
+**The limit, stated rather than fixed.** A repository cannot override a group's
+globs: `.devman/` may hold only `workflows/` and `.runs/` (§15.2), and widening
+that whitelist to add a fourth name is a charter change no measurement has
+forced. A repository that wants different globs takes a different group, or
+none. That is §7.3's promotion rule doing its ordinary work — a group begins
+when a second repository wants the same file.
+
+**Charter impact:** **none.** §8 already says the watcher is plane machinery and
+the mapping is group content. This is what "group content" turned out to mean,
+and §7.2's "a group is a directory, and devman reads only `workflows/*.yaml` in
+it" needs no change: `triggers.nix` is read by the devenv module at evaluation
+time, not by the plane at run time.
+
+---
+
+## S5 — watchexec searches for a project origin, and one watcher over many repos makes that expensive
+
+**Answer:** left to itself, watchexec resolves a "project origin" from the paths
+it watches and walks it. One watcher over several repositories therefore
+resolves their **common ancestor** — `/tmp` here, `~/Documents/Projects` on this
+machine, and **`$HOME` for a service systemd starts there**. Measured: the same
+command line **spun a core at 99.4% for over a minute**, and sat at **0.3%**
+with `--project-origin` given.
+
+**Tested:** watchexec 2.5.1, two watched repositories under `/tmp`.
+
+**Command — the two variants, identical but for one flag:**
+
+```bash
+cd /tmp && watchexec --emit-events-to=json-stdio --postpone --on-busy-update=queue \
+  --watch /tmp/s3-ctl --watch /tmp/s3-fmt -- /tmp/probe.sh
+
+cd /tmp && watchexec --project-origin=/home/andrew/.local/share/devman \
+  --emit-events-to=json-stdio --postpone --on-busy-update=queue \
+  --watch /tmp/s3-ctl --watch /tmp/s3-fmt -- /tmp/probe.sh
+```
+
+**Evidence:**
+
+```
+=== cwd=/tmp origin=(searched)                       cpu=99.4
+=== cwd=/tmp origin=/home/andrew/.local/share/devman cpu=0.3
+```
+
+**It fired nothing while it was doing that**, which is the failure that matters:
+the watcher looked healthy — the process was up, `devman watch` had printed what
+it was watching, the state file was written — and a save produced **zero** runs.
+`STAGE_3_PROMPT.md` §8 warns that zero is worse than two, because it looks like
+success.
+
+**The fix, and what it costs.** The watcher passes
+`--project-origin=<registry root>`: devman's own directory, small, and where the
+watcher's state already lives. The cost is that **no repository's `.gitignore`
+is read**, because origin discovery is what finds them. So the watcher carries
+an explicit ignore list — `.devman/.runs/`, `.git`, `.devenv`, `.direnv`,
+`.venv`, `__pycache__`, `node_modules` — and a group's globs must be specific
+enough to live without a repository's own ignore rules.
+
+**Two smaller things measured on the way**, both worth the line they cost:
+
+1. **The mode is `json-stdio`, not `json-stdin`.** The wrong spelling is
+   rejected at start-up with the list of valid modes, which is the loud kind of
+   failure.
+2. **`--postpone` is required.** Without it watchexec runs the command once at
+   start-up with an empty batch, so every mapped workflow would fire whenever
+   the service restarts, with nobody having saved anything.
+
+**Charter impact:** **none.** §8 names watchexec and D7 chose it; this is what
+it takes to run one of them over many repositories.
