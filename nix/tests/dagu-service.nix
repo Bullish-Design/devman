@@ -9,7 +9,7 @@
 # The devenv half cannot run in here — a NixOS test has no network and devenv
 # would need to evaluate a whole second nixpkgs — so the projection is built by
 # hand, in exactly the shape `modules/devenv.nix` writes it. What that half
-# does is proved by entering shells instead; see STAGE_1_LOG.md, S6.
+# does is proved by entering shells instead; see STAGE_1_LOG.md, S10.
 { module, groups }:
 
 { lib, ... }:

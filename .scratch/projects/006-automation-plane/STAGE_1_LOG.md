@@ -283,7 +283,124 @@ not, and this is what it does instead.
 
 ---
 
-## S6 — Stage 1 against §14, criterion by criterion
+## S7 — devenv rejects a bare task name, so the charter's examples do not run
+
+**Answer:** every task name needs a namespace. `CONCEPT.md` §5, §6 and §7.4 all
+write `tasks."lint".exec = ...`, and none of them evaluates.
+
+**Command:** the first attempt to adopt this repository, with §5's own example.
+
+**Evidence:**
+
+```
+$ devenv shell -- true
+  × Invalid task name: lint. Task names must be in format 'namespace:name'
+    and can only contain alphanumeric characters, ':', '-', and '_'.
+    The '@' character is reserved for dependency suffix notation.
+```
+
+`tasks."base:lint"` is accepted, and `devenv tasks run base:lint` resolves.
+
+**The namespace is the group's own name.** §7.1 already says task names are
+group-local convention and never reserved, so this makes the rule literal
+rather than changing it, and it means two groups' `lint` cannot collide in a
+repository that takes both. §7.1's closed list of three global names is
+untouched: task names were never on it, because a group is content, not
+contract.
+
+The cost is real and worth stating. A repository taking `base` and `python`
+defines `base:lint`, `base:test`, `python:lint`, `python:typecheck` and
+`python:test` — five names for three commands, because python shadows `check`
+and `validate` while base's `full-test` survives and still calls its own. §7.4
+already answers it: to be rid of one, do not take its group. Both group
+READMEs say so.
+
+**Charter impact:** **changes §5, §6, §7.2 and §7.4.** Applied in its own
+commit.
+
+---
+
+## S8 — devenv's evaluation cache does not see a group file's content change
+
+**Answer:** interpolating a group file's **path** copies it to the store, and
+devenv's evaluation cache does not track that. The projection kept pointing at
+the previous store path on every subsequent shell entry, and Dagu kept running
+the old workflow. `builtins.readFile` is a read the cache does track.
+
+**Tested:** devenv 2.1.2. Spike A established that devenv hashes content rather
+than mtime; this is the case it does not hash at all.
+
+**Command:** edit `groups/base/workflows/check.yaml`, re-enter the shell, look
+at what the projection points at.
+
+**Evidence — before, with a plain path:**
+
+```
+$ grep -n "devenv tasks run" groups/base/workflows/check.yaml
+8:    run: devenv tasks run base:lint          <- edited
+$ devenv shell -- true
+$ readlink ~/.local/share/devman/projects/devman/workflows/check.yaml
+/nix/store/8ql5x3441s1wqav5kk6a4by6vzw0vs68-check.yaml
+$ grep "devenv tasks run" ~/.local/share/devman/projects/devman/workflows/check.yaml
+    run: devenv tasks run lint               <- the OLD content
+```
+
+Repeated entries did not help. The DAG ran and failed with
+`Task does not exist: lint`, which is at least loud — but only because the old
+name had been renamed. An edit that changes what a step *does* would have run
+the old step silently.
+
+**Evidence — after, with `builtins.readFile` and `pkgs.writeText`:**
+
+```
+$ printf '# cache-probe-1\n' >> groups/base/workflows/check.yaml
+$ devenv shell -- true
+$ grep -c cache-probe-1 ~/.local/share/devman/projects/devman/workflows/check.yaml
+1                                            <- tracked
+$ sed -i '/cache-probe-1/d' groups/base/workflows/check.yaml
+$ devenv shell -- true
+$ grep -c cache-probe ~/.local/share/devman/projects/devman/workflows/check.yaml
+0                                            <- the removal too
+```
+
+**Who meets this.** A repository pinning a rev with `git+https` never does: a
+changed group file is a changed rev, and the whole input re-resolves. A
+repository importing `./modules` meets it on every edit — which is exactly this
+repository, adopting itself under criterion 16.
+
+**Charter impact:** **none.** §9.3 says the registry is derived and the
+repository is canonical; this is a case where the derivation silently stopped
+re-deriving.
+
+---
+
+## S9 — Dagu seeds example DAGs into an empty DAG directory
+
+**Answer:** on first start Dagu writes five example DAGs into `dags_dir`. The
+DAG directory is the registry, so the registry acquires five workflows
+belonging to no project. `skip_examples: true` stops it.
+
+**Evidence:** the NixOS test, before the flag:
+
+```
+$ dagu ls
+demo-check
+example-01-basic-sequential
+example-02-parallel-execution
+example-03-scheduling
+example-04-nested-workflows
+example-05-template-and-file
+```
+
+`skip_examples` is a real config key — `internal/cmn/config/loader.go:355` —
+though `config.schema.json` does not list it. The NixOS test now asserts that
+no `example-` name appears.
+
+**Charter impact:** **none.** It is a setting, and the module sets it.
+
+---
+
+## S10 — Stage 1 against §14, criterion by criterion
 
 Entered shells, not evaluated configurations. Registry at `/tmp/s1t/registry`,
 four throwaway repos pinning `path:/tmp/devman-src`.
@@ -297,9 +414,9 @@ four throwaway repos pinning `path:/tmp/devman-src`.
 | 7 | devenv stays on the fast path | **holds** — +2.04 ms paired, budget 10 ms (S4) |
 | 8 | registration is idempotent | **holds** — two further entries, `metadata.json` mtime unchanged to the nanosecond |
 | 9 | only opted-in repos register | **holds** — `projOff` never appears |
-| 10 | no workflow contains an absolute path | **holds** — `grep -rn '/home/\|/tmp/\|/nix/store' groups/` is empty; the registry's absolute paths are `metadata.json`'s `path` and the symlink targets, which is what a registry is for |
+| 10 | no workflow contains an absolute path | **holds** — `grep -rnE '(^\|[^A-Za-z0-9_])/(home\|tmp\|nix/store\|var\|Users)/' groups/` is empty, and so is the same grep over the projection's file contents. The registry's own absolute paths are `metadata.json`'s `path` and the symlink targets, which is what a registry is for |
 | 11 | identity survives a move | **holds** — `projA` moved *and* renamed keeps its project and rewrites `path` |
-| 16 | devman adopts itself | **holds** — this repository registers |
+| 16 | devman adopts itself | **the registration half holds** — this repository registers, and `devman-check` ran `devenv tasks run base:lint` here through Dagu and recorded it. §11's cross-repo workflows need a second registered repository and are stage 2 |
 | 17 | there is one way in | **holds** — registry deleted, three shells entered, restored byte for byte |
 
 And the two refusals, which are the branches a developer actually sees (C5):
@@ -320,3 +437,78 @@ devman:   move them, or unset devman.enable in this repository
 
 Criteria 5, 6, 12, 13, 14 and 15 belong to stage 2 and 3, or need real
 workflows first.
+
+---
+
+## S11 — `devman 0.2.0`: found, not removed
+
+**Answer:** it arrives through **`programs.nix-terminal.devman.enable = true`**
+in `/home/andrew/Documents/Projects/nix-meta/profiles/terminal.nix`. Removing it
+is one line and the user's rebuild. **Stage 1 should not remove it**, and the
+reason is not caution — it is that the switch turns off something the developer
+uses.
+
+**Command:**
+
+```bash
+readlink -f /etc/profiles/per-user/andrew/bin/devman
+nix-store -q --referrers-closure /nix/store/...-devman-0.2.0 | head -3
+grep -rn devman /home/andrew/Documents/Projects/nix-meta --include='*.nix' -l
+```
+
+**Evidence:**
+
+```
+/nix/store/i1cpdmw9w0hflws2fzm544r2v1scxkd5-devman-0.2.0/bin/devman
+  -> devman-env -> home-manager-path
+
+nix-meta/profiles/terminal.nix:72
+  programs.nix-terminal.devman = {
+    enable = true;
+    withClaudeCode = false;
+    withCodexCli = false;
+  };
+```
+
+The comment beside it says what it is: "the devman workspace orchestrator
+(tmuxp + Claude Code + Neovim launcher)". `enable = false` removes the binary
+**and that launcher**.
+
+### Why stage 1 leaves it
+
+§3.3 and §10 say stage 1 either replaces 0.2.0 in the profile or takes a
+different name, and "does not ship alongside it". **Stage 1 ships no CLI** —
+§10 defers `run`, `show` and `doctor` to stage 3 — so nothing collides today.
+There are two `devman` commands only when the new one exists.
+
+The decision is therefore stage 3's, and it is a real choice between two
+things the developer wants, not a cleanup:
+
+| Option | Cost |
+|---|---|
+| `enable = false` in `terminal.nix` | loses the tmuxp/Neovim workspace launcher |
+| the new CLI takes a different name | §10's three commands are not `devman run` |
+| the new CLI absorbs the launcher | the largest, and the only one that loses nothing |
+
+**One hazard is live now, and it is worth knowing before stage 2.**
+`devman 0.2.0`'s `init --force` calls `shutil.rmtree` on a `.devman/` it does
+not recognise (§15.2, D6). Today this repository's `.devman/` holds only
+`.runs/`, which is derived and git-ignored, so the blast radius is one run's
+logs. The moment a repository tracks `.devman/workflows/`, that command deletes
+canonical state.
+
+**Charter impact:** **none.** §13's stage-1 cleanup 1 says to remove it; this
+records that the removal is one line, where the line is, and why pulling it now
+costs the developer a tool for a collision that does not exist yet.
+
+---
+
+## S12 — What stage 1 did not do
+
+| Item | Why |
+|---|---|
+| the watcher (§8) | stage 3. The module is shaped so it is a second user service reading the same registry |
+| the CLI (§10) | stage 3, and §10 says to prove the conventions by hand first |
+| removing `devman 0.2.0` | S11 — one line in `nix-meta`, and a decision that belongs with the CLI |
+| installing the NixOS service on this machine | needs `nixos-rebuild switch`, which STAGE_1_PROMPT §8 forbids. The module is proved by a NixOS VM test instead, and by a hand-run Dagu against the real registry |
+| `.devman/workflows/` in this repository | §11's cross-repo workflows need a second registered repository, which is stage 2 |
