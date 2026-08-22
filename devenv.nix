@@ -1,5 +1,17 @@
 { pkgs, lib, config, inputs, ... }:
 
+let
+  # The plane's orchestrator (CONCEPT.md §4). nixpkgs packages no Dagu at any
+  # version, so this repo carries the expression and both interfaces call the
+  # same file — this shell now, the NixOS module at stage 1 (§3.1).
+  dagu = pkgs.callPackage ./nix/dagu.nix { };
+
+  # All Dagu state lives under devenv's state directory: git-ignored,
+  # disposable, and rebuilt by re-entering the shell. That is §9.3's
+  # "inconvenient, not catastrophic" applied to the investigation setup.
+  # DAGU_HOME is the one knob; Dagu derives dags/, logs/, and data/ from it.
+  daguHome = "${config.devenv.state}/dagu";
+in
 {
   # https://devenv.sh/basics/
   env.GREET = "devenv";
@@ -8,6 +20,7 @@
   packages = [
     pkgs.git
     pkgs.ruff
+    dagu
     inputs.codex-cli.packages.${pkgs.system}.default
     inputs.claude-code.packages.${pkgs.system}.default
   ];
@@ -23,7 +36,12 @@
 
   };
   # https://devenv.sh/processes/
-  # processes.cargo-watch.exec = "cargo-watch";
+  #
+  # One Dagu instance, started with `devenv up`. `start-all` runs the
+  # scheduler, the coordinator, and the web UI in one process. Put DAGs in
+  # `.devenv/state/dagu/dags/` and open http://127.0.0.1:8080.
+  env.DAGU_HOME = daguHome;
+  processes.dagu.exec = "dagu start-all";
 
   # https://devenv.sh/services/
   # services.postgres.enable = true;

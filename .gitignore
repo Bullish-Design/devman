@@ -6,6 +6,9 @@ __pycache__/
 **devenv/**
 **direnv/**
 *.lock
+# A flake without a committed lock is not pinned: Nix re-resolves nixpkgs on
+# every command, so the stdenv that builds the Dagu package drifts.
+!flake.lock
 **.env
 **.agents/**
 **.hidden**
