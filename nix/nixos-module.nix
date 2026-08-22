@@ -130,13 +130,29 @@ let
     # `${...}` form reaches the shell as literal text and the append fails with
     # `no such file or directory: ${DEVMAN_PROJECT_DIR}/...`. The parameter does
     # reach the step's environment, which is why the plain form works.
+    #
+    # `${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}` — the fallback is §11's, and it
+    # is the reason `DEVMAN_SELF_DIR` is a global name rather than a convention.
+    # A cross-repo workflow must NOT hold `DEVMAN_PROJECT_DIR`: a parent exports
+    # its parameters into every child's environment and outranks the child's own
+    # `with.params`, so a parent holding that name drags every child into its
+    # directory. It therefore names its own directory `DEVMAN_SELF_DIR` — and
+    # without this fallback the handler expanded to `/.devman/.runs/...`, failed
+    # with `no such file or directory`, and took the whole run down with it. Both
+    # children had already succeeded (S10).
+    #
+    # The fallback works only because this is a shell script. Dagu itself does
+    # NOT support shell-style defaults: `working_dir:
+    # ${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}` is kept literal and treated as a
+    # relative path, which is why a cross-repo workflow still states its own
+    # `working_dir` and `log_dir` (S10).
     handler_on.exit = {
       name = "devman-record-run";
       run = ''
         printf '{"dag":"%s","run_id":"%s","attempt":"%s","status":"%s","started_at":"%s","log":"%s"}\n' \
           '${ctx "dag.name"}' '${ctx "run.id"}' '${ctx "attempt.id"}' \
           '${ctx "run.status"}' '${ctx "attempt.started_at"}' '${ctx "paths.log_file"}' \
-          >> "$DEVMAN_PROJECT_DIR/.devman/.runs/metadata.jsonl"
+          >> "''${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}/.devman/.runs/metadata.jsonl"
       '';
     };
   };

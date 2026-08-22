@@ -1,12 +1,15 @@
 # devman — Concept (the automation plane)
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
-> and D (2026-08-22). Amended twice during stage 1 and once during stage 2
+> and D (2026-08-22). Amended twice during stage 1 and twice during stage 2
 > (2026-08-22), each time because building the thing measured something the
 > investigations had not. §11's `doctor` check now distinguishes a workflow that
 > *holds* `DEVMAN_PROJECT_DIR` from one that *passes* it to a child, because the
 > rule as written reported the first real cross-repo workflow as broken
-> (`STAGE_2_LOG.md`, S8).
+> (`STAGE_2_LOG.md`, S8). And §7.1's closed list is **four** names rather than
+> three: running that workflow made its exit handler fail and fail the whole
+> run, so `DEVMAN_SELF_DIR` had to become a name the machine states rather than
+> one each workflow picks (S12, changing §7.1, §9.2 and §11).
 > §9.2 gains the `dags/` directory, because a DAG is keyed by its file's base
 > name and the layout as written made two projects' `check` invisible
 > (`STAGE_1_LOG.md`, S1). And every task name gains its group as a namespace,
@@ -53,11 +56,13 @@ Three things, and the list is closed:
    one version (§3).
 2. **A project registry** of repositories that opted into automation, keyed by
    identity, resolving to paths (§5).
-3. **A contract** — three names, and nothing else (§7).
+3. **A contract** — four names, and nothing else (§7).
 
-Item 3 is deliberately thin. The plane needs a name it can resolve, a queue it
-can run in, and one variable naming where the work happens. That is the whole of
-what it understands, and the machine states all three once (§7.1).
+Item 3 is deliberately thin. The plane needs a queue it can run in, a path shape
+it can write to, and a variable naming where the work happens — plus a second
+variable for the one workflow that targets no project because it directs others
+(§11). That is the whole of what it understands, and the machine states all four
+once (§7.1).
 
 Default workflows are content, not contract — files in a group directory,
 shadowed by name (§7.2).
@@ -101,8 +106,8 @@ module from the repo's `devenv-nixpkgs/rolling`, the NixOS module from the
 machine — never from this flake's own `nixpkgs` input, which serves `packages`
 and `checks` only. That is what lets one flake serve two nixpkgs without either
 constraining the other. And **what the two interfaces share must be text**:
-queue names, `DEVMAN_PROJECT_DIR`, the `.devman/.runs/` path shape, and the
-registry schema. `nix/dagu.nix` is the single exception, and it costs two store
+queue names, `DEVMAN_PROJECT_DIR`, `DEVMAN_SELF_DIR`, the `.devman/.runs/` path
+shape, and the registry schema. `nix/dagu.nix` is the single exception, and it costs two store
 paths holding one identical binary. Any *other* shared package would pay the
 same duplication with no such guarantee — the machine and a repo differ by
 hundreds of attributes, and `sed`, `git`, `python3` and `bash` all differ in
@@ -416,14 +421,25 @@ nothing about what any repository's work should be.
 
 ### 7.1 What is global
 
-**Three names, and the list is closed.** The machine and every workflow must
+**Four names, and the list is closed.** The machine and every workflow must
 agree on exactly these:
 
 | What | Whose field | Where the machine states it, once |
 |---|---|---|
 | the queue names | Dagu's `queue:` | `config.yaml`, with each queue's limit |
 | the variable `DEVMAN_PROJECT_DIR` | a name, not a field | `base.yaml`; the trigger supplies the value |
+| the variable `DEVMAN_SELF_DIR` | a name, not a field | `base.yaml`'s exit handler, as a fallback (§11) |
 | the `.devman/.runs/` path shape | Dagu's `log_dir:` | `base.yaml` |
+
+**The fourth name was three until stage 2 ran a cross-repo workflow.** §11
+already required a workflow that triggers other workflows to name its own
+directory with "a second name", and never said which. That was survivable only
+while nobody wrote one: `base.yaml`'s exit handler writes to
+`$DEVMAN_PROJECT_DIR`, which such a workflow must not hold, so the handler
+expanded to `/.devman/.runs/…`, failed, and failed the whole run **after both
+children had succeeded**. A workflow picking its own second name would be
+silently unrecorded, because the machine's handler has to know the name. So the
+machine states it, once, like the other three (`STAGE_2_LOG.md`, S12).
 
 **Queue names.** The machine module creates Dagu queues and sets what each
 costs; a workflow names one. It is Dagu's own field, not a devman word for it.
@@ -435,7 +451,7 @@ light   normal   heavy   gpu   exclusive
 An earlier draft of this section claimed queue names were the *entire* shared
 vocabulary. They never were: §7.2's portable workflow also rests on one agreed
 variable name and one agreed path shape. What is true, and better, is that **the
-machine states all three in one file it writes**, rather than every workflow
+machine states all four in one file it writes**, rather than every workflow
 repeating them.
 
 **Everything else belongs to the repository** — task names, workflow names, what
@@ -775,6 +791,15 @@ also why a cross-repo run (§11) does not appear in each participating project's
 history — a child run is stored nested under its parent's record, not as an
 independent run of the child DAG.
 
+> **For a child run, the logs do not follow the project either.** Measured: a
+> step using `action: dag.run` leaves no log tree and no `metadata.jsonl` line
+> in the project it ran in; both land in the parent's. `log_dir` is resolved by
+> the process that enqueues, and for a child that process is the parent's — the
+> same rule that stops any HTTP surface from writing per-project logs (A3, E2,
+> `STAGE_2_LOG.md` S12). The sentence above therefore reads "everything a run
+> produces stays with the checkout that produced it", where *produced it* means
+> the checkout that owns the workflow, not the checkout the work happened in.
+
 **`hist_retention_days` in `base.yaml` prunes both halves — the machine-side
 history *and* the per-project log tree under `log_dir`.** The log half needs no
 separate owner. **`metadata.jsonl` survives every retention setting**, because
@@ -1013,8 +1038,27 @@ true, and without it every parent-child pair in this design collides silently:
 
 > **`DEVMAN_PROJECT_DIR` names the project a run targets, and is set only by
 > whatever triggers the run.** A workflow that triggers other workflows must not
-> hold that name itself. If it needs its own directory for local steps, it uses a
-> second name. A parent directs a child with `with.params`.
+> hold that name itself. It names its own directory **`DEVMAN_SELF_DIR`** — the
+> name is fixed, not free, because `base.yaml`'s exit handler falls back to it
+> (§7.1). A parent directs a child with `with.params`.
+
+Such a workflow also states its own `working_dir` and `log_dir`, because the
+inherited ones name `DEVMAN_PROJECT_DIR`. It cannot delegate that to a default:
+**Dagu does not support shell-style defaults.** `working_dir:
+${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}` is kept literal and resolved as a
+*relative path* — the same documentation gap that swallows `$(…)` and backticks
+(`STAGE_2_LOG.md`, S12). Only the handler gets a fallback, and only because a
+handler's `run:` is a shell script.
+
+**A child's work lands in the child's project; a child's run output does not.**
+A step using `action: dag.run` runs in the directory `with.params` gives it, and
+leaves nothing behind there — no log tree and no `metadata.jsonl` line. Both go
+to the parent's project, because `log_dir` is resolved by the process that
+enqueues and for a child that process is the parent's (A3, E2). §9.2 predicted
+this for run *history* and it is equally true of logs. One cross-repo run
+produces one set of output, in the repository that owns the workflow, which is
+defensible — but somebody debugging a failed stack validation will look in the
+wrong repository first unless this is said out loud.
 
 A parent exports its parameters into each child's environment, and that
 environment outranks the child's own `params:`, its `env:` block, and even an
@@ -1061,7 +1105,7 @@ is no `machine` group and no machine-side run store.
 `working_dir` does not interpolate, one group file cannot
 serve many repos and registration has to rewrite each projection — recoverable,
 but it makes the plane parse files it currently never touches. If queues are not
-named per DAG, the first of §7.1's three global names has nothing to bind to.
+named per DAG, the first of §7.1's four global names has nothing to bind to.
 
 *Measure:* write one DAG naming a queue with an interpolated `working_dir`, run it
 against two projects, and confirm its logs land under each project's
