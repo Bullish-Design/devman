@@ -1,9 +1,14 @@
 # devman — Concept (the automation plane)
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
-> and D (2026-08-22). Amended twice during stage 1, twice during stage 2 and
-> twice during stage 3 (2026-08-22), each time because building the thing
-> measured something the investigations had not. Stage 3's two: §8 now names
+> and D (2026-08-22). Amended twice during stage 1, twice during stage 2, twice
+> during stage 3 and twice during stage 4 (2026-08-22), each time because
+> building the thing measured something the investigations had not. **Stage 4's
+> two: §8's third trigger arrow is a user timer running `devman run` rather than
+> Dagu's own scheduler, because a scheduled run leaves both directory fields
+> literal and then fails on the machine's exit handler; and §9.2 now says that a
+> workflow defining its own `handler_on` silently stops recording its runs
+> (`STAGE_4_LOG.md`, S2 and S3).** Stage 3's two: §8 now names
 > **two** loops rather than one, because removing the watcher's ignore of
 > `.devman/.runs/` produced 107 dispatches and 60 runs from one save, and no
 > workflow-level mechanism can stop that (`STAGE_3_LOG.md`, S8); and criterion 13
@@ -633,14 +638,33 @@ opinion about what the work is.
 Dagu orchestrates. It does not detect.
 
 ```
-filesystem change → watchexec → devman run → dagu enqueue
-commit / push     → hook      → devman run → dagu enqueue
-schedule          → Dagu's own timer
+filesystem change → watchexec    → devman run → dagu enqueue
+commit / push     → hook         → devman run → dagu enqueue
+schedule          → a user timer → devman run → dagu enqueue
 ```
+
+**Every arrow reaches Dagu through `devman run`, and the third one did not used
+to.** It named Dagu's own timer, and that timer cannot trigger anything this
+plane projects: under `schedule:` the enqueueing process is the daemon, which
+has one environment for the whole machine and no parameter to fill, so
+`log_dir` **and** `working_dir` both stay literal. The measured result is a
+directory named `${DEVMAN_PROJECT_DIR}` in the daemon's own working directory —
+`$HOME` on this machine — the step running inside it, and `base.yaml`'s exit
+handler then failing and taking the run down. E2's table already recorded the
+schedule surface as carrying "defaults only" (`STAGE_4_LOG.md`, S2).
+
+So a schedule is **selection**, like a VCS hook, and it belongs to whoever wants
+it: a systemd user timer running `devman run <workflow> --project <name>`. devman
+supplies no option and no command for it, for the reasons S9 gives about hooks —
+a machine-side schedule option would make the machine hold a project name and a
+workflow name, which is the one thing §4 says it never learns. What the local
+trigger buys is every refusal in `devman run`: a schedule that cannot be
+resolved gets a non-zero exit and a message naming what is missing, instead of a
+successful run in a garbage directory.
 
 | Layer | Job |
 |---|---|
-| watchexec, hooks | detect that something happened |
+| watchexec, hooks, timers | detect that something happened |
 | `devman run` | resolve the project, export the variable, pass the parameter |
 | Dagu | decide and orchestrate what happens next |
 | devenv | execute the repo's tasks |
@@ -824,6 +848,16 @@ The machine puts a `handler_on.exit` block in `base.yaml`; it runs for every DAG
 on both the success and the failure path, and appends one record to the
 triggering project's `.runs/`. It is named `.jsonl` to keep it distinct from the
 registry's own `metadata.json` above, which holds identity and path.
+
+> **A workflow that defines its own `handler_on` takes the writer away.**
+> `base.yaml` is inherited whole-field, so such a DAG replaces the machine's
+> handler and its runs are never recorded. Measured: the run succeeds, the logs
+> land in the right project, `dagu status` is clean, and `metadata.jsonl` gains
+> no line (`STAGE_4_LOG.md`, S3). That is §7.3's whole-file shadowing arriving
+> one level below a group, in the machine's own defaults. **No workflow should
+> define `handler_on`**, and one that must has to re-state the machine's
+> `printf` as well — a promise no repository can keep across a change to the
+> module.
 
 **Dagu's run history stays machine-side**, under `DAGU_HOME/data/`, and no
 per-DAG field relocates it. Logs follow the project; history does not. That is
