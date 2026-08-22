@@ -463,21 +463,28 @@ in
         RestartSec = 5;
       };
 
-      # A machine whose registry declares no triggers has nothing to watch, and
-      # `devman watch` says so and exits 0. `Restart=on-failure` leaves that
-      # alone; an unconditional restart would spin.
+      # A machine whose registry declares no triggers has nothing to watch. The
+      # service still stays up: `devman watch` is a supervisor and it is waiting
+      # for the first repository to adopt a reactive group. It costs one wake-up
+      # every five seconds and 0.44 ms of work in it (S16).
       startLimitIntervalSec = 60;
       startLimitBurst = 5;
 
-      # THE LIMIT, STATED RATHER THAN HIDDEN. The set of watched PATHS is read
-      # from the registry when the service starts, because that is what
-      # watchexec is given on its command line. The MAPPING is re-read on every
-      # event, so changing which glob fires which workflow is live.
+      # THE SET OF WATCHED PATHS IS WATCHEXEC'S COMMAND LINE, so it is fixed
+      # when watchexec starts. The MAPPING is re-read on every event, so
+      # changing which glob fires which workflow is live either way.
       #
-      # So a repository that adopts reactivity — or a new project altogether —
-      # is watched after `systemctl --user restart devman-watch`, not before.
-      # `devman doctor` compares the running watcher's own record of what it
-      # watches against the registry and says so.
+      # `devman watch` closes the gap itself: it re-reads the registry every
+      # five seconds and replaces its watchexec child when the path set changes.
+      # A repository that adopts reactivity is therefore watched without anybody
+      # restarting anything, and `devman doctor` still compares the running
+      # watcher's own record against the registry (S16).
+      #
+      # THE UNIT MUST NOT RESTART ITSELF, and that is why the supervisor
+      # replaces a child instead. `systemctl --user restart devman-watch` issued
+      # from inside this unit does not return — systemd stops the unit, killing
+      # the process that asked — and it produced 15 restarts in 30 seconds with
+      # `NRestarts=0`, so `startLimitBurst` above would not stop it (S16).
       #
       # `restartTriggers` covers a devman upgrade. It cannot cover the registry:
       # that changes at shell entry, which no activation sees.

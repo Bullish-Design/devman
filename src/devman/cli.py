@@ -98,6 +98,13 @@ def parser() -> argparse.ArgumentParser:
         metavar="ARG",
         help="pass one more argument to watchexec",
     )
+    p_watch.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=watch.POLL_SECONDS,
+        metavar="SECONDS",
+        help="how often to re-read the registry for a changed watch set (§8, S16)",
+    )
 
     return ap
 

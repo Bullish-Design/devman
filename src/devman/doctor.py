@@ -42,6 +42,7 @@ from pathlib import Path
 
 import yaml
 
+from . import watch
 from .registry import Registry
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
@@ -461,11 +462,23 @@ def check_watcher(rep: Report, reg: Registry) -> None:
         )
         return
     lines.append(f"running since {state.get('started_at', '?')}, pid {pid}")
+    # Two stamps, because the supervisor outlives its watchexec child. A watch
+    # set younger than the process is the supervisor having picked up a new
+    # project by itself, which is the thing it exists to do (S16).
+    since = state.get("watching_since")
+    if since and since != state.get("started_at"):
+        lines.append(f"watching this set since {since}")
 
-    # The watched PATHS are fixed when the service starts, because that is what
-    # watchexec is given on its command line; the MAPPING is re-read per event.
-    # So a project that adopted reactivity after the watcher started is not
-    # watched, and nothing else would ever say so.
+    # The watched PATHS are fixed when watchexec starts, because that is what it
+    # is given on its command line. `devman watch` is therefore a supervisor: it
+    # re-reads the registry every `POLL_SECONDS` and replaces its watchexec child
+    # when the path set changes (S16). So this is no longer the normal state of a
+    # machine that gained a project — it is either the few seconds before the
+    # next poll, or a supervisor that is wedged.
+    #
+    # The check stays, and it stays "!!", because the state file is written AFTER
+    # the child starts. A discrepancy that survives one poll means saves in those
+    # repositories are going nowhere, and nothing else would ever say so.
     running = {w.get("project") for w in state.get("watching", [])}
     current = {e.project for e in watching}
     if running != current:
@@ -474,9 +487,11 @@ def check_watcher(rep: Report, reg: Registry) -> None:
             "!!",
             lines
             + [
-                f"it started with {sorted(running) or 'nothing'} and the registry now"
+                f"it is watching {sorted(running) or 'nothing'} and the registry now"
                 f" says {sorted(current) or 'nothing'}",
-                "restart it: systemctl --user restart devman-watch",
+                f"the supervisor re-reads the registry every"
+                f" {watch.POLL_SECONDS:.0f}s — run doctor again",
+                "if it persists: systemctl --user restart devman-watch",
             ],
         )
         return

@@ -184,14 +184,51 @@
     with subtest("the watcher is a second user service, and it watches nothing yet"):
         unit = tester("systemctl --user cat devman-watch")
         assert "devman watch" in unit
-        # No project declares triggers, so the service starts, says so, and
-        # exits 0. `Restart=on-failure` leaves it alone rather than spinning.
+        # No project declares triggers, so the supervisor says so and waits. It
+        # stays active: the registry is what it is waiting for.
         tester("systemctl --user start devman-watch || true")
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}journalctl --user -u devman-watch | grep -q \"Nothing to watch\"'",
+            f"su tester -c '{ENV}journalctl --user -u devman-watch | grep -q \"Nothing to watch yet\"'",
             timeout=60,
         )
-        state = tester("systemctl --user show devman-watch -p Result")
-        assert "Result=success" in state, state
+        tester("systemctl --user is-active devman-watch")
+
+    with subtest("the watcher picks up a new reactive project without a restart (S16)"):
+        # The supervisor re-reads the registry every five seconds. Nothing below
+        # restarts the unit, and the assertion at the end is that it did not.
+        before = tester("systemctl --user show devman-watch -p NRestarts -p ExecMainStartTimestamp")
+        reactive = json.dumps({
+            "schema": 3, "project": "demo", "path": PROJ,
+            "groups": ["base"], "plan": "", "local": ["probe"],
+            "workflows": {"probe": {"group": "base", "shadows": [], "source": ""}},
+            "triggers": {"group": "base", "map": {"**/*.py": "probe"}},
+        })
+        machine.succeed(f"echo '{reactive}' > {REG}/projects/demo/metadata.json")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"demo\\\"\" {REG}/watch/state.json'",
+            timeout=60,
+        )
+        after = tester("systemctl --user show devman-watch -p NRestarts -p ExecMainStartTimestamp")
+        assert before == after, f"the unit restarted: {before} -> {after}"
+        watching = json.loads(tester(f"cat {REG}/watch/state.json"))
+        assert "--watch" in watching["command"], watching["command"]
+        assert PROJ in watching["command"], watching["command"]
+
+    with subtest("a save in that project fires the workflow, with nothing restarted"):
+        tester(f"touch {PROJ}/hello.py")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test -f {REG}/watch/fired.jsonl'", timeout=90
+        )
+        fired = json.loads(tester(f"tail -1 {REG}/watch/fired.jsonl"))
+        print(fired)
+        assert fired["project"] == "demo" and fired["workflow"] == "probe"
+        assert fired["outcome"] == "enqueued", fired
+
+    with subtest("doctor still tells a dead watcher from a watching one"):
+        report = tester("devman doctor || true")
+        assert "ok  watcher" in report, report
+        tester("systemctl --user stop devman-watch")
+        report = tester("devman doctor || true")
+        assert "it is NOT running" in report, report
   '';
 }

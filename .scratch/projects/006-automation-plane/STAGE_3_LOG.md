@@ -1092,3 +1092,175 @@ than the argument. `builtins.fromTOML` runs at evaluation time and the guard in
 **Cleanup:** both throwaway repositories and the copied source tree removed,
 `devman doctor --prune` run, registry back to six projects.
 
+---
+
+## S16 — The watcher picks up a new project by itself, and it must not restart its own unit
+
+**Answer:** option 2, implemented. `devman watch` is now a **supervisor** around
+watchexec: it re-reads the registry every five seconds and replaces its
+watchexec child when the set of watched paths changes. A repository that adopts
+a reactive group is watched about five seconds later, with nothing restarted.
+Proved by running it: a save in a project registered *after* the watcher started
+enqueued a run that succeeded.
+
+**Why not option 1** — leave it and let `doctor` say so. §5.2 already establishes
+that registration cannot report, so the developer's first contact with the plane
+is a quiet shell entry. Adding "and now go and restart a service you were not
+told about" to that is the same failure twice. The gap also has no floor: a
+machine whose registry declares no triggers at all ran `devman watch` to
+completion and exited 0, so the *first* repository to adopt reactivity needed a
+manual start, not merely a restart.
+
+**Why not the obvious implementation, and this is the part that had to be
+tested.** `systemctl --user restart devman-watch` issued from inside the unit's
+own process **does not return**. systemd stops the unit, which kills the process
+that asked, so every line after the call is dead code.
+
+**Command — a transient unit whose only job is to restart itself:**
+
+```bash
+systemd-run --user --unit=s16-selfrestart --collect -p Type=simple \
+  /tmp/s16-selfrestart.sh     # started; sleep 2; restart itself; echo RETURNED
+```
+
+**Evidence:**
+
+```
+16:19:44 s16-selfrestart.sh[1275407]: issuing restart of my own unit at 16:19:44
+16:19:44 systemd[1034]: Stopping [systemd-run] /tmp/s16-selfrestart.sh...
+16:19:44 systemd[1034]: Started  [systemd-run] /tmp/s16-selfrestart.sh.
+16:19:44 s16-selfrestart.sh[1275859]: started pid 1275859 at 16:19:44
+16:19:46 s16-selfrestart.sh[1275859]: issuing restart of my own unit at 16:19:46
+   … 15 restarts in 30 seconds, every 2 seconds, until stopped by hand …
+
+$ journalctl --user -u s16-selfrestart | grep -c "RETURNED"
+0
+$ systemctl --user show s16-selfrestart -p ActiveState -p Result -p NRestarts
+ActiveState=active
+Result=success
+NRestarts=0
+```
+
+Two facts in that block, and the second is worse than the first. **`RETURNED`
+appears zero times in fifteen restarts**, so a supervisor written that way can
+run no code after the call. And **`NRestarts=0`** — systemd does not count a
+restart it was asked for, so `startLimitBurst = 5` does not stop the loop, and
+`ActiveState=active` with `Result=success` is what every monitor would see. That
+is the silent-success failure `STAGE_3_PROMPT.md` §8 warns about, arriving in
+the supervisor rather than in the watcher.
+
+**So the supervisor replaces its own child and never touches its unit.**
+
+**What changed, in three files:**
+
+| File | Change |
+|---|---|
+| `src/devman/watch.py` | `supervise()` replaces `subprocess.run(argv)`. It polls `watch_map`, restarts watchexec on a changed **path** set, and rewrites the state file after the child is up |
+| `src/devman/doctor.py` | the discrepancy check stays and stays `!!`; its advice now says the supervisor re-reads every five seconds. A second stamp, `watching_since`, separates "this process started" from "this watch set started" |
+| `nix/nixos-module.nix` | the comment that stated the limit now states the mechanism, and why the unit must not restart itself |
+
+**Only a changed path set restarts watchexec.** A changed glob does not: the
+dispatcher calls `watch_map` again for every batch, so the mapping was already
+live. The state file is rewritten whenever anything visible changes, so `doctor`
+never prints a stale glob.
+
+**Command — the proof, end to end, with the built CLI and the installed service
+stopped:**
+
+```bash
+systemctl --user stop devman-watch
+/nix/store/…-devman-0.3.0/bin/devman watch &      # supervisor, real registry
+cd /tmp/s16-fmt && devenv shell -- true           # a NEW reactive project
+printf 'z = 3\n' >> /tmp/s16-fmt/hello.py         # a save, nothing restarted
+```
+
+**Evidence — one supervisor, three watch sets, no restart:**
+
+```
+16:25:17  supervisor starts, pid 1312222
+          watching ['devman', 's16-fmt']   started_at 16:25:17.981  watching_since 16:25:17.982
+
+16:25:26  devman doctor --prune, after the project directory was moved away
+          !!  stale entries   s16-fmt -> /tmp/s16-fmt (gone) — pruned, 9 links removed
+          !!  watcher         it is watching ['devman', 's16-fmt'] and the registry now says ['devman']
+
+16:25:33  watching ['devman']               watching_since 16:25:33.003   pid 1312222 unchanged
+          child watchexec 1313067, --watch <devman> only
+
+16:25:43  cd /tmp/s16-fmt && devenv shell -- true       (re-registers, schema 3)
+16:25:48  watching ['devman', 's16-fmt']   watching_since 16:25:48.026   pid 1312222 unchanged
+
+16:25:50  printf 'z = 3\n' >> /tmp/s16-fmt/hello.py
+16:25:51  {"at":"…16:25:51.400","project":"s16-fmt","workflow":"format",
+           "path":"/tmp/s16-fmt/hello.py","outcome":"enqueued"}
+16:25:53  dagu's own history, ~/.local/share/dagu/data/dag-runs/s16-fmt-format:
+           two runs started 16:25:53, both status 4 (succeeded)
+```
+
+The two runs are S6's counted behaviour, not a new fault: one save produces two
+watchexec batches, and the second run's content-hash precondition skips the work.
+An earlier cycle of the same test, against the first build, wrote
+`{"dag":"s16-fmt-format","status":"succeeded", …}` into
+`/tmp/s16-fmt/.devman/.runs/metadata.jsonl`, so the run landed in the project
+that triggered it.
+
+**Both directions, five seconds each, one process throughout.** The `!!` at
+16:25:26 is `doctor` catching the seven seconds before the next poll, which is
+the check still working rather than a fault.
+
+**The empty case now waits instead of exiting**, which is what makes the *first*
+adoption work:
+
+```
+$ devman watch --registry /tmp/s16-empty --poll-seconds 2
+devman watch: no registered project takes a group that declares triggers.
+  Nothing to watch yet. …
+  Staying up and re-reading the registry every 2s, so a repository
+  that adopts a reactive group is watched without a restart.
+16:27:02  (an entry with triggers is written into that registry)
+devman watch: late ['**/*.py'] -> format [python-format]
+```
+
+**`doctor` still tells a dead watcher from a watching one**, which was the
+constraint on the whole change. The state file is written *after* the child
+starts, so a wedged supervisor still reports as a discrepancy:
+
+```
+$ kill <supervisor>; devman doctor
+!!  watcher   devman: **/*.py -> format  [python-format]
+              s16-fmt: **/*.py -> format  [python-format]
+              it is NOT running — the last one started 2026-08-22T16:25:17.981-04:00
+                as pid 1312222 and is gone
+              nothing is watching these repositories: systemctl --user start devman-watch
+```
+
+**What it costs, stated plainly:**
+
+1. **One wake-up every five seconds, forever.** The work in it is
+   `watch_map` — one `readdir` plus one small `metadata.json` per registered
+   project — **measured at 0.440 ms for six projects on a machine at load
+   average 11**, which is 0.009% of one core. It reads devman's own registry and
+   never the disk at large, so §15.1's ban on scanning is untouched.
+2. **Up to five seconds of delay** between `devenv shell` and the first save
+   firing. A developer who has just entered a shell is not saving inside the same
+   five seconds.
+3. **A watchexec restart drops the batch in flight.** Watchexec gets SIGTERM and
+   five seconds, then SIGKILL. A dispatch is an enqueue and takes well under
+   that, and the registry only changes at shell entry, so the two coincide rarely.
+4. **The service now stays up on a machine with nothing to watch.** The unit is
+   no longer `Result=success, inactive` there; it is active and waiting. That is
+   a behaviour change in `nix/tests/dagu-service.nix`, and the test now asserts
+   the new one — plus a project appearing, a save firing, and `NRestarts`
+   unchanged across both.
+5. **It is a poll, not an inotify watch.** An inotify watch on
+   `<registry>/projects/` would save 0.44 ms every five seconds and cost a second
+   event source to get wrong.
+
+**Charter impact:** **none.** §8 says the watcher is plane machinery that reads
+the registry; this is that process reading it more than once. The registry still
+changes only at shell entry, and nothing here scans for repositories.
+
+**Cleanup:** the throwaway project removed, `devman doctor --prune` run, registry
+back to six projects, `systemctl --user restart devman-watch` issued. The
+installed service runs the machine's own generation, so it does not carry this
+change until the user rebuilds.

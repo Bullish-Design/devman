@@ -27,6 +27,14 @@ holds no list of its own.
     not a window (§8, E1).
 
 The plane owns neither mechanism. Both are Dagu's and watchexec's own.
+
+**`devman watch` is a supervisor around watchexec, not watchexec itself.** The
+set of watched PATHS is watchexec's command line, so it is fixed when watchexec
+starts; the MAPPING is re-read per event by the dispatcher below. A repository
+that adopts reactivity after the watcher started would therefore go unwatched
+until somebody restarted the service. The supervisor closes that gap: it
+re-derives the watch set from the registry every `POLL_SECONDS` and replaces its
+watchexec child when the path set changes. See `STAGE_3_LOG.md`, S16.
 """
 
 from __future__ import annotations
@@ -37,6 +45,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
@@ -67,6 +76,35 @@ DEFAULT_IGNORES = (
     "**/__pycache__/**",
     "**/node_modules/**",
 )
+
+# How often the supervisor re-derives the watch set from the registry.
+#
+# It is a poll rather than an inotify watch on `<registry>/projects/`, and the
+# reason is that the answer costs almost nothing: one `readdir` plus one small
+# `metadata.json` per registered project, measured at 0.44 ms for six projects
+# on a loaded machine (S16). At five seconds that is 0.009% of one core. An
+# inotify watch would save that and cost a second event source to get wrong.
+#
+# It reads devman's own registry and never the disk at large, so §15.1's ban on
+# scanning for repositories is untouched.
+#
+# Five seconds is the delay between a repository entering its shell for the
+# first time and its saves firing. A developer who has just run `devenv shell`
+# is not saving inside the same five seconds.
+POLL_SECONDS = 5.0
+
+# How long a watchexec child gets to leave after SIGTERM, before SIGKILL.
+STOP_GRACE = 5.0
+
+
+def nothing_to_watch(poll: float) -> str:
+    return (
+        "devman watch: no registered project takes a group that declares triggers.\n"
+        "  Nothing to watch yet. This is not an error — reactivity is opt-in, by\n"
+        "  taking a group whose triggers.toml names the globs (§8).\n"
+        f"  Staying up and re-reading the registry every {poll:g}s, so a repository\n"
+        "  that adopts a reactive group is watched without a restart."
+    )
 
 
 def _now() -> str:
@@ -111,14 +149,26 @@ class WatchState:
         self.dir = reg.root / WATCH_DIR
         self.state = self.dir / "state.json"
         self.fired = self.dir / "fired.jsonl"
+        # When THIS process began. The supervisor rewrites the state file every
+        # time the watch set changes, so a single `started_at` would report the
+        # last pickup as the watcher's start and hide an old process (S16).
+        self.started_at = _now()
 
     def start(self, entries: list[WatchEntry], argv: list[str]) -> None:
+        """Record what watchexec is watching RIGHT NOW.
+
+        The supervisor writes this after it has started the child, never before,
+        so `doctor` reads the watch set that exists rather than the one being
+        built. A supervisor wedged between the two therefore still shows up as a
+        discrepancy, which is the check §10 wants to keep (S16).
+        """
         self.dir.mkdir(parents=True, exist_ok=True)
         self.state.write_text(
             json.dumps(
                 {
                     "pid": os.getpid(),
-                    "started_at": _now(),
+                    "started_at": self.started_at,
+                    "watching_since": _now(),
                     "watching": [
                         {
                             "project": e.project,
@@ -244,34 +294,115 @@ def dispatch_command(reg: Registry, dagu_home: str) -> list[str]:
     ]
 
 
-def main(args, reg: Registry) -> int:
-    if args.dispatch:
-        return dispatch(args, reg)
-
-    entries = watch_map(reg)
-    if not entries:
-        print(
-            "devman watch: no registered project takes a group that declares triggers.\n"
-            "  Nothing to watch. This is not an error — reactivity is opt-in, by\n"
-            "  taking a group whose triggers.toml names the globs (§8).",
-            file=sys.stderr,
-        )
-        # Exit 0 and stop. A user service that fails here would restart forever.
-        return 0
-
-    argv = watchexec_command(reg, entries, args.watchexec_arg, args.dagu_home)
-    state = WatchState(reg)
-    state.start(entries, argv)
+def announce(entries: list[WatchEntry]) -> None:
     for entry in entries:
         print(
             f"devman watch: {entry.project} {entry.globs} -> {entry.workflow}"
             f" [{entry.group}]",
             file=sys.stderr,
         )
+
+
+def watch_paths(entries: list[WatchEntry]) -> tuple[str, ...]:
+    """The part of the watch set that is watchexec's command line.
+
+    Only these force a new child. A changed glob does not: the dispatcher calls
+    `watch_map` again for every batch, so which glob fires which workflow is
+    already live.
+    """
+    return tuple(sorted({str(e.path) for e in entries}))
+
+
+def watch_shape(entries: list[WatchEntry]) -> list[tuple]:
+    """Everything the state file reports, so `doctor` never shows a stale glob."""
+    return [
+        (e.project, str(e.path), tuple(e.globs), e.workflow, e.group) for e in entries
+    ]
+
+
+def stop_child(child: subprocess.Popen) -> None:
+    """SIGTERM, then SIGKILL. watchexec kills its own command group on SIGTERM."""
+    child.terminate()
+    try:
+        child.wait(timeout=STOP_GRACE)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.wait()
+
+
+def supervise(args, reg: Registry) -> int:
+    """Run watchexec, and keep its watch set equal to the registry's.
+
+    THE OBVIOUS IMPLEMENTATION IS THE WRONG ONE. `systemctl --user restart
+    devman-watch` issued from inside the unit does not return: systemd stops the
+    unit, which kills the process that asked, so every line after the call is
+    dead code. Measured — 15 restarts in 30 seconds, not one of them reaching
+    the next line, and `NRestarts=0` throughout, so `startLimitBurst` does not
+    stop the loop either (S16). The supervisor therefore replaces its own child
+    and never touches its unit.
+
+    Exiting when watchexec exits is deliberate: `Restart=on-failure` then does
+    its ordinary job, and a watchexec that died stays visible.
+    """
+    state = WatchState(reg)
+    child: subprocess.Popen | None = None
+    paths: tuple[str, ...] | None = None
+    shape: list[tuple] | None = None
+    argv: list[str] = []
+    try:
+        while True:
+            entries = watch_map(reg)
+            if watch_paths(entries) != paths:
+                if child is not None:
+                    stop_child(child)
+                    child = None
+                paths = watch_paths(entries)
+                if entries:
+                    announce(entries)
+                    argv = watchexec_command(
+                        reg, entries, args.watchexec_arg, args.dagu_home
+                    )
+                    child = subprocess.Popen(argv)
+                else:
+                    argv = []
+                    print(nothing_to_watch(args.poll_seconds), file=sys.stderr)
+                shape = None
+            if watch_shape(entries) != shape:
+                shape = watch_shape(entries)
+                state.start(entries, argv)
+
+            if child is None:
+                time.sleep(args.poll_seconds)
+                continue
+            try:
+                return child.wait(timeout=args.poll_seconds)
+            except subprocess.TimeoutExpired:
+                continue
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        if child is not None:
+            stop_child(child)
+
+
+def main(args, reg: Registry) -> int:
+    if args.dispatch:
+        return dispatch(args, reg)
+
     if args.print_only:
-        print(" ".join(argv))
+        entries = watch_map(reg)
+        if not entries:
+            print(nothing_to_watch(args.poll_seconds), file=sys.stderr)
+            return 0
+        announce(entries)
+        print(
+            " ".join(
+                watchexec_command(reg, entries, args.watchexec_arg, args.dagu_home)
+            )
+        )
         return 0
-    return subprocess.run(argv, check=False).returncode
+
+    return supervise(args, reg)
 
 
 # ---------------------------------------------------------------------------
