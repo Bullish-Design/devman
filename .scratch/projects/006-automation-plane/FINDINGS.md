@@ -2939,3 +2939,104 @@ Two entries in that table touch the charter and are **not** followed up here, as
 - **`actions:`** is Dagu's own mechanism for a shared vocabulary that is more than
   a queue name. §7.1 argues the vocabulary should stay at queue names; `actions:`
   is what a future argument for more would use.
+
+---
+
+## Summary — Investigation E, every `deletes §N` and `changes §N`
+
+Investigation E **deletes one section** and changes four. Nothing is killed.
+This extends Investigation A's summary above; the two lists together are the
+whole reconciliation input.
+
+| ID | Question | Bucket | Charter impact |
+|---|---|---|---|
+| E1 | does Dagu break the write-loop? | **replaces** | **deletes §8.1** |
+| E2 | what invokes Dagu? | answers | **changes §8**, closes D7 |
+| E3 | whose job are secrets? | **replaces** (half) | **changes §9.4** |
+| E4 | how much can the machine set once? | **replaces** | **changes §7.2**, shortens §7.1 |
+| E5 | can Dagu diagnose a wedged plane? | answers | **changes §10**, satisfies §15.3 |
+| E6 | could `git_sync` replace the projection? | answers | none |
+| E7 | does Dagu have a registry concept? | answers | **changes §5.2** |
+| E8 | a cleaner per-project mechanism? | answers | none — A6's dual mechanism stands |
+
+### The one deletion
+
+- **deletes §8.1** — "Loop-breaking is plane infrastructure" describes a token
+  Dagu already keeps. `type: build` reuse leaves an unchanged output byte- and
+  mtime-identical, so a watcher sees no event and no token is needed at all; a
+  step-level `preconditions` hash check covers the in-place case §8.1 actually
+  describes, works from one shared group file with a per-project parameter, and
+  keeps the property §8.1 chose hashes for — **your own edit still fires**. Drop
+  `generation.json` from §8.1 and from §9.2's `.devman/.runs/` layout. Keep one
+  paragraph of authoring guidance in the group that needs it. Costs: the skip
+  happens after enqueue rather than before, `type: build` cannot rewrite a file
+  in place, and Dagu's manifest is machine-side.
+
+### The changes
+
+- **changes §8** — name the mechanism §8 leaves open. **A trigger is a local
+  process that runs `dagu enqueue`**, exporting `DEVMAN_PROJECT_DIR` and passing
+  it as a parameter. Dagu's HTTP, webhook, and MCP surfaces are real, accept
+  parameters, and are queue-governed, but all three resolve `log_dir` in the
+  server process, so a run they start cannot write its logs into the project.
+  Triggers are plane machinery, not group content. This closes **D7**.
+
+- **changes §7.2, shortens §7.1** — `working_dir`, `log_dir`, `queue`, `env`,
+  retention, `secrets`, and step `defaults` all inherit from `base.yaml`, with
+  both interpolations keeping the sources A3 measured. A group workflow can be
+  `steps:` and nothing else. §7.1's "queue names are the entire shared
+  vocabulary" is already false — the true list is queue names, the variable name
+  `DEVMAN_PROJECT_DIR`, and the `.devman/.runs/` path shape — and E4's
+  contribution is that the machine can state all three once instead of every
+  workflow repeating them. A default queue in `base.yaml` also removes A1's
+  silent-typo hazard for every workflow that names none.
+
+- **changes §9.4** — Dagu resolves secrets itself. A DAG-level `secrets:` block
+  names a provider and a key; Dagu injects the value, **masks it in logs**, and
+  **fails the run with a named error when it is missing**. Neither is true of an
+  injected environment variable, so `secrets:` is better than §9.4's wording even
+  where the module still supplies the value. Keep `provider: env` — it stays
+  portable and keeps §9.4's injection path, shrunk to "set these variables on the
+  user service". `provider: file` deletes the injection path but writes a
+  machine-specific absolute path into a workflow, against §9.1 and §7.2.
+
+- **changes §10** — say what `devman doctor` **reads** rather than computes. A
+  wedged queue explains itself: `GET /queues/{name}/items` gives every waiting
+  item a reason (`MaxConcurrencyReached`) and a message, and `running[]` names
+  what holds the slot and since when. **This satisfies §15.3's one condition** for
+  the failure §15.3 names. Four things `doctor` must still compute itself: a DAG
+  that fails to load (`dagu ls` lists it silently — run `dagu validate` per file,
+  exit 1), a misspelled queue name (A1), an unresolved `${DEVMAN_PROJECT_DIR}`
+  (A3 — and `validate --show-unresolved` cannot help, because it sees only the
+  `${env.NAME}` spelling, which breaks `log_dir`), and shadowed-file drift
+  (§15.6).
+
+- **changes §5.2** — one sentence beyond A5's. **Changing the instance config
+  requires restarting the Dagu service.** Until it is restarted the CLI honours
+  the new config and the server does not, and the server reports an error naming
+  the setting that is already present. A machine module that writes `config.yaml`
+  must restart the service in the same activation. A new *DAG file* still needs no
+  restart (A5).
+
+### Documentation that is wrong — two more, on top of A's three
+
+Investigation A recorded three places where the schema or `base.yaml` disagrees
+with the binary. E adds two:
+
+4. **`dagu validate` passes a `type: build` DAG the runtime rejects.** A step
+   declaring one path as both input and output validates clean and fails at run
+   time (E1).
+5. **`working_dir` performs no command substitution.** A2 recorded the schema's
+   claim that interpolation accepts "shell-style expressions and command
+   substitution"; `$(...)` and backticks are both kept literal in `working_dir`,
+   and Dagu creates the resulting directory (E2).
+
+And one asymmetry that is not documented anywhere: **`log_dir` understands only
+the bare `${NAME}` form**, while `working_dir` accepts `${env.NAME}` as well
+(E5).
+
+### What Investigation E did not do
+
+Investigations B, C, and D were not started. Tier 3 was catalogued and not
+spiked. Nothing in `CONCEPT.md` was edited — every impact above is recorded for
+the single reconciliation pass, as §5 of the kickoff requires.
