@@ -1,6 +1,12 @@
 # devman — Concept (the automation plane)
 
-> **STATUS: PROPOSED (2026-08-21).**
+> **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A and E
+> (2026-08-22).**
+>
+> Every edit made by that reconciliation rests on a measurement recorded in
+> `FINDINGS.md`. One section was deleted outright: §8.1, because Dagu already
+> does what it described. Investigations B, C, and D1–D6 are still open; D7 is
+> answered, in §8.
 >
 > `001`–`005` were earlier attempts to define devman. They are superseded and
 > carry no authority here. Nothing in this charter depends on them.
@@ -28,10 +34,11 @@ Three things, and the list is closed:
    one version (§3).
 2. **A project registry** of repositories that opted into automation, keyed by
    identity, resolving to paths (§5).
-3. **A contract** — a queue name, and nothing else (§7).
+3. **A contract** — three names, and nothing else (§7).
 
-Item 3 is deliberately thin. The plane needs a name it can resolve and a queue
-it can run in. That is the whole of what it understands.
+Item 3 is deliberately thin. The plane needs a name it can resolve, a queue it
+can run in, and one variable naming where the work happens. That is the whole of
+what it understands, and the machine states all three once (§7.1).
 
 Default workflows are content, not contract — files in a group directory,
 shadowed by name (§7.2).
@@ -102,7 +109,22 @@ inputs.devman.url = "git+https://github.com/Bullish-Design/devman?ref=main&rev=<
 imports = [ inputs.devman.nixosModules.default ];
 ```
 
-One Dagu instance per machine or user.
+**One Dagu instance per user, as a systemd user service.** Every workflow step
+runs a developer's own `devenv` in a developer's own checkout, so the service
+needs that developer's `$HOME`, Nix profile, `~/.cache`, git credentials, and SSH
+agent. A system service needs all of that plumbed explicitly; a user service has
+it already, and it puts `DAGU_HOME` at `~/.local/share/dagu`, beside §9.2's
+registry rather than in `/var/lib`. The module writes
+`systemd.user.services.dagu`.
+
+**One instance, not one per project**, and queues are the reason. A queue's
+concurrency limit is per instance, so ten project daemons each holding
+`exclusive: max_concurrency 1` would give ten concurrent "exclusive" runs, and
+success criterion 12 could not hold. Per-project instances would also need four
+ports allocated each, and would not remove anything from §7.2.
+
+nixpkgs packages no Dagu at any version, so the plane carries its own package
+expression, and both interfaces call the same file.
 
 | Owns | Never knows |
 |---|---|
@@ -162,6 +184,20 @@ The common case costs nothing. The cost is that a repo joins the registry only
 after you enter its shell once, and that is the only way in — there is no manual
 register command and no hand-written entry. A repo you have never entered is not
 set up anyway.
+
+**Adding a workflow needs no restart. Changing Dagu's config does.** A new file
+in the DAG directory is picked up by the already-running service, so registration
+can project a repo's workflows and have them runnable immediately. But the
+instance `config.yaml` is read only at startup, and until the service restarts
+the CLI honours the new config while the server does not — reporting an error
+that names the very setting you already added. **A machine module that rewrites
+`config.yaml` must restart the service in the same activation.**
+
+That module must also set `dag_discovery.recursive: true` and
+`dag_discovery.symlinks: true`. Both default to off, and §9.2's per-project
+projection directories need both. Neither failure announces itself: an
+undiscovered workflow is simply absent from `dagu ls`, from the web UI, and from
+the scheduler, while remaining runnable by name.
 
 ---
 
@@ -223,13 +259,27 @@ nothing about what any repository's work should be.
 
 ### 7.1 What is global
 
+**Three names, and the list is closed.** The machine and every workflow must
+agree on exactly these:
+
+| What | Whose field | Where the machine states it, once |
+|---|---|---|
+| the queue names | Dagu's `queue:` | `config.yaml`, with each queue's limit |
+| the variable `DEVMAN_PROJECT_DIR` | a name, not a field | `base.yaml`; the trigger supplies the value |
+| the `.devman/.runs/` path shape | Dagu's `log_dir:` | `base.yaml` |
+
 **Queue names.** The machine module creates Dagu queues and sets what each
-costs; a workflow names one. That is the entire shared vocabulary, and it is
-Dagu's own field, not a devman word for it.
+costs; a workflow names one. It is Dagu's own field, not a devman word for it.
 
 ```
 light   normal   heavy   gpu   exclusive
 ```
+
+An earlier draft of this section claimed queue names were the *entire* shared
+vocabulary. They never were: §7.2's portable workflow also rests on one agreed
+variable name and one agreed path shape. What is true, and better, is that **the
+machine states all three in one file it writes**, rather than every workflow
+repeating them.
 
 **Everything else belongs to the repository** — task names, workflow names, what
 a workflow does, how long it takes, and every line of the file, which is Dagu's
@@ -277,7 +327,6 @@ file.** A workflow is Dagu configuration from the first line to the last:
 ```yaml
 # groups/python/workflows/check.yaml
 queue: light
-workingDir: ${DEVMAN_PROJECT_DIR}
 steps:
   - name: lint
     run: devenv tasks run lint
@@ -285,9 +334,48 @@ steps:
     run: devenv tasks run typecheck
 ```
 
-`queue` is Dagu's. `workingDir` is Dagu's, and the variable is what keeps the
-file portable — the machine module sets `DEVMAN_PROJECT_DIR` per project from
-the registry, so one file serves every repo that takes the group (§9.1).
+`queue` is Dagu's, and it stays in the file because it is the one thing that
+genuinely varies from workflow to workflow. **`working_dir` and `log_dir` are
+deliberately absent.** They are identical in every workflow, so the machine
+writes them once into Dagu's `base.yaml`, which every DAG inherits:
+
+```yaml
+# base.yaml — written by the machine module, never by a repo
+working_dir: ${DEVMAN_PROJECT_DIR}
+log_dir: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs
+queue: light          # the default, so a workflow naming none is still governed
+```
+
+A DAG that sets either field overrides the inherited value, so nothing is lost.
+A workflow file that needs neither is `steps:` and a queue.
+
+Three things about that variable, each of which cost a measurement:
+
+1. **The key is `working_dir`, not `workingDir`.** Dagu's schema is snake_case
+   throughout and sets `additionalProperties: false`, so camelCase is not a
+   nuisance — it fails to load.
+2. **The value arrives as a trigger-time parameter**, not from the service
+   environment. One daemon serves every project (§4), so a variable in that
+   daemon's environment holds one value for the whole machine and can never be
+   per project.
+3. **`log_dir` reads a different source than `working_dir` does** — the
+   environment of the process that *enqueues*, not the parameter. So a trigger
+   must **export the variable and pass it as a parameter** (§8). One is not a
+   substitute for the other, and no arrangement of instances, profiles, or flags
+   removes the pair.
+
+The machine module must also set `env_passthrough_prefixes: [DEVMAN_]`. Dagu
+filters the process environment against an allowlist, and without that line a
+`DEVMAN_*` variable never reaches a DAG at all.
+
+**An unresolved variable is not an error.** Dagu creates a directory named
+literally `${DEVMAN_PROJECT_DIR}`, in whatever tree the daemon was started in,
+and carries on — which is why §10 makes `doctor` go looking for one.
+
+**§7.2's claim survives all of that**, and it is the claim that mattered: one
+group file, unedited, serves every repo that takes the group, and devman still
+never parses a workflow. The path arrives as a parameter, so nothing rewrites the
+file.
 
 **devman never parses a workflow.** It resolves which file wins (§7.3) and
 projects it. An earlier draft added an `x-devman` block carrying `kind` and
@@ -361,40 +449,51 @@ opinion about what the work is.
 Dagu orchestrates. It does not detect.
 
 ```
-filesystem change → watchexec → Dagu
-commit / push     → hook      → Dagu
+filesystem change → watchexec → devman run → dagu enqueue
+commit / push     → hook      → devman run → dagu enqueue
 schedule          → Dagu's own timer
 ```
 
 | Layer | Job |
 |---|---|
 | watchexec, hooks | detect that something happened |
+| `devman run` | resolve the project, export the variable, pass the parameter |
 | Dagu | decide and orchestrate what happens next |
 | devenv | execute the repo's tasks |
 
-### 8.1 Loop-breaking is plane infrastructure
+**The arrow into Dagu is a local `dagu enqueue`, and that is a decision, not an
+omission.** Dagu also offers an HTTP API, a webhook endpoint, and an MCP
+endpoint. All three accept parameters and all three respect queues — but all
+three resolve `log_dir` in the *server* process, so a run triggered through them
+cannot write its logs into the project that triggered it (§7.2, §9.2). Only a
+local process can, because only a local process supplies the environment.
 
-Any workflow that writes files a watcher watches will chase itself. The plane
-owns the fix once, so no repo implements it again:
+`enqueue` rather than `start`, because **`dagu start` ignores queues entirely.**
+Only enqueued runs are governed, and queue names are the plane's whole lever on
+concurrency (§7.1).
 
-The loop is concrete. You save `foo.py`; the watcher fires `format`; `format`
-rewrites `foo.py`; the watcher sees that write and fires `format` again.
+So the middle layer is not a thin detector. It resolves the project, exports
+`DEVMAN_PROJECT_DIR`, and passes it as a parameter. That is §10's `devman run`,
+and it is the reason there is exactly one place that triggers a workflow.
 
-> **A workflow that writes files records their content hashes to
-> `.devman/.runs/generation.json`. A trigger skips any file whose current hash
-> matches.**
+**Loop-breaking belongs to the workflow, and Dagu supplies the mechanism.** Any
+workflow that writes files a watcher watches will chase itself: you save
+`foo.py`, the watcher fires `format`, `format` rewrites `foo.py`, the watcher
+sees that write and fires again. Two Dagu features stop it, and the plane owns
+neither:
 
-It is a note saying *I did that* — nothing more. Stateless, so no lock, no
-deadlock, and no ordering assumption.
+- **`type: build`** — a step declaring `inputs:` and `outputs:` is skipped when
+  neither changed, and the output file is left byte- and timestamp-identical, so
+  no watcher event is produced at all.
+- **step-level `preconditions:`** — a command comparing a content hash, which
+  covers rewriting a file in place, the case `type: build` cannot express.
 
-Hashes rather than a timer or a flag, because hashes give the property that
-matters: **your own edit still fires.** Edit `foo.py` right after the formatter
-touched it and the hash no longer matches, so the trigger runs. A suppression
-window would have swallowed it.
-
-The token is only needed where a workflow writes inside its own trigger's watch
-scope. That is a narrower case than it sounds — but it is silently wrong when
-reinvented badly, so the rule is stated once here.
+Use a content hash rather than a timer or a suppression window, because a hash
+gives the property that matters: **your own edit still fires.** Edit `foo.py`
+right after the formatter touched it and the hash no longer matches, so the work
+runs. A window would have swallowed it. This is stated once, here, because it is
+narrow — it applies only where a workflow writes inside its own trigger's watch
+scope — and because it is silently wrong when reinvented badly.
 
 ---
 
@@ -431,9 +530,21 @@ Everything a run produces stays with the checkout that produced it:
 <repo>/.devman/
 ├── workflows/                 # tracked — Dagu YAML, the last layer (§7.3)
 └── .runs/                     # ignored
-    ├── generation.json        # the loop-breaking token (§8.1)
-    └── <run-id>/logs/ artifacts/ reports/ metadata.json
+    ├── metadata.jsonl         # one line per run — written by Dagu, see below
+    └── logs/ artifacts/ reports/
 ```
+
+**`metadata.jsonl` is written by Dagu, and no workflow carries a line of it.**
+The machine puts a `handler_on.exit` block in `base.yaml`; it runs for every DAG,
+on both the success and the failure path, and appends one record to the
+triggering project's `.runs/`. It is named `.jsonl` to keep it distinct from the
+registry's own `metadata.json` above, which holds identity and path.
+
+**Dagu's run history stays machine-side**, under `DAGU_HOME/data/`, and no
+per-DAG field relocates it. Logs follow the project; history does not. That is
+also why a cross-repo run (§11) does not appear in each participating project's
+history — a child run is stored nested under its parent's record, not as an
+independent run of the child DAG.
 
 **Two locations, one rule each.** The registry is machine-side because it is
 machine-wide. Run output is repo-side because you read it from inside the repo
@@ -446,6 +557,11 @@ the ignore rule at registration, because an un-ignored `.runs/` turns the first
 failed run into a dirty tree.
 
 `workflows/` is an input to the projection, never a second source Dagu reads.
+
+Dagu reads exactly one DAG directory — there is no list form — so the projection
+reaches per-project files by subdirectory or by symlink, and §5.2's two
+`dag_discovery` knobs are what make either visible. A directory symlink is not
+followed at all, at any setting; only file symlinks are.
 
 ### 9.3 Canonical and operational
 
@@ -460,16 +576,41 @@ would make a rebuild catastrophic does not belong in Dagu state.
 
 ### 9.4 Secrets
 
-A workflow references a symbolic name and never carries a value.
+A workflow references a symbolic name and never carries a value. **That is Dagu's
+own `secrets:` field, not a devman convention** — the same win §7.1 claims for
+`queue:`:
 
-```
-GITHUB_TOKEN   HF_TOKEN   DATABASE_URL
+```yaml
+# in the workflow that needs it
+secrets:
+  - name: GITHUB_TOKEN
+    provider: env
+    key: GITHUB_TOKEN
 ```
 
-The NixOS module reads values from the machine's secret manager and injects
-them into Dagu's environment; Dagu passes them to devenv, devenv to the task.
-One path, one place to look. The repo declares a dependency on a secret and
-never holds one.
+The module reads values from the machine's secret manager and sets them on the
+Dagu **user service** (§4); Dagu resolves each declared secret at run time and
+hands it to devenv, devenv to the task. One path, one place to look. **The repo
+declares a dependency on a secret and never holds one** — and that declaration is
+now machine-checkable, because it is a field rather than an assumption.
+
+Two properties a plain injected environment variable does not have, and both are
+reasons to declare secrets this way even though the module still supplies the
+values:
+
+- **Dagu masks a resolved secret in logs and output.** The step receives the true
+  value; the log holds `*******`. Without this, any step can echo a token into a
+  log that lands in `.devman/.runs/`, and from there into a screenshot or a bug
+  report.
+- **A missing secret fails the run before any step runs**, naming the secret and
+  the provider. Contrast an unresolved path variable (§7.2), which fails silently
+  and creates a wrongly-named directory.
+
+The block is **per workflow**, so a workflow reaches only the secrets it
+declares. Dagu will also accept a `secrets:` block in `base.yaml`, which would
+remove these lines from every workflow at the cost of granting every workflow on
+the machine every secret. Do not: it would delete the sentence this section
+exists for.
 
 ---
 
@@ -485,6 +626,33 @@ Three commands.
 
 No `list`, `status`, `register`, or `unregister`. Registration is automatic
 (§5.2) and has no manual path; the rest is what `doctor` reports.
+
+**`doctor` reads far more than it computes.** Dagu already diagnoses the failure
+§15.3 accepts as the price of one shared instance:
+
+| Symptom | Where it comes from |
+|---|---|
+| a wedged queue, and *why* | `GET /queues/{name}/items` — every waiting item carries a reason and a message |
+| what holds the slot, and since when | the same call's `running[]` |
+| a run whose process is gone | `dagu ps`, the `FRESH` column — but not for the first 90 seconds |
+| whether the plane is up at all | `GET /health` |
+
+Four things it must compute itself, because nothing in Dagu reports them:
+
+1. **A workflow that fails to load.** `dagu ls` lists it with no indication at
+   all. Run `dagu validate` over each projected file; it exits 1 and names the
+   problem.
+2. **A misspelled queue name.** Dagu accepts an undefined queue silently and
+   applies no limit (§15.4). Check every resolved `queue:` against the queue list
+   the machine declares.
+3. **An unresolved `DEVMAN_PROJECT_DIR`.** Look for a directory named literally
+   `${DEVMAN_PROJECT_DIR}`. It is the visible symptom of a trigger that passed the
+   parameter but forgot the environment variable (§7.2).
+4. **Shadowed files and their drift** (§15.6).
+
+Three of those four are file checks over the projection rather than queries
+against a running service. `doctor` should therefore still work with the daemon
+down, and say plainly which checks it could not run.
 
 **`devman run` and `devenv tasks run` are not alternatives.** They are two
 levels of one stack: `devman run` triggers a workflow, and that workflow's steps
@@ -518,8 +686,25 @@ library A   library B   application
 ```
 
 Its steps trigger other projects' workflows rather than running commands, so it
-resolves nothing itself — each triggered workflow already carries its own
-project's `workingDir` (§7.2). Nothing needs a path.
+resolves nothing itself. Nothing needs a path — but one rule is what makes that
+true, and without it every parent-child pair in this design collides silently:
+
+> **`DEVMAN_PROJECT_DIR` names the project a run targets, and is set only by
+> whatever triggers the run.** A workflow that triggers other workflows must not
+> hold that name itself. If it needs its own directory for local steps, it uses a
+> second name. A parent directs a child with `with.params`.
+
+A parent exports its parameters into each child's environment, and that
+environment outranks the child's own `params:`, its `env:` block, and even an
+explicit `with.params` override — whenever the names collide. Once the names
+differ, `with.params` works exactly as documented, and a parent can deliberately
+point a child at a different project, which synchronized releases and coordinated
+migrations will want.
+
+The collision is worth stating plainly because of how it fails: the child runs,
+succeeds, and does the work in the wrong directory. Nothing reports it. `doctor`
+checks it mechanically (§10) — any workflow containing `action: dag.run` must not
+also mention `DEVMAN_PROJECT_DIR`.
 
 Uses: validating dependent libraries together, synchronized releases, nightly
 stack validation, cross-repo benchmarks, coordinated migrations.
@@ -535,15 +720,16 @@ is no `machine` group and no machine-side run store.
 ### 12.1 Dagu supports what the design assumes — spike, before stage 1
 
 > Dagu accepts a named queue on a DAG, interpolates an environment variable in
-> `workingDir`, can be told where to write a run's logs, and lets one DAG trigger
+> `working_dir`, can be told where to write a run's logs, and lets one DAG trigger
 > another.
 
-§7.2 rests on the first two, §9.2 on the third, §11 on the fourth. If `workingDir` does not interpolate, one group file cannot
+§7.2 rests on the first two, §9.2 on the third, §11 on the fourth. If
+`working_dir` does not interpolate, one group file cannot
 serve many repos and registration has to rewrite each projection — recoverable,
 but it makes the plane parse files it currently never touches. If queues are not
-named per DAG, §7.1's only global vocabulary has nothing to bind to.
+named per DAG, the first of §7.1's three global names has nothing to bind to.
 
-*Measure:* write one DAG naming a queue with an interpolated `workingDir`, run it
+*Measure:* write one DAG naming a queue with an interpolated `working_dir`, run it
 against two projects, and confirm its logs land under each project's
 `.devman/.runs/`.
 *Fails if:* interpolation or per-DAG queues are unsupported — the plane then
@@ -553,6 +739,12 @@ back beside the registry.
 
 This spike is first because it is cheap and because the charter assumed a
 feature set it never checked.
+
+> **Settled, and it passed.** All four hold: a DAG names a queue, `working_dir`
+> interpolates at run time, `log_dir` is per DAG, and one DAG triggers another
+> and waits. The measurement ran — one unedited file, two projects, logs under
+> each project's own `.devman/.runs/`. What changed was never the shape, only the
+> detail: the spelling of the key, the source of the variable, and §11's rule.
 
 ### 12.2 devenv is affordable as the universal executor
 
@@ -630,7 +822,6 @@ overridden, and how much of each is unchanged?**
 
 ```
 watchexec triggers, VCS hooks
-the generation token (§8.1)
 retention policy
 devman run / show / doctor (§10)
 ```
@@ -661,7 +852,7 @@ agent workflows    policy gating
 | 9 | Registration covers only opted-in repos | a repo without `devman.enable` never appears in the registry |
 | 10 | No workflow contains an absolute path | grep the registry and `workflows/`; zero hits |
 | 11 | Identity survives a move or a rename | move and rename the directory, re-enter its shell — same project, same run history |
-| 12 | Queues are real | two workflows naming the `exclusive` queue serialize |
+| 12 | Queues are real | two workflows naming the `exclusive` queue serialize **when enqueued** — `dagu start` bypasses queues entirely, so the measurement must use the real trigger path (§8) |
 | 13 | The watchers do not chase each other | a file-writing workflow plus a watcher on those files, one save, exactly one run |
 | 14 | The task graph exists once | no default workflow re-states a dependency devenv already declares |
 | 15 | A rebuild is inconvenient, not catastrophic | delete Dagu state, re-enter every registered shell, every workflow runs again |
@@ -690,9 +881,13 @@ reconstructable, so recovery is a restart — but availability is genuinely
 shared. Accepted, with one requirement: **`devman doctor` must diagnose a wedged
 plane**, or a shared failure becomes an unexplained one.
 
-**15.4 Queue names are the one-way door.** They are the only global names.
-Adding one is cheap; renaming one is a migration across every workflow that names
-it.
+**15.4 Queue names are the one-way door, and a typo is invisible.** Adding a
+queue name is cheap; renaming one is a migration across every workflow that names
+it. Worse, Dagu accepts a queue name that does not exist **silently** — no error,
+no warning, nothing in the logs — and runs the workflow with no concurrency limit
+at all. A misspelled queue is not a migration problem, it is an unobservable one,
+which is why §10 makes `doctor` check every resolved `queue:` against the
+machine's list, and why §7.2 has the machine set a default queue in `base.yaml`.
 
 **15.5 devenv and NixOS may want different nixpkgs.** §12.3. If they do, the
 single-version guarantee becomes a convention rather than a property.
@@ -720,7 +915,10 @@ alarms from a heuristic that cannot know your machine. Notice it yourself.
 - **How many ecosystem groups at first?** Python and Nix. Rust and TypeScript
   on demand.
 - **Retention.** `.devman/.runs/` grows inside the repo, where it is at least
-  visible. Lean: 7 days for logs and artifacts, keep `metadata.json`
-  indefinitely — it is small and it is the run history.
+  visible. Lean: 7 days for logs and artifacts, keep `metadata.jsonl`
+  indefinitely — it is small and it is the run history. **Partly settled:** Dagu's
+  `hist_retention_days` is set once in `base.yaml` and governs its own
+  machine-side history. It does **not** prune the log tree under `log_dir`, so
+  the log half of this lean still needs an owner.
 
 ---
