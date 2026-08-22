@@ -2892,3 +2892,50 @@ catastrophic" becomes "the plane half-works and blames your config".
 
 **One sentence, and then stopping as §1 requires:** `devman doctor` can detect
 this exactly — compare `config.yaml`'s mtime against the service start time.
+
+---
+
+## Tier 3 — the catalogue
+
+Real capability in 2.15.0. **Nothing here was spiked**, and nothing here asks the
+charter for a decision now. Descriptions are the schema's own, condensed. Stage
+numbers refer to §13.
+
+| Capability | What it is | Stage |
+|---|---|---|
+| `type: agent` + `tasks:` | "Goals an agent DAG must satisfy before it concludes successfully"; the LLM chooses step order | 4 — agent workflows |
+| `llm:` + `action: chat.completion` | DAG-level LLM defaults inherited by chat steps; providers anthropic, openai, gemini, openrouter, zai, local | 4 |
+| `harness:` / `harnesses:` | Defaults and reusable definitions for `action: harness.run`, which drives external coding-agent CLIs — aider, amp, claude, cline, codex, copilot, cursor, droid, gemini, goose, opencode, qwen | 4 — this repo already ships `claude-code` and `codex-cli` |
+| `opencode:` (config) | "Process-local managed OpenCode service configuration" | 4 |
+| MCP at `/mcp` | `dagu_read`, `dagu_change`, `dagu_execute`; measured in E2 | 4 — an agent triggering the plane |
+| `worker:` / `coordinator:` (config) | Worker and coordinator services for distributed execution; gRPC dispatch, heartbeats, log and artifact streaming | later — §9.1's "future remote worker" |
+| `worker_selector:` | Map of worker label key-values, or the string `"local"` to force local execution | later |
+| `remote_nodes:` (config) | "List of remote node connections for distributed monitoring" | later |
+| `dagu context` | `add`, `list`, `remove`, `test`, `update`, `use` — CLI contexts for local and remote Dagu servers | later |
+| `default_execution_mode` | `local` runs on the server process, `distributed` dispatches to workers | later |
+| step `dependencies:` | Files staged to a **distributed worker** beside the DAG; local execution does not stage them | later — pairs with `worker:` |
+| `human.task` / `dagu human-task complete` | A step that waits for a person; the DAG enters `Waiting` | 4 — policy gating |
+| `container:` / `kubernetes:` | DAG-level defaults for containerized steps, overridable per step | isolation |
+| `registry_auths:` | Docker registry credentials, or a whole `DOCKER_AUTH_CONFIG` | isolation |
+| `resources:` | "CPU and memory limits requested for this DAG run"; warns and continues where unenforceable | isolation |
+| `retry_policy:` / `repeat_policy:` / `continue_on:` | Per DAG, per step, and settable once in `defaults:` (E4) | reliability |
+| `handler_on:` | Lifecycle hooks — `init`, `success`, `failure`, `abort`, `exit`, `wait`; each is a full step | reliability |
+| `otel:` | OpenTelemetry tracing of DAG execution | reliability |
+| `tools:` | "DAG-level CLI tool dependencies installed on the worker before any step runs" | reliability — note the overlap with devenv (§6) |
+| `smtp:` / `error_mail:` / `info_mail:` / `mail_on:` | SMTP with OAuth for Microsoft, Google service account, and Google refresh token; mail on failure, success, or wait | notification |
+| `permissions:` / `auth:` / `ip_access:` / `tls:` / `tunnel:` | UI and API permissions, RBAC roles, client-IP filtering, TLS, and a Tailscale tunnel | exposure |
+| `actions:` | "Reusable custom action definitions"; merged between base config and DAG, duplicates rejected | — a shared-vocabulary mechanism inside Dagu |
+| `step_types:` | **Deprecated**; use `actions:` | — |
+| `schedule:` | Cron, **profile-scoped cron entries**, and one-off RFC 3339 timestamps | — pairs with E8's profiles |
+| `overlap_policy:` | `skip`, `all`, `latest` — what a catchup run does when the DAG is still running | — |
+| `catchup_window:` | Replay window for scheduled runs missed during downtime; `base.yaml` ships `"6h"` | — |
+| `terminal:` (config) | Web-based terminal in the UI | exposure |
+
+Two entries in that table touch the charter and are **not** followed up here, as
+§1 requires:
+
+- **`tools:` installs CLI dependencies**, which is devenv's job under §6. A group
+  workflow that used it would put the same dependency in two places.
+- **`actions:`** is Dagu's own mechanism for a shared vocabulary that is more than
+  a queue name. §7.1 argues the vocabulary should stay at queue names; `actions:`
+  is what a future argument for more would use.
