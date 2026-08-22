@@ -929,3 +929,106 @@ siteman      metadata.jsonl 2 lines   logs/ 1 workflow
 and the fix has to ship in the module and arrive by rebuild.
 
 **Charter impact:** **none.** Criteria 15 and 17 hold.
+
+---
+
+## S14 — §12.4, the measurement
+
+> **§12.4 — how many files were overridden across five repos, and how much of
+> each is unchanged from the group version?**
+
+**Answer: one file, out of eighteen projected workflows across six projects.
+Seven of its nine executable lines are unchanged.** §12.4 asked whether
+whole-file shadowing is coarse enough to live with. On this sample it is —
+**and the sample is one, so the question is answered weakly and should stay
+open.**
+
+**Command:** the measurement reads devman's own registry. Schema 2 (S1) records
+per workflow the group that won and the store path of its file; `local` records
+which names the repository shadowed or invented. Read together they are exactly
+what §12.4 asks for, which is why schema 2 was built before this was run.
+
+```bash
+python3 /tmp/s2-124.py     # reads ~/.local/share/devman/projects/*/metadata.json
+```
+
+**Evidence:**
+
+```
+projects measured  : 6
+workflows projected: 18
+files OVERRIDDEN   : 1
+files INVENTED     : 1   (new names, nothing to diff)
+
+executable lines only (blank and comment lines dropped):
+project     workflow    shadows   group repo same  unchanged  whole file
+siteman     full-test   base          9    7    7      77.8%       59.3%
+```
+
+The two throwaway projects built for S11 are excluded; they are instruments.
+
+**Both percentages are given because the gap between them is the story.** The
+group files are mostly comment — 27 lines, 9 of them executable — so a
+whole-file figure measures documentation rather than duplication. §12.4's
+failure mode is "a file copied to change one line", and on the executable
+content this file is exactly that: **77.8% unchanged, and the change is a
+deletion, not an edit.**
+
+### The one override, and why it is honest
+
+Four of the five repositories overrode nothing. The fifth did, and it took real
+pressure to get there rather than a decision to produce a data point:
+
+```
+siteman full-test, unshadowed:  lint 1.0s   test 3.0s   devenv-test 14.0s   = 20.5s
+siteman `devenv shell -- ci`:                                                 2.9s
+siteman full-test, shadowed:    lint 2.0s   test 3.0s                       = 9.5s
+```
+
+`base/full-test.yaml`'s third step is `devenv test`. siteman's `enterTest` **is**
+`ci`, which `base:test` already ran two steps earlier — so the step spent 14
+seconds re-running finished work and, because `devenv test` captures both of
+`enterTest`'s streams (S4), printed nothing while doing it.
+
+### What the shape of the single data point suggests
+
+§12.4 states what the answer decides: *"If it is common, the fix is smaller group
+files — split `check.yaml` into what varies and what does not — not a merge
+algorithm."*
+
+One override in eighteen is **not common**, so nothing is forced. But the shape
+is worth recording, because if it repeats it points at a specific remedy rather
+than a general one:
+
+> The override deleted a **step that did not apply**. It did not edit a step. A
+> merge algorithm would not have helped — there was nothing to merge. Smaller
+> group files would have: had `full-test` been two files, siteman would have
+> taken one and shadowed nothing.
+
+So the single data point argues for §12.4's own predicted fix, and against the
+one it rules out. That is weak evidence and it is stated as weak.
+
+### Why this is a "for want of pressure" result and not a clean pass
+
+`STAGE_2_PROMPT.md` §6 anticipated the zero case: *"If nobody overrode anything,
+that is also a result — it means the groups fit, and it means §12.4 stays open
+for want of pressure rather than being answered."* This is very nearly that
+case, and three things about the sample limit what it can support:
+
+1. **The group files are small.** `check` is one step. There is little in them
+   to disagree with, so the low override rate partly measures how little the
+   groups attempt.
+2. **The repositories were adopted by the same person, in one sitting**, who
+   chose each repository's task names knowing what the group files said. A
+   repository adopted by someone defending an existing CI would push harder.
+3. **`full-test` is the only workflow with a step a repository cannot redefine**
+   through task names — and it is the only file anybody overrode. That is not a
+   coincidence and it is the whole mechanism §7.1 rests on: a step that names a
+   *task* bends to the repository, and a step that names a *command* does not.
+
+Point 3 is the transferable finding. **The group files that survived contact are
+the ones made entirely of task names.**
+
+**Charter impact:** **none, and §16 should say so.** §12.4 remains the open
+question; it now has one data point instead of none, and a sharper statement of
+what would close it.
