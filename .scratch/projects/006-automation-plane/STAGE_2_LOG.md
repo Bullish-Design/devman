@@ -1091,3 +1091,92 @@ separately above (S12) and the commit message describes only one of them.
 
 **Charter impact:** **none.** §9.2's rule and §10's check 3 are both confirmed
 by this, and neither changes.
+
+---
+
+## S16 — One rev does not mean one store path, so `doctor` must hash content
+
+**Answer:** with all five repositories and the machine pinned to the same devman
+rev, the **same group file resolves to a different store path in each
+repository**. The content is identical; the paths are not. Schema 2's
+`workflows.<name>.source` is therefore a per-consumer path, and any check that
+compares two repositories' group files must compare **content**, not `source`.
+
+**Command:** after re-pinning all five to `main@53ff36b`.
+
+**Evidence — comparing `source` paths:**
+
+```
+base/check       distinct store paths across projects: 4
+base/full-test   distinct store paths across projects: 5
+base/validate    distinct store paths across projects: 4
+python/check     distinct store paths across projects: 2
+python/validate  distinct store paths across projects: 2
+```
+
+**Evidence — comparing the bytes at those paths:**
+
+```
+base/check       distinct CONTENT hashes: 1  paths: 4  OK
+base/full-test   distinct CONTENT hashes: 1  paths: 5  OK
+base/validate    distinct CONTENT hashes: 1  paths: 4  OK
+python/check     distinct CONTENT hashes: 1  paths: 2  OK
+python/validate  distinct CONTENT hashes: 1  paths: 2  OK
+```
+
+**Why.** `modules/devenv.nix` renders each group file with
+`pkgs.writeText (builtins.readFile …)`, and §3.1's first rule says the module
+takes `pkgs` from its consumer. Each repository pins its own
+`devenv-nixpkgs/rolling`, so the derivation differs even though the file does
+not. This is the single-flake premise working exactly as designed, and it costs
+one store path per repository per workflow — the same trade §3.1 already accepts
+for `nix/dagu.nix`.
+
+**What it means for stage 3.** `doctor`'s shadowed-file drift check (§10 check 4)
+diffs a repository's own file against `workflows.<name>.source`, which is
+correct — that path is that repository's own copy. But a check that asks "are
+these two repositories running the same `check`?" cannot compare the strings. It
+must hash. The measurement in S14 diffs within one repository, so it was
+unaffected.
+
+**Charter impact:** **none.** §3.1 predicts it; this is the observable form.
+
+---
+
+## S17 — Stage 2 against §14, criterion by criterion
+
+Run against the installed service, five real repositories and 22 DAGs. Compare
+stage 1's S10, which used four throwaway repos and a hand-started Dagu.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | one flake, two interfaces, one version | **holds** — machine and all five repos pin `main@53ff36b`; `nix flake check` passes. S16 records that one rev is many store paths |
+| 2 | a repo adopts in three lines | **holds, with fact 4's caveat** — three lines plus the group's task names; 4–7 declarations per repo (S6) |
+| 3 | a repo may take no groups | **holds** — S11's two probes run `groups = [ ]` with only their own workflows |
+| 4 | a repo may rename or replace every default | **holds** — siteman shadows `full-test` (S14), devman invents `stack-validate` (S12) |
+| 5 | shadowing is exact | **holds** — byte-identical unedited, one step edited changes one step (S9) |
+| 6 | a workflow is portable Dagu | **holds** — one unedited `check.yaml` ran in five repos across four toolchains (S10) |
+| 7 | devenv stays on the fast path | **holds** — −2.57 ms paired, 95% CI upper bound +7.08 ms, budget 10 ms (S3) |
+| 8 | registration is idempotent | **holds** — carried over from stage 1; the guard is unchanged and S13's byte comparison depends on it |
+| 9 | only opted-in repos register | **holds** — the `off` timing repo never appeared (S3) |
+| 10 | no workflow contains an absolute path | **holds** — including the cross-repo workflow, whose targets are parameters (S12) |
+| 11 | identity survives a move | **holds** — carried over from stage 1, untested again here |
+| 12 | queues are real | **holds** — serialized on `exclusive`, overlapped on `light`, overlapped again under `start` (S11) |
+| 13 | the watchers do not chase each other | **stage 3** — there is no watcher |
+| 14 | the task graph exists once | **holds** — and pyjutsu is the case: its build-before-test ordering existed twice and now exists once (S6) |
+| 15 | a rebuild is inconvenient, not catastrophic | **holds** — everything deleted, eight shells entered, byte-identical (S13) |
+| 16 | devman adopts itself | **holds, after a fix** — the cross-repo workflow ran; it reported Failed until `base.yaml` gained a fallback (S12) |
+| 17 | there is one way in | **holds** — registry deleted, eight shells entered, restored exactly (S13) |
+
+**The open question.** §12.4 has one data point out of eighteen and is answered
+weakly (S14). §16's list of settled questions is unchanged.
+
+**What stage 2 did not do**, for stage 3 to pick up:
+
+| Item | Why |
+|---|---|
+| the watcher (§8) | stage 3. Criteria 13 and 14's watcher half need it |
+| the CLI (§10) | stage 3. S15 adds a requirement: `devman run` must refuse to enqueue when neither `DEVMAN_PROJECT_DIR` nor `DEVMAN_SELF_DIR` is set |
+| `doctor` check 3, widened | S15 — the literal directory landed inside a project, not in the daemon's working directory |
+| retention, observed rather than configured | `hist_retention_days: 7` is set and nothing has aged out yet |
+| pushing the five adopted repositories | `STAGE_2_PROMPT.md` rule 8 says commit there, do not push. Five commits wait in five working trees |
