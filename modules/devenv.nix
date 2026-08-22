@@ -58,8 +58,14 @@ let
     let
       dir = groupsRoot + "/${group}/workflows";
     in
-    if !builtins.pathExists dir then
-      throw "devman: group '${group}' does not exist. There is no ${toString dir}."
+    if !builtins.pathExists (groupsRoot + "/${group}") then
+      throw "devman: group '${group}' does not exist. There is no ${toString (groupsRoot + "/${group}")}."
+    else if !builtins.pathExists dir then
+    # A group may ship no workflows at all. A triggers-only group is how a
+    # repository opts into reactivity without also inheriting somebody's
+    # workflows, which is what keeps §7.4's "an inherited workflow you never
+    # trigger costs nothing" true — a *triggered* workflow costs plenty (§8).
+      { }
     else
       lib.mapAttrs'
         (file: _: lib.nameValuePair
@@ -89,6 +95,45 @@ let
         })
         (groupFiles group))
     { }
+    cfg.groups;
+
+  # ---------------------------------------------------------------------------
+  # Reactivity — which glob fires which workflow (§8)
+  #
+  # `groups/<group>/triggers.nix` is an attribute set of `<glob> = <workflow>`.
+  # It is GROUP CONTENT, and where it sits was the sharpest design question in
+  # stage 3, because three obvious homes are all closed:
+  #
+  #   * not in the workflow file — Dagu rejects an unknown top-level key
+  #     outright, and §7.2 says a workflow is Dagu configuration from the first
+  #     line to the last (A5).
+  #   * not a Nix option here — that would make the machine learn a project fact
+  #     (§4), and §7.4 says there is no per-workflow Nix option.
+  #   * not a second file the watcher reads at run time — the watcher would then
+  #     need §7.3's resolution too, and there would be two implementations of it.
+  #
+  # So it is resolved here, at evaluation time, exactly as workflows are, and
+  # recorded in the registry entry. The watcher reads the entry and nothing else.
+  #
+  # Resolution is WHOLE-FILE, like §7.3's: the last group the repository lists
+  # that ships a `triggers.nix` wins outright. There is no merge, for the same
+  # reason §7.3 refuses one — the result would be hard to predict from either
+  # file alone.
+  #
+  # `import` rather than a path, for S8's reason: devenv's evaluation cache does
+  # not track a file whose PATH is interpolated, and it does track a file that is
+  # read at evaluation time.
+  groupTriggers = group:
+    let
+      file = groupsRoot + "/${group}/triggers.nix";
+    in
+    if builtins.pathExists file
+    then { inherit group; map = import file; }
+    else null;
+
+  triggers = lib.foldl'
+    (acc: group: let t = groupTriggers group; in if t == null then acc else t)
+    null
     cfg.groups;
 
   # ---------------------------------------------------------------------------
@@ -205,9 +250,13 @@ let
   # winner, and `workflows.<name>.source` is then what it shadows. Nix knows the
   # group half at evaluation time; which files are in a working tree is a
   # run-time fact, which is why `local` is still filled by the hook.
+  # SCHEMA 3 adds `triggers`, for the same reason schema 2 added `workflows`:
+  # the watcher and `doctor` need the OUTCOME of a resolution that only Nix can
+  # perform. It is `null` for a repository that takes no group declaring any,
+  # which is every repository until one opts in.
   entryTemplate = pkgs.writeText "devman-metadata-${cfg.project}.json" ''
     {
-      "schema": 2,
+      "schema": 3,
       "project": ${builtins.toJSON cfg.project},
       "path": "@PATH@",
       "groups": ${builtins.toJSON cfg.groups},
@@ -215,7 +264,8 @@ let
       "local": [@LOCAL@],
       "workflows": ${builtins.toJSON (lib.mapAttrs
         (_: w: { inherit (w) group shadows; source = "${w.file}"; })
-        resolved)}
+        resolved)},
+      "triggers": ${builtins.toJSON triggers}
     }
   '';
 in

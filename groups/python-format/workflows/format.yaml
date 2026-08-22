@@ -1,0 +1,40 @@
+# python-format/format — the workflow a save fires (CONCEPT.md §8).
+#
+# It rewrites the files its own trigger watches, which is the one case §8 calls
+# out: you save `foo.py`, the watcher fires `format`, `format` rewrites
+# `foo.py`, and the watcher sees that write.
+#
+# THE PRECONDITION IS WHAT STOPS THAT, AND IT IS DAGU'S OWN (§8, E1).
+#
+# Two mechanisms exist and the plane owns neither. `type: build` skips a step
+# whose declared inputs and outputs are unchanged, and leaves the output byte-
+# and timestamp-identical — but it CANNOT declare one path as both input and
+# output, and a formatter is exactly that. Dagu rejects it at run time and
+# `dagu validate` does not (E1). So this is the other one: a step-level
+# precondition comparing a content hash.
+#
+# A HASH RATHER THAN A TIMER, and the difference is the property that matters:
+# edit `foo.py` immediately after the formatter wrote it and the hash no longer
+# matches, so the work runs. A suppression window would have swallowed that
+# edit, and would still have passed a naive "one save, one run" test (§8).
+#
+# STEP-LEVEL, NOT DAG-LEVEL. A DAG-level precondition that is not met records
+# the run as `Aborted`, which is the same status a cancelled run gets; a
+# step-level one gives `Succeeded` with the step marked skipped. A plane built
+# on the DAG-level form would fill its history with runs that look like
+# failures (E1).
+#
+# The hash file lives under `.devman/.runs/`, which is §7.1's third global name
+# and is git-ignored by registration — and which the watcher ignores, so writing
+# it is not itself an event.
+queue: light
+steps:
+  - id: fmt
+    name: format
+    preconditions:
+      - condition: |
+          test "$(find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 | sort -z | xargs -0r sha256sum | sha256sum)" != "$(cat .devman/.runs/.python-format.hash 2>/dev/null)"
+    run: |
+      devenv tasks run -v python-format:fmt
+      find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 \
+        | sort -z | xargs -0r sha256sum | sha256sum > .devman/.runs/.python-format.hash

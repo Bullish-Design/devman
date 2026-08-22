@@ -1,0 +1,28 @@
+# python-format — which glob fires which workflow (CONCEPT.md §8).
+#
+# `<glob> = <workflow>`. The glob is matched against a path relative to the
+# repository's root; the workflow is a name the same repository projects (§7.3).
+#
+# THIS FILE IS THE WHOLE OF A GROUP'S REACTIVITY, AND IT IS GROUP CONTENT.
+#
+# §8 says the watcher is plane machinery and the mapping is group content, and
+# the other three homes for it are all closed: a workflow file may not carry it
+# (Dagu rejects an unknown top-level key, A5), a Nix option may not (the machine
+# would learn a project fact, §4), and a file the watcher reads at run time may
+# not (the watcher would then need §7.3's resolution, and the plane would have
+# two implementations of it).
+#
+# It is resolved at evaluation time by `modules/devenv.nix`, whole-file and in
+# the order the repository lists its groups, and recorded in the registry entry.
+#
+# TAKING THIS GROUP IS THE OPT-IN, AND THAT IS THE POINT.
+#
+# §7.4 says an inherited workflow you never trigger costs nothing, so there is
+# no per-workflow Nix option. A *triggered* workflow costs plenty: it rewrites
+# the developer's files while they are editing them. So reactivity is its own
+# group, with no workflows of its own to inherit — take it and your saves fire
+# `format`; do not take it and nothing watches you. "To be rid of one, do not
+# take its group" (§7.4) is free here, because there is nothing else in it.
+{
+  "**/*.py" = "format";
+}
