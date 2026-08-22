@@ -55,10 +55,10 @@
         // { rolling = rolling.legacyPackages.${system}; };
 
       # A NixOS configuration built from a bare nixpkgs tree, so `machine` can
-      # be a non-flake source and still work.
-      testConfig = tree: import "${tree}/nixos/lib/eval-config.nix" {
+      # be a non-flake source and still work. `extra` is B3's collision probe.
+      testConfig = tree: extra: import "${tree}/nixos/lib/eval-config.nix" {
         inherit system;
-        modules = [
+        modules = extra ++ [
           devman.nixosModules.default
           ({ lib, ... }: {
             services.devman-dagu.enable = true;
@@ -75,7 +75,16 @@
     in
     {
       # B1 — the same module file, evaluated under each tree.
-      nixosConfigurations = builtins.mapAttrs (_: tree: testConfig tree) trees;
+      nixosConfigurations =
+        builtins.mapAttrs (_: tree: testConfig tree [ ]) trees
+        # B3 — the same module plus one reference the other tree cannot satisfy.
+        // builtins.listToAttrs (builtins.concatMap
+          (name: map
+            (d: {
+              name = "${name}-${d}";
+              value = testConfig trees.${name} [ (import ./collide.nix { direction = d; }) ];
+            }) [ "newer-than-machine" "older-than-unstable" ])
+          (builtins.attrNames trees));
 
       # B2 — the same nix/dagu.nix under each package set, rolling included.
       packages.${system} = builtins.mapAttrs
