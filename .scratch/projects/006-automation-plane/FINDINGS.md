@@ -4724,3 +4724,188 @@ module.
   logged in. The restart mechanism reaches exactly the users logind lists.
 
 **`kills §5.2` was a live outcome and did not happen.** The guarantee holds.
+
+---
+
+## Summary — Investigation C, registration mechanics
+
+**`enterShell` is a sound place to put the only way into the registry.** No
+ordinary entry path skips it, the guarded no-op is free once it stops forking,
+and §5.2's activation requirement turned out to be met rather than broken.
+Criterion 17 stands.
+
+Four things the charter did not know, and three of them are the reason a claim
+has to change:
+
+1. **`enterShell` runs twice per `devenv shell`**, the first time in a
+   subprocess devenv uses only to snapshot `env` and then discards. Every side
+   effect happens twice, and **every message printed on the write path is
+   invisible**.
+2. **Dagu creates a missing `working_dir` and reports success.** A stale
+   registry entry never fails; it litters.
+3. **A missed `config.yaml` restart reports no error.** It silently runs a queue
+   at the wrong concurrency.
+4. **NixOS does restart a systemd user service on activation**, on this
+   machine's nixpkgs. B's note to the contrary is wrong.
+
+| ID | Question | Answer | Charter impact |
+|---|---|---|---|
+| C1 | does `enterShell` run on every entry? | **yes** — every path that gives an environment fires it and registers | **changes §5.2** (additions; the claim and criterion 17 stand) |
+| C2 | what does the guarded no-op cost? | **+23 ms** as written, **+4 ms** fork-free | **changes §14, criterion 7** |
+| C3 | what state paths does devenv expose? | five documented, four incidental; `$DEVENV_STATE` is set | none |
+| C4 | can the ignore rule be added safely? | **not via `.gitignore`** — use `.git/info/exclude` | **changes §9.2** |
+| C5 | duplicate `project` — refuse or replace? | **refuse**, when the recorded path still exists | **changes §9.1**, **changes §5.2** |
+| C6 | how does the registry notice a deleted repo? | **it does not, and neither does Dagu** — `doctor`'s job, and pruning is safe | **changes §10**, **changes §7.2/§9.2** |
+| C7 | does activation restart a user service? | **yes** — §5.2's requirement is met | **changes §5.2** (twice), **changes §4** |
+
+### The timing number, with its spread
+
+100 paired runs, warm cache, interleaved one entry at a time so machine drift
+cancels. devenv 2.1.2, devman `c9426b6`, 2026-08-22.
+
+| variant | mean | sd | delta vs `enable = false` |
+|---|---|---|---|
+| bare devenv repo, no devman input | 230.9 ms | 31.6 | — |
+| module imported, `devman.enable = false` | 250.5 ms | 31.2 | — |
+| **registered, current `sed`+`cat` guard** | **273.5 ms** | 35.1 | **+23.0 ms** |
+| **registered, fork-free bash guard** | **254.9 ms** | 31.6 | **+4.4 ms** |
+
+95% CI against the bare baseline: current guard `[+37.4, +47.9]`, fork-free
+`[+17.4, +30.7]`, `enable = false` `[+14.7, +24.5]`. Two earlier paired sweeps
+of n=60 put the current guard's cost at +32.2 ms and +18.7 ms, so **+23 ms is
+the middle of a +19…+32 ms band**. Component cost, 200 iterations per sample:
+current guard **8.36 ms per call**, fork-free guard **0.12 ms per call**, 71×.
+
+**Criterion 7's 0.25 s is not devman's to defend.** A bare devenv repo measured
+163.9 ms on a quiet machine — Spike A's 0.16 s, reproduced exactly — and
+230.9 ms under ordinary desktop load. The criterion must become a delta.
+
+### The two recommendations the kickoff asked for
+
+**C5 — refuse.** Refuse a duplicate only when the recorded path still exists on
+disk; a recorded path that is gone means the project moved, and the entry is
+rewritten. The argument is not symmetry with §9.1: it is that **replace cannot
+announce itself**. devenv discards the output of the firing that performs the
+write, so a replacing registration is silent by construction, while a refusing
+one prints from the real shell. Measured both ways.
+
+**C7 — no mechanism is needed.** `systemd.user.services.<name>.restartTriggers`
+is sufficient on nixpkgs 26.11.20260705. It rewrites the unit file;
+`switch-to-configuration` spawns itself per logind user and runs the same
+`collect_unit_changes` the system scope runs; the unit stops and starts inside
+the activation. The candidates the kickoff listed — `systemd.user.startServices`
+(does not exist in NixOS), `reloadTriggers`, a path unit, a user activation
+hook, a re-readable `config.yaml` — are all unnecessary. **One requirement
+does follow:** `users.users.<name>.linger = true`, because the restart reaches
+exactly the users logind lists.
+
+### Every `changes §N` and `deletes §N` in one place
+
+- **changes §5.2 — `enterShell` runs twice.** Once in devenv's environment-capture
+  subprocess (`devenv/src/devenv/mod.rs`, `capture_shell_environment`), once for
+  real. `devenv up` and `devenv tasks run` fire it once. State that the hash
+  guard is what makes the repeat free, and that a hook which is not idempotent
+  breaks here. (C1)
+- **changes §5.2 — the hook must fork nothing.** It is on the critical path of
+  every shell the developer opens and its cost is charged twice. (C1, C2)
+- **changes §5.2 — a registration hook cannot report on the write path.** Drop
+  any promise of a "devman: registered" line: the firing that writes has its
+  stdout and stderr discarded, and the firing the developer sees takes the no-op
+  branch. Anything the developer must see has to be on a non-writing path — a
+  refusal, or `devman doctor`. (C5)
+- **changes §5.2 — restoring a deleted registry means entering a shell**, not
+  `cd`-ing back into a directory whose direnv environment is already loaded in
+  the current process. (C1)
+- **changes §5.2 — the activation requirement is met.** `restartTriggers` alone
+  restarts the user service in the same activation on nixpkgs
+  `26.11.20260705.d407951`. Name the revision; it is a property of
+  `switch-to-configuration`, not of NixOS in general. Strike B's note assuming
+  otherwise. (C7)
+- **changes §5.2 — the symptom description is wrong.** A missed restart does
+  **not** report "an error that names the very setting you already added". It
+  reports nothing: the enqueue succeeds, the run runs, and the queue silently
+  takes the wrong concurrency — `max-concurrency=1` where 4 was configured. (C7)
+- **changes §14, criterion 7.** Measure a **delta against the same repo with
+  `devman.enable = false`**, not an absolute wall-clock number. Proposed: *no
+  more than 10 ms added to a warm `devenv shell -- true`, as a paired
+  difference*. Bare devenv already sits at 0.23 s under load, so the absolute
+  0.25 s cap is not a statement about devman. (C2)
+- **changes §9.1.** Delete "Identity defaults to the repo's directory name" — it
+  breaks criterion 11 by construction, and §5 already says the opposite. Keep
+  "registration refuses a duplicate", and add the test that makes refusal
+  compatible with criterion 11: **refuse only when the recorded path still
+  exists**. (C5)
+- **changes §9.2 — name the ignore file.** The rule goes in
+  **`.git/info/exclude`**, located with `git rev-parse --git-path info/exclude`,
+  not in `.gitignore`. `.gitignore` may be a read-only store symlink, it is
+  tracked so writing to it dirties the tree it exists to keep clean, and devenv
+  writes to it too (`devenv init`, appending). One accepted cost: a repo with no
+  `.git` gets no rule, which is correct. One caveat: git treats `info/` as a
+  common path, so a linked `git worktree` shares its main repository's exclude
+  file — "per checkout" is really "per clone". (C4)
+- **changes §7.2 or §9.2 — record what Dagu does with a missing `working_dir`.**
+  **It creates the directory and succeeds.** `dagu validate` exits 0. A workflow
+  projected from a stale registry entry keeps passing, in an empty directory, at
+  the path of a repository that no longer exists. (C6)
+- **changes §10 — `doctor` gains a stale-entry check**, and may **prune** rather
+  than only report. Every registry entry whose `path` is not a directory is
+  stale; the check is O(registered projects) and reads only devman's own state,
+  so §15.1's ban on scanning does not apply. §9.3 is what makes pruning safe: a
+  wrongly pruned entry restores itself on the repo's next shell entry. `doctor`
+  must also unproject the pruned project's workflows. (C6)
+- **changes §4 (or §5.2) — require `users.users.<name>.linger = true`** for the
+  user that owns the plane, or state that the plane is live only while that user
+  is logged in. `switch-to-configuration` reaches exactly the users logind
+  lists. (C7)
+
+**Nothing in C `deletes` or `kills` a section.** `kills §5.2` was a live outcome
+on C7 and did not happen.
+
+### One rule the charter should state, free
+
+**The registration hook may use `DEVENV_ROOT`, `DEVENV_DOTFILE`, `DEVENV_STATE`,
+`DEVENV_PROFILE` and `DEVENV_RUNTIME`, and nothing else from the `DEVENV_*`
+namespace.** Those five are documented and read-only in
+`docs/src/reference/environment-variables.md`. `DEVENV_CMDLINE`, `DEVENV_TASKS`,
+`DEVENV_TASK_FILE` and `DEVENV_SKIP_TASKS` are set and undocumented.
+`DEVENV_SKIP_TASKS` in particular is a tempting way to tell the capture
+subprocess from the real shell and must not be used: an idempotent guard needs
+no such test. (C3)
+
+### What was changed, and why
+
+`modules/devenv.nix` — **the guard no longer forks.** `sed` and `cat` are
+replaced with a bash parameter expansion and `$(<file)`. C2 measured the old
+form at +23 ms per warm entry and the new one at +4 ms, and the rendered entry
+is byte-identical. The refuse-on-collision logic from C5 was written and
+exercised in a **copy** under `/tmp/c5-devman` and deliberately **not** applied
+to the module: it is a §9.1 change that the reconciliation pass should approve
+first.
+
+`.scratch/projects/006-automation-plane/c-scratch/` — a throwaway flake and
+NixOS test for C7. It builds a VM, activates a specialisation inside it, and
+never touches the machine.
+
+### What Investigation C did not do
+
+- **Investigation D was not started**, as §5 of the prompt requires. D6 in
+  particular — the `.devman/` collision survey — was left alone.
+- **`CONCEPT.md` was not edited.** Every contradiction is recorded above and
+  left for the reconciliation pass, which now owes the charter both B's changes
+  and C's.
+- **The machine was not modified.** No `nixos-rebuild switch`, no `/etc/nixos/`
+  edit, no writes to `~/.local/share/devman/`, no contact with the running Dagu
+  instance. Every registry in C is under `/tmp`. C7 ran in a test VM, and the
+  separate Dagu used for C6 ran under `DAGU_HOME=/tmp/c6-dagu`.
+- **devenv 2.2.2 was not tested.** The kickoff suggested comparing it where a
+  result looked version-sensitive, which C1 is. `nix build
+  github:cachix/devenv/v2.2.2#devenv` began compiling devenv from source; it was
+  stopped because it was saturating the machine and corrupting C2's timings, and
+  not restarted. **Every C1 and C2 result is devenv 2.1.2 only.** The
+  double-firing in particular is a behaviour of
+  `capture_shell_environment`, which stage 1 should re-check on whatever devenv
+  it ships against.
+- **The not-logged-in user was reasoned about, not run.** C7's VM used
+  `linger = true`. That a non-lingering user's service is neither running nor
+  restarted follows from `logind.list_users()` in the source, and was not
+  measured in a VM of its own.
