@@ -1,10 +1,13 @@
 # devman — Concept (the automation plane)
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
-> and D (2026-08-22). Amended once during stage 1 (2026-08-22): §9.2 gains the
-> `dags/` directory, because a DAG is keyed by its file's base name and the
-> layout as written made two projects' `check` invisible. See
-> `STAGE_1_LOG.md`, S1.**
+> and D (2026-08-22). Amended twice during stage 1 (2026-08-22), each time
+> because building the thing measured something the investigations had not.
+> §9.2 gains the `dags/` directory, because a DAG is keyed by its file's base
+> name and the layout as written made two projects' `check` invisible
+> (`STAGE_1_LOG.md`, S1). And every task name gains its group as a namespace,
+> because devenv rejects a bare one and the charter's own examples therefore
+> did not evaluate (`STAGE_1_LOG.md`, S7).**
 >
 > Every edit made by that reconciliation rests on a measurement recorded in
 > `FINDINGS.md`. **All five investigations are closed**, and
@@ -236,9 +239,9 @@ devman = {
   groups  = [ "base" "python" ];      # workflows to inherit (§7.3)
 };
 
-tasks."lint".exec      = "ruff check .";
-tasks."typecheck".exec = "basedpyright";
-tasks."test".exec      = "pytest";
+tasks."python:lint".exec      = "ruff check .";
+tasks."python:typecheck".exec = "basedpyright";
+tasks."python:test".exec      = "pytest";
 ```
 
 Three lines plus the repo's own primitives. `project` is stated, never inferred
@@ -351,16 +354,24 @@ Violating this boundary is the main way the design decays.
 group-local convention, never reserved (§7.1):
 
 ```
-python:  lint  typecheck  test  integration-test
-nix:     flake-check  build
-rust:    clippy  cargo-check  test
+python:  python:lint  python:typecheck  python:test  python:integration-test
+nix:     nix:flake-check  nix:build
+rust:    rust:clippy  rust:cargo-check  rust:test
 ```
+
+**The prefix is devenv's requirement, not the plane's.** devenv rejects a bare
+name outright — `Invalid task name: lint. Task names must be in format
+'namespace:name'` — so a group's workflows have to carry one. The group's own
+name is the namespace, which is what "group-local" above means made literal,
+and it is what stops two groups' `lint` from colliding in a repo that takes
+both. The cost is that such a repo defines both sets, which §7.4 already
+answers: to be rid of one, do not take its group.
 
 One logical task has one implementation, and every caller reaches it the same
 way — a workflow step, a hook, a person at a prompt:
 
 ```
-prefer:  devenv tasks run test
+prefer:  devenv tasks run python:test
 
 avoid:   workflow:  pytest
          hook:      devenv shell -- pytest
@@ -471,9 +482,9 @@ file.** A workflow is Dagu configuration from the first line to the last:
 queue: light
 steps:
   - name: lint
-    run: devenv tasks run lint
+    run: devenv tasks run python:lint
   - name: typecheck
-    run: devenv tasks run typecheck
+    run: devenv tasks run python:typecheck
 ```
 
 `queue` is Dagu's, and it stays in the file because it is the one thing that
@@ -570,8 +581,8 @@ devman = {
   groups  = [ "base" "python" ];
 };
 
-tasks."lint".exec      = "ruff check .";  # your primitives, your names
-tasks."typecheck".exec = "basedpyright";
+tasks."python:lint".exec      = "ruff check .";  # your primitives, your names
+tasks."python:typecheck".exec = "basedpyright";
 ```
 
 Three keys. There is no per-workflow Nix option, because an inherited workflow
