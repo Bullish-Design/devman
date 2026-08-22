@@ -1210,12 +1210,22 @@ flakes, and §3.1's anti-drift argument weakens to a convention.
 §7.3 refuses field merging, so changing one step of `check` means copying
 `check.yaml` into the repo, where it stops tracking upstream (§15.7).
 
-Measure at stage 2 across five real repos: **how many files were overridden, and
-how much of each is unchanged from the group version?**
+Measured at stage 2 across five real repos: **one override in eighteen
+workflows**, keeping 7 of its 9 executable lines, and the change was a deletion
+of a step that did not apply rather than an edit (`STAGE_2_LOG.md`, S14).
 
-A file copied to change one line is the failure mode. If it is common, the fix
-is smaller group files — split `check.yaml` into what varies and what does not —
-not a merge algorithm.
+> **Closed by decision (2026-08-22).** Whole-file shadowing stays. **A repository
+> that must change a default writes a whole workflow file of its own**, and that
+> is the whole of the answer. Neither remedy this section reserved will be
+> applied: not smaller group files split for the purpose, and not a merge
+> algorithm — §7.3 refused the second already, and the one real override was a
+> deletion, which merge semantics express badly. The cost is paid once, by the
+> repository, in its own tree; every alternative moves complexity into the plane
+> (`STAGE_3_LOG.md`, S14).
+
+§15.6 is unaffected: an overriding file stops tracking its group, and `devman
+doctor` reports how far each has diverged. That stays visible without anybody
+running a study.
 
 ---
 
@@ -1437,9 +1447,9 @@ is that each now has a reason rather than a preference.
   and runs when that DAG runs, so a project whose workflows stop running keeps
   its `.runs/` forever — a `doctor` check (§10), not a setting.
 
-**What is open is no longer a question about the design.** §12.4 — whether
-whole-file shadowing is coarse enough to live with — cannot be answered before
-there are real workflows to override, and is measured at stage 2 across five
-repos.
+**Nothing is open.** §12.4 — whether whole-file shadowing is coarse enough to
+live with — was measured at stage 2 (one override in eighteen workflows) and
+closed by decision at stage 3: it stays as §7.3 defines it, and a repository that
+must change a default writes its own workflow file.
 
 ---
