@@ -700,3 +700,446 @@ answer to the same question about hooks, applied unchanged. The recipe is in
    stage 2 (`STAGE_2_LOG.md`, S8).
 
 **Charter impact:** **none beyond S2's**, which changed §8 in its own commit.
+
+---
+
+## S7 — Decisions 2 and 3: an agent workflow fits the contract, and it needed no secret
+
+**Answer:** `.devman/workflows/agent-review.yaml`. It is Dagu steps calling
+`devenv tasks run agent:review`, like everything else (§6). It ran on the
+installed service and produced a real review of the last commit. **And it
+authenticated with no secret at all**, which settles decision 2 by measurement
+rather than by preference.
+
+**Home: this repository's own `.devman/workflows/`.** §16's promotion rule — a
+group begins when a *second* repository wants the same file — and one ships an
+agent CLI: this one, which carries `claude-code` and `codex-cli` in
+`devenv.nix`'s packages. Nothing about the file would change on promotion,
+because it names a task and never a tool (§7.1).
+
+### Decision 3a — how an argument reaches a run: a real default, overridden by `NAME=VALUE`
+
+`devman run` refuses a declared parameter that would have no value
+(`src/devman/run.py:118`), so a free-text parameter with an empty default is
+refused at the trigger. **That is correct rather than inconvenient**: an agent
+run with an empty prompt is a run that does something nobody asked for. So each
+input carries a real default and a person overrides it:
+
+```bash
+devman run agent-review
+devman run agent-review AGENT_REF=HEAD~3
+devman run agent-review AGENT_PROMPT='List every place this breaks a repo with no git.'
+```
+
+`DEVMAN_PROJECT_DIR` is declared first, because Dagu rejects a parameter a DAG
+did not declare and `devman run` always passes the directory variable (S3).
+
+**The value is passed to the task through the environment, never interpolated
+into a command.** S3 measured that a parameter reaches the step's shell
+environment, so the step exports `AGENT_REPORT` and the task reads
+`"$AGENT_PROMPT"`. Nothing a person typed is expanded by a shell.
+
+### Decision 3b — the queue is `exclusive`, and what actually keeps it away from the watcher
+
+`heavy` says "this costs a lot of machine". `exclusive` says "this must not
+overlap with other exclusive work". Both are `max_concurrency: 1` here, and the
+second is the stronger claim, so it is the honest one.
+
+**But the queue is not what keeps an agent run out of the watcher's way.** That
+is a property of what it writes: one file, under `.devman/.runs/reports/`, which
+the watcher ignores and git ignores. An agent workflow that rewrote source files
+would fire `format` on every write and would have to be reasoned about the way
+`python-format` is. This one has nothing to reason about, and that is a design
+choice rather than luck.
+
+### Decision 2 — stage 4 needs no secret, and the machine module grows nothing
+
+**Command:**
+
+```bash
+devman run agent-review
+```
+
+**Evidence:**
+
+```
+level=INFO msg="Enqueued dag-run" dag=devman-agent-review run-id=034Bm7noro2o763kRSY095
+    params="[DEVMAN_PROJECT_DIR=… AGENT_REF=HEAD AGENT_PROMPT=Review this change. …]"
+Succeeded — dag: devman-agent-review, review [succeeded]
+
+$ tail -1 .devman/.runs/metadata.jsonl
+{"dag":"devman-agent-review","run_id":"034Bm7noro2o763kRSY095", … "status":"succeeded", …}
+```
+
+**Evidence — what it left behind** (`.devman/.runs/reports/agent-review-034Bm7noro2o763kRSY095.md`, abridged):
+
+```markdown
+# agent review — devman-agent-review
+- reviewed: `HEAD` = `9ebba37`
+## answer
+**Correctness:**
+1. **S5 regex fix — incomplete explanation.** … If a workflow were "release-v2",
+   the dag would be "devman-release-v2", and stripping the last component yields
+   "devman-release" — wrong. …
+2. **S4 exit status and release gate interaction.** … it doesn't explicitly
+   confirm that S5's gate check for `last validate: succeeded` correctly rejects
+   a "Partially Succeeded" run …
+```
+
+**The second point was worth acting on and is measured in S8.** That is what a
+review workflow is for, and it is the first thing in four stages that read this
+work and disagreed with it.
+
+**No secret was declared and none was needed.** The step ran under the Dagu user
+service, and §4's whole argument for a *user* service is that it already has the
+developer's `$HOME`, Nix profile, `~/.cache`, git credentials and SSH agent. The
+agent CLI reads its own credential file out of that `$HOME`, so §9.4's mechanism
+had nothing to add: there is no environment variable to mask and no missing
+value to fail on.
+
+**So §9.4 stays unused after stage 4, deliberately**, and the word `secret`
+still appears nowhere in `nix/`, `modules/`, `groups/` or `src/`.
+`STAGE_4_PROMPT.md` §10 expects stage 4 to make its first use; the measurement
+says otherwise, and rule 1 of that prompt is explicit — write the file first,
+and grow the plane only when a measurement shows the file cannot be written
+without it. A `secrets:` block declared because §9.4 exists would be a
+declaration with nothing behind it.
+
+**What would change the answer, stated exactly**, so the next stage does not
+re-derive it:
+
+| If a workflow needs | Then |
+|---|---|
+| a value that is not in `$HOME` — a PyPI token, a CI token, a hosted key | declare `secrets: [{name, provider: env, key}]` in **that** workflow, never in `base.yaml` (§9.4) |
+| the module to supply it | `services.devman-dagu` gains **one** option: an `EnvironmentFile=` path on the Dagu unit, written by agenix or sops-nix |
+
+The option is an `EnvironmentFile` rather than an `environment.X = value`,
+because a value in a NixOS module is a value in the Nix store and the store is
+world-readable. E3 recommends `provider: env` over `provider: file` for the
+workflow's half, because a file path is machine-specific and collides with §9.1;
+the module's half is what keeps that portable. **Neither is written today.**
+
+And E8's `dagu profile set-secret` stays refused for a reason that outranks
+convenience: it scopes a secret by project identity, which is a second store
+keyed the way devman's registry is keyed — D8's forbidden second entry path,
+arriving as a feature.
+
+**Charter impact:** **none.** §9.4 is unchanged and still unused. That is now a
+recorded decision rather than an omission.
+
+---
+
+## S8 — A partially-succeeded run does not open the gate, and the agent is why it was checked
+
+**Answer:** `base.yaml`'s exit handler records a partially-succeeded run as
+`"status":"partially_succeeded"`, and the release gate matches the full string
+`"status":"succeeded"`, which that does not contain. **The gate refuses.**
+
+**Why it was measured at all.** S7's agent run raised it: *"it doesn't explicitly
+confirm that S5's gate check for `last validate: succeeded` correctly rejects a
+'Partially Succeeded' run"*. The two strings share a substring, and if the match
+had been on `succeeded` alone the gate would have opened on a failed validate —
+silently, which is the exact failure D7 exists to prevent.
+
+**Command** — a throwaway instance carrying a byte copy of the installed
+`base.yaml`, and a DAG whose first step fails under `continue_on`:
+
+```bash
+DEVMAN_PROJECT_DIR=/tmp/s4-proj dagu start s4_partial -- DEVMAN_PROJECT_DIR=/tmp/s4-proj
+```
+
+**Evidence:**
+
+```
+Result: Partially Succeeded
+
+$ tail -1 /tmp/s4-proj/.devman/.runs/metadata.jsonl
+{"dag":"s4_partial", … "status":"partially_succeeded", …}
+```
+
+`review`'s two check steps carry `continue_on: {failure: true}`, so this is not
+a hypothetical: a review whose lint failed writes exactly that status into the
+same file the release gate reads. The gate's `case` pattern is
+`*'"status":"succeeded"'*`, and `"status":"partially_succeeded"` has `_` where
+the pattern needs `"`. It does not match.
+
+**Charter impact:** **none.** Recorded in `groups/release/README.md`, because it
+is the kind of thing that is correct today and silently wrong after one careless
+edit.
+
+---
+
+## S9 — `$SHELL` outranks `default_shell`, so three stages ran under the wrong shell
+
+**Answer:** the machine module sets `default_shell` to bash and says every step
+runs "under one known shell, whatever the developer's login shell is". **False.**
+Dagu prefers `$SHELL`, the systemd user manager carries the developer's login
+`SHELL`, the daemon inherits it, and every step and handler on this machine has
+been running under **zsh** since stage 1.
+
+**How it surfaced.** The benchmark campaign's first version read bash's
+fork-free `$EPOCHREALTIME`. The run failed:
+
+```
+├─campaign (5.0s) [failed]
+│ └─stderr: /tmp/dagu_script-138458934.sh:17: EPOCHREALTIME: parameter not set
+```
+
+`parameter not set` is zsh's wording; bash says `unbound variable`. Stage 3's S2
+onExit failure carried the same fingerprint — `/tmp/dagu_script-….sh:1: no such
+file or directory:` — and nobody read it as a shell identity.
+
+**Command — the daemon's own environment, against its own config:**
+
+```bash
+$ systemctl --user show-environment | grep ^SHELL
+SHELL=/run/current-system/sw/bin/zsh
+$ tr '\0' '\n' < /proc/$(systemctl --user show dagu -p MainPID --value)/environ | grep ^SHELL=
+SHELL=/run/current-system/sw/bin/zsh
+$ grep default_shell ~/.local/share/dagu/config.yaml
+default_shell: /nix/store/0641h8qfqaxnwrsw2nzrz6i1wbzyx92l-bash-interactive-5.3p9/bin/bash
+```
+
+**Command — the precedence, isolated.** A throwaway `DAGU_HOME` whose
+`config.yaml` names the same bash, and one DAG that prints which shell it is in:
+
+```bash
+DAGU_HOME=$R SHELL=/run/current-system/sw/bin/zsh dagu start sh
+DAGU_HOME=$R env -u SHELL                          dagu start sh
+```
+
+**Evidence:**
+
+```
+SHELL=zsh   BASH_VERSION=[unset]              ZSH_VERSION=[5.9.1]
+SHELL unset BASH_VERSION=[5.3.9(1)-release]   ZSH_VERSION=[unset]
+```
+
+**`default_shell` applies only when `$SHELL` is unset.** The module's comment
+guessed the opposite — "a user unit usually has no SHELL at all" — and a
+systemd user manager started from a login session has one.
+
+**Why three stages missed it.** Every workflow written so far is POSIX-shaped:
+`devenv tasks run`, `find`, `sha256sum`, `printf`, `test`. Those behave
+identically in both shells, so the plane ran correctly under a shell nobody
+chose, and the first file to use a bash-only expansion was the one that found
+out. That is the same silence §5.2 warns about for a missed config restart, in
+a different field.
+
+**The fix, and it is one line.** `systemd.user.services.dagu.environment.SHELL`
+states the shell instead of inheriting it — S2's rule about `DAGU_HOME`, applied
+where it was also needed:
+
+```nix
+environment = {
+  DAGU_HOME = cfg.dagHome;
+  SHELL = "${pkgs.bash}/bin/bash";
+};
+```
+
+**It needs a rebuild and it has not had one.** `nix/nixos-module.nix` is the
+only file that moves the machine closure, so this is proposed rather than
+applied (rule 8 of the prompt's §8). Proved by evaluation and by the VM test:
+
+```
+$ nix build .#checks.x86_64-linux.groups-validate --no-link     # exit 0
+$ nix build .#checks.x86_64-linux.dagu-service   --no-link      # exit 0
+```
+
+**And every stage-4 file is written to run under either shell**, because the
+plane must work on the generation the developer has rather than the one they
+will have. The campaign uses `date +%s%N`, which costs one fork per sample and
+biases a ~1700 ms figure by about a millisecond — stated in the file rather than
+corrected, because the report exists to compare a target against itself.
+
+**Charter impact:** **none.** §7.1's contract says nothing about the shell, and
+this is the machine module failing to deliver what it already promised in a
+comment.
+
+---
+
+## S10 — The benchmark campaign, and decision 5: `exclusive`, and what it does not buy
+
+**Answer:** `.devman/workflows/bench-entry.yaml`. It measures what §14's
+criterion 7 is about and what §15.7 says nothing will ever check for you — how
+long it costs to enter a repository's shell — over a named registered project,
+with n, mean, median, standard deviation, min, max, and the load average at both
+ends.
+
+**Command:**
+
+```bash
+devman run bench-entry RUNS=20
+```
+
+**Evidence:**
+
+```
+level=INFO msg="Enqueued dag-run" dag=devman-bench-entry run-id=034BmEgoi5qH71gKckHXOR
+    params="[DEVMAN_PROJECT_DIR=… TARGET=/home/andrew/Documents/Projects/observantic RUNS=20 WARMUP=3]"
+Succeeded
+
+$ tail -1 .devman/.runs/metadata.jsonl
+{"dag":"devman-bench-entry","run_id":"034BmEgoi5qH71gKckHXOR", … "status":"succeeded", …}
+```
+
+```markdown
+# bench-entry — devman-bench-entry
+- target: `/home/andrew/Documents/Projects/observantic`
+- devenv: `devenv 2.1.2 (x86_64-linux)`
+- warm-up entries discarded: 3
+- load average before: 2.63 3.11 3.58
+- load average after:  2.71 3.08 3.55
+
+| n | mean | median | sd | min | max |
+|---|---|---|---|---|---|
+| 20 | 1735.5 | 1730.5 | 62.6 | 1654 | 1830 |
+```
+
+**`TARGET=observantic` became a path and the file holds neither.** The parameter's
+default is a project *name*, and `devman run` fills a declared parameter whose
+default names a registered project with that project's path (S3 of stage 3). The
+resolved path appears in the *report*, which is run output under `.devman/.runs/`
+and git-ignored; criterion 10 is about workflow files, and this one has no
+absolute path in it.
+
+**The number itself is not the finding, and the file says so.** 1735 ms is an
+order of magnitude above stage 3's 255 ms for a throwaway two-input repository —
+`observantic` carries more inputs and a uv venv, and the entry is made from a
+Dagu step rather than a warm interactive shell. The report exists to compare a
+target against itself over time, and it prints the spread first for the reason
+stage 3's S15 records: the same repository moved 12 ms between load average 5
+and 13, against a plane cost of -0.17 ms. **A single number here would be a
+number somebody trusts and should not.**
+
+### Decision 5 — the queue is `exclusive`, `gpu` stays unnamed, and neither buys quiet
+
+`gpu` is declared by the machine with `max_concurrency: 1` and named by no
+workflow anywhere. **It stays that way.** Nothing in these six repositories is
+GPU work, and naming a queue for a resource you do not use misdeclares it —
+§15.4 makes a queue name a one-way door, and Dagu accepts a wrong one silently
+with no limit at all. Adding a name is cheap; naming the wrong one is invisible.
+
+`exclusive` is the honest name for a campaign, because a campaign must not
+overlap with another campaign or with an agent run. **It does not give the
+campaign the machine**, and that is the part worth writing down: Dagu's queues
+are independent, so `light`, `normal` and `heavy` runs proceed beside an
+exclusive one. The plane can serialize a *class* and cannot quiesce a *host*.
+That is why the load average is in the report rather than assumed away, and it
+is a limit of the design rather than of this file — §7.1 gives the machine
+queues and nothing else, and a "stop everything" primitive would be the machine
+learning what a workflow is for.
+
+**Charter impact:** **none.** §7.1's queue list is unchanged and still five.
+
+---
+
+## S11 — What a second repository took, and what it had to change
+
+**Answer:** D2's coverage condition, measured rather than argued. Two
+repositories took stage-4 files, and the amount each had to change is the
+finding.
+
+| Repository | Took | Edits to that repository |
+|---|---|---|
+| `siteman` — shell, shellcheck and Hugo, **no Python at all** | `base/review`, `base/maintain` | **one line**: the `rev=` in `devenv.yaml` |
+| `observantic` — a Python library | `release` | three lines: the group name, one task, and the `rev=` |
+
+**Command — siteman, which changed nothing but its pin:**
+
+```bash
+cd ~/Documents/Projects/siteman
+sed -i 's/rev=9610f97…/rev=a77dc309…/' devenv.yaml && devenv update devman && devenv shell -- true
+devman run review && devman run maintain
+```
+
+**Evidence:**
+
+```
+$ ls ~/.local/share/devman/projects/siteman/workflows/
+check.yaml  full-test.yaml -> siteman's own override  maintain.yaml  review.yaml  validate.yaml
+
+review:   Succeeded — 2026-08-22T17:35:11-04:00
+maintain: Succeeded — 2026-08-22T17:35:11-04:00
+
+.devman/.runs/reports/review-034BmNgds6MsfJCaMZWCfg.md:
+# review — siteman-review
+- head: `032a387` on `main`
+## uncommitted
+```
+ M devenv.lock
+ M devenv.yaml
+```
+## verdict
+- `base:lint` pass          <- fmt-check && lint
+- `base:test` pass          <- ci
+
+.devman/.runs/reports/maintain-034BmNh0ma9Wcg2rmnzEZu.md:
+- reports: 1 before, 1 after — 0 pruned
+- artifacts: 0 entries, **never pruned here** — remove them by hand
+- log trees: 6, pruned by the machine's hist_retention_days when this project's DAGs run
+```
+
+**That is criterion 6 in its sharpest form.** `review` calls `git`, `base:lint`
+and `base:test`, and it ran unedited in a repository with no Python, whose
+`base:lint` is `fmt-check && lint` and whose `base:test` is a Hugo CI script.
+The group file knows none of that.
+
+**Command — observantic, the second repository that made `release` a group:**
+
+```bash
+devman run release          # before the gate could pass
+devman run validate
+devman run release
+```
+
+**Evidence — the refusal, then the build:**
+
+```
+Failed — .devman/.runs/reports/release-034BmQxc4NTJKVtk4UeHx1.md
+## gate
+- clean tree: **NO** — refusing
+```
+ M devenv.lock
+ M devenv.nix
+ M devenv.yaml
+```
+- last validate: **NONE RECORDED** for `observantic-validate` — refusing.
+
+… commit, then `devman run validate` (Succeeded) …
+
+Succeeded — .devman/.runs/reports/release-034BmSyRCwu56fFmVWb2S1.md
+## gate
+- clean tree: yes
+- last validate: succeeded — `{"dag":"observantic-validate", … "status":"succeeded", …}`
+## built
+- head: `81097eba345658bd66ee6b632da7283abc7b4e91`
+- describes as: `v0.3.0-7-g81097eb`
+```
+-rw-r--r-- 1 andrew users  33013 Aug 22 17:38 observantic-0.3.0-py3-none-any.whl
+-rw-r--r-- 1 andrew users 185712 Aug 22 17:38 observantic-0.3.0.tar.gz
+```
+
+$ git status --porcelain
+                                   <- clean. The wheel is under .devman/.runs/artifacts/
+```
+
+**A real wheel and a real sdist, built by an unedited group file, in a
+repository that had never released through the plane, with the tree left
+clean.** The gate refused first, for two reasons, each named.
+
+### The changes made to other people's repositories (rule 7)
+
+| Repository | Commit | What changed |
+|---|---|---|
+| `siteman` | `ee8fb37` | `devenv.yaml` + `devenv.lock` — re-pin to `main@a77dc30` |
+| `observantic` | `81097eb` | `devenv.yaml` + `devenv.lock` re-pin; `devenv.nix` gains `"release"` in `groups` and one `release:build` task |
+
+Nothing else in either repository was touched. Both were committed in their own
+trees; neither is pushed, which matches how stages 2 and 3 left the other five.
+
+**Three repositories were not re-pinned** — `pyjutsu`, `nix-paseo` and
+`pydantree`. They keep `main@9610f97` and therefore do not yet see `review` or
+`maintain`. That is the plane working as designed: a group file reaches a
+repository through that repository's own pin (§3.2), and re-pinning three more
+would have proved nothing S11 has not already proved.
