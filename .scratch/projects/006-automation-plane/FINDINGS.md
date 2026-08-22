@@ -3696,3 +3696,367 @@ later investigation:
   Investigation C's C1 and is not recorded as an answer; it was incidental.
 - **devenv 2.1.2 is not the current release.** 2.2.2 exists. The `git+file`
   locking result may or may not survive an upgrade.
+
+---
+
+# Investigation C — registration mechanics
+
+**Environment for every C answer unless a section says otherwise.** devenv
+2.1.2 (x86_64-linux), Nix 2.34.7, NixOS 26.11.20260705, devman commit
+`c9426b6`, on 2026-08-22.
+
+**How the test repos are pinned.** B4 established that `git+file` does not pin
+and follows the branch head. This session therefore froze the worktree once,
+with `git archive HEAD | tar -x -C /tmp/c-devman-src`, and every test repo
+declares `url: "path:/tmp/c-devman-src"`. The frozen tree is `c9426b6` and did
+not move while C ran, so mid-session commits could not change a test repo
+underneath a measurement. One repo (`/tmp/c-time-git`) uses the `git+https`
+form pinned to the same rev, as a control; see C2.
+
+---
+
+## C1 — Does enterShell run on every entry?
+
+**Answer:** **yes.** Every devenv command that gives you an environment runs
+`enterShell`, and every one of them registered. No ordinary entry path skips it.
+Criterion 17 stands. The commands that do *not* run it — `info`, `eval`,
+`build`, `repl`, `search`, `version` — build or inspect the configuration and
+never place you in the environment or run repo code, so a repo cannot silently
+miss registration through them.
+
+**Tested:** devenv 2.1.2, devman `c9426b6`, on 2026-08-22.
+
+**Method.** `/tmp/c-projA` imports `devman/modules` with
+`registryDir = "/tmp/c-registry"`, and adds its own one-line `enterShell` that
+appends a marker to `/tmp/c-marker.log`. devenv concatenates every module's
+`enterShell` into one script, so the marker and the module's registration hook
+are the same script. Before each path the marker log **and** the registry entry
+were deleted, so the two columns are independent probes: the marker says the
+hook text ran, the registry column says the module's own guard ran and wrote.
+
+**Command:**
+
+```bash
+probe() {
+  local label="$1"; shift
+  rm -f /tmp/c-marker.log /tmp/c-registry/projects/cprojA.json
+  ( "$@" ) >/tmp/c-out.log 2>&1; local rc=$?
+  ...
+}
+probe "devenv shell -- true" devenv shell -- true
+# ... one probe per row below
+```
+
+**Evidence:**
+
+| entry path | rc | `enterShell` runs | registered |
+|---|---|---|---|
+| `devenv shell -- true` | 0 | **2** | yes |
+| `devenv shell`, interactive on a pty | 0 | **2** | yes |
+| `devenv shell -- devenv shell -- true` (nested) | 0 | **4** | yes |
+| `devenv test` | 0 | **2** | yes |
+| `devenv tasks run c:probe` | 0 | **1** | yes |
+| `devenv up -d` | 0 | **1** | yes |
+| `devenv processes up -d` | 0 | **1** | yes |
+| direnv `use devenv`, fresh shell | 0 | **2** | yes |
+| direnv, second and third fresh shell | 0 | **2** each | yes each |
+| direnv, `cd` out and back in one long-lived shell | 0 | **2** | yes |
+| direnv `reload` | 0 | **2** | yes |
+| `devenv hook bash` auto-activation | — | via `devenv shell` | yes |
+| `devenv info` | 0 | 0 | no |
+| `devenv eval devman` | 0 | 0 | no |
+| `devenv build packages` | 1 | 0 | no |
+| `devenv repl` | 0 | 0 | no |
+| `devenv version` / `devenv search` / `devenv gc --help` | 0 | 0 | no |
+| `devenv container build shell` | 1 | 0 | no |
+
+`devenv hook bash` is not a separate mechanism. Its generated function ends in
+`(cd "$project_dir" && _DEVENV_HOOK_DIR="$project_dir" devenv shell)`, so
+auto-activation inherits the `devenv shell` row.
+
+**The direnv rows are the ones that mattered, and they came out clean.** The
+worry was a cached env: direnv restoring a saved environment on re-entry and
+never re-running `.envrc`. It does not. Deleting `/tmp/c-registry/projects/cprojA.json`
+and then re-entering — from a fresh shell, by `cd` out and back inside one
+long-lived shell, or by `direnv reload` — re-ran `enterShell` and rewrote the
+entry every time:
+
+```
+  after first load:   marker=2 reg=cprojA.json
+  after cd-out/cd-in: marker=2 reg=cprojA.json
+  after direnv reload: marker=2 reg=cprojA.json
+```
+
+The single exception is calling `direnv export` twice inside one process with
+the environment already loaded, which is a no-op by design and is not an entry.
+
+### enterShell runs twice per `devenv shell`, and it is not a bug in the module
+
+Instrumenting the hook with `$$`, `$PPID` and `/proc/$PPID/comm` showed two
+distinct processes running two distinct `.devenv/shell-*.sh` scripts, one the
+child of the other, and the child carrying `DEVENV_SKIP_TASKS=1`.
+
+```
+MARKER pid=3596842 ppid=3594470 cmdline=[shell -- true] argv0=.../shell-4eb14430df8e8879.sh cmd=.devenv-wrapped
+MARKER pid=3594470 ppid=3594459 cmdline=[shell -- true] argv0=.../shell-7ee285ed47d98dda.sh cmd=zsh
+```
+
+The reason is in devenv's own source, `devenv/src/devenv/mod.rs:2133`:
+
+```rust
+async fn capture_shell_environment(&self) -> Result<HashMap<String, String>> {
+    ...
+    let script = format!("env -0 > {}", env_path.to_string_lossy());
+    ...
+    let mut cmd = self.prepare_shell(&Some(script_path...), &[]).await?;
+    cmd.env("DEVENV_SKIP_TASKS", "1");
+```
+
+devenv runs the **whole shell hook** in a throwaway subprocess whose only
+purpose is to snapshot `env`, then runs it again for real.
+`run_enter_shell_tasks` calls it, and `main.rs` calls that on the shell, test,
+and direnv-export paths. `devenv tasks run` and `devenv up` capture the
+environment and stop there, which is why they show 1 rather than 2.
+
+**Two consequences.** Registration is charged twice per entry, which is what C2
+measures. And **any side effect in `enterShell` happens twice**, in a subprocess
+devenv intends to be observation-only. Registration survives that because the
+hash guard makes the second call a no-op, but §5.2 should say so rather than
+rely on it.
+
+**Charter impact:** **none for criterion 17 and §5.2's mechanism** — there is
+one way in, and every way in takes it. Two additions the charter should carry,
+neither a change to a claim:
+
+- §5.2 should state that `enterShell` runs **twice** per `devenv shell` and
+  once per `devenv up` / `devenv tasks run`, and that the guard is what makes
+  the repeat free. A registration hook that is not idempotent breaks here.
+- §5.2's "there is no manual register command" now has a matching operational
+  note: to restore a deleted registry, the developer must **enter a shell**,
+  not merely `cd` back into a directory whose direnv environment is already
+  loaded in the current process.
+
+---
+
+## C2 — What does the guarded no-op cost?
+
+**Answer:** the current guard adds **+23 ms** to a warm `devenv shell -- true`,
+because `enterShell` runs twice (C1) and each run forks `sed` and `cat`.
+Replacing both with bash builtins drops it to **+4 ms**, which is inside the
+noise. Criterion 7's 0.25 s is a separate problem: **bare devenv already costs
+231 ms warm on this machine**, so the 0.09 s of headroom the criterion assumes
+does not exist, with or without devman.
+
+**Tested:** devenv 2.1.2, devman `c9426b6`, on 2026-08-22, warm cache
+(10 warm-up entries per variant, discarded).
+
+**Why the numbers below are paired.** `hyperfine` runs each variant to
+completion in turn. This machine's load decayed over the session, so a
+sequential run put the drift straight into the comparison — one sweep even
+reported the enabled repo as *faster* than the disabled one. Every headline
+number here is instead a **paired** measurement: the variants are interleaved
+one entry at a time, and the delta is the mean of the per-pair differences,
+which cancels drift.
+
+**Command:**
+
+```bash
+# /tmp/c-paired.py alternates the variants one entry at a time
+N=100 python3 /tmp/c-paired.py \
+  "bare_no-devman-input|/tmp/c-time-bare" \
+  "off_enable-false|/tmp/c-time-off" \
+  "on_current-guard|/tmp/c-time-on" \
+  "on_forkfree-guard|/tmp/c-time-fast" \
+  "on_current-guard_git+https|/tmp/c-time-git"
+```
+
+**Evidence — 100 paired runs, warm:**
+
+```
+variant                                          mean      sd   median  runs=100
+bare_no-devman-input                            230.9    31.6    238.8
+off_enable-false                                250.5    31.2    256.4
+on_current-guard                                273.5    35.1    283.5
+on_forkfree-guard                               254.9    31.6    263.2
+on_current-guard_git+https                      250.0    33.1    257.3
+
+paired delta (off_enable-false)          - (bare) =  +19.63 ms  sd 24.98  95% CI [+14.73, +24.53]
+paired delta (on_current-guard)          - (bare) =  +42.63 ms  sd 26.83  95% CI [+37.37, +47.89]
+paired delta (on_forkfree-guard)         - (bare) =  +24.02 ms  sd 34.03  95% CI [+17.35, +30.69]
+paired delta (on_current-guard_git+https)- (bare) =  +19.06 ms  sd 35.39  95% CI [+12.13, +26.00]
+```
+
+Reading the deltas against `off_enable-false`, which is the honest baseline for
+"what does registration cost":
+
+| what | cost per warm entry |
+|---|---|
+| registration, current guard | **+23.0 ms** |
+| registration, fork-free guard | **+4.4 ms** |
+| importing the module at all, `enable = false` | +19.6 ms |
+| using a `path:` input instead of `git+https` | ≈ +23 ms |
+
+Two earlier paired sweeps of the same pair gave +32.2 ms (sd 26.0, n=60) and
++18.7 ms (sd 26.0, n=60) for the current guard, so **+23 ms is the middle of a
++19…+32 ms band** across sweeps. The fork-free guard measured +0.3 ms
+(95% CI [−7.1, +7.7], n=60) in the sweep where the current guard measured
++18.7 ms. It is not distinguishable from zero at this sample size.
+
+### Where the cost is
+
+Each firing runs one `sed` and one `cat`. Timed alone, `--shell=none`, 300 runs:
+
+```
+sed render (one fork)             2.9 ms ± 0.7 ms
+cat registry entry (one fork)     1.5 ms ± 0.7 ms
+```
+
+Timed as the guard actually runs it — the whole block, 200 iterations per
+sample, 20 samples:
+
+```
+current guard x200 (sed + cat)   1.672 s ± 0.050 s     →  8.36 ms per call
+fork-free bash guard x200       23.6 ms ± 2.3  ms      →  0.12 ms per call
+                                 70.77 ± 7.21 times faster
+```
+
+8.36 ms per call × 2 calls per entry = 16.7 ms, against the 23 ms measured
+end-to-end; the rest is the two command substitutions' own subshells. **The
+comparison itself costs nothing.** The whole cost is the four process forks.
+
+### The cheaper guard
+
+Neither fork is necessary. The template substitution is a bash parameter
+expansion, and reading a file into a variable is `$(<file)`, which bash performs
+without forking.
+
+```nix
+enterShell = ''
+  devman_registry="${cfg.registryDir}/projects"
+  devman_entry="$devman_registry/${cfg.project}.json"
+  devman_tmpl=$(<${entryFile})
+  devman_rendered=''${devman_tmpl//@PATH@/$DEVENV_ROOT}
+
+  if [ ! -f "$devman_entry" ] || [ "$(<"$devman_entry")" != "$devman_rendered" ]; then
+    mkdir -p "$devman_registry"
+    printf '%s\n' "$devman_rendered" > "$devman_entry"
+    echo "devman: registered ${cfg.project}"
+  fi
+'';
+```
+
+**This was applied to `modules/devenv.nix` in this session, and the finding is
+what justifies it.** The rendered entry is byte-identical to the `sed` version,
+and re-entry leaves the file's mtime untouched, so criterion 8 still holds:
+
+```
+2026-08-22 08:57:17.172776802 -0400     # after the first entry
+2026-08-22 08:57:17.172776802 -0400     # after the second
+```
+
+`[` is a bash builtin, so the `-f` test forks nothing either. The remaining
+per-entry cost is the two bash string operations, twice.
+
+### Criterion 7 does not survive contact with this machine
+
+The absolute numbers are the uncomfortable part. In one quiet moment, a bare
+devenv repo with no devman input at all measured **163.9 ms ± 20.8 ms** (50
+runs), which reproduces Spike A's 0.16 s exactly. Under ordinary desktop load,
+the same repo measured **230.9 ms** (100 paired runs). Criterion 7 caps
+`devenv shell -- true` at 0.25 s warm, and bare devenv is already at 0.23 s.
+
+Neither the module import (+19.6 ms) nor the guarded no-op (+4.4 ms fork-free)
+is what puts it over. Ambient machine load is. Spike A's 0.16 s was measured on
+a quieter machine than the one that must now hold the criterion.
+
+**Charter impact:** **changes §14, criterion 7.** The criterion must measure a
+**delta against the same repo with `devman.enable = false`**, not an absolute
+wall-clock number, because the absolute number is dominated by devenv and by
+machine load and is not devman's to defend. A concrete replacement: *the module
+adds no more than 10 ms to a warm `devenv shell -- true`, measured as a paired
+difference against the same repo with `devman.enable = false`.* The fork-free
+guard meets that with room to spare; the `sed`-and-`cat` guard does not.
+
+Two further notes for §5.2 and §3.2, both free:
+
+- **`enterShell` must fork nothing.** It runs twice per entry, so every fork is
+  charged twice, and this is the one hook on the critical path of every shell
+  the developer opens.
+- **A `path:` input costs about 23 ms per entry more than `git+https`.** Test
+  repos and vendored checkouts pay it; real consumers pinning a published rev
+  do not. Worth knowing before a future measurement blames the module for it.
+
+---
+
+## C3 — What state paths does devenv expose in enterShell?
+
+**Answer:** `DEVENV_ROOT`, `DEVENV_DOTFILE`, `DEVENV_STATE`, `DEVENV_PROFILE`
+and `DEVENV_RUNTIME` are all set and all documented as read-only. `DEVENV_CMDLINE`,
+`DEVENV_TASKS`, `DEVENV_TASK_FILE` and `DEVENV_SKIP_TASKS` are set and
+**undocumented**. The registration hook may rely on the first five and must not
+rely on the last four.
+
+**Tested:** devenv 2.1.2, devman `c9426b6`, on 2026-08-22.
+
+**Command:** an extra line in the repo's `enterShell`, so the dump is taken from
+the module's own vantage rather than from the shell afterwards:
+
+```nix
+enterShell = ''
+  { echo "--- enterShell vantage, cmdline=[$DEVENV_CMDLINE]"
+    env | grep -E "^DEVENV|^IN_NIX_SHELL" | sort; } >> /tmp/c-env.log
+'';
+```
+
+then `devenv shell -- true`.
+
+**Evidence:** the log holds two blocks, one per firing (C1). The second — the
+real shell — is:
+
+```
+--- enterShell vantage, cmdline=[shell -- true]
+DEVENV_CMDLINE=shell -- true
+DEVENV_DOTFILE=/tmp/c-projA/.devenv
+DEVENV_PROFILE=/nix/store/yi29ak3165k5bnrxjrp3vs93rm230wad-devenv-profile
+DEVENV_ROOT=/tmp/c-projA
+DEVENV_RUNTIME=/tmp/devenv-5e57980
+DEVENV_STATE=/tmp/c-projA/.devenv/state
+DEVENV_TASK_FILE=/nix/store/60aly8aw5zhhyvcz9pxm0clg6jz4him5-tasks.json
+DEVENV_TASKS=
+IN_NIX_SHELL=impure
+```
+
+The first block is identical except that it also carries `DEVENV_SKIP_TASKS=1`.
+That is the environment-capture subprocess from C1.
+
+**Documented or incidental.** Checked against devenv's own tree at the rev this
+repo locks, `github:cachix/devenv` `5844e78`, file
+`docs/src/reference/environment-variables.md`:
+
+| variable | value shape | status |
+|---|---|---|
+| `DEVENV_ROOT` | the project root | **documented**, read-only, added in 0.2 |
+| `DEVENV_DOTFILE` | `$DEVENV_ROOT/.devenv` | **documented**, read-only, added in 0.1 |
+| `DEVENV_STATE` | `$DEVENV_DOTFILE/state` | **documented**, read-only, added in 0.1 |
+| `DEVENV_RUNTIME` | `/tmp/devenv-<hash>`, or under `$XDG_RUNTIME_DIR` | **documented**, read-only, added in 1.0 |
+| `DEVENV_PROFILE` | the store path of the assembled profile | **documented**, read-only, added in 0.5 |
+| `DEVENV_CMDLINE` | the devenv subcommand and its arguments | **incidental** — no docs entry; set in `devenv/src/shell_env.rs:49` |
+| `DEVENV_TASKS` | empty here | **incidental** — one hit in `src/modules`, none in docs |
+| `DEVENV_TASK_FILE` | store path of `tasks.json` | **incidental** — no docs entry |
+| `DEVENV_SKIP_TASKS` | `1` in the capture subprocess only | **incidental** — one hit, `src/modules/tasks.nix:448` |
+
+`$DEVENV_STATE` is available, so the answer to the question as the kickoff asked
+it is yes. The module uses `$DEVENV_ROOT` and nothing else, which is the most
+documented and oldest of the five.
+
+**One temptation to record and refuse.** `DEVENV_SKIP_TASKS` distinguishes the
+capture subprocess from the real shell, so a hook could use it to run once per
+entry instead of twice. **Do not.** It is undocumented, it exists to serve
+devenv's task runner, and a guard that is idempotent needs no such test. The
+correct fix for the double cost is the fork-free guard from C2, not a probe of
+devenv's internals.
+
+**Charter impact:** **none.** §5.2 relies on `$DEVENV_ROOT` only, which is
+documented and stable. One rule the charter should state: **the registration
+hook may use `DEVENV_ROOT`, `DEVENV_DOTFILE`, `DEVENV_STATE`, `DEVENV_PROFILE`
+and `DEVENV_RUNTIME`, and nothing else from the `DEVENV_*` namespace.**

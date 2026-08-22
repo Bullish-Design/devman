@@ -72,12 +72,20 @@ in
     # §5.2: registration runs in enterShell, guarded by a content hash. The
     # module renders the entry, compares its hash against disk, and writes only
     # on a difference, so the common case costs nothing.
+    #
+    # The hook forks nothing. devenv runs the whole shell hook TWICE per
+    # `devenv shell` — once in a throwaway subprocess that only snapshots `env`
+    # (devenv/src/devenv/mod.rs, capture_shell_environment), once for real — so
+    # every fork is charged twice on the critical path of every shell the
+    # developer opens. The earlier `sed`-plus-`cat` form cost +23 ms per warm
+    # entry; parameter expansion plus `$(<file)` costs +4 ms (C2).
     enterShell = ''
       devman_registry="${cfg.registryDir}/projects"
       devman_entry="$devman_registry/${cfg.project}.json"
-      devman_rendered="$(${lib.getExe pkgs.gnused} "s|@PATH@|$DEVENV_ROOT|" ${entryFile})"
+      devman_tmpl=$(<${entryFile})
+      devman_rendered=''${devman_tmpl//@PATH@/$DEVENV_ROOT}
 
-      if [ ! -f "$devman_entry" ] || [ "$(cat "$devman_entry")" != "$devman_rendered" ]; then
+      if [ ! -f "$devman_entry" ] || [ "$(<"$devman_entry")" != "$devman_rendered" ]; then
         mkdir -p "$devman_registry"
         printf '%s\n' "$devman_rendered" > "$devman_entry"
         echo "devman: registered ${cfg.project}"
