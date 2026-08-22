@@ -5237,3 +5237,401 @@ worth recording:
 "Rust and TypeScript on demand" but **"one repo each today, so they are
 `.devman/workflows/` content until a second repo wants the same file."** That
 is the same rule §7.3 already uses for promotion, applied to itself.
+
+---
+
+## D5 — Retention for `.devman/.runs/`
+
+**Answer:** **the lean stands, and §16's "partly settled" caveat is overturned.**
+Dagu's own retention **does** prune the log tree under `log_dir`. The log half
+of this question has an owner, and it is Dagu, configured once in `base.yaml`.
+
+**Tested:** dagu 2.15.0, on 2026-08-22.
+
+§16 records: "Dagu's `hist_retention_days` … does **not** prune the log tree
+under `log_dir`, so the log half of this lean still needs an owner." That is
+wrong.
+
+**Command:** two DAGs, each with `log_dir` pointing outside `DAGU_HOME`, run
+four times. One declares a retention limit; the control does not.
+
+```yaml
+# d5probe.yaml — the retention case
+log_dir: /tmp/d5-logs
+hist_retention_runs: 1
+steps: [{ name: hello, command: echo hello }]
+
+# d5ctl.yaml — the control, no retention override
+log_dir: /tmp/d5-logs2
+steps: [{ name: hello, command: echo hello }]
+```
+
+```bash
+for i in 1 2 3 4; do dagu start d5probe --run-id d5run$i; done
+find /tmp/d5-logs  -maxdepth 2 -type d -name 'dag-run_*' | wc -l
+find /tmp/d5-logs2 -maxdepth 2 -type d -name 'dag-run_*' | wc -l
+```
+
+**Evidence:**
+
+| | run dirs under `log_dir` | run dirs in `DAGU_HOME` history |
+|---|---|---|
+| control, no retention | **4** | 4 |
+| `hist_retention_runs: 1` | **1** | 1 |
+
+Four runs in, three log directories gone. The surviving one is the newest,
+`dag-run_20260822_141532Z_d5run4`. **`log_dir` is inside retention's scope.**
+
+The source says why, and says the days form behaves identically.
+`internal/persis/file/dagrun/store.go:433` dispatches on which limit is set:
+
+```go
+if req.KeepRuns > 0 {
+    ids, err = root.RemoveOldByRuns(ctx, req.KeepRuns, req.DryRun)
+} else {
+    ids, err = root.removeOldBefore(ctx, req.OlderThan, req.DryRun)
+}
+```
+
+and both loops end in the same call — `dr.removeDAGRun(ctx, r, dryRun)`
+(`dataroot.go:291` and `:325`). **The measurement used `hist_retention_runs`
+because it is testable in one minute; `hist_retention_days` is the same removal
+behind a time predicate rather than a count.** Both preserve active runs.
+
+**What retention does *not* reach.** §9.2's `metadata.jsonl` is appended by a
+`handler_on.exit` block in `base.yaml`, not by Dagu's run store, so no retention
+setting prunes it. That is exactly the lean's second half — "keep
+`metadata.jsonl` indefinitely — it is small and it is the run history" — and it
+holds by construction rather than by configuration.
+
+**Charter impact:** **changes §16, and confirms the lean.**
+
+- Strike §16's "**Partly settled**" paragraph. The log half does not need an
+  owner. **`hist_retention_days: 7` in `base.yaml` prunes both Dagu's
+  machine-side history and the per-project log tree under
+  `.devman/.runs/logs/`**, which is what the module already sets.
+- One thing to state, because it is the trap: retention is scoped **per DAG**,
+  and it runs when that DAG runs. A project whose workflows stop running keeps
+  its `.runs/` forever. That is a `doctor` check, not a config setting, and it
+  belongs beside C6's stale-entry check.
+- `metadata.jsonl` survives every retention setting because nothing in Dagu
+  writes or owns it. Worth saying in §9.2 so a later reader does not look for a
+  knob.
+
+---
+
+## D6 — The `.devman/` collision
+
+**Answer:** **2 of 77 checkouts carry a `.devman/`, and neither has the shape
+§15.2 anticipates.** There are **four** shapes in play, not two, and the one
+§15.2 was written against does not occur on disk at all. So the detection test
+must be a **whitelist**, not a check for a known-old marker. And the collision
+is **bidirectional**: `devman 0.2.0`'s `init --force` calls `shutil.rmtree` on
+the whole directory.
+
+**Tested:** read-only survey of 71 project directories and 6 worktrees, plus the
+installed `devman-0.2.0` package, on 2026-08-22.
+
+**Command:**
+
+```bash
+find ~/Documents/Projects ~/.paseo/worktrees -maxdepth 3 -name .devman -type d
+```
+
+**Evidence — the whole population:**
+
+```
+/home/andrew/.paseo/worktrees/1n48r26y/special-dragon/.devman
+    .runs
+    context
+
+/home/andrew/Documents/Projects/fsdantic/.devman
+    store
+```
+
+**Two hits out of seventy-seven.** The collision is rare, which is good news for
+§15.2's cost and bad news for its test.
+
+### The four shapes
+
+| # | shape | top-level entries | where seen | tracked? |
+|---|---|---|---|---|
+| 1 | **devman 0.2.0 workspace** | `devman.toml`, `interaction.md`, `nvim/init.lua` | **nowhere on disk** — only in the installed package | would be |
+| 2 | **agent reference material** | `context/` with an ignored `.vend/` payload | this repo | `context/README.md` tracked, `.vend/` ignored |
+| 3 | **vendored store** | `store/vendor/…` | `fsdantic` | tracked |
+| 4 | **the plane** | `workflows/`, `.runs/` | this repo, from Investigation A | **`.runs/` tracked — see below** |
+
+Shape 1 is what §15.2 means by "an older shape", and it is the one shape that
+**does not exist in any repository**. From
+`devman/onboarding/wizard.py:31`:
+
+```python
+(target_devman / "nvim").mkdir(parents=True, exist_ok=True)
+(target_devman / "devman.toml").write_text(render_workspace_toml(target_root.name))
+(target_devman / "interaction.md").write_text(DEFAULT_INTERACTION_MD)
+(target_devman / "nvim" / "init.lua").write_text(DEFAULT_NVIM_INIT_LUA)
+```
+
+**A test that looks for `devman.toml` would pass on both real specimens and
+adopt them silently.** That is the failure §15.2 exists to prevent, and the
+obvious implementation walks straight into it.
+
+### The minimum test: a whitelist
+
+The new shape's top level is exactly `workflows/` and `.runs/`. Everything else
+seen in the wild — `context/`, `store/`, and 0.2.0's `devman.toml` — is foreign.
+So:
+
+> **`.devman/` may contain only `workflows/` and `.runs/`. Any other entry at the
+> top level means registration refuses and reports.**
+
+One `for` loop over `.devman/*`, no forks, and it is correct against all four
+shapes including the two the charter had never seen. A blacklist of known-old
+markers is correct against one shape and wrong against three.
+
+### The collision runs both ways, and the old tool is destructive
+
+`devman 0.2.0`'s `init` refuses a non-empty `.devman/` — and `--force` deletes
+it, from `wizard.py:25`:
+
+```python
+if target_devman.exists() and any(target_devman.iterdir()) and not force:
+    raise typer.Exit(".devman already exists. Use --force to overwrite.")
+
+if target_devman.exists() and force:
+    shutil.rmtree(target_devman)
+```
+
+**`devman init --force` in a plane repo destroys `.devman/workflows/`**, which
+§9.2 says is tracked and canonical, and `.devman/.runs/`. §15.2 only asks that
+the *new* code detect the *old* shape. The reverse direction is worse, because
+the old code is installed today (D1) and takes no precautions.
+
+### §9.2's predicted failure has already happened, in this repository
+
+§9.2: "an un-ignored `.runs/` turns the first failed run into a dirty tree."
+It did not stop at dirty.
+
+```bash
+$ git ls-files .devman/.runs
+.devman/.runs/logs/h1_defaults/dag-run_.../probe.20260821.220604.049.034BJgp7.err
+.devman/.runs/logs/h1_defaults/dag-run_.../probe.20260821.220604.049.034BJgp7.out
+
+$ git check-ignore -v .devman/.runs/logs/x
+  NOT IGNORED
+
+$ grep -n devman .gitignore
+375:# Vendored upstream sources, kept for agent context. `.devman/context/` is
+379:.devman/context/.vend/
+```
+
+**Two Dagu run logs are committed to this repository**, introduced by
+`1b7f4be`. The `.gitignore` here carries a rule for `.devman/context/.vend/` and
+none for `.devman/.runs/`. This is C4's recommendation arriving as a live
+specimen rather than a hypothetical: the ignore rule has to be written by
+registration, because a hand-maintained `.gitignore` did not grow one.
+
+**Charter impact:** **changes §15.2**, and adds a stage-1 task.
+
+- **§15.2's test must be a whitelist.** "Registration must detect a directory it
+  does not recognize" becomes: **`.devman/` may hold only `workflows/` and
+  `.runs/`; any other top-level entry is refused and reported.** The survey is
+  the reason — the anticipated old shape occurs zero times and two unanticipated
+  shapes occur twice.
+- **§15.2 must state the reverse hazard.** `devman 0.2.0`'s `init --force`
+  `rmtree`s `.devman/`, and 0.2.0 is installed (D1). Removing it from the
+  profile is a stage-1 task, not a cleanup.
+- **A cheap consolation:** the collision is rare. 2 of 77 checkouts, and one of
+  those two is this repository. The whitelist costs a directory listing per
+  registration and the survey says it will almost never fire.
+- **Housekeeping, not a charter change:** the two committed run logs should be
+  removed from this repository and `.devman/.runs/` excluded, per C4.
+
+---
+
+## D7 — watchexec wiring
+
+**Answer:** **one watcher for the whole machine, as plane machinery, not one per
+repo as group content.** The deciding fact is lifetime, not capability: a
+per-repo watcher can only be a devenv `processes.` entry, and C1 established
+that those run **only while `devenv up` is running**. E2 already fixed the
+invocation — a local process running `dagu enqueue` — and that does not force
+one watcher per repo, because a single watcher can set `DEVMAN_PROJECT_DIR` per
+event.
+
+**Tested:** derived from E2 and C1, plus availability checks on 2026-08-22.
+
+### What invokes Dagu — settled by E2, restated because D7 depends on it
+
+E2's table gives eight trigger surfaces and one verdict: **every HTTP surface
+resolves `log_dir` in the server process**, so none can put a run's logs under
+the project that triggered it. §8's trigger must be a **local process running
+`dagu enqueue`**, which is queue-governed and accepts parameters.
+
+That constrains *what the watcher calls*. It does **not** constrain how many
+watchers there are: `log_dir` is baked at enqueue time from the **enqueueing
+process's environment**, and one watcher can export a different
+`DEVMAN_PROJECT_DIR` for each event it handles.
+
+### Why not one per repo
+
+A per-repo watcher has one plausible home — the repo's own devenv:
+
+```nix
+processes.devman-watch.exec = "watchexec ... dagu enqueue ...";
+```
+
+C1's entry matrix is what rules it out. devenv processes start with `devenv up`
+or `devenv processes up`, and nothing else:
+
+| entry path | starts `processes.*` |
+|---|---|
+| `devenv up -d`, `devenv processes up -d` | yes |
+| `devenv shell`, `devenv shell -- cmd`, direnv entry | **no** |
+| `devenv test`, `devenv tasks run` | **no** |
+
+**So a per-repo watcher is alive only while the developer is running `devenv
+up`**, and dies when they stop it or close the shell. §8 assumes reactivity that
+outlives a shell session — a file saved in a repo triggers a workflow — and a
+process bound to `devenv up` cannot deliver that. devenv also has **no watch
+primitive of its own**: there is no `watch` module in `src/modules/`, and the
+only `watchexec` mention in the whole devenv tree is in `docs/src/containers.md`.
+
+### Why one watcher works
+
+- **It has the repo list already.** §9.2's registry holds every project's
+  `path`. A single watcher reads the registry and watches each `path` — the same
+  derived state C6 uses, and no filesystem scan (§15.1).
+- **It has the right lifetime.** One systemd **user** service beside Dagu, from
+  the same NixOS module, with the same `linger` requirement C7 established.
+- **It can still satisfy E2.** Per event: `DEVMAN_PROJECT_DIR=<path> dagu
+  enqueue <workflow>`, from a local process, so `log_dir` resolves into the
+  right project.
+- **`watchexec` is available**: nixpkgs ships **2.5.1**, and it takes multiple
+  `--watch` paths, so one process covers many repos.
+
+The trade is that one watcher is one more shared-availability failure, which is
+§15.3's accepted risk arriving a second time. That is the honest cost, and it is
+the same cost the charter already accepted for Dagu itself.
+
+### The question D7 was really asking
+
+"This decides whether triggers are plane machinery or group content."
+**Plane machinery.** A group cannot own the watcher, because a group is a Dagu
+YAML file (§7.2) and the watcher is a long-lived process that must outlive any
+one repo's shell. What a *group* may own is the **mapping** — which glob
+triggers which workflow — as data the single watcher reads, which keeps §7.1's
+"the machine states how much, never what" intact.
+
+**Charter impact:** **changes §8.**
+
+- §8 currently leaves the mechanism open. Close it: **one watcher per machine,
+  a systemd user service from the same NixOS module as Dagu, reading the
+  registry for the paths to watch, and invoking `dagu enqueue` locally with
+  `DEVMAN_PROJECT_DIR` set per event.** `watchexec` 2.5.1 from nixpkgs.
+- **State why it is not per-repo**, since that is the intuitive design: devenv
+  `processes.` only run under `devenv up`, so a per-repo watcher's lifetime is
+  the developer's foreground session, and §8's reactivity would silently apply
+  only to repos someone happens to have `devenv up` running in.
+- **Glob-to-workflow mapping is group content**; the watcher is not.
+- Criterion 13 — "the watchers do not chase each other" — is unaffected and
+  still measured at stage 3, but note it is now *one* watcher, so the write-loop
+  it guards against is within a single process.
+
+---
+
+## Summary — Investigation D, the smaller open questions
+
+**Every recorded lean survives.** None of D1–D5 was overturned. What the
+measurements added is a reason for each lean, and four hazards the charter did
+not know about — three of which are about the *old* devman rather than the new
+one.
+
+| ID | Question | Lean | Verdict | Charter impact |
+|---|---|---|---|---|
+| D1 | anything else claiming `~/.local/share/devman/`? | nothing does | **confirmed for the directory, overturned for the name** | **changes §10, §3.3**; closes §16 |
+| D2 | do ecosystem groups ship in this flake? | in-repo | **confirmed**, with a measured reason | none |
+| D3 | manage a Dagu it did not install? | no | **confirmed**, and the conflict is loud | **changes §4** |
+| D4 | which ecosystem groups first? | Python and Nix | **confirmed emphatically** | none |
+| D5 | retention for `.devman/.runs/`? | 7 days, keep metadata | **confirmed, and §16's caveat overturned** | **changes §16** |
+| D6 | the `.devman/` collision | — | **2 of 77; four shapes; the anticipated one occurs zero times** | **changes §15.2** |
+| D7 | watchexec wiring | — | **one watcher, plane machinery** | **changes §8** |
+
+### The four hazards
+
+1. **`devman 0.2.0` is installed on this machine** and owns the `devman`
+   command, with a `doctor` and an `init` that mean something else. §3.3 says
+   the source is deleted; the binary is not.
+2. **`devman init --force` calls `shutil.rmtree` on `.devman/`.** The old tool
+   destroys the new tool's tracked `workflows/`. §15.2 only anticipated the
+   collision in the other direction.
+3. **§15.2's detection test, implemented the obvious way, adopts both real
+   specimens.** Looking for `devman.toml` finds nothing, because the shape it
+   names occurs zero times in 77 checkouts while two unanticipated shapes occur.
+4. **This repository has two Dagu run logs committed to it.** §9.2 predicted a
+   dirty tree; the actual outcome was a commit, in `1b7f4be`. The `.gitignore`
+   here has a rule for `.devman/context/.vend/` and none for `.devman/.runs/`.
+
+### Every `changes §N` in one place
+
+- **changes §10 — the `devman` command name is taken.** `devman 0.2.0` is on
+  this user's `PATH` with its own `doctor`, `init`, `up`, `down`, `switch`,
+  `bootstrap` and `index`. The new CLI must replace it in the profile or take a
+  different name; shipping both makes `devman doctor` depend on profile order.
+  (D1)
+- **changes §3.3 — "the source is deleted" is not the whole story.** The
+  installed binary survives the repository. Removing `devman-0.2.0` from this
+  user's profile is a stage-1 task. (D1, D6)
+- **changes §4 — document the Dagu conflict concretely.** It is a **port**
+  collision on **50055 and 8080**, not a state collision: a second instance with
+  its own `DAGU_HOME` still fails, with `bind: address already in use`, exit 1.
+  Give the module a port option, and bound `Restart=on-failure` so an
+  unresolvable bind failure does not retry every five seconds forever. Also:
+  **this repo's own `devenv.nix` starts a competing instance** through
+  `processes.dagu`, which criterion 16 makes a stage-1 reconciliation. (D3)
+- **changes §16 — strike the "Partly settled" caveat on retention.**
+  `hist_retention_days` **does** prune the per-project log tree under `log_dir`,
+  measured: four runs with `hist_retention_runs: 1` left one log directory, the
+  control left four. Both retention predicates end in the same `removeDAGRun`.
+  `metadata.jsonl` survives every setting because nothing in Dagu owns it. Add
+  the trap: retention is per DAG and runs when that DAG runs, so a project whose
+  workflows stop running keeps its `.runs/` forever — a `doctor` check, beside
+  C6's stale-entry check. (D5)
+- **changes §15.2 — the detection test is a whitelist.** "`.devman/` may hold
+  only `workflows/` and `.runs/`; any other top-level entry is refused and
+  reported." Not a check for a known-old marker: the survey found four shapes,
+  and the one §15.2 was written against (`devman.toml`, `interaction.md`,
+  `nvim/`) occurs **zero** times on disk while `context/` and `store/` occur
+  twice. State the reverse hazard too — `devman init --force` `rmtree`s the
+  directory. (D6)
+- **changes §8 — close the trigger mechanism.** **One watcher per machine**, a
+  systemd user service from the same NixOS module as Dagu, reading the registry
+  for paths and invoking `dagu enqueue` locally with `DEVMAN_PROJECT_DIR` set
+  per event. `watchexec` 2.5.1 from nixpkgs. **Not one per repo:** devenv
+  `processes.` run only under `devenv up` (C1), so a per-repo watcher lives only
+  as long as the developer's foreground session. Glob-to-workflow mapping is
+  group content; the watcher is not. (D7)
+- **§16's five questions can all be closed.** Registry root: confirmed free.
+  Groups in-repo: confirmed, and a second flake input costs ~20 ms per shell
+  entry (C2). Foreign Dagu: no. Ecosystem groups: Python and Nix. Retention:
+  settled, caveat struck.
+
+### What Investigation D did not do
+
+- **The machine was surveyed, never modified.** No repository under
+  `~/Documents/Projects` was written to. The running Dagu (pid 1771311) was
+  read via `/proc` and `ss` and never signalled; the D3 conflict probe used its
+  own `DAGU_HOME` under `/tmp` and failed to start, as intended.
+- **`devman-0.2.0` was read, never run.** Its behaviour is quoted from the
+  installed package's source, not from executing `devman init --force` in a real
+  repository — the destructive path is exactly the one not worth demonstrating
+  on a live checkout.
+- **`hist_retention_days` was not measured directly.** The days form needs runs
+  older than a day. `hist_retention_runs` was measured instead, and the source
+  shows both predicates end in the same `removeDAGRun` call.
+- **D7's recommendation is reasoned, not built.** No watcher was written and
+  criterion 13 was not tested; §8's write-loop question is stage 3. What is
+  measured here is the constraint that decides the shape — devenv `processes.`
+  lifetimes, from C1's matrix — and `watchexec`'s availability.
+- **`CONCEPT.md` was not edited.** Every contradiction is recorded and left for
+  the reconciliation pass, which now owes the charter B's changes, C's, and D's.
