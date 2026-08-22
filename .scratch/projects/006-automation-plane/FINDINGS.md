@@ -1923,3 +1923,189 @@ detect that something happened":
 webhook or MCP triggering (a CI push, an agent), §9.2 would have to give up
 per-project logs for those runs, or accept them under the machine-wide default.
 That is a reconciliation decision.
+
+---
+
+## E3 — Whose job are secrets?
+
+**Bucket:** **replaces**, for half of §9.4.
+
+**Answer:** **Dagu resolves secrets itself.** A DAG names a secret with a
+provider and a key; Dagu resolves it at run time, injects it as an environment
+variable, **masks it in logs**, and **fails the run loudly if it is missing**.
+The `file` provider reads exactly what a NixOS secret manager produces. §9.4's
+injection path is not needed for the file case, and its "never carries a value"
+rule becomes Dagu's own field rather than a devman convention.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### The schema
+
+`dag.schema.json`, `secretRef`. A DAG-level `secrets:` array, one entry per
+variable:
+
+```json
+"name":     {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "not": {"pattern": "^DAGU_"},
+             "description": "Environment variable name that will receive the secret value."},
+"provider": {"description": "Secret provider identifier (e.g., env, file, custom providers)."},
+"key":      {"description": "Provider-specific key or identifier used to look up the secret."},
+"ref":      {"description": "Workspace-local registry reference for a team-managed secret."},
+"options":  {"description": "Provider-specific configuration options."}
+```
+
+> "The resolved value is injected as an environment variable **and masked in
+> logs/output**."
+
+An entry is either `ref` alone or `provider` + `key`. `config.schema.json` adds
+instance-level client defaults for `vault`, `kubernetes`, `aws`, `gcp`, `azure`,
+and `alibaba` — addresses, regions, tokens. There is **no instance-level default
+for `env` or `file`**, which are the two that need none.
+
+### It works, and the value is real
+
+```yaml
+# e3_secrets2.yaml
+secrets:
+  - name: FROM_ENV
+    provider: env
+    key: E3_RAW_TOKEN
+  - name: FROM_FILE
+    provider: file
+    key: /tmp/devman-e/e3/token.txt
+steps:
+  - id: show
+    run: |
+      printf '%s' "$FROM_ENV"  > /tmp/devman-e/e3/out_env.txt
+      printf '%s' "$FROM_FILE" > /tmp/devman-e/e3/out_file.txt
+      echo "lengths: env=${#FROM_ENV} file=${#FROM_FILE}"
+```
+
+**Command:**
+
+```
+E3_RAW_TOKEN=s3cr3t-from-env dagu start e3_secrets2
+```
+
+**Evidence:**
+
+```
+lengths: env=15 file=16
+out_env=[s3cr3t-from-env]  out_file=[s3cr3t-from-file]
+```
+
+### Masking is real, and it is the capability §9.4 does not have
+
+The same values printed straight to stdout:
+
+```
+FROM_ENV=[*******]
+FROM_FILE=[*******]
+```
+
+The step receives the true value — it wrote the true value to a file in the same
+run — and the log holds `*******`. §9.4 currently injects secrets as ordinary
+environment variables, which any step can echo into a log that lands in
+`<repo>/.devman/.runs/` and, from there, into a screenshot or a bug report.
+**Dagu masks them; a plain environment variable is not masked.**
+
+### `provider: env` bypasses the `env_passthrough` allowlist
+
+A2 found that `DEVMAN_*` variables are filtered out of a DAG unless the instance
+config allowlists them. `E3_RAW_TOKEN` is **not** allowlisted. In the run above:
+
+```
+FROM_ENV=[*******]              <- resolved
+RAW_passthrough=[<unset>]       <- the same variable, filtered out
+```
+
+**The `secrets:` block is a second, explicit passthrough channel**, declared per
+DAG instead of per instance. A workflow can reach a variable the allowlist hides.
+
+### A missing secret is a hard failure — unlike a missing path variable
+
+This is the sharpest contrast with A2 and A3, where an unresolved `${VAR}`
+silently became a literal directory name.
+
+**Command:**
+
+```
+E3_RAW_TOKEN=s3cr3t-from-env dagu enqueue e3_secrets2     # the DAEMON lacks the variable
+```
+
+**Evidence:**
+
+```
+Result: Failed
+
+level=ERROR msg="Failed to initialize DAG execution" err="failed to resolve
+  secrets: failed to resolve secret \"FROM_ENV\" from provider \"env\":
+  environment variable \"E3_RAW_TOKEN\" is not set"
+```
+
+The run fails before any step, and names the secret and the provider.
+
+It also settles which process resolves a secret. **Secrets are resolved by the
+process that executes**, like `working_dir` and unlike `log_dir` (A7). Under
+`enqueue` that is the daemon, so `provider: env` reads the **daemon's**
+environment — one value per instance. For a *secret* that is correct, because a
+machine's `GITHUB_TOKEN` genuinely is one value per machine. A2's "one value per
+instance" objection does not apply here.
+
+### `provider: file` reads what a NixOS secret manager writes
+
+**Command:**
+
+```
+install -m 0400 token.txt token0400.txt     # what agenix / sops-nix produce
+# e3_file.yaml: provider file, key /tmp/devman-e/e3/token0400.txt
+dagu enqueue e3_file
+```
+
+**Evidence:**
+
+```
+len=16 value_in_log=*******
+Result: Succeeded
+written value=[s3cr3t-from-file]
+```
+
+A 0400 file read by the daemon, masked in the log, delivered whole to the step.
+**The NixOS module does not have to inject anything.** It has to make the file
+exist, which is what a secret manager already does.
+
+### Charter impact
+
+**changes §9.4.** The section reads:
+
+> The NixOS module reads values from the machine's secret manager and injects
+> them into Dagu's environment; Dagu passes them to devenv, devenv to the task.
+
+Both halves are now optional, and the choice is real:
+
+| | what the module does | what the workflow says | portable across machines |
+|---|---|---|---|
+| `provider: env` | sets the variable in the Dagu **user service** environment (A7) | `provider: env`, `key: GITHUB_TOKEN` | **yes** |
+| `provider: file` | nothing — the secret manager already wrote the file | `provider: file`, `key: /run/agenix/github-token` | **no** — the path is machine-specific |
+
+**What §9.4 should keep:** "A workflow references a symbolic name and never
+carries a value." That rule is now Dagu's own field, not a devman convention,
+which is the same win §7.1 claims for `queue:`.
+
+**What §9.4 should add:** Dagu masks a resolved secret in logs and output, and
+fails the run when one is missing. Neither is true of a plain injected
+environment variable, so `secrets:` is strictly better than the current wording
+even when the module still sets the value.
+
+**What §9.4 should decide:** `provider: env` keeps §9.4's injection path and
+stays portable. `provider: file` deletes the injection path but writes a
+machine-specific absolute path into a workflow, which collides with §9.1 ("never
+commit a developer's absolute path") and with §7.2's one-file-serves-every-repo
+claim. **`provider: env` is the one that fits the charter as written**; the
+module's job shrinks from "inject into Dagu's environment" to "set these
+variables on the user service", which is the same thing said more precisely.
+
+**One sentence, and then stopping as §1 requires:** the `ref:` form points at a
+workspace-local managed secret registry, which would remove the path problem
+from `provider: file` — it is not exercised here and is worth one look during
+reconciliation. See also E4: if a `secrets:` block can live in `base.yaml`, the
+machine can declare the whole vocabulary once.
