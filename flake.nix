@@ -7,16 +7,21 @@
   # some time in two independent ways, which is what an unused second path
   # looks like.
   #
-  # What this flake carries today is the Dagu package (`nix/dagu.nix`). nixpkgs
-  # has no Dagu at any version, so the plane packages it once and both
-  # interfaces call the same file. The rest arrives at stage 1:
+  # What this flake carries is the Dagu package (`nix/dagu.nix`) plus the two
+  # module interfaces. nixpkgs has no Dagu at any version, so the plane
+  # packages it once and both interfaces call the same file:
   #
-  #   nixosModules.default   one Dagu service, queues, registry paths
+  #   nixosModules.default   one Dagu service, queues, base config
   #   modules/               the repo interface, imported via devenv.yaml
   #
-  # See .scratch/projects/006-automation-plane/CONCEPT.md §3.1. Nothing else is
-  # added here until the investigations in KICKOFF_PROMPT.md answer whether one
-  # flake can carry both module interfaces (§12.3).
+  # Both modules are INVESTIGATION B SCRATCH — the smallest honest pair that
+  # answers whether one flake can carry both at one version (§12.3). They are
+  # not stage 1. See .scratch/projects/006-automation-plane/FINDINGS.md, B1–B4.
+  #
+  # Note what is NOT here: the NixOS module takes `pkgs` from the importing
+  # machine and the devenv module takes `pkgs` from the consuming repo. Neither
+  # reads this flake's own `nixpkgs` input. That input serves `packages` and
+  # `checks` only.
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -32,6 +37,11 @@
       overlays.default = final: _prev: {
         dagu = final.callPackage ./nix/dagu.nix { };
       };
+
+      # The machine interface (§4). Evaluated under the importing machine's
+      # nixpkgs, never this flake's.
+      nixosModules.default = ./nix/nixos-module.nix;
+      nixosModules.devman-dagu = ./nix/nixos-module.nix;
 
       packages = forAllSystems (pkgs: {
         dagu = pkgs.callPackage ./nix/dagu.nix { };
