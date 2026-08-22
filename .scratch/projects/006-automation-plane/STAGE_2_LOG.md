@@ -1180,3 +1180,44 @@ weakly (S14). §16's list of settled questions is unchanged.
 | `doctor` check 3, widened | S15 — the literal directory landed inside a project, not in the daemon's working directory |
 | retention, observed rather than configured | `hist_retention_days: 7` is set and nothing has aged out yet |
 | pushing the five adopted repositories | `STAGE_2_PROMPT.md` rule 8 says commit there, do not push. Five commits wait in five working trees |
+
+---
+
+## S18 — The shipped handler fix, confirmed from the module
+
+**Answer:** criterion 16 holds against the module's own `base.yaml` rather than
+a hand-patched one. S12's fix was proved by editing the running file; S13's
+restart reverted it, as `ExecStartPre` is designed to. This is the same run
+after the rebuild that installs it.
+
+**Evidence — the file, from the store rather than from an editor:**
+
+```
+$ grep -o '>> [^"]*"[^"]*"' $DAGU_HOME/base.yaml | tail -1
+>> \"${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}/.devman/.runs/metadata.jsonl\"
+```
+
+**Evidence — the run:**
+
+```
+├─observantic-check (3.0s) [succeeded]
+├─siteman-check     (2.0s) [succeeded]
+└─onExit (0s) [succeeded]
+Result: Succeeded
+
+$ tail -1 devman/.devman/.runs/metadata.jsonl
+devman-stack-validate succeeded
+```
+
+Compare S12, where the identical workflow reported `Failed` with
+`no such file or directory: /.devman/.runs/metadata.jsonl` after both children
+had succeeded.
+
+**And C7's restart mechanism, observed on a real configuration change.**
+`ActiveEnterTimestamp` moved to the activation time, so `switch-to-configuration`
+stopped and started the user unit inside the rebuild. `restartTriggers` alone
+was sufficient, with no path unit and no `daemon-reload` hook — which is what
+C7 measured and what §5.2 promises. It needed `linger = true`, which
+`profiles/devman.nix` sets.
+
+**Charter impact:** **none.** Criterion 16 holds, from shipped configuration.
