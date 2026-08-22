@@ -1264,3 +1264,38 @@ changes only at shell entry, and nothing here scans for repositories.
 back to six projects, `systemctl --user restart devman-watch` issued. The
 installed service runs the machine's own generation, so it does not carry this
 change until the user rebuilds.
+
+---
+
+## S17 — §3.1's `lib/` was never built, and nothing wants it
+
+**Answer:** §3.1's shape diagram lists a `lib/` directory holding "registry
+schema, registration helpers". **It does not exist and it never did.** The
+registry schema lives where it is written — in `modules/devenv.nix`, as the
+entry template the hook renders — and there are no registration helpers to
+share, because the hook may not fork and the projection script is generated per
+project.
+
+**How it surfaced.** Rewriting `README.md` meant describing the repository's
+layout. The charter was the obvious source, and it names a directory that is not
+there.
+
+**Command:**
+
+```bash
+$ ls -d lib
+ls: cannot access 'lib': No such file or directory
+$ grep -n '"schema"' modules/devenv.nix
+271:      "schema": 3,
+```
+
+**Why nothing wants it.** §3.1's second rule says what the two interfaces share
+must be **text**. The schema is text, and it is stated once, in the module that
+writes it; the CLI reads that text back with `json.loads` and needs no shared
+code to do it. A `lib/` of Nix helpers shared by both interfaces would be the
+one thing the rule warns against — evaluated under two nixpkgs, differing
+silently.
+
+**Charter impact:** **changes §3.1's diagram.** Applied in its own commit, per
+rule 4. The line is removed rather than the directory created: three stages have
+run without it.
