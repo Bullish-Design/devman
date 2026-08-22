@@ -1,0 +1,11 @@
+# python/check — shadows base/check (CONCEPT.md §7.3).
+#
+# The difference from base is the whole point of the group: Python separates a
+# type checker from a linter, and base cannot assume one exists.
+queue: light
+type: chain
+steps:
+  - name: lint
+    run: devenv tasks run lint
+  - name: typecheck
+    run: devenv tasks run typecheck

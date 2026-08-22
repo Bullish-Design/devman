@@ -1,0 +1,8 @@
+# base/check — the fast one (CONCEPT.md §7.2).
+#
+# No `name:`, no `working_dir`, no `log_dir`: the file name is the identity, and
+# the machine's base.yaml supplies both directories.
+queue: light
+steps:
+  - name: lint
+    run: devenv tasks run lint
