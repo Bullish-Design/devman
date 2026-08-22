@@ -69,6 +69,12 @@ let
     # projection under `projects/`, which stays exactly as §9.2 describes it.
     paths.dags_dir = "${registryToken}/dags";
 
+    # Dagu seeds five example DAGs into an empty DAG directory on first start.
+    # The DAG directory is the registry, so without this the registry acquires
+    # five workflows belonging to no project, and `dagu ls` shows them beside
+    # the real ones.
+    skip_examples = true;
+
     # Every step and every handler runs under one known shell, whatever the
     # developer's login shell is. A user unit usually has no SHELL at all.
     default_shell = "${pkgs.bash}/bin/bash";
