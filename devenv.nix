@@ -97,10 +97,17 @@ in
   # opt-in (groups/python-format/README.md). devman adopts its own reactive group
   # for the same reason criterion 16 has it adopt its own workflows: a plane
   # nobody runs against themselves is a plane nobody has tested.
+  # `release` is stage 4's, and devman is one of the two repositories that made
+  # it a group rather than one repository's own file (§16's promotion rule —
+  # a group begins when a second repository wants the same file). It ships one
+  # workflow that nothing ever fires on its own, so inheriting it costs nothing
+  # (§7.4) — which is exactly the argument that does NOT hold for
+  # `python-format`, and the difference is that a release is triggered by a
+  # person (groups/release/README.md).
   devman = {
     enable = true;
     project = "devman";
-    groups = [ "base" "python-format" ];
+    groups = [ "base" "python-format" "release" ];
   };
 
   # https://devenv.sh/tasks/
@@ -115,6 +122,18 @@ in
     # names a task and never a tool (§7.1), so this line is the whole of what
     # this repository decides about formatting.
     "python-format:fmt".exec = "ruff format .";
+
+    # What `release` builds here: the CLI the machine installs. The artifact
+    # goes under `.devman/.runs/artifacts/`, which is §9.2's own name for the
+    # place a run's output goes — created at registration, git-ignored, and
+    # addressed relatively because `working_dir` is already this project.
+    #
+    # `--out-link` rather than `--print-out-paths` alone: the link is what makes
+    # the artifact visible in the report the workflow writes, and it also roots
+    # the build against the garbage collector until the next release.
+    "release:build".exec = ''
+      nix build .#devman --out-link .devman/.runs/artifacts/devman
+    '';
   };
 
   # https://devenv.sh/tests/
