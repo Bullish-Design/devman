@@ -4980,3 +4980,260 @@ either devenv version.**
 are not version-specific across 2.1.2 → 2.2.2, so §5.2 and criterion 7 need no
 devenv version qualifier. The `--max-jobs 0` substitution recipe above is worth
 keeping: it is how to test a devenv upgrade without a two-hour Rust build.
+
+---
+
+# Investigation D — the smaller open questions
+
+**Environment for every D answer unless a section says otherwise.** devenv
+2.1.2, dagu 2.15.0, Nix 2.34.7, NixOS 26.11.20260705, devman commit `c9426b6`,
+on 2026-08-22. The machine was surveyed read-only; nothing under
+`~/Documents/Projects` was modified.
+
+**The survey population**, which D4 and D6 both rest on: **71 project
+directories** under `~/Documents/Projects`, of which **67 are git repositories**,
+plus **6 git worktrees** under `~/.paseo/worktrees`.
+
+---
+
+## D1 — Does anything else claim `~/.local/share/devman/`?
+
+**Answer:** **the directory is free; the name is not.** Nothing claims
+`~/.local/share/devman/` — it does not exist. But **devman 0.2.0 is installed on
+this machine right now**, it owns the `devman` command, and it claims
+`~/.config/devman/` and `~/.cache/devman/`. The lean is confirmed for the
+registry root and overturned for everything around it.
+
+**Tested:** on 2026-08-22.
+
+**Command:**
+
+```bash
+ls -d ~/.local/share/devman; command -v devman
+```
+
+**Evidence:**
+
+```
+"/home/andrew/.local/share/devman": No such file or directory (os error 2)
+/etc/profiles/per-user/andrew/bin/devman
+```
+
+The registry root is unclaimed. Its neighbours in `~/.local/share/` are
+`devenv`, `direnv`, `nix`, `repoman`, `uv`, and about twenty desktop
+directories. No collision, and `XDG_DATA_HOME` is unset, so the path resolves as
+the charter assumes.
+
+**The binary is the problem.** `/etc/profiles/per-user/andrew/bin/devman`
+resolves to `/nix/store/i1cpdmw9w0hflws2fzm544r2v1scxkd5-devman-0.2.0`, a Python
+Typer CLI installed through this user's Home-Manager or system profile:
+
+```
+ Usage: devman [OPTIONS] COMMAND [ARGS]...
+ 🧰 Manage devman workspaces
+
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ up         Ensure workspace dependencies are configured.                     │
+│ down       Stop services started by devman.                                  │
+│ switch     Switch to a different workspace by name or query.                 │
+│ bootstrap  Bootstrap tmux, Claude, and Neovim integrations for the current   │
+│            workspace.                                                        │
+│ doctor     Return availability of external tools.                            │
+│ init       Initialize a .devman workspace layout.                            │
+│ index      Manage workspace index                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+**`devman doctor` and `devman init` already exist, with different meanings.**
+§10's deferred CLI plans `devman doctor` for diagnosing the plane; 0.2.0's
+`doctor` reports "availability of external tools". §3.3 says the current source
+is deleted, but **the installed binary is not** — deleting a repository does not
+uninstall a profile.
+
+Its own state paths, from `models/system.py:12` and `:44`:
+
+```python
+Path.home() / ".config" / "devman" / "system.toml"
+Path.home() / ".cache" / "devman"
+```
+
+Neither directory exists on disk today, so 0.2.0 has been installed but never
+run here. **`~/.local/share/` is not among them**, which is why the registry
+root survives.
+
+**Charter impact:** **confirms §16's lean for the registry root; changes §10 and
+§3.3.**
+
+- §16's "confirm nothing else claims `~/.local/share/devman/`" — **confirmed**,
+  and the question can be closed.
+- **§10 must state that the `devman` command name is already taken** on at least
+  this machine, by a CLI whose `doctor` and `init` mean something else. The new
+  CLI either replaces 0.2.0 in the profile, or it needs a different name.
+  Shipping both puts two different `devman doctor` commands on one `PATH`, and
+  which one wins depends on profile order.
+- **§3.3 should say "the source is deleted, the installed binary is not."**
+  Stage 1 needs an explicit step to remove `devman-0.2.0` from this user's
+  profile, or the first `devman doctor` a developer runs is the old one.
+
+---
+
+## D2 — Do ecosystem groups ship in this flake, or separately?
+
+**Answer:** **in this flake. Confirmed, and C2 gives the lean a measured
+argument it did not have.** A separate groups flake would be a second devenv
+input in every consuming repo, and C2 measured what a devenv input costs.
+
+**Tested:** derived from B2, B4 and C2; no new measurement.
+
+**Evidence.** C2's paired timings isolate the cost of *having an input* from the
+cost of *using it*:
+
+| variant | delta vs a bare devenv repo |
+|---|---|
+| module imported, `devman.enable = false` | **+19.6 ms** (2.1.2), **+26.6 ms** (2.2.2) |
+| registered, fork-free guard | +24.0 ms / +23.4 ms |
+
+**Roughly 20 ms of the plane's per-entry cost is the input itself**, before
+registration does anything. A separate `devman-groups` flake would add a second
+input to `devenv.yaml` in every repo that takes a group, and repeat that cost on
+every shell entry, forever, in exchange for decoupling group churn from plane
+releases.
+
+Two further reasons from B:
+
+- **B4:** an import is `<input>/<subdir>` resolved to a path containing
+  `devenv.nix`. A groups flake would need its own `devenv.nix` shim purely to be
+  importable, or the repo imports group YAML by path and skips the flake — in
+  which case the flake bought nothing.
+- **B's rule 2:** what the two interfaces share must be text. Groups **are**
+  text — Dagu YAML — and text costs nothing to share inside one flake. The one
+  shared *package*, `nix/dagu.nix`, already pays for two store paths (B2). A
+  second flake would add a second lock file and a second rev to keep aligned,
+  which is precisely the drift §3.1 exists to prevent.
+
+**Charter impact:** **none.** §16's lean stands: in-repo until a third party
+wants to publish a group. Add the measured number as the reason — **a second
+flake input costs about 20 ms on every shell entry in every repo that takes it**
+— so the decision is not merely a matter of taste, and so a future proposal to
+split the flake has to argue against a number.
+
+---
+
+## D3 — Should the machine module manage a Dagu it did not install?
+
+**Answer:** **no. Confirmed, and the conflict is loud rather than silent**,
+which is what makes "own the service, document the conflict" safe. Measured
+against a real foreign Dagu that is running on this machine right now.
+
+**Tested:** dagu 2.15.0, on 2026-08-22.
+
+**There is a foreign Dagu on this machine, and it is this repo's own.**
+`devenv.nix` line 44:
+
+```nix
+env.DAGU_HOME = daguHome;
+processes.dagu.exec = "dagu start-all";
+```
+
+Started by `devenv up`, running as pid 1771311 with
+`DAGU_HOME=<worktree>/.devenv/state/dagu`, holding two ports:
+
+```
+LISTEN 127.0.0.1:50055   users:(("dagu",pid=1771311,fd=4))
+LISTEN 127.0.0.1:8080    users:(("dagu",pid=1771311,fd=12))
+```
+
+**Command:** start a second instance with a disposable `DAGU_HOME`, exactly as
+the NixOS module's unit would:
+
+```bash
+DAGU_HOME=/tmp/d3-dagu dagu start-all
+```
+
+**Evidence:**
+
+```
+level=INFO msg="Coordinator initialization" bind-address=127.0.0.1 advertise-address=server port=50055
+Error: failed to initialize coordinator: failed to create listener on 127.0.0.1:50055:
+       listen tcp 127.0.0.1:50055: bind: address already in use
+exit=1
+```
+
+The original instance was **untouched** — still listening, still the same pid.
+
+**Three things this establishes.**
+
+1. **The conflict announces itself.** It fails on the *coordinator* port 50055
+   before it ever reaches the web port, with a named port and a named error, and
+   exits non-zero. Under the module's `Restart=on-failure`, `systemctl --user
+   status dagu` shows it immediately. §15.4's "a typo is invisible" problem does
+   not apply here.
+2. **A separate `DAGU_HOME` is not enough to coexist.** The second instance had
+   its own state directory and still could not start. Ports, not state, are the
+   scarce resource, and the module exposes no port option today.
+3. **A retry loop is the one rough edge.** `Restart=on-failure` with
+   `RestartSec=5` retries a conflict that will never resolve on its own, writing
+   to the journal every five seconds. The module should either cap it
+   (`StartLimitBurst`) or treat a bind failure as fatal.
+
+Note the second instance **created example DAGs in the new `DAGU_HOME` before
+failing** ("Creating example DAGs for first-time users"). A failed start is not
+a no-op on disk.
+
+**Charter impact:** **confirms §16's lean; changes §4.**
+
+- §16's "should the machine module manage a Dagu it did not install?" —
+  **no, confirmed**, and the question can be closed. The module owns the
+  service.
+- **§4 should document the conflict concretely**: the collision is a port
+  collision on **50055 and 8080**, not a state collision, and it is reported
+  clearly. Two consequences worth stating: give the module a **port option** so
+  a developer running a project-local Dagu can move one of them, and **bound the
+  restart loop** so an unresolvable bind failure does not fill the journal.
+- **This repo's own `devenv.nix` is the first thing stage 1 must reconcile**,
+  since criterion 16 says devman adopts itself and the repo currently starts a
+  competing instance through `processes.dagu`.
+
+---
+
+## D4 — Which ecosystem groups first?
+
+**Answer:** **Python and Nix. Confirmed emphatically**, and Rust and TypeScript
+are not "on demand" so much as absent — there is no demand to be had.
+
+**Tested:** read-only survey of 71 project directories, on 2026-08-22.
+
+**Command:**
+
+```bash
+for f in flake.nix devenv.nix pyproject.toml package.json Cargo.toml go.mod; do
+  printf '  %-16s %s\n' "$f" "$(find ~/Documents/Projects -maxdepth 2 -name "$f" | wc -l)"
+done
+```
+
+**Evidence:**
+
+| marker | repos carrying it | share of 71 |
+|---|---|---|
+| `devenv.nix` | **57** | 80% |
+| `pyproject.toml` | **52** | 73% |
+| `flake.nix` | **24** | 34% |
+| `package.json` | 1 | 1% |
+| `Cargo.toml` | 1 | 1% |
+| `go.mod` | 0 | 0% |
+
+**Python and Nix cover the population; nothing else registers.** Two readings
+worth recording:
+
+- **`devenv.nix` at 80% is the more important number than either language.**
+  It is the highest-coverage marker in the population, which is what makes §5's
+  "three lines plus the repo's own primitives" plausible — most repos already
+  have the primitives. It also means the `base` group, not the language groups,
+  is where the leverage is.
+- **A TypeScript or Rust group would serve one repository each.** That is not a
+  group, it is a repo's own `.devman/workflows/`, which §7.4 already allows.
+
+**Charter impact:** **none.** §16's lean stands. Sharpen the wording: not
+"Rust and TypeScript on demand" but **"one repo each today, so they are
+`.devman/workflows/` content until a second repo wants the same file."** That
+is the same rule §7.3 already uses for promotion, applied to itself.
