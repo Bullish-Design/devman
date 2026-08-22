@@ -2493,3 +2493,177 @@ was the accepted risk's one requirement, and the diagnosis is a `GET` away.
 `doctor` must compute itself are file checks over the projection, not queries
 against a running Dagu, which suggests `doctor` works without the daemon and
 degrades when it is absent — a design note for whoever writes §10.
+
+---
+
+## E8 — Is there a cleaner per-project mechanism than A2 and A3 found?
+
+**Bucket:** **answers** — the last open route to simplifying §7.2.
+
+**Answer:** **no.** A runtime profile carries a per-run value into `working_dir`
+and **not** into `log_dir`, exactly like `params` does. A6's dual mechanism —
+export the variable *and* pass it — stays forced. But a profile is a
+Dagu-native **name → values registry**, and it can replace the *param* half; and
+a per-project `.env` is a real per-project channel for everything that is not a
+path field.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### `dagu profile` is a registry inside Dagu
+
+```
+dagu profile create|delete|enable|disable|list|show
+dagu profile set-var <profile> <key> <value>
+dagu profile set-secret <profile> <key> <value>
+dagu profile delete-key
+```
+
+**Command:**
+
+```
+dagu profile create proj-a --description "project A"
+dagu profile set-var proj-a DEVMAN_PROJECT_DIR /tmp/devman-e/projA
+dagu profile create proj-b --description "project B"
+dagu profile set-var proj-b DEVMAN_PROJECT_DIR /tmp/devman-e/projB
+dagu profile list
+```
+
+**Evidence:**
+
+```
+NAME    STATUS  PROTECTED  VARIABLES  SECRETS  DESCRIPTION
+proj-a  active  false      1          0        project A
+proj-b  active  false      1          0        project B
+```
+
+**Names are lowercase only** — `^[a-z0-9][a-z0-9._-]*$`, max 128
+(`internal/profile/profile.go`). `dagu profile create projA` fails:
+
+```
+Error: invalid profile name: "projA"
+```
+
+§9.1 says identity "defaults to the repo's directory name". A directory named
+`Pyjutsu` cannot be a profile name unchanged.
+
+### The measurement — a profile reaches one field, not both
+
+```yaml
+# e8_profile.yaml
+working_dir: ${DEVMAN_PROJECT_DIR}
+log_dir: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs
+steps:
+  - id: probe
+    run: echo "cwd=$(pwd) var=${DEVMAN_PROJECT_DIR:-<unset>}"
+```
+
+**Command:** the variable exported as **projA**, the profile naming **projB**,
+and no `params` at all:
+
+```
+DEVMAN_PROJECT_DIR=/tmp/devman-e/projA dagu enqueue --profile proj-b e8_profile
+```
+
+**Evidence:**
+
+```
+├─log: /tmp/devman-e/projA/.devman/.runs/logs/e8_profile/...   <- the ENVIRONMENT won
+      cwd=/tmp/devman-e/projB var=/tmp/devman-e/projB          <- the PROFILE won
+```
+
+**One run, two different projects.** A profile is applied by the process that
+**executes**, so it behaves as `params` does in A3's table:
+
+| source of `DEVMAN_PROJECT_DIR` | `working_dir` | `log_dir` |
+|---|---|---|
+| trigger's process environment | resolves | **resolves** |
+| `params` (A3) | resolves | stays literal |
+| the DAG's own `env:` (A3) | resolves | stays literal |
+| **`--profile` (E8)** | **resolves** | **stays literal** |
+
+With the variable removed from the trigger's environment entirely, the log path
+stays literal and Dagu creates the directory in the daemon's tree — the A3
+symptom again:
+
+```
+└─stdout: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/e8_profile/.../probe....out
+      cwd=/tmp/devman-e/projB
+Result: Succeeded
+$ ls -d '<repo>/${DEVMAN_PROJECT_DIR}'
+<repo>/${DEVMAN_PROJECT_DIR}
+```
+
+**So the answer to E8's question is no.** A7 already proved no instance
+arrangement removes the split; E8 proves no *trigger-side* mechanism does
+either. `log_dir` is resolved by the enqueuing process, full stop.
+
+### `--default-working-dir` is ignored under `enqueue`
+
+`dagu enqueue --help` advertises `--default-working-dir`, "Default working
+directory for DAGs without explicit workingDir". On a DAG that declares none:
+
+**Command:**
+
+```
+dagu enqueue --default-working-dir /tmp/devman-e/projB e8_dwd
+dagu start   --default-working-dir /tmp/devman-e/projB e8_dwd
+```
+
+**Evidence:**
+
+```
+enqueue  cwd=<repo>/.devenv/state/dagu/dags        <- flag had no effect
+start    cwd=/tmp/devman-e/projB                   <- flag worked
+```
+
+Same split as `dagu start` vs `enqueue` everywhere else: the flag is resolved by
+the executing process, and under `enqueue` that is the daemon, which never sees
+it. **A6 proved the trigger must use `enqueue` to get queues, so this flag is
+unusable for the plane.**
+
+### `dotenv` is a real per-project channel — for everything except the paths
+
+`dotenv` files load relative to `working_dir`, and `.env` is loaded by default.
+
+**Command:**
+
+```
+echo "DEVMAN_DOTENV_MARK=hello-from-projB" > /tmp/devman-e/projB/.env
+# e8_dotenv.yaml: working_dir ${DEVMAN_PROJECT_DIR}, dotenv .env
+DEVMAN_PROJECT_DIR=/tmp/devman-e/projB dagu enqueue e8_dotenv -- DEVMAN_PROJECT_DIR=/tmp/devman-e/projB
+```
+
+**Evidence:**
+
+```
+cwd=/tmp/devman-e/projB fromdotenv=hello-from-projB
+```
+
+**A file in the repository supplies per-project values to a shared group
+workflow, under `enqueue`, with nothing in the workflow naming the project.** It
+cannot supply `working_dir` — the file is found *through* `working_dir` — and it
+cannot supply `log_dir`, which is resolved before the run. For everything else it
+works.
+
+### `consts` and `run_config` are not this
+
+- `consts` — "Ordered immutable values available through `${consts.name}`". String,
+  number, or boolean literals in the file. No per-run variance. Not applicable.
+- `run_config` — `disable_param_edit` and `disable_run_id_edit`, which control
+  what the **web UI** lets a user change when starting a run. Not applicable.
+
+### Charter impact
+
+**none** — and that is the finding. §7.2 and §9.2 keep A6's dual mechanism, and
+the last plausible route to removing it is now closed by measurement rather than
+by argument.
+
+Two things worth carrying into reconciliation, each one sentence, as §1 requires:
+
+- **A profile can replace the `params` half of the trigger.** `--profile pyjutsu`
+  instead of `-- DEVMAN_PROJECT_DIR=/home/andrew/...` puts the path in Dagu's own
+  state keyed by project identity, which is §9.1's rule implemented by Dagu — at
+  the cost of a second registry to keep in step with §9.2's, and lowercase names.
+- **`dagu profile set-secret` scopes a secret to a project**, which is the
+  per-project answer E3 and E4 could not give, since a `secrets:` block in
+  `base.yaml` grants every workflow every secret.
