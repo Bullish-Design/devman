@@ -1,8 +1,12 @@
 # devman — Concept (the automation plane)
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
-> and D (2026-08-22). Amended twice during stage 1 (2026-08-22), each time
-> because building the thing measured something the investigations had not.
+> and D (2026-08-22). Amended twice during stage 1 and once during stage 2
+> (2026-08-22), each time because building the thing measured something the
+> investigations had not. §11's `doctor` check now distinguishes a workflow that
+> *holds* `DEVMAN_PROJECT_DIR` from one that *passes* it to a child, because the
+> rule as written reported the first real cross-repo workflow as broken
+> (`STAGE_2_LOG.md`, S8).
 > §9.2 gains the `dags/` directory, because a DAG is keyed by its file's base
 > name and the layout as written made two projects' `check` invisible
 > (`STAGE_1_LOG.md`, S1). And every task name gains its group as a namespace,
@@ -1020,9 +1024,21 @@ point a child at a different project, which synchronized releases and coordinate
 migrations will want.
 
 The collision is worth stating plainly because of how it fails: the child runs,
-succeeds, and does the work in the wrong directory. Nothing reports it. `doctor`
-checks it mechanically (§10) — any workflow containing `action: dag.run` must not
-also mention `DEVMAN_PROJECT_DIR`.
+succeeds, and does the work in the wrong directory. Nothing reports it.
+
+> **`doctor` checks it mechanically (§10): a workflow containing
+> `action: dag.run` must not define `DEVMAN_PROJECT_DIR` *for itself* — not in
+> top-level `params:`, not in `env:`, not in `working_dir`, not in `log_dir`.
+> Inside a step's `with.params` the name is correct, because that is how a
+> parent directs a child.**
+
+**Holding the name and passing it are opposite acts, and the check has to tell
+them apart.** A parent that holds it drags every child into its own directory,
+silently. A parent that passes it in `with.params` directs one child
+deliberately, which is what synchronized releases and coordinated migrations
+need. An earlier draft of this line forbade mentioning the name at all — A4's
+rule, which A6 superseded — and that version reports the only correct cross-repo
+workflow in this repository as broken (`STAGE_2_LOG.md`, S8).
 
 Uses: validating dependent libraries together, synchronized releases, nightly
 stack validation, cross-repo benchmarks, coordinated migrations.
