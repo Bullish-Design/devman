@@ -468,20 +468,25 @@ workflows first.
 
 ---
 
-## S11 — `devman 0.2.0`: found, not removed
+## S11 — `devman 0.2.0`: removed from the profile
 
-**Answer:** it arrives through **`programs.nix-terminal.devman.enable = true`**
-in `/home/andrew/Documents/Projects/nix-meta/profiles/terminal.nix`. Removing it
-is one line and the user's rebuild. **Stage 1 should not remove it**, and the
-reason is not caution — it is that the switch turns off something the developer
-uses.
+**Answer:** it arrived through **`programs.nix-terminal.devman.enable`** in
+`/home/andrew/Documents/Projects/nix-meta/profiles/terminal.nix`. The option is
+now `false`, committed there as `03b80a7`. **The rebuild is not run** — that is
+the user's, and STAGE_1_PROMPT §8 forbids it here.
+
+The first draft of this entry recommended leaving it, on the grounds that the
+switch also removes a workspace launcher the developer uses. **That was wrong,
+and measuring it is what showed why:** the launcher was already inert.
+
+### Finding it
 
 **Command:**
 
 ```bash
 readlink -f /etc/profiles/per-user/andrew/bin/devman
 nix-store -q --referrers-closure /nix/store/...-devman-0.2.0 | head -3
-grep -rn devman /home/andrew/Documents/Projects/nix-meta --include='*.nix' -l
+grep -rln devman /home/andrew/Documents/Projects/nix-meta --include='*.nix'
 ```
 
 **Evidence:**
@@ -491,43 +496,68 @@ grep -rn devman /home/andrew/Documents/Projects/nix-meta --include='*.nix' -l
   -> devman-env -> home-manager-path
 
 nix-meta/profiles/terminal.nix:72
-  programs.nix-terminal.devman = {
-    enable = true;
-    withClaudeCode = false;
-    withCodexCli = false;
-  };
+  programs.nix-terminal.devman = { enable = true; withClaudeCode = false; withCodexCli = false; };
 ```
 
-The comment beside it says what it is: "the devman workspace orchestrator
-(tmuxp + Claude Code + Neovim launcher)". `enable = false` removes the binary
-**and that launcher**.
+The option is nix-terminal's, at `modules/terminal.nix:159`, and it adds
+`devman.lib.mkDevmanEnv { ... }` to `home.packages`. nix-terminal takes devman
+as a flake input, pinned to `github:Bullish-Design/devman` rev `d8a302c` — an
+old revision of this same repository.
 
-### Why stage 1 leaves it
+### What is actually lost
+
+The option's own description calls it "the devman workspace orchestrator
+(tmuxp + Claude Code + Neovim)", which is why the first draft of this entry
+recommended keeping it. Measuring it says otherwise:
+
+```
+$ ls /nix/store/...-devman-env/bin/
+devman
+$ nix-store -q --references /nix/store/...-devman-env
+/nix/store/i1cpdmw9w0hflws2fzm544r2v1scxkd5-devman-0.2.0
+$ command -v tmuxp
+(not on PATH)
+$ command -v nv
+/etc/profiles/per-user/andrew/bin/nv      <- nix-nvim, not devman
+```
+
+**One binary, and its tmuxp launcher had no tmuxp to launch.** `withClaudeCode`
+and `withCodexCli` were already `false`, so the env had been reduced to devman
+itself. `claude` comes from `profiles/agent.nix` and `nv` from nix-nvim;
+neither moves.
+
+What the developer does lose is `devman up`, `down`, `switch`, `bootstrap` and
+`index` as commands. `up` could not have worked without `tmuxp`; the others
+were not tested one by one.
+
+### The change, and how it was checked
+
+`profiles/terminal.nix` now reads `devman.enable = false;`, with the reasoning
+in a comment beside it. Checked by evaluation, with the old value stashed back
+in as a control so that an empty result is evidence rather than a query that
+finds nothing:
+
+```
+with enable = true   home.packages -> ["devman-env"]
+with enable = false  home.packages -> []
+```
+
+49 packages either way. **`nixos-rebuild switch` was not run** — the machine is
+unchanged until it is, and running it is the user's, not this session's
+(STAGE_1_PROMPT §8, rule 5).
+
+### Why this was worth doing before the CLI exists
 
 §3.3 and §10 say stage 1 either replaces 0.2.0 in the profile or takes a
-different name, and "does not ship alongside it". **Stage 1 ships no CLI** —
-§10 defers `run`, `show` and `doctor` to stage 3 — so nothing collides today.
-There are two `devman` commands only when the new one exists.
-
-The decision is therefore stage 3's, and it is a real choice between two
-things the developer wants, not a cleanup:
-
-| Option | Cost |
-|---|---|
-| `enable = false` in `terminal.nix` | loses the tmuxp/Neovim workspace launcher |
-| the new CLI takes a different name | §10's three commands are not `devman run` |
-| the new CLI absorbs the launcher | the largest, and the only one that loses nothing |
-
-**One hazard is live now, and it is worth knowing before stage 2.**
+different name, and "does not ship alongside it". Stage 1 ships no CLI, so the
+*name* collision is not live yet. The **destructive** hazard is:
 `devman 0.2.0`'s `init --force` calls `shutil.rmtree` on a `.devman/` it does
 not recognise (§15.2, D6). Today this repository's `.devman/` holds only
-`.runs/`, which is derived and git-ignored, so the blast radius is one run's
-logs. The moment a repository tracks `.devman/workflows/`, that command deletes
-canonical state.
+`.runs/`, which is derived and git-ignored. The moment a repository tracks
+`.devman/workflows/` — stage 2 — that command deletes canonical state.
 
-**Charter impact:** **none.** §13's stage-1 cleanup 1 says to remove it; this
-records that the removal is one line, where the line is, and why pulling it now
-costs the developer a tool for a collision that does not exist yet.
+**Charter impact:** **none.** §13's stage-1 cleanup 1 is now done, bar the
+rebuild.
 
 ---
 
@@ -537,6 +567,6 @@ costs the developer a tool for a collision that does not exist yet.
 |---|---|
 | the watcher (§8) | stage 3. The module is shaped so it is a second user service reading the same registry |
 | the CLI (§10) | stage 3, and §10 says to prove the conventions by hand first |
-| removing `devman 0.2.0` | S11 — one line in `nix-meta`, and a decision that belongs with the CLI |
+| activating the removal of `devman 0.2.0` | S11 — the one line in `nix-meta` is changed and committed; `nixos-rebuild switch` is the user's |
 | installing the NixOS service on this machine | needs `nixos-rebuild switch`, which STAGE_1_PROMPT §8 forbids. The module is proved by a NixOS VM test instead, and by a hand-run Dagu against the real registry |
 | `.devman/workflows/` in this repository | §11's cross-repo workflows need a second registered repository, which is stage 2 |
