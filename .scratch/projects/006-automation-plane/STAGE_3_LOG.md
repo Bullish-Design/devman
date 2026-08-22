@@ -1299,3 +1299,104 @@ silently.
 **Charter impact:** **changes §3.1's diagram.** Applied in its own commit, per
 rule 4. The line is removed rather than the directory created: three stages have
 run without it.
+
+---
+
+## S18 — A second watcher is invisible, and it looks exactly like a loop
+
+**Answer:** after the rebuild, one save in this repository produced **nine
+runs**. The shipped service was correct — one supervisor, one watchexec, one
+dispatch per event. **Three orphaned `watchexec` processes** left over from S16's
+hand testing were dispatching the same events beside it. `devman doctor`
+reported "Nothing to report" throughout, because it read the state file, and the
+state file holds one pid.
+
+**How the orphans were made, and it is the ordinary way.** `devman watch` run by
+hand is a supervisor with a watchexec child. Kill the supervisor — or close the
+shell that started it — and the child is **reparented to init**. It keeps its
+inotify watches, it keeps dispatching, and it survives a rebuild, because
+systemd never owned it. The supervisor's `finally: stop_child()` cannot help: it
+does not run when the parent is killed.
+
+**Evidence — the three dispatches per event, 50 ms apart:**
+
+```
+16:40:02.243  devman format _ship_probe.py     <- the save
+16:40:02.251  devman format _ship_probe.py
+16:40:02.295  devman format _ship_probe.py
+16:40:06.754  …                                <- the formatter's write
+16:40:06.786  …
+16:40:06.809  …
+16:40:20.257  …                                <- the delete
+16:40:20.522  …
+16:40:20.650  …
+runs: 9
+```
+
+**Evidence — the unit was innocent.** Its cgroup held exactly two processes, and
+its journal shows one `[Running: … watch --dispatch]` per event:
+
+```
+CGroup: /user.slice/…/devman-watch.service
+        ├─1356970 …/devman … watch
+        └─1357053 …/watchexec … --watch …/special-dragon
+
+$ ps -eo pid,ppid | grep watchexec
+1306266  1        <- orphan, --watch …/special-dragon --watch /tmp/s16-fmt
+1313328  1        <- orphan, the same
+1319229  1        <- orphan, --watch /tmp/s16-fmt only
+1357053  1356970  <- the service
+```
+
+**Evidence — after killing the three, the same test:**
+
+```
+dispatches: 3   runs: 3        (save, the formatter's write, the delete)
+```
+
+That is S6's shape exactly, from the shipped configuration.
+
+### What `doctor` now does, and what it got wrong first
+
+The check reads `/proc` for every `watchexec` carrying
+`--project-origin=<registry>`, and reports when there is more than one. Reading
+the process table is not §15.1's forbidden scan: that rule forbids walking the
+disk to find repositories.
+
+**The first implementation was wrong in a way worth recording.** It compared
+each watcher against the pid in `watch/state.json`. But a hand-run watcher does
+not *appear* in that file — it **overwrites** it, because the file has one slot
+and the last writer wins. So `doctor` called the service's own watcher the
+stray, and offered to kill it:
+
+```
+!!  watcher   ANOTHER watcher is running: watchexec pid 1357053, parent 1356970
+              stop them: kill 1357053 1382819        <- 1357053 IS the service
+```
+
+Deriving liveness from the state file is backwards when the fault is that two
+watchers exist. It now comes from the process table, and the file is used only
+for what a watcher recorded. The remedy is named per watcher, because it
+differs: an orphan is killed, while a watchexec with a live supervisor must not
+be — its supervisor would start another one.
+
+```
+!!  watcher   2 watchers are running, and §8 allows one
+              watchexec pid 1357053 belongs to supervisor 1356970 — stop that
+              supervisor, not its child
+              watchexec pid 1382819 is ORPHANED — stop it: kill 1382819
+```
+
+Proved by making one on purpose: run `devman watch` by hand, `kill -9` the
+supervisor, confirm the child is alive with parent 1, and run `doctor`.
+
+**Two smaller things this leaves.** A stale state file now says so — one watcher
+running under a supervisor the file does not name is reported, because the watch
+set and the fired log then belong to a watcher that is gone. And the count is
+what makes criterion 13 checkable in the field: **a duplicated watcher and a
+loop that did not break produce the same symptom**, and only this check
+separates them.
+
+**Charter impact:** **none.** §8 already says one watcher per machine, and §15.3
+already accepts one shared instance. This is the first thing that can tell you
+the machine has stopped obeying that.

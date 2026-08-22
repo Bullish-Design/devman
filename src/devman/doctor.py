@@ -422,6 +422,52 @@ def check_cross_repo(rep: Report, reg: Registry) -> None:
         )
 
 
+def running_watchers(reg: Registry) -> list[tuple[int, int]]:
+    """Every watchexec aimed at this registry, as `(pid, parent pid)`.
+
+    **Ask the kernel, not the state file.** `<registry>/watch/state.json` has one
+    slot and the last writer wins, so a second watcher does not appear in it —
+    it overwrites it. Deriving liveness from the file therefore reports the
+    newest watcher as the only one, which is exactly backwards when the problem
+    is that there are two.
+
+    §8 says one watcher per machine, and a second is not a second opinion: every
+    watcher dispatches the same event, so each save fires once more than it
+    should and the extra run looks exactly like a loop that did not break.
+
+    A second one is easy to make and hard to notice. `devman watch` run by hand
+    leaves its watchexec **orphaned** when the supervisor dies — reparented to
+    init, still holding its inotify watches, and surviving a rebuild, because
+    systemd never owned it. Three of them once tripled every run in this
+    repository (S18).
+
+    This reads `/proc`, which is the process table rather than the filesystem.
+    §15.1 forbids walking the disk to find repositories; it says nothing about
+    asking the kernel what is running.
+    """
+    marker = f"--project-origin={reg.root}".encode()
+    found = []
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:
+        return found
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+            stat = (entry / "stat").read_text()
+        except OSError:
+            continue  # the process ended while we looked at it
+        if not argv or b"watchexec" not in argv[0] or marker not in argv:
+            continue
+        # Field 4 of `stat` is the parent pid. Split after the last `)` because
+        # the second field is the command name and may hold anything.
+        ppid = int(stat.rsplit(")", 1)[1].split()[1])
+        found.append((int(entry.name), ppid))
+    return sorted(found)
+
+
 def check_watcher(rep: Report, reg: Registry) -> None:
     """What the watcher is watching, and what it last fired (§8, stage 3).
 
@@ -439,16 +485,18 @@ def check_watcher(rep: Report, reg: Registry) -> None:
             f"{entry.project}: {', '.join(entry.globs)} -> {entry.workflow}"
             f"  [{entry.group}]"
         )
-    if state is None:
-        lines.append("the watcher has never run — no state file")
-        rep.add("watcher", "ok" if not watching else "..", lines)
-        return
-    # A state file outlives the process that wrote it, so ask the kernel rather
-    # than the file. A watcher that died looks exactly like a watcher that is
-    # watching, and the difference is every save going unnoticed.
-    pid = state.get("pid")
-    alive = isinstance(pid, int) and Path(f"/proc/{pid}").exists()
-    if not alive:
+    # Liveness comes from the process table. The state file says what a watcher
+    # recorded; the kernel says what is running, and those differ in both of the
+    # ways that matter — a state file outlives the process that wrote it, and a
+    # second watcher overwrites it rather than appearing in it.
+    live = running_watchers(reg)
+    pid = state.get("pid") if state else None
+
+    if not live:
+        if state is None:
+            lines.append("the watcher has never run — no state file")
+            rep.add("watcher", "ok" if not watching else "..", lines)
+            return
         rep.add(
             "watcher",
             "!!",
@@ -460,6 +508,50 @@ def check_watcher(rep: Report, reg: Registry) -> None:
                 " systemctl --user start devman-watch",
             ],
         )
+        return
+
+    if len(live) > 1:
+        # Name the remedy per watcher, because it differs. An orphan has no
+        # supervisor to stop, and killing the watchexec of a live supervisor
+        # only makes that supervisor start another one.
+        extra = []
+        for wpid, ppid in live:
+            if ppid == 1:
+                extra.append(f"watchexec pid {wpid} is ORPHANED — stop it: kill {wpid}")
+            else:
+                extra.append(
+                    f"watchexec pid {wpid} belongs to supervisor {ppid}"
+                    f" — stop that supervisor, not its child"
+                )
+        rep.add(
+            "watcher",
+            "!!",
+            lines
+            + [f"{len(live)} watchers are running, and §8 allows one"]
+            + extra
+            + [
+                "every watcher dispatches the same event, so each save fires once"
+                " more than it should, and the extra run looks like a loop"
+            ],
+        )
+        return
+
+    wpid, ppid = live[0]
+    if state is None:
+        lines.append(f"running as watchexec {wpid} under supervisor {ppid}")
+        lines.append("no state file — it has recorded nothing yet")
+        rep.add("watcher", "..", lines)
+        return
+    if ppid != pid:
+        # One watcher, but not the one the state file names. The file is stale,
+        # so everything below it — the watch set, the fired log — describes a
+        # watcher that is gone.
+        lines.append(
+            f"running as watchexec {wpid} under supervisor {ppid}, but the state"
+            f" file names pid {pid}"
+        )
+        lines.append("the recorded watch set and fired log belong to an older watcher")
+        rep.add("watcher", "!!", lines)
         return
     lines.append(f"running since {state.get('started_at', '?')}, pid {pid}")
     # Two stamps, because the supervisor outlives its watchexec child. A watch
