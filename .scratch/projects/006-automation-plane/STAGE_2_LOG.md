@@ -1032,3 +1032,62 @@ the ones made entirely of task names.**
 **Charter impact:** **none, and §16 should say so.** §12.4 remains the open
 question; it now has one data point instead of none, and a sharper statement of
 what would close it.
+
+---
+
+## S15 — §9.2's exact failure, reproduced by the author of the fix
+
+**Answer:** a probe run with `DEVMAN_PROJECT_DIR` unset created a directory
+named literally `${DEVMAN_PROJECT_DIR}` **inside this repository**, and it was
+committed. That is the failure §9.2 records as already having happened here
+once — "two Dagu run logs were committed before anyone noticed" — recurring by a
+route the fix for the first one does not cover.
+
+**How it happened.** S12's probe deliberately ran without
+`DEVMAN_PROJECT_DIR` to test whether Dagu supports shell-style defaults. It does
+not, so `working_dir` resolved to a relative path and `log_dir` — inherited from
+`base.yaml`, which names the unset variable — was created literally:
+
+```
+${DEVMAN_PROJECT_DIR}/.devman/.runs/logs/s2-fallback-probe/.../where.*.out
+```
+
+A later `git add -A` swept it in. Five files, two lines of content.
+
+### Why the ignore rule did not stop it
+
+`.git/info/exclude` holds `.devman/.runs/`, written by registration. The stray
+path is `${DEVMAN_PROJECT_DIR}/.devman/.runs/…` — a different prefix, so the
+pattern does not match. **The rule protects the correctly-named directory and
+nothing else**, which is exactly right and exactly insufficient.
+
+### What was NOT done about it, and why
+
+Adding `${DEVMAN_PROJECT_DIR}/` to the exclude rule would stop the accident and
+is the wrong fix. **The directory is a symptom of a broken trigger**, and
+`git status` showing it as untracked is the only cheap signal that a trigger
+forgot the environment variable. Ignoring it would make an error condition
+invisible in the one place a developer looks daily.
+
+§10's `doctor` check 3 exists for this — "look for a directory named literally
+`${DEVMAN_PROJECT_DIR}`" — and it has now fired against a real occurrence rather
+than a hypothetical one. Two things follow, both for stage 3:
+
+1. **`devman run` should refuse to enqueue when `DEVMAN_PROJECT_DIR` is unset
+   and the workflow does not set `DEVMAN_SELF_DIR`.** Prevention belongs in the
+   one place that triggers a workflow, not in an ignore file.
+2. **`doctor` check 3 should search the registered repositories**, not only the
+   daemon's working directory. This one landed inside a project.
+
+### And a process note, recorded because the rule is explicit
+
+`STAGE_2_PROMPT.md` rule 4 says a `CONCEPT.md` change goes in its own commit.
+Commit `26f50cd` carried the charter change **and** `nix/nixos-module.nix`'s
+handler fix together, because the same `git add -A` that swept up the stray
+directory also swept up the module. Splitting it afterwards would have meant
+rewriting already-pushed history, which is a worse trade than the untidiness, so
+the split was not made. The module fix and the charter change are described
+separately above (S12) and the commit message describes only one of them.
+
+**Charter impact:** **none.** §9.2's rule and §10's check 3 are both confirmed
+by this, and neither changes.
