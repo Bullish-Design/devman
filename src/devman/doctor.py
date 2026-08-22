@@ -442,9 +442,25 @@ def check_watcher(rep: Report, reg: Registry) -> None:
         lines.append("the watcher has never run — no state file")
         rep.add("watcher", "ok" if not watching else "..", lines)
         return
-    lines.append(
-        f"running since {state.get('started_at', '?')}, pid {state.get('pid', '?')}"
-    )
+    # A state file outlives the process that wrote it, so ask the kernel rather
+    # than the file. A watcher that died looks exactly like a watcher that is
+    # watching, and the difference is every save going unnoticed.
+    pid = state.get("pid")
+    alive = isinstance(pid, int) and Path(f"/proc/{pid}").exists()
+    if not alive:
+        rep.add(
+            "watcher",
+            "!!",
+            lines
+            + [
+                f"it is NOT running — the last one started"
+                f" {state.get('started_at', '?')} as pid {pid} and is gone",
+                "nothing is watching these repositories:"
+                " systemctl --user start devman-watch",
+            ],
+        )
+        return
+    lines.append(f"running since {state.get('started_at', '?')}, pid {pid}")
 
     # The watched PATHS are fixed when the service starts, because that is what
     # watchexec is given on its command line; the MAPPING is re-read per event.
