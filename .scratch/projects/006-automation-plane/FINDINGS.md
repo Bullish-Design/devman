@@ -2109,3 +2109,176 @@ workspace-local managed secret registry, which would remove the path problem
 from `provider: file` — it is not exercised here and is worth one look during
 reconciliation. See also E4: if a `secrets:` block can live in `base.yaml`, the
 machine can declare the whole vocabulary once.
+
+---
+
+## E4 — How much can the machine set once?
+
+**Bucket:** **replaces** — most of what §7.2's example workflow contains.
+
+**Answer:** **all of it.** `working_dir`, `log_dir`, `queue`, `env`, retention,
+`secrets`, step `defaults`, and `preconditions` all inherit from `base.yaml`,
+and the two interpolations keep the sources A3 measured — `log_dir` from the
+trigger's environment, `working_dir` from the parameter. A group workflow file
+reduces to `steps:`.
+
+**Tested:** dagu 2.15.0, on 2026-08-21. `base.yaml` was replaced for the
+measurement and restored afterwards.
+
+### The base config
+
+`config.schema.json`: `base_config` is one path, and the instance resolves it to
+`$DAGU_HOME/base.yaml`. The shipped file states the rule at the top:
+
+```
+# Values defined here are inherited by ALL DAGs.
+# Individual DAGs can override any setting.
+# Environment variables (env:) are additive — DAG env vars append to these.
+```
+
+It ships `type`, `overlap_policy`, `log_output`, `hist_retention_days`,
+`max_clean_up_time_sec`, `max_active_steps`, `max_output_size`, and
+`catchup_window` active, and documents `working_dir`, `log_dir`, `queue`, `env`,
+`dotenv`, `defaults`, `secrets`, `handler_on`, `smtp`, `otel`, and `run_config`
+as commented examples.
+
+### The measurement — a two-line workflow serving two projects
+
+`base.yaml`, the machine's file:
+
+```yaml
+type: graph
+log_output: separate
+hist_retention_days: 7
+max_active_steps: 10
+working_dir: ${DEVMAN_PROJECT_DIR}
+log_dir: ${DEVMAN_PROJECT_DIR}/.devman/.runs/logs
+queue: exclusive
+env:
+  - DEVMAN_FROM_BASE: base-was-here
+defaults:
+  timeout_sec: 300
+secrets:
+  - name: GITHUB_TOKEN
+    provider: file
+    key: /tmp/devman-e/e3/token.txt
+```
+
+`e4_minimal.yaml`, the whole workflow:
+
+```yaml
+steps:
+  - id: probe
+    run: echo "cwd=$(pwd)"
+```
+
+**Command:**
+
+```
+for P in projA projB; do
+  DEVMAN_PROJECT_DIR=/tmp/devman-e/$P \
+    dagu enqueue e4_minimal -- DEVMAN_PROJECT_DIR=/tmp/devman-e/$P
+done
+```
+
+**Evidence:**
+
+```
+├─log: /tmp/devman-e/projA/.devman/.runs/logs/e4_minimal/dag-run_.../dag-run_....log
+      cwd=/tmp/devman-e/projA
+├─log: /tmp/devman-e/projB/.devman/.runs/logs/e4_minimal/dag-run_.../dag-run_....log
+      cwd=/tmp/devman-e/projB
+```
+
+**No `queue`, no `working_dir`, no `log_dir`, no `params`, no `env` in the
+workflow**, and both projects got their own working directory and their own log
+tree. The §12.1 spike passes with the workflow file holding nothing but steps.
+
+### Field by field
+
+| Field | Inherits from `base.yaml` | Merge rule | Notes |
+|---|---|---|---|
+| `working_dir` | **yes** | DAG replaces | `${DEVMAN_PROJECT_DIR}` resolves from the **param** |
+| `log_dir` | **yes** | DAG replaces | resolves from the **trigger's environment** |
+| `queue` | **yes** | DAG replaces | and it is enforced — see below |
+| `env` | **yes** | **additive** | base and DAG values both present |
+| `hist_retention_days` | **yes** | DAG replaces | §16's retention question |
+| `secrets` | **yes** | DAG replaces | see E3 |
+| `defaults` (step settings) | **yes** | DAG replaces | `timeout_sec`, `retry_policy`, `continue_on`, `repeat_policy` |
+| `preconditions` | **yes** | **DAG replaces** | not additive — see below |
+
+**A queue set in base is a real queue.** Three DAGs, none naming a queue, with
+`queue: exclusive` (`max_concurrency: 1`) in `base.yaml`:
+
+```
+START p 1787368363.203159418   END p 1787368367.213481638
+START q 1787368369.213933262   END q 1787368373.224388492
+START r 1787368375.193132198   END r 1787368379.202318046
+```
+
+Strictly serialized. **Success criterion 12 can be satisfied without a workflow
+naming a queue at all.**
+
+**Overrides work, and `env` is additive.** A DAG setting `queue: light`,
+`working_dir: /tmp/devman-e/projB`, and its own `env:`:
+
+```
+├─log: /tmp/devman-e/projA/.devman/.runs/logs/e4_override/...   <- base's log_dir
+      cwd=/tmp/devman-e/projB                                   <- the DAG's working_dir
+      from_base=base-was-here  from_dag=dag-was-here            <- both env values
+```
+
+**`preconditions` are replaced, not merged.** With `condition: "false"` in
+`base.yaml`:
+
+```
+DAG with no preconditions      Result: Aborted     <- base's applied
+DAG with condition: "true"     Result: Succeeded   <- base's was replaced, not ANDed
+```
+
+So a base-level precondition is a machine-wide gate that any workflow silently
+switches off by declaring one of its own. E1's loop-breaking precondition
+therefore belongs in the workflow, not in `base.yaml`.
+
+### Charter impact
+
+**changes §7.2, and shortens §7.1.**
+
+§7.2's example workflow is:
+
+```yaml
+queue: light
+workingDir: ${DEVMAN_PROJECT_DIR}
+steps: ...
+```
+
+A2 already corrected the spelling. E4 removes both remaining lines. **The
+portable part of every group workflow is machine state, not file content**, so
+§7.2's "one group file, unedited, serves every repo" gets cheaper rather than
+harder: there is less in the file that could be wrong.
+
+Three specific edits:
+
+1. **`working_dir` and `log_dir` move to `base.yaml`.** The machine module writes
+   them once. A workflow that needs a different directory still overrides.
+2. **§7.1's "queue names are the entire shared vocabulary" is already false, and
+   E4 makes the true list visible.** The machine and every workflow must agree
+   on: the queue names, **the variable name `DEVMAN_PROJECT_DIR`** (A2), and
+   **the `.devman/.runs/` path shape** (A3). E4's contribution is that all three
+   can be stated in one machine-written file instead of repeated in every
+   workflow — which is the outcome §7.1 wanted, reached by a different route.
+3. **A default queue is possible.** §7.1 says "a workflow names one". It may now
+   say "a workflow names one when it wants something other than the default",
+   which makes success criterion 3 ("a repo may take no groups at all") cheaper
+   and removes A1's silent-typo hazard for every workflow that names nothing.
+
+**And it settles part of §16.** Retention — "Lean: 7 days for logs and
+artifacts, keep `metadata.json` indefinitely" — has a Dagu field,
+`hist_retention_days`, settable once in `base.yaml`. It governs Dagu's **run
+history**, not the log files under `log_dir`, so the log half of §16's lean still
+needs an owner.
+
+**One sentence, and then stopping as §1 requires:** because `base.yaml` is one
+machine-wide file, a `secrets:` block placed there grants every workflow on the
+machine every secret — which is the cost of E3's tidiest answer, and a
+reconciliation decision.
