@@ -12,17 +12,29 @@ group's names:
 
 | Task | What the repository puts in it |
 |---|---|
-| `lint` | the fast check that needs no build |
-| `test` | the test suite |
+| `base:lint` | the fast check that needs no build |
+| `base:test` | the test suite |
 
 Two names, and the list is closed. `full-test` reaches further by calling
 `devenv test`, which every devenv repository already has, so the exhaustive
 workflow costs a repository no third task.
 
 ```nix
-tasks."lint".exec = "ruff check .";
-tasks."test".exec = "pytest";
+tasks."base:lint".exec = "ruff check .";
+tasks."base:test".exec = "pytest";
 ```
+
+**The `base:` prefix is not decoration — devenv requires it.** An un-namespaced
+name is an evaluation error:
+
+```
+× Invalid task name: lint. Task names must be in format 'namespace:name'
+```
+
+The namespace is the group's own name, which is what "group-local" means made
+literal. A repository taking two groups defines both sets; if the two mean the
+same command, it should take one group rather than both (§7.4 — "to be rid of
+one, do not take its group").
 
 A repository that decomposes differently takes a different group, or shadows the
 file (§7.3). The plane does not police what a name means.
@@ -31,9 +43,9 @@ file (§7.3). The plane does not police what a name means.
 
 | File | Queue | Steps |
 |---|---|---|
-| `check.yaml` | `light` | `lint` |
-| `validate.yaml` | `normal` | `lint`, `test` |
-| `full-test.yaml` | `heavy` | `lint`, `test`, `devenv test` |
+| `check.yaml` | `light` | `base:lint` |
+| `validate.yaml` | `normal` | `base:lint`, `base:test` |
+| `full-test.yaml` | `heavy` | `base:lint`, `base:test`, `devenv test` |
 
 ## What is deliberately absent from every file
 

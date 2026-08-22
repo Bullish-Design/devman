@@ -5,4 +5,4 @@
 queue: light
 steps:
   - name: lint
-    run: devenv tasks run lint
+    run: devenv tasks run base:lint

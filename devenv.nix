@@ -75,9 +75,30 @@ in
 
   '';
 
+  # devman adopts itself (CONCEPT.md §14, criterion 16). Three lines, and the
+  # repo's own primitives below.
+  #
+  # There is no `devman` input in devenv.yaml: this repository IS the plane, so
+  # it imports `./modules` directly. Every other repository pins a rev with
+  # `git+https` (§3.2), because `git+file` records neither `rev` nor `narHash`
+  # and silently follows the branch head (B4).
+  # `base` only. This repository carries no Python source, so taking `python`
+  # would put a `typecheck` step in its `check` with nothing to type-check —
+  # §15.7's "nothing checks that a default still fits", self-inflicted.
+  devman = {
+    enable = true;
+    project = "devman";
+    groups = [ "base" ];
+  };
+
   # https://devenv.sh/tasks/
-  # No tasks yet. The plane's own workflows call `devenv tasks run <name>`;
-  # what those names are is the repository's business, not devman's.
+  #
+  # The two task names the `base` group calls (groups/base/README.md). devenv
+  # owns each implementation; Dagu owns the composition (§6).
+  tasks = {
+    "base:lint".exec = "ruff check .";
+    "base:test".exec = "nix flake check";
+  };
 
   # https://devenv.sh/tests/
   enterTest = ''

@@ -372,8 +372,8 @@ cython_debug/
 !AGENTS.md
 !CLAUDE.md
 
-# Vendored upstream sources, kept for agent context. `.devman/context/` is
+# Vendored upstream sources, kept for agent context. `.scratch/context/` is
 # tracked, because it carries the note that says what is vendored and why.
 # `.vend/` is the payload -- a full upstream clone, refetched on demand and
 # never committed.
-.devman/context/.vend/
+.scratch/context/.vend/

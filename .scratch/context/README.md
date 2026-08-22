@@ -1,11 +1,11 @@
-# .devman/context — reference material for agent sessions
+# .scratch/context — reference material for agent sessions
 
 This directory holds pointers to upstream sources that an agent session reads
 while working on the automation plane. **The pointers are tracked. The sources
 are not.**
 
 `.vend/` is the payload directory. It is git-ignored (`.gitignore`, one rule for
-`.devman/context/.vend/`), because it holds full upstream clones that are
+`.scratch/context/.vend/`), because it holds full upstream clones that are
 refetched on demand rather than committed.
 
 ## What is vendored
@@ -21,9 +21,9 @@ another.
 ## Refetch
 
 ```bash
-rm -rf .devman/context/.vend/dagu
+rm -rf .scratch/context/.vend/dagu
 git clone --depth 1 --branch v2.15.0 \
-  https://github.com/dagu-org/dagu.git .devman/context/.vend/dagu
+  https://github.com/dagu-org/dagu.git .scratch/context/.vend/dagu
 ```
 
 ## Where to read first, in the order it helps
@@ -41,11 +41,18 @@ git clone --depth 1 --branch v2.15.0 \
 a run is evidence. Investigation A found three places where the documentation
 and the behaviour disagree — see `.scratch/projects/006-automation-plane/FINDINGS.md`.
 
-## A note on this directory
+## Why this is not under `.devman/`
 
-`CONCEPT.md` §15.2 warns that `.devman/` has carried other meanings, and that
-registration must detect a shape it does not recognise rather than adopt it.
-`context/` is a third thing under `.devman/`, alongside §9.2's `workflows/` and
-`.runs/`. Whoever writes the registration check should treat `context/` as
-inert, the same way §7.2 treats everything in a group directory that is not
-`workflows/*.yaml`.
+It used to be, and stage 1 moved it.
+
+`CONCEPT.md` §15.2 is a **whitelist**: `.devman/` may hold only `workflows/`
+and `.runs/`, and any other top-level entry means registration refuses and
+reports. D6's survey of 77 checkouts found four shapes of `.devman/`, and
+`context/` — this directory — was one of the two real specimens it found. A
+blacklist would have silently adopted it.
+
+So the choice at stage 1 was to widen the whitelist or to move the directory.
+Moving it is right: the whitelist is what stops the plane adopting a
+`.devman/` that means something else, and this repository was the first to
+prove the rule bites. Criterion 16 says devman adopts itself, and a repository
+that has to weaken the rule to adopt the plane has not adopted it.

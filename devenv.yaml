@@ -21,6 +21,9 @@ inputs:
 
 imports:
   - shellij/modules
+  # devman adopts itself (criterion 16). A local directory, not an input: this
+  # repository is the plane, so there is no rev to pin against itself.
+  - ./modules
 
 # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true

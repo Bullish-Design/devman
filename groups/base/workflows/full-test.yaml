@@ -7,8 +7,8 @@ queue: heavy
 type: chain
 steps:
   - name: lint
-    run: devenv tasks run lint
+    run: devenv tasks run base:lint
   - name: test
-    run: devenv tasks run test
+    run: devenv tasks run base:test
   - name: devenv-test
     run: devenv test

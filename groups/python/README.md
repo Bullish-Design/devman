@@ -8,12 +8,19 @@ does not: a type checker that is neither a linter nor a test.
 
 | Task | What the repository puts in it |
 |---|---|
-| `lint` | `ruff check .` |
-| `typecheck` | `basedpyright` |
-| `test` | `pytest` |
+| `python:lint` | `ruff check .` |
+| `python:typecheck` | `basedpyright` |
+| `python:test` | `pytest` |
 
-`lint` and `test` are the same two names `base` asks for, so a repository taking
-both groups defines three tasks, not five.
+devenv requires the namespace — an un-namespaced `lint` is an evaluation error —
+and the namespace is the group's own name, so a group's names cannot collide
+with another group's (see `../base/README.md`).
+
+**A Python repository usually takes `[ "python" ]` alone.** Taking
+`[ "base" "python" ]` means defining `base:lint` and `python:lint` with the same
+body, because python shadows `check` and `validate` while base's `full-test`
+survives and still calls its own names. Take both only when you want that
+`full-test`.
 
 ## Shadowing
 

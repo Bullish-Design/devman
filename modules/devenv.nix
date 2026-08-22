@@ -52,7 +52,20 @@ let
         throw "devman: group '${group}' does not exist. There is no ${toString dir}."
       else
         acc // (lib.mapAttrs'
-          (file: _: lib.nameValuePair (lib.removeSuffix ".yaml" file) (dir + "/${file}"))
+          (file: _: lib.nameValuePair
+            (lib.removeSuffix ".yaml" file)
+            # `builtins.readFile` rather than the path itself, and the reason is
+            # devenv's evaluation cache. Interpolating a path copies the file to
+            # the store, and devenv does not notice when that file's CONTENT
+            # changes: the projection then keeps pointing at the previous store
+            # path, shell entry after shell entry. `readFile` is a read the
+            # cache tracks, so an edited group file re-evaluates.
+            #
+            # A repository pinning a `git+https` rev never meets this, because a
+            # changed group file is a changed rev. A repository importing
+            # `./modules` — this one, adopting itself (criterion 16) — meets it
+            # on every edit.
+            (pkgs.writeText "devman-${group}-${file}" (builtins.readFile (dir + "/${file}"))))
           (lib.filterAttrs
             (file: kind: kind == "regular" && lib.hasSuffix ".yaml" file)
             (builtins.readDir dir))))
