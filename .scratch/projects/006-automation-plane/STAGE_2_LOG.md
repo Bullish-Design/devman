@@ -512,3 +512,63 @@ probe links after devman re-projected:       3
 ```
 
 **Charter impact:** **none.** Both decisions are choices the charter leaves open.
+
+---
+
+## S8 — §11's `doctor` check forbids the thing §11 recommends
+
+**Answer:** `CONCEPT.md` §11 states A6's role-based rule in its body and A4's
+superseded rule in its closing line. Writing the first real cross-repo workflow
+made them collide: the file §11's body prescribes is a file §11's last sentence
+declares broken.
+
+**The two sentences, both in §11, four paragraphs apart:**
+
+> **`DEVMAN_PROJECT_DIR` names the project a run targets, and is set only by
+> whatever triggers the run. […] A parent directs a child with `with.params`.**
+
+> `doctor` checks it mechanically (§10) — any workflow containing
+> `action: dag.run` must **not also mention** `DEVMAN_PROJECT_DIR`.
+
+A parent cannot direct a child with `with.params` without mentioning the name.
+The second sentence is A4's original rule — "must not define
+`DEVMAN_PROJECT_DIR`, in `params`, in `env:`, or in `working_dir`" — which A6
+explicitly superseded:
+
+> **Recommended over A4's rule** […] This keeps the contract at one name for the
+> common case, keeps cross-repo workflows ordinary files, and gains the ability
+> to point a child at a different project.
+
+The reconciliation applied A6's rule to §11's body and left A4's rule in the
+`doctor` sentence.
+
+**Command:** the check, run as written, against the file §11 asks for.
+
+**Evidence:**
+
+```
+$ grep -c 'action: dag.run' .devman/workflows/stack-validate.yaml
+2
+$ grep -n 'DEVMAN_PROJECT_DIR' .devman/workflows/stack-validate.yaml
+54:        DEVMAN_PROJECT_DIR: ${OBSERVANTIC_DIR}
+61:        DEVMAN_PROJECT_DIR: ${SITEMAN_DIR}
+```
+
+Both mentions are inside a step's `with.params`. The rule as written reports the
+only correct cross-repo workflow in the repository as broken, and a `doctor`
+that cries wolf on the one file it was written for is worse than no check.
+
+**What the check should be**, and it is still mechanical and still one grep:
+
+> A workflow containing `action: dag.run` must not define `DEVMAN_PROJECT_DIR`
+> **for itself** — not in top-level `params:`, not in `env:`, not in
+> `working_dir`, not in `log_dir`. Inside a step's `with.params` the name is
+> **correct**: that is how a parent directs a child.
+
+The distinction is exactly the one A6 measured. A parent that *holds* the name
+drags every child into its own directory, silently. A parent that *passes* the
+name in `with.params` directs one child deliberately, which is the behaviour
+§11's "synchronized releases and coordinated migrations" depend on.
+
+**Charter impact:** **changes §11.** Applied in its own commit, per
+`STAGE_2_PROMPT.md` rule 4.
