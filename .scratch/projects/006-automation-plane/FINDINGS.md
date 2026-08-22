@@ -1413,3 +1413,283 @@ runs a developer's own `devenv` in a developer's own checkout. Say so, and drop
 This is a §4 wording change with a real consequence for Investigation B, which
 builds `nixosModules.default`: the module writes `systemd.user.services.dagu`,
 not `systemd.services.dagu`.
+
+---
+---
+
+# Investigation E — the Dagu capability sweep
+
+Answers to `INVESTIGATION_E_PROMPT.md`. The question is the inverse of
+Investigation A's: **what does Dagu already do that the charter is planning to
+build itself?**
+
+Same instance, same version. `E0` above predates this investigation and is
+unrelated to the `E1`–`E8` numbering the prompt asks for.
+
+**Version under test:** Dagu **2.15.0**.
+**Instance:** `DAGU_HOME=<repo>/.devenv/state/dagu`, the `devenv up -d` daemon.
+**Date:** 2026-08-21.
+**Source read alongside the runs:** `.devman/context/.vend/dagu`, tag `v2.15.0`.
+
+---
+
+## E1 — Does Dagu already break the write-loop?
+
+**Bucket:** **replaces.**
+
+**Answer:** **yes, twice over.** Dagu skips work whose inputs are unchanged by
+two independent mechanisms, both content-hash based, and both honoured under
+`enqueue`. §8.1's `generation.json` is a token Dagu already keeps.
+
+**Tested:** dagu 2.15.0, on 2026-08-21.
+
+### Mechanism 1 — `type: build` skips the step and does not touch the output
+
+A build step declares `inputs:` and `outputs:`. Dagu hashes the recipe, the
+input contents, and the current output, and reuses a matching materialization.
+
+```yaml
+# e1_build.yaml
+type: build
+working_dir: /tmp/devman-e/e1
+steps:
+  - id: compile
+    inputs:
+      - name: source
+        path: source.c
+    outputs:
+      - name: binary
+        path: app.bin
+    run: |
+      echo "COMPILE RAN" >> /tmp/devman-e/e1/compile.trace
+      cat "${inputs.source}" > "${outputs.binary}"
+```
+
+**Command:**
+
+```
+dagu start e1_build            # twice, with no edit in between
+stat -c 'app.bin inode=%i mtime=%.9Y' app.bin
+```
+
+**Evidence:**
+
+```
+run 1  └─build: execute (manifest_missing) - no prior successful materialization
+       app.bin inode=26954567 mtime=1787367362.568694973
+run 2  └─build: reuse (matched) - recipe, inputs, and output match the committed
+                manifest; producer: e1_build:034BKurWdFotyilj5Z7x4X
+       app.bin inode=26954567 mtime=1787367362.568694973
+```
+
+**Same inode, same nanosecond mtime.** On reuse Dagu does not write the output
+at all. **A watcher sees no event, so the loop terminates without any token.**
+Editing the input restores execution:
+
+```
+└─build: execute (input_changed) - declared input content changed
+```
+
+**It survives `enqueue`.** Three consecutive `dagu enqueue e1_build` runs:
+
+```
+enqueue 1  └─build: execute (recipe_changed) - the step recipe changed
+enqueue 2  └─build: reuse (matched) ...
+enqueue 3  └─build: reuse (matched) ...
+```
+
+**But reuse is per execution path.** The first `enqueue` after a local `start`
+re-executes with `recipe_changed`, and the first `start` after an `enqueue` does
+the same. Each switch costs exactly one re-execution, then reuse resumes. An
+unrelated variable in the caller's environment does **not** invalidate it —
+`env_passthrough` filters it out before it reaches the recipe digest. So a plane
+that always triggers the same way (A6: always `enqueue`) gets stable reuse.
+
+**Dagu's token, on disk.** `$DAGU_HOME/data/materializations/manifests/<key>.json`:
+
+```json
+{"schemaVersion":1,"dagName":"e1_build","stepId":"compile",
+ "recipeDigest":"sha256:db44f0e5...","fingerprint":"sha256:1f49f9b0...",
+ "inputs":[{"name":"source","path":"/tmp/devman-e/e1/source.c","size":22,
+            "digest":"sha256:3970d2e7..."}],
+ "output":{"name":"binary","path":"/tmp/devman-e/e1/app.bin","size":22,
+           "digest":"sha256:3970d2e7..."},
+ "producerRun":{"name":"e1_build","id":"034BKw0N5EphIzm0si0Fpx"}}
+```
+
+That is §8.1's `generation.json`, field for field — "a note saying *I did
+that*". It is machine-side under `data_dir`, not repo-side.
+
+### The one thing `type: build` cannot express — an in-place rewrite
+
+§8.1's example is a formatter that rewrites `foo.py`. A build step may not
+declare one path as both input and output.
+
+**Command:**
+
+```
+dagu validate $DAGS/e1_inplace.yaml   # input path == output path == foo.py
+dagu start e1_inplace
+```
+
+**Evidence:**
+
+```
+validate exit=0                       <- validate does NOT catch it
+Error: failed to execute the dag-run e1_inplace (...): step format declares the
+  same path as input and output: /tmp/devman-e/e1/foo.py
+```
+
+A fourth documentation/behaviour gap: `validate` passes a DAG the runtime
+rejects. So `type: build` covers `source → artifact`, and not `format in place`.
+
+### Mechanism 2 — `preconditions`, which do cover the in-place case
+
+A DAG-level or step-level precondition runs a command before the work. Command
+form is real shell, including `$()`.
+
+```yaml
+# e1_hashskip_param.yaml — the devman shape: one shared file, per-project param
+params:
+  - DEVMAN_PROJECT_DIR: /tmp/devman-e/projA
+working_dir: ${DEVMAN_PROJECT_DIR}
+preconditions:
+  - condition: 'test "$(sha256sum foo.py | cut -d" " -f1)" != "$(cat .lasthash 2>/dev/null)"'
+steps:
+  - id: fmt
+    run: |
+      echo "RAN in $(pwd)" >> hash.trace
+      sha256sum foo.py | cut -d' ' -f1 > .lasthash
+```
+
+**Command:**
+
+```
+for i in 1 2; do for P in projA projB; do
+  dagu enqueue e1_hashskip_param -- DEVMAN_PROJECT_DIR=/tmp/devman-e/$P
+done; done
+```
+
+**Evidence:**
+
+```
+pass1 projA -> Result: Succeeded
+pass1 projB -> Result: Succeeded
+pass2 projA -> Result: Aborted      <- unchanged, skipped
+pass2 projB -> Result: Aborted
+projA: RAN in /tmp/devman-e/projA
+projB: RAN in /tmp/devman-e/projB
+```
+
+**The precondition is evaluated by the daemon in the param-supplied
+`working_dir`**, so one shared group file skips correctly per project. This is
+the exact configuration §7.2 mandates, and it works.
+
+Both properties §8.1 asks for, measured on the single-project file:
+
+```
+run 1  no stored hash        Result: Succeeded   trace=1
+run 2  unchanged (start)     Result: Aborted     trace=1   <- own write does not re-fire
+run 3  unchanged (enqueue)   Result: Aborted     trace=1
+run 4  user edits foo.py     Result: Succeeded   trace=2   <- your own edit still fires
+```
+
+Run 4 is the property §8.1 chose hashes for over a suppression window. It holds.
+
+### Use the step-level form, not the DAG-level form
+
+A DAG-level precondition that is not met records the run as **Aborted**, which
+is `ir.Status` 3 — the same code a cancelled run gets. There is no DAG-level
+"skipped" status:
+
+```go
+// internal/ir/status.go
+NotStarted Status = iota   // 0
+Running                    // 1
+Failed                     // 2
+Aborted                    // 3
+Succeeded                  // 4
+```
+
+A **step-level** precondition is different. `NodeStatus` does have `NodeSkipped
+= 5`:
+
+```
+run 2  └─fmt [skipped]
+       Result: Succeeded
+       dag status: 4   nodes: [('fmt', 5)]
+```
+
+**Step-level gives `Succeeded` with the step marked skipped; DAG-level gives
+`Aborted`.** A plane built on the DAG-level form would fill its history with
+runs that look like failures. Use the step-level form.
+
+The reason for the skip is machine-readable either way. The run record names the
+condition that was not met:
+
+```json
+"preconditions":[{"condition":"test \"$(sha256sum foo.py ...)\" != ...",
+                  "error":"condition was not met: exit status 1"}]
+```
+
+### `skip_if_successful` is not this, and is a dead end
+
+The schema says it skips a run when the DAG already succeeded since the last
+scheduled time, and that "Manual triggers always run regardless".
+
+**Command:**
+
+```
+# e1_skipsucc.yaml: schedule "*/5 * * * *", skip_if_successful: true
+dagu start e1_skipsucc; dagu start e1_skipsucc; dagu enqueue e1_skipsucc
+```
+
+**Evidence:**
+
+```
+Result: Succeeded
+Result: Succeeded
+Result: Succeeded
+trace=3          <- never skipped
+```
+
+It governs the scheduler only, and neither `start` nor `enqueue` is suppressed.
+It is also time-window based, which is what §8.1 explicitly rejected. Closed.
+
+### Charter impact
+
+**deletes §8.1.**
+
+§8.1 is titled "Loop-breaking is plane infrastructure" and makes the plane own a
+token format, a writer, and a trigger-side check. **Dagu owns all three
+already.** The charter should drop:
+
+- `generation.json` as a plane-defined artifact — Dagu's build manifest is the
+  same object, and the precondition form needs only a file whose name and format
+  are the workflow's own business.
+- the `generation.json` line in **§9.2**'s `.devman/.runs/` layout.
+- "the plane owns the fix once, so no repo implements it again" as *machinery*.
+  It stays true as *content*: a group workflow that writes files carries the
+  precondition, and every repo taking that group inherits it (§7.2). That is the
+  same guarantee, delivered by the mechanism the charter already chose for
+  everything else.
+
+What survives §8.1, and is worth keeping as one paragraph of authoring guidance:
+the rule that a workflow writing inside its own trigger's watch scope must
+declare that, and the reason hashes beat a timer.
+
+**Three costs to record, none of which restore the section:**
+
+1. **The check moved from the trigger to the run.** §8.1 skips before anything
+   is enqueued. Dagu skips after. A skipped run still consumes a queue slot and
+   writes a history record, so a chattering watcher on `queue: exclusive`
+   (`max_concurrency: 1`) can still queue behind itself. If that matters, it is a
+   trigger-side debounce question, not a loop-breaking one.
+2. **`type: build` cannot format in place**, and `validate` does not say so.
+3. **Dagu's build manifest is machine-side**, under `data_dir`. §9.3 already
+   requires that everything there be reconstructable, and it is — a lost manifest
+   causes one re-execution, not a wrong result.
+
+**One sentence, and then stopping as §1 requires:** `devman doctor` could read
+`data/materializations/manifests/` to explain why a workflow did no work. That is
+a reconciliation decision, not this session's.
