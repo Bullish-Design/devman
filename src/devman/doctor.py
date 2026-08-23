@@ -433,7 +433,7 @@ def check_projection(rep: Report, reg: Registry) -> None:
     It costs one `readlink` per projected workflow and needs no running daemon.
     """
     lines = []
-    for proj, name, path in reg.projected_files():
+    for proj, name, _path in reg.projected_files():
         fault = reg.dag_link_fault(proj, name)
         if fault:
             lines.append(f"{proj.name}-{name}: the DAG of that name points at {fault}")
