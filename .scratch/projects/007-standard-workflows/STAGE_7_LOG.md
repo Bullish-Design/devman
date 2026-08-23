@@ -214,3 +214,134 @@ carry the two lines it is missing:
    as `tasks."base:test".after = [ "base:check" ]`, which devenv does honour.
 
 Neither weakens the recommendation. Both belong in §1.1 before R-1 ships.
+
+---
+
+## I-5 — What does an undefined task actually do?
+
+**Answer: it fails loudly, and it names the task.** All three of `PLAN.md` §2's
+conditions hold. devenv exits **1**, prints `× Task does not exist: base:check`,
+Dagu records the step as **failed**, and `metadata.jsonl` records **`failed`**.
+
+**`PROPOSAL.md` §2's rejection of the null implementation stands**, and so does
+§6's no-flag-day argument. **`PLAN.md` §8's replacement clause does not fire:
+no bridging alias wave is needed, and no extra line per repository.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0**. Measured in **two**
+registered repositories, because the claim is about devenv rather than about
+`devman`: `devman` (Python) and `siteman` (no language files, its tasks are its
+own shell functions).
+
+### The setup — the real stale-pin window, not an invented name
+
+`devman` defines `base:lint` and has never defined `base:check`. That is exactly
+the window `PROPOSAL.md` §6 describes: the group file calls the renamed task and
+the repository has not re-pinned its `devenv.nix` yet. No name was invented for
+the measurement.
+
+```yaml
+# .devman/workflows/_t7-undef.yaml — throwaway, deleted afterwards
+queue: light
+steps:
+  - name: check
+    run: devenv tasks run -v base:check
+```
+
+### Command
+
+```bash
+devenv tasks run -v base:check > /tmp/t7-undef.out 2> /tmp/t7-undef.err; echo "exit=$?"
+devenv shell -- true
+devman run _t7-undef
+tail -1 .devman/.runs/metadata.jsonl
+cd /home/andrew/Documents/Projects/siteman && devenv tasks run -v base:check; echo "exit=$?"
+```
+
+### Evidence 1 — devenv, directly, in two repositories
+
+```
+devman   exit=1   stdout 0 bytes   stderr: × Task does not exist: base:check
+siteman  exit=1   stdout 0 bytes   stderr: × Task does not exist: base:check
+```
+
+The message is devenv's, not the plane's, and it is one line. Note that
+**stdout is empty** — the same stream split I-3 found. There is nothing to read
+on stdout because the task never started.
+
+### Evidence 2 — Dagu's step status
+
+```
+$ tail -1 ~/.local/share/dagu/data/dag-runs/devman-_t7-undef/…/status.jsonl
+dag status: 2                                  # failed
+  step check | status 2                        # failed
+  error field length: 1018
+  contains "Task does not exist": True
+  contains "base:check":          True
+```
+
+The recorded `error` field — the string Dagu's UI renders — ends on the message:
+
+```
+Loaded task config
+  × Task does not exist: base:check
+```
+
+### Evidence 3 — `metadata.jsonl`
+
+```
+{"dag":"devman-_t7-undef","run_id":"034CMXJBlEnFx8d2tV3NdX","attempt":"04a01f",
+ "status":"failed","started_at":"2026-08-23T22:08:27Z","log":"…"}
+```
+
+The DAG-level log carries the message once as well.
+
+### Evidence 4 — the other half of §6, by grep rather than by argument
+
+§6 rests on "only one workflow is scheduled, and it calls no repository task".
+That is true, and it is one command:
+
+```
+$ grep -l 'devenv tasks run' groups/*/workflows/*.yaml    # 8 of 9
+$ for f in groups/*/workflows/*.yaml; do
+    grep -q 'devenv tasks run' "$f" || echo "$f"; done
+  groups/base/workflows/maintain.yaml                      # the 9th
+
+$ grep -n '^schedule:' groups/base/workflows/maintain.yaml
+68:schedule: "5 0 * * *"
+```
+
+**`maintain` is both the only scheduled workflow and the only one that calls no
+repository task.** A stale pin cannot break it.
+
+### Verdict
+
+**Passes.** `PLAN.md` §2 sets the bar at "devenv exits non-zero, names the task,
+and `metadata.jsonl` records `failed`". All three hold, in two repositories.
+**Gate 0's second half is closed.**
+
+### Charter impact
+
+**None**, and one boundary on §6 worth writing down before wave 1 rather than
+finding in it.
+
+**§6's "no automatic run breaks" is true of the *schedule* and not of the
+*watcher*.** `format` is fired automatically by the watcher and it **does** call
+a repository task (`python-format:fmt`). The claim survives only because the
+watcher reaches exactly one repository: `devman` is the only taker of
+`python-format` in the whole inventory (`PROPOSAL.md` §4), and `devman` owns the
+group files, so it renames the group and the task in the same sitting.
+
+Two consequences for the refactor, neither of them new work:
+
+1. **R-1's group rename and `devman`'s own `devenv.nix` edit are one commit.**
+   Not a wave — the same sitting. The group rename `python-format` → `format`
+   changes the group *name*, so a stale `groups = [ … "python-format" … ]`
+   cannot enter its shell at all (`PLAN.md` §0.2). There is no silent window
+   here, only an evaluation failure, which is I-6's subject.
+2. **The rule generalises past this stage.** A repository can be re-pinned
+   safely ahead of its task rename **only while every automatically triggered
+   workflow calls no repository task**. Today that holds. A future group that
+   ships a scheduled or watched workflow calling a task would break it, and the
+   place to say so is §6 rather than a later stage's surprise.
