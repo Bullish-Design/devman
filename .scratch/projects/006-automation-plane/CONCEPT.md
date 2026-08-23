@@ -2,9 +2,14 @@
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
 > and D (2026-08-22). Amended twice during stage 1, twice during stage 2, twice
-> during stage 3, twice during stage 4 and once during stage 5 (2026-08-22),
-> each time because building the thing measured something the investigations had
-> not. **Stage 5's one: §9.2 now says the flat DAG key `<project>-<workflow>` is
+> during stage 3, twice during stage 4, once during stage 5 and three times
+> during stage 6 (2026-08-22), each time because building the thing measured
+> something the investigations had not. **Stage 6's three, and they are one
+> change: §9.2's projection is a generated file rather than a symlink, §7.2 says
+> so, and §8's third trigger arrow is therefore Dagu's own scheduler reading the
+> workflow's own `schedule:` key. A schedule is content, it adopts itself with
+> the group, and no systemd unit holds a project name any more
+> (`STAGE_6_LOG.md`, S2 and S3).** **Stage 5's one: §9.2 now says the flat DAG key `<project>-<workflow>` is
 > not injective — two projects can render one name, the second projection takes
 > the link, and the measured result was a run that executed another
 > repository's workflow and reported success (`STAGE_5_LOG.md`, S6).**
@@ -571,10 +576,17 @@ group file, unedited, serves every repo that takes the group, and devman still
 never parses a workflow. The path arrives as a parameter, so nothing rewrites the
 file.
 
-**devman never parses a workflow.** It resolves which file wins (§7.3) and
-projects it. An earlier draft added an `x-devman` block carrying `kind` and
-`resource`; both duplicated a Dagu feature, so the block is gone and the plane
-reads nothing.
+**devman never parses a workflow, and since stage 6 it writes four lines above
+one.** It resolves which file wins (§7.3) and projects it, and the projection is
+a generated file: a header stating this project's `working_dir`, `log_dir` and
+directory variable, then the source body byte for byte. The plane still reads
+nothing out of the body and rewrites nothing in it — §12.1 named this exact
+fallback in advance, and what forced it was §8's third arrow rather than a
+failure of interpolation.
+
+An earlier draft added an `x-devman` block carrying `kind` and `resource`; both
+duplicated a Dagu feature, so the block is gone and the plane invents no key of
+its own. Every line the header writes is Dagu's.
 
 **A group is a directory, and devman reads only `workflows/*.yaml` in it.**
 Everything else there is inert to the plane and belongs to that group's own
@@ -643,20 +655,35 @@ opinion about what the work is.
 Dagu orchestrates. It does not detect.
 
 ```
-filesystem change → watchexec    → devman run → dagu enqueue
-commit / push     → hook         → devman run → dagu enqueue
-schedule          → a user timer → devman run → dagu enqueue
+filesystem change → watchexec       → devman run → dagu enqueue
+commit / push     → hook            → devman run → dagu enqueue
+schedule          → Dagu's own scheduler, from the workflow's own `schedule:`
 ```
 
-**Every arrow reaches Dagu through `devman run`, and the third one did not used
-to.** It named Dagu's own timer, and that timer cannot trigger anything this
-plane projects: under `schedule:` the enqueueing process is the daemon, which
-has one environment for the whole machine and no parameter to fill, so
-`log_dir` **and** `working_dir` both stay literal. The measured result is a
-directory named `${DEVMAN_PROJECT_DIR}` in the daemon's own working directory —
-`$HOME` on this machine — the step running inside it, and `base.yaml`'s exit
-handler then failing and taking the run down. E2's table already recorded the
-schedule surface as carrying "defaults only" (`STAGE_4_LOG.md`, S2).
+**The first two arrows reach Dagu through `devman run`. The third does not, and
+it took two stages to get there.**
+
+A schedule is declared **in the workflow file**, in Dagu's own `schedule:` key,
+and Dagu's own scheduler fires it. That is only possible because the projection
+**states** each project's `working_dir`, `log_dir` and directory variable rather
+than interpolating them: under `schedule:` the enqueueing process is the daemon,
+which has one environment for the whole machine and no parameter to fill, so a
+projection that interpolated `${DEVMAN_PROJECT_DIR}` produced a run in a
+directory of that literal name, in `$HOME`, and then failed on `base.yaml`'s
+exit handler (`STAGE_4_LOG.md`, S2). With a generated per-project file the same
+daemon dispatches correctly, works in the project, writes its logs there and
+records the run (`STAGE_5_LOG.md` S12, `STAGE_6_LOG.md` S3).
+
+**Between stage 4 and stage 6 this arrow was a systemd user timer running
+`devman run --project <name>`**, and that is still a legal way to schedule
+anything. It is no longer the recommended one, because it holds project names
+outside every repository: a repository that adopted a scheduled group was not
+scheduled until somebody edited a unit, and nothing reported the gap
+(`STAGE_5_LOG.md`, S9). A schedule in the file adopts itself.
+
+**A schedule is content, exactly as a queue name is** — so it is shadowed by
+§7.3 like everything else in the file, and a repository refuses one by shadowing
+the workflow or by not taking the group.
 
 So a schedule is **selection**, like a VCS hook, and it belongs to whoever wants
 it: a systemd user timer running `devman run <workflow> --project <name>`. devman
@@ -953,11 +980,21 @@ followed at all, at any setting; only file symlinks are.
 > **A DAG name is machine-global, so the projection gives it a machine-global
 > key** — `<project>-<workflow>`, in one flat directory, which `ls`, the
 > scheduler and `enqueue` all agree on. Each entry is a file symlink to
-> `projects/<project>/workflows/<workflow>.yaml`, which is itself a file
-> symlink to the group file in the Nix store or to the repository's own
-> override. Dagu follows the chain. Nothing above changes: the per-project
-> projection is still what §7.3 resolves, what `devman show` prints, and what
-> `doctor` unprojects when it prunes a stale entry (§10).
+> `projects/<project>/workflows/<workflow>.yaml`, which **since stage 6 is a
+> generated file** rather than a symlink to the group file: four lines of header
+> naming this project's `working_dir`, `log_dir` and directory variable, then the
+> source body unchanged. Dagu follows the link to it. The per-project projection
+> is still what §7.3 resolves and what `doctor` unprojects when it prunes a stale
+> entry (§10).
+>
+> **Two consequences, and both are paid deliberately.** `devman show` prints the
+> *source* — the group file or the repository's own override — because that is
+> the file a person copies, and because a saved copy of the projection would
+> carry one machine's absolute paths. And a repository's own
+> `.devman/workflows/x.yaml` is no longer read live by Dagu: editing it needs one
+> shell entry to re-project. What it buys is §8's third arrow — a schedule in the
+> workflow's own file, fired by Dagu's own scheduler, with no unit to maintain
+> anywhere (`STAGE_6_LOG.md`, S2 and S3).
 >
 > **That key is machine-global and it is not injective.** `<project>` and
 > `<workflow>` are both free text with a hyphen allowed in each, so two
