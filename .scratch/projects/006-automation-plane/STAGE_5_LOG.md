@@ -1109,3 +1109,52 @@ rule, so it is in the handover (S11) rather than applied here.
 **Charter impact:** **none** for any of the three. §8, §9.3 and §4 all stand
 unamended, and the entries above are the record of what they cost when they were
 tested.
+
+---
+
+## S10 — Stage 5 against §14, criterion by criterion
+
+Run against the installed service, **6 projects and 36 DAGs** — 33 at the start
+of the stage, and 39 at its widest, with two throwaway checkouts registered.
+Compare stage 4's S12.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | one flake, two interfaces, one version | **holds, re-measured.** `nix build .#checks.x86_64-linux.groups-validate` and `.dagu-service` both exit 0 with stage 5's four fixes in the tree, including the changed `modules/devenv.nix` |
+| 2 | a repo adopts in three lines | **holds** — `observantic` took `base` by adding one word to `groups` and two task aliases (S5) |
+| 3 | a repo may take no groups | **holds** — unchanged |
+| 4 | a repo may rename or replace every default | **holds, and stage 5 found its edge.** Nothing reserves a workflow name — and S6 measured what happens when a *name* two projects render collides. The plane now refuses rather than running the wrong file, and it still does not police what a name means |
+| 5 | shadowing is exact | **holds** — `doctor` still reports siteman's `full-test` keeping 7 of 9 executable lines; observantic's `python` shadowing `base` was re-derived from scratch when it took the new group (S5) |
+| 6 | a workflow is portable Dagu | **holds, further.** `review` and `maintain` ran unedited in `observantic`, a sixth repository whose task names are `python:*` (S5), and unedited in a repository that had been moved and renamed (S4) |
+| 7 | devenv stays on the fast path | **holds, and the added work is measured rather than assumed.** Stage 5 changed the hook for the first time since stage 3: one `[ -L ]` per projected workflow, **0.13 ms mean per firing** (0.088–0.188 over five repeats of 200), so about 0.26 ms per entry against a 10 ms budget, and it forks nothing (S7). **The paired delta itself was not re-run**; stage 3's figure of -0.17 ms, 95% CI [-6.24, +5.91], still stands as the last one |
+| 8 | registration is automatic and idempotent | **holds, re-measured.** Two `devenv shell -- true` in a row: `metadata.json` mtime `20:21:57.488514227` before and after — the second entry wrote nothing |
+| 9 | only opted-in repos register | **holds** — unchanged. Both throwaway checkouts registered by declaring `devman.enable`, and both left by being deleted and pruned |
+| 10 | no workflow contains an absolute path | **holds, re-measured.** `grep -rn '/home/\|/nix/store\|/run/\|/etc/' groups/*/workflows/*.yaml .devman/workflows/*.yaml` → **zero hits** |
+| 11 | **identity survives a move or a rename** | **holds, re-run by command for the first time since stage 1** — and against a repository with 5 recorded runs, 4 reports and a live projection instead of a throwaway (S4). Moved and renamed in one `mv`, re-entered, entry replaced not duplicated, projection rebuilt, both halves of the history intact, `devman run review` ran in the new location |
+| 12 | queues are real | **holds** — unchanged, not re-measured. Nothing in stage 5 changes what a queue does; stage 4's paired `bench-entry` runs on `exclusive` are the last measurement |
+| 13 | the watchers do not chase each other | **holds, re-measured.** One save of a badly-formatted file: **2 dispatches, 2 runs** — the first formatted it, the second logged `Preconditions failed for "format"` and did nothing, and the sequence stopped. The last clause ("edit again immediately") was not re-run; stage 3's S6 measured it four ways |
+| 14 | the task graph exists once | **holds** — stage 5 shipped no workflow. `observantic`'s two aliases are devenv `after` edges onto tasks it already had, which states no order the group restates |
+| 15 | a rebuild is inconvenient, not catastrophic | **holds for total loss; it did NOT hold for partial loss, and the fix is committed** (S7). Deleting all of `dags/` and re-entering restored **10 of 36** links, because the five repositories still pinned to `main@df9cfe5` have the old guard. The documented remedy works for them today — delete the entry as well, re-enter, and the projection is rebuilt: measured, all five, 36 of 36 restored. `siteman` is re-pinned to the fixed rev and re-verified by removing one link |
+| 16 | devman adopts itself | **holds, and it took the sharpest edge.** A second checkout of this repository is what produced S3's silent wrong-tree run and S6's colliding DAG name. Both were found because devman is a project like any other |
+| 17 | **there is one way in** | **holds, and stage 5 is the stage that most wanted to break it.** Three routes into the registry were wanted and refused (S9, decision 5). `grep` over `src/devman/` still finds no writer of `projects/<p>/metadata.json` — `Registry.unproject` only `unlink`s, under `doctor --prune`. Every repair in this stage was "enter the shell", and the one that could not be — a missing `dags/` link — was fixed by making the *shell entry* notice, not by adding a command |
+
+### Criterion 15, in the state stage 5 leaves it
+
+This is the one to read twice, because it is the only criterion whose answer
+changed mid-stage.
+
+- **Total loss** — delete `~/.local/share/devman/` — was measured at stage 2 (S13,
+  eight projects, byte-for-byte) and is unaffected.
+- **Partial loss** — delete one `dags/` link — was **not** repaired by the
+  remedy §9.3 names, on any repository, until S7's fix.
+- **Today**: repositories on `main@ecd6662` or later repair themselves on the
+  next shell entry. Repositories still on `main@df9cfe5` need their entry deleted
+  as well, which is the same command list one step longer, and which restored all
+  five here.
+
+### The five criteria S1 promised to re-run by command
+
+D6 named 11, 8, 13, 15 and 17. **All five were run rather than reasoned about**,
+and the table above quotes the command or the number for each. Criterion 7 was
+re-measured in the narrow sense that matters — the work stage 5 added to the hook
+— and not in the paired sense, which is stated rather than glossed.
