@@ -331,3 +331,199 @@ removal, or a changed expression.
 `_s6-sched` link, and the next minute produced no dispatch.
 
 **Charter impact:** **none yet.** S4 applies the three sections this forces.
+
+---
+
+## S4 — Six repositories, one line each, and no unit anywhere
+
+**Answer:** all six registered repositories are now maintained nightly, and
+**not one systemd unit knows a project name.** Each repository re-pinned; each
+one's projection was rebuilt by its own shell entry; the daemon picked up every
+schedule with no restart.
+
+**Command — per repository, and it is the ordinary adoption command:**
+
+```bash
+sed -i 's/rev=[0-9a-f]\{40\}/rev=fb78a99…/' devenv.yaml
+devenv update devman && devenv shell -- true
+```
+
+**Evidence — what the running daemon reports, through its own API:**
+
+```
+devman-maintain            5 0 * * *
+nix-paseo-maintain         5 0 * * *
+observantic-maintain       5 0 * * *
+pydantree-maintain         5 0 * * *
+pyjutsu-maintain           5 0 * * *
+siteman-maintain           5 0 * * *
+```
+
+**And each one points at its own directory**, which is the whole reason this
+works:
+
+```
+$ head -7 ~/.local/share/devman/projects/siteman/workflows/maintain.yaml
+# devman: generated projection — do not edit.
+# Edit the source and re-enter the shell:
+#   /nix/store/64m7p019…-devman-base-maintain.yaml
+env:
+  - DEVMAN_PROJECT_DIR: /home/andrew/Documents/Projects/siteman
+working_dir: /home/andrew/Documents/Projects/siteman
+log_dir: /home/andrew/Documents/Projects/siteman/.devman/.runs/logs
+```
+
+**The comparison is the point of the stage.** `devman-maintain.timer` reached
+five projects and needed a hand-written line per project; `observantic` gained
+`maintain` at stage 5 and was still not in it (`STAGE_5_LOG.md`, S9). Six
+repositories are now scheduled, and the sixth arrived by re-pinning rather than
+by anybody remembering.
+
+### The other trigger paths still work, and the cross-repo one is the risky one
+
+| Command | Result |
+|---|---|
+| `devman run review --project siteman` | `succeeded` — a group file, unedited, in a second repository (criterion 6) |
+| `devman run stack-validate` | `succeeded` — `observantic-check` and `siteman-check` both ran as children (§11) |
+| a save of `src/devman/show.py` | the watcher fired `devman/format`, as before |
+
+**§11's parent still directs its children**, which was worth checking rather
+than assuming: each child's projection now states a **literal** `working_dir`,
+so a parent can no longer point a child at a *different* project by passing
+`DEVMAN_PROJECT_DIR` in `with.params`. The shipped cross-repo workflow directs
+each child at its own project, which is what the literal path already is. §11's
+last paragraph reserves the redirect for "synchronized releases and coordinated
+migrations", and **nothing in the plane uses it today** — recorded here as a
+capability this stage narrowed, not as one it kept.
+
+### The two costs, measured
+
+**1. `devman show` had to change, or criterion 5 breaks.** Its own wording is
+`devman show check > .devman/workflows/check.yaml`; printing the generated file
+would save one machine's absolute paths into a repository's tracked override,
+and the next projection would put a second header on it. `show` now prints the
+**source** and names the projection on stderr:
+
+```
+$ devman show check --project devman | diff - /nix/store/hks3gb8…-devman-base-check.yaml
+                                        <- identical, byte for byte
+```
+
+**2. Projecting costs more, on a path that runs rarely.** The projection script
+now writes ten files instead of ten symlinks, with three `grep`s per workflow:
+
+```
+446.6  301.7  359.8  327.5  337.9   ms, ten workflows
+```
+
+Mean **355 ms**, range 302–447. **It is not on the common path**: `enterShell`'s
+guard decides without forking, and the script runs only when the rendered entry
+differs — a re-pin, a group change, a new override. Criterion 7 is about a warm
+entry that changes nothing, and that path is untouched.
+
+**And it is idempotent**, which the guard depends on: projecting twice produced a
+byte-identical file.
+
+---
+
+## S5 — Stage 6 against §14, and against its own definition of done
+
+Run against the installed service, 6 projects and 36 DAGs.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | one flake, two interfaces, one version | **holds, re-measured.** `groups-validate` and `dagu-service` both exit 0 |
+| 2 | a repo adopts in three lines | **holds** — five repositories adopted stage 6 by changing one `rev=` |
+| 3 | a repo may take no groups | **holds** — unchanged; `.devman/workflows/` files are projected the same way |
+| 4 | a repo may rename or replace every default | **holds** — the header names no workflow and reserves nothing |
+| 5 | shadowing is exact | **holds, re-measured, and it forced a change.** `devman show` prints the source byte for byte; the drift check still reports siteman's `full-test` at 7 of 9 executable lines |
+| 6 | a workflow is portable Dagu | **holds, re-measured.** `review` ran unedited in `siteman`; the *body* of every generated file is the group file unchanged |
+| 7 | devenv stays on the fast path | **holds.** The guard is unchanged and forks nothing; the write path costs 355 ms (302–447) and runs on a re-pin, not on a warm entry |
+| 8 | registration is automatic and idempotent | **holds** — a second projection produces a byte-identical file |
+| 9 | only opted-in repos register | **holds** — unchanged |
+| 10 | no workflow contains an absolute path | **holds for every source file** — `grep` over `groups/*/workflows/*.yaml` and `.devman/workflows/*.yaml` → **zero hits**. The *projection* now holds one by construction, which is derived machine-side state, like the `path` in every `metadata.json` |
+| 11 | identity survives a move or a rename | **holds** — and a move now also rewrites the projection's absolute paths, because the whole projection is rebuilt at re-entry (stage 5's S4 mechanism, unchanged) |
+| 12 | queues are real | **holds** — unchanged; `queue:` is still in the body |
+| 13 | the watchers do not chase each other | **holds, re-measured.** Three scheduled runs wrote reports into a watched tree and the watcher fired **nothing** — `maintain` writes only under `.devman/.runs/`, which the watcher ignores |
+| 14 | the task graph exists once | **holds** — the header declares no step and no order |
+| 15 | a rebuild is inconvenient, not catastrophic | **holds** — the projection is still derived from repositories, and stage 5's guard notices a missing `dags/` link |
+| 16 | devman adopts itself | **holds** — this repository was the first scheduled project, and its own `stack-validate` still runs |
+| 17 | there is one way in | **holds.** The projection generates files instead of links, from the same single source: a repository's shell entry. No new writer, no new command, no new option |
+
+### Against S1's ten conditions
+
+| | Condition | Result |
+|---|---|---|
+| D1 | the projection materialises, and everything still loads and runs | **met.** 36 projected workflows load; a `base` group file, a `release`-era override and a `.devman/workflows/` cross-repo file each ran |
+| D2 | one real scheduled run, fired by Dagu, in a real repository | **met.** Two, on the installed daemon, `trigger: scheduler`, with the report and the `metadata.jsonl` line quoted (S3) |
+| D3 | the header is auditable and minimal | **met.** Four lines, additive, `DEVMAN_SELF_DIR` for the cross-repo case, proved by `doctor`'s §11 check |
+| D4 | the timer is retired only after the schedule is proved | **met** — and retiring it is one command in the handover, because the unit is the developer's own |
+| D5 | criteria re-run by command | **met.** 5, 6, 7, 10, 13 and 17 above |
+| D6 | the cost is stated, not discovered later | **met.** `show` had to change, live-editing an override is gone, projecting costs 355 ms |
+| D7 | a schedule a group ships can be refused | **met**, and the repositories it starts work in are named: all six, nightly at 00:05 |
+| D8 | no second entry path | **met** |
+| D9 | the charter changes in its own commit | **met** — §7.2, §8 and §9.2 in `5150205`, after S2 and S3 |
+| D10 | the machine left as found | **met**, below |
+
+### What was left on the machine
+
+```
+$ devman doctor
+devman doctor — 6 projects, 36 workflows
+ok  plane / queues / validate / queue names / literal dir / shadowing / stale
+    entries / run output / projection / handlers / cross-repo / watcher
+Nothing to report.                                                   exit 0
+```
+
+The probe workflow `_s6-sched.yaml` was deleted and re-projected, and the minute
+after produced no dispatch. `groups/base/workflows/maintain.yaml` is back at
+`5 0 * * *` — the per-minute expression existed for four minutes, on purpose, so
+that a measurement did not have to wait until midnight.
+
+### The repositories this stage changed (rule 7)
+
+| Repository | Commit |
+|---|---|
+| `siteman` | `d249bfa` |
+| `observantic` | `e02d1b8` |
+| `pyjutsu` | `71a765d` |
+| `nix-paseo` | `c1dd6ec` |
+| `pydantree` | `247e257` |
+
+Each is one line in `devenv.yaml` plus its `devenv.lock`.
+
+### The handover
+
+**1. `nixos-rebuild switch`, and this one has a deadline of sorts.** `devman
+show` ships in the machine closure, and the installed build still prints the
+*generated projection*. Until it is rebuilt, `devman show check >
+.devman/workflows/check.yaml` writes a file carrying this machine's absolute
+paths — the one footgun stage 6 creates. `nix-meta` needs re-pinning to a stage-6
+rev and rebuilding.
+
+**2. Retire the timer**, at your convenience:
+
+```bash
+systemctl --user disable --now devman-maintain.timer
+```
+
+All six repositories are scheduled by their own pin. Leaving the timer enabled
+costs a second `maintain` run per project per night, three minutes before the
+first; `maintain` is idempotent, so the cost is noise rather than damage.
+
+**3. One thing to watch tonight.** 00:05 is the first unattended firing of a
+schedule nobody triggers. The evidence to read afterwards is
+`.devman/.runs/reports/maintain-*.md` in each repository, and
+`journalctl --user -u dagu | grep "Dispatching planned run"`.
+
+### What stage 6 did not do
+
+| Item | Why |
+|---|---|
+| explain the three-minute silence in S3 | it does not affect adoption, removal, or a changed expression, and the probe that would explain it is a Dagu source question rather than a plane question |
+| schedule anything but `maintain` | S1 said so. A scheduled workflow that rewrites source files is §8's reactivity argument in a new place, and nothing needed one |
+| catch up after downtime | Dagu fires on a cron expression; a machine asleep at 00:05 missed 00:05. Whether the plane should notice is now the open question a stage 7 would answer |
+| keep the cross-repo redirect | §11's ability to point a child at a *different* project is narrowed by a literal `working_dir`. Nothing uses it; S4 records it rather than defending it |
+
+**Charter impact:** **three sections, one change**, applied in `5150205` — §7.2,
+§8 and §9.2.
