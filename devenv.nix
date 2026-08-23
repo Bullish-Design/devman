@@ -87,14 +87,13 @@ in
   # it imports `./modules` directly. Every other repository pins a rev with
   # `git+https` (§3.2), because `git+file` records neither `rev` nor `narHash`
   # and silently follows the branch head (B4).
-  # `base` for the workflows, `python-format` for the reactivity (§8).
+  # `base` for the workflows, `format` for the reactivity (§8).
   #
-  # Not `python`: that group's `check` adds a `typecheck` step, and this
-  # repository has no type checker configured — §15.7's "nothing checks that a
-  # default still fits", self-inflicted.
+  # The `python` group was deleted at stage 7: a language's decomposition is a
+  # devenv task graph, not a Dagu file (PROPOSAL.md §1.1).
   #
-  # `python-format` is the group that fires on a save, and taking it is the whole
-  # opt-in (groups/python-format/README.md). devman adopts its own reactive group
+  # `format` is the group that fires on a save, and taking it is the whole
+  # opt-in (groups/format/README.md). devman adopts its own reactive group
   # for the same reason criterion 16 has it adopt its own workflows: a plane
   # nobody runs against themselves is a plane nobody has tested.
   # `release` is stage 4's, and devman is one of the two repositories that made
@@ -102,12 +101,12 @@ in
   # a group begins when a second repository wants the same file). It ships one
   # workflow that nothing ever fires on its own, so inheriting it costs nothing
   # (§7.4) — which is exactly the argument that does NOT hold for
-  # `python-format`, and the difference is that a release is triggered by a
+  # `format`, and the difference is that a release is triggered by a
   # person (groups/release/README.md).
   devman = {
     enable = true;
     project = "devman";
-    groups = [ "base" "python-format" "release" ];
+    groups = [ "base" "format" "release" ];
   };
 
   # https://devenv.sh/tasks/
@@ -115,13 +114,13 @@ in
   # The two task names the `base` group calls (groups/base/README.md). devenv
   # owns each implementation; Dagu owns the composition (§6).
   tasks = {
-    "base:lint".exec = "ruff check .";
+    "base:check".exec = "ruff check .";
     "base:test".exec = "nix flake check";
 
     # What `python-format`'s workflow runs when a `.py` file is saved. The group
     # names a task and never a tool (§7.1), so this line is the whole of what
     # this repository decides about formatting.
-    "python-format:fmt".exec = "ruff format .";
+    "format:fmt".exec = "ruff format .";
 
     # What `release` builds here: the CLI the machine installs. The artifact
     # goes under `.devman/.runs/artifacts/`, which is §9.2's own name for the
