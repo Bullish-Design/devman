@@ -203,6 +203,32 @@ class Registry:
         """The machine-global DAG name. See `STAGE_1_LOG.md` S1."""
         return f"{project.name}-{workflow}"
 
+    def dag_link_fault(self, project: Project, workflow: str) -> str | None:
+        """What `dags/<project>-<workflow>.yaml` points at, when it is not this
+        project's own file — and `None` when it is.
+
+        **A DAG name is machine-global and `<project>-<workflow>` is not
+        injective.** `devman-b` + `check` and `devman` + `b-check` render the
+        same flat name, so the second projection overwrites the first's link and
+        Dagu runs **one** file under a name two projects believe is theirs.
+        Measured: `devman run check --project devman-b` executed devman's
+        `b-check.yaml`, in devman-b's directory, and reported success, while
+        `devman show` printed the file that did not run (`STAGE_5_LOG.md`, S6).
+
+        §9.2 half-anticipated this — `unproject` already refuses to remove a
+        link that points somewhere else, because "`<project>-<workflow>` is
+        ambiguous when one project name is a prefix of another, and the link
+        target is not". The link target is the answer here too: it is what the
+        projection wrote, so comparing against it needs no second source.
+        """
+        link = self.dags_dir / f"{self.dag_name(project, workflow)}.yaml"
+        want = f"../projects/{project.name}/workflows/{workflow}.yaml"
+        try:
+            got = os.readlink(link)
+        except OSError:
+            return "nothing — there is no dags/ link, so Dagu cannot run it by name"
+        return None if got == want else got
+
     def projected_files(self) -> list[tuple[Project, str, Path]]:
         """Every `(project, workflow, projected file)` in the registry."""
         out = []

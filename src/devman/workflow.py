@@ -116,6 +116,24 @@ class Workflow:
                 found.append(field_name)
         return found
 
+    def handlers(self) -> list[str]:
+        """The `handler_on` events this file defines for itself (§9.2).
+
+        `base.yaml` is inherited **whole-field**, so a DAG that sets
+        `handler_on` replaces the machine's exit handler — the one that appends
+        a line to the triggering project's `.devman/.runs/metadata.jsonl`.
+        Measured: the run succeeds, the logs land in the right project, `dagu
+        status` is clean, and the file §9.2 promises survives every retention
+        setting simply gains no line (`STAGE_4_LOG.md`, S3).
+
+        Any key counts. Dagu's `handler_on` is one field, so defining `success`
+        alone still replaces the whole block, exit handler included.
+        """
+        raw = (self.doc or {}).get("handler_on")
+        if isinstance(raw, dict):
+            return sorted(str(k) for k in raw)
+        return ["handler_on"] if raw else []
+
     def queues(self) -> list[str]:
         """Every queue this file names — the DAG's own, and any a step overrides.
 

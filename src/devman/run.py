@@ -58,6 +58,23 @@ def resolve(
             f"  run `devman doctor` to see every projected file that fails"
         )
 
+    # A DAG name is machine-global and `<project>-<workflow>` is not injective,
+    # so the file this resolved is not necessarily the file Dagu will run: a
+    # second project rendering the same flat name owns the `dags/` link. The run
+    # then executes another project's workflow, in this project's directory, and
+    # reports success (`STAGE_5_LOG.md`, S6). Refusing here is the same rule as
+    # every other refusal in this file — a trigger states its target.
+    fault = reg.dag_link_fault(project, workflow)
+    if fault:
+        raise RegistryError(
+            f"refusing to enqueue '{workflow}' in '{project.name}'\n"
+            f"  the DAG named {reg.dag_name(project, workflow)} points at"
+            f" {fault}\n"
+            f"  it resolved to {path}, and that is not what would run\n"
+            "  two projects render one flat DAG name — rename one project or"
+            " one workflow (§9.2), then re-enter both shells"
+        )
+
     declared = wf.params()
     cross_repo = wf.triggers_other_dags()
     held = wf.holds_project_dir()

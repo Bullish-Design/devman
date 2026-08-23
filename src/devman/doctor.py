@@ -17,7 +17,9 @@ itself, because nothing in Dagu reports them, and §10 numbers them:
     5  a stale registry entry — the only thing that ever notices a deleted repo
     6  a `.runs/` that has stopped ageing out
 
-Plus §11's mechanical check, and — since stage 3 — what the watcher is watching
+Plus §11's mechanical check, plus — since stage 5 — a workflow that defines its
+own `handler_on` and therefore records none of its runs (§9.2), and — since
+stage 3 — what the watcher is watching
 and what it last fired, because one watcher writing in six repositories is a
 shared *write* failure rather than only a shared availability one.
 
@@ -419,6 +421,82 @@ def check_ageing(rep: Report, reg: Registry, dagu_home: Path) -> None:
         )
 
 
+def check_projection(rep: Report, reg: Registry) -> None:
+    """Does `dags/<project>-<workflow>` still point at that project's file?
+
+    Everything else in `doctor` checks a projected file. This checks the one
+    thing between a projected file and the name a trigger uses: a DAG name is
+    machine-global, `<project>-<workflow>` is not injective, and the projection
+    is `ln -sfn` — so a second project rendering the same flat name silently
+    takes the first one's link.
+
+    It costs one `readlink` per projected workflow and needs no running daemon.
+    """
+    lines = []
+    for proj, name, path in reg.projected_files():
+        fault = reg.dag_link_fault(proj, name)
+        if fault:
+            lines.append(f"{proj.name}-{name}: the DAG of that name points at {fault}")
+    if lines:
+        rep.add(
+            "projection",
+            "!!",
+            lines
+            + [
+                "a trigger enqueues by name, so these run the wrong file and"
+                " report success — rename one project or one workflow (§9.2)"
+            ],
+        )
+    else:
+        rep.add(
+            "projection",
+            "ok",
+            [
+                f"{len(reg.projected_files())} DAG names each point at their own"
+                " project's file"
+            ],
+        )
+
+
+def check_handlers(rep: Report, reg: Registry) -> None:
+    """A workflow that defines `handler_on` stops recording its own runs (§9.2).
+
+    **Why this is not §15.7.** §15.7 says the plane holds no opinion about what
+    a workflow *does* — how long a `check` takes, what it costs, whether it
+    still fits. This check has no opinion about any of that. It is the same
+    shape as §11's check above: a workflow that silently takes away something
+    the **machine** promised. `base.yaml` is inherited whole-field, so a DAG
+    with its own `handler_on` replaces the machine's exit handler, and
+    `metadata.jsonl` — the one file §9.2 says survives every retention setting,
+    and the file the release gate reads — gains no line for that run.
+
+    Nothing else notices. The run succeeds, the logs land in the right project,
+    and `dagu status` is clean. Stage 4 measured it, wrote it into §9.2 in
+    prose, and left the mechanical check to stage 5 (`STAGE_4_LOG.md`, S3, and
+    its "what stage 4 did not do").
+
+    It is `!!` rather than a note, because the loss is silent and permanent: no
+    later run puts back the line that was never written.
+    """
+    lines = []
+    for proj, name, path in reg.projected_files():
+        events = Workflow.read(path).handlers()
+        if events:
+            lines.append(
+                f"{proj.name}-{name} defines handler_on ({', '.join(events)})"
+                " — it replaces base.yaml's, so its runs append no line to"
+                " .devman/.runs/metadata.jsonl (§9.2)"
+            )
+    if lines:
+        rep.add("handlers", "!!", lines)
+    else:
+        rep.add(
+            "handlers",
+            "ok",
+            ["no workflow defines handler_on, so every run is recorded"],
+        )
+
+
 def check_cross_repo(rep: Report, reg: Registry) -> None:
     """§11's mechanical check, in the shape S8 corrected it to.
 
@@ -683,6 +761,8 @@ def main(args, reg: Registry) -> int:
     check_drift(rep, reg)
     check_stale(rep, reg, args.prune)
     check_ageing(rep, reg, dagu_home)
+    check_projection(rep, reg)
+    check_handlers(rep, reg)
     check_cross_repo(rep, reg)
     check_watcher(rep, reg)
     rep.print()

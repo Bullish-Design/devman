@@ -365,12 +365,35 @@ in
       [ -f "$devman_meta" ] && devman_disk=$(<"$devman_meta")
 
       devman_local=""
+      devman_names="${lib.concatStringsSep " " (lib.attrNames resolved)}"
       for devman_f in "$devman_root"/.devman/workflows/*.yaml; do
         [ -e "$devman_f" ] || continue
         devman_b="''${devman_f##*/}"
         devman_local="$devman_local, \"''${devman_b%.yaml}\""
+        devman_names="$devman_names ''${devman_b%.yaml}"
       done
       devman_local="''${devman_local#, }"
+
+      # §9.3 SAYS THE PROJECTION IS RECONSTRUCTABLE BY ENTERING THE SHELL, AND
+      # THE GUARD USED TO CHECK TOO LITTLE FOR THAT TO BE TRUE.
+      #
+      # It compared the rendered ENTRY against disk, plus one `[ -d dags ]`. So
+      # deleting the whole registry was repaired by re-entering (stage 2, S13)
+      # and deleting ONE `dags/` link was not: the entry still matched, the
+      # directory still existed, and the workflow stayed unrunnable by name
+      # until somebody changed this file. Measured twice — once by a link a
+      # colliding projection took over, once by removing one by hand
+      # (`STAGE_5_LOG.md`, S7).
+      #
+      # One `[ -L ]` per projected workflow, which is a bash builtin and forks
+      # nothing (§5.2). It tests existence and not the target, deliberately:
+      # reading a symlink costs a fork, and a link pointing at ANOTHER project's
+      # file is `devman doctor`'s projection check, on a path that is allowed to
+      # spend a process.
+      devman_relink=""
+      for devman_n in $devman_names; do
+        [ -L "$devman_reg/dags/${cfg.project}-$devman_n.yaml" ] || devman_relink=1
+      done
 
       devman_tmpl=$(<${entryTemplate})
       devman_rendered="''${devman_tmpl//@PATH@/$devman_root}"
@@ -446,13 +469,15 @@ in
         # The guard. `[ -d ]` on the Dagu view as well as the entry, so that
         # deleting the registry and re-entering restores it exactly
         # (criterion 17).
-        if [ "$devman_disk" != "$devman_rendered" ] || [ ! -d "$devman_reg/dags" ]; then
+        if [ "$devman_disk" != "$devman_rendered" ] || [ ! -d "$devman_reg/dags" ] \
+           || [ -n "$devman_relink" ]; then
           ${projectScript} "$devman_root" "$devman_reg" "$devman_rendered"
         fi
       fi
 
       unset devman_root devman_reg devman_meta devman_bad devman_b devman_f \
-            devman_disk devman_local devman_tmpl devman_rendered \
+            devman_disk devman_local devman_names devman_n devman_relink \
+            devman_tmpl devman_rendered \
             devman_recorded devman_ex devman_gd devman_cd devman_cur
     '';
   };

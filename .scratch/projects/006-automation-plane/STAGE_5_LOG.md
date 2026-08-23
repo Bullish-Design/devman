@@ -693,3 +693,329 @@ gate. A move did not turn a red repository green.
 
 **Charter impact:** **none.** Criterion 11 holds, and now against a repository
 with something to lose.
+
+---
+
+## S5 — Decision 3: `review` and `maintain` are not ecosystem content, so observantic takes `base`
+
+**Answer:** **observantic takes `base` as well**, and no file is copied into
+`python`. Stage 4 left the one repository that most looks like a publishable
+library with no `review` and no `maintain`, because both live in `base` and it
+took `python` and `release` only (`STAGE_4_LOG.md`, S15).
+
+**Three answers existed and §16's promotion rule decides between them.** That
+rule says a *group* begins when a second repository wants the same file. It says
+nothing about copying a file into a second group, and that is the option to
+reject first:
+
+| Answer | Verdict |
+|---|---|
+| copy `review` and `maintain` into `python` | **no.** One file in two groups is two files to keep in step, and §3.1 exists to prevent exactly that drift. A repository taking `base` and `python` would then resolve `python`'s copy, so the group that shadows would decide which copy runs |
+| observantic takes `base` too | **taken.** One word in `groups`, two task aliases, and `python` still shadows `check` and `validate` |
+| leave the gap and say why | **no**, and the reason is what the other two make visible: neither workflow is ecosystem content |
+
+**What settles it is what the two files contain.** `review` runs `git` and the
+two names `base` asks for. `maintain` prunes `.devman/.runs/` and runs `devman
+doctor`. **Neither mentions Python, and neither would differ by one line if it
+lived in `python`** — which is the test for whether a file belongs to an
+ecosystem group at all. `base` is the group that carries the leverage precisely
+because it holds what every repository has (§16: `devenv.nix` at 80% coverage,
+against `pyproject.toml`).
+
+**Command — the change to observantic** (rule 7: it is somebody else's
+repository, committed there and named here):
+
+```nix
+groups = [ "base" "python" "release" ];
+
+# base's two names, aliased onto the tasks this repository already defines.
+"base:lint".after = [ "python:lint" ];
+"base:test".after = [ "python:test" ];
+```
+
+That is pyjutsu's pattern, unchanged: a devenv task with only `after` and no
+`exec` runs its dependency and fails when the dependency fails, so it duplicates
+no command body.
+
+**Evidence — what observantic now projects**, and §7.3 doing its job:
+
+```
+check     python  (shadows base)      review     base
+validate  python  (shadows base)      maintain   base
+release   release                     full-test  base
+```
+
+**Evidence — both new workflows ran, unedited, on the installed plane:**
+
+```
+$ devman run review
+level=INFO msg="Enqueued dag-run" dag=observantic-review run-id=034BqE3NClDMTbqz4wlAG2
+{"dag":"observantic-review", … "status":"succeeded", …}
+
+.devman/.runs/reports/review-034BqE3NClDMTbqz4wlAG2.md
+## verdict
+- `base:lint` pass
+- `base:test` pass
+
+$ devman run maintain
+{"dag":"observantic-maintain","run_id":"034BqEovCGsaiOYBf0oXwv", … "status":"succeeded", …}
+
+.devman/.runs/reports/maintain-034BqEovCGsaiOYBf0oXwv.md
+- reports: 3 before, 3 after — 0 pruned
+- artifacts: 3 entries, **never pruned here** — remove them by hand
+- log trees: 8, pruned by the machine's hist_retention_days when this project's DAGs run
+```
+
+**`review` and `maintain` now reach six of six registered repositories.** The
+artifact line is the one worth reading: observantic has three built wheels and
+sdists under `.devman/.runs/artifacts/` from stage 4's releases, and until today
+no workflow in that repository ever counted them.
+
+**And it creates one drift, which is decision 6's subject and is recorded rather
+than fixed here** (S9): `devman-maintain.timer` has five `ExecStart` lines and
+observantic is still not one of them.
+
+| Repository | Commit | What changed |
+|---|---|---|
+| `observantic` | `d57cc8b` | `devenv.nix` — `"base"` in `groups`, two task aliases |
+
+**Charter impact:** **none.** §16's promotion rule decided it, unamended.
+
+---
+
+## S6 — Two projects, one DAG name: the run that executed another repository's workflow and reported success
+
+**Answer:** **`<project>-<workflow>` is not injective, and nothing checked it.**
+`devman-b` + `check` and `devman` + `b-check` render the same flat name. The
+second projection takes the first's `dags/` link with `ln -sfn`, and every
+trigger for that name then runs **one** file, in whichever project asked. The
+run succeeds, the logs land correctly, and `devman show` prints the file that
+did **not** run.
+
+**This is stage 5's own subject producing a defect.** S3 established that a
+second checkout states a distinct `project`, and the obvious name for a second
+checkout of `devman` is `devman-b`.
+
+**Tested:** the installed plane, both projects registered the only way there is.
+
+**Command** — one throwaway workflow in this repository, and one shell entry:
+
+```bash
+cat > .devman/workflows/b-check.yaml <<'YAML'
+queue: light
+steps:
+  - name: whoami
+    run: echo "I am devman's own b-check, running in $PWD"
+YAML
+devenv shell -- true
+```
+
+**Evidence — the link changed owner:**
+
+```
+$ ls -l ~/.local/share/devman/dags/devman-b-check.yaml
+devman-b-check.yaml -> ../projects/devman/workflows/b-check.yaml
+
+$ readlink ~/.local/share/devman/projects/devman-b/workflows/check.yaml
+/nix/store/hks3gb8…-devman-base-check.yaml         <- devman-b's own file, still there
+```
+
+**Evidence — and the run went to the wrong file, in the right directory:**
+
+```
+$ devman run check --project devman-b
+level=INFO msg="Enqueued dag-run" dag=devman-b-check run-id=034BqGySNV89AihEO7VXz2
+    params="[DEVMAN_PROJECT_DIR=/home/andrew/s5-devman-b]"
+
+$ cat ~/s5-devman-b/.devman/.runs/logs/devman-b-check/…/whoami….out
+I am devman's own b-check, running in /home/andrew/s5-devman-b
+
+$ devman show check --project devman-b --path
+/nix/store/hks3gb8…-devman-base-check.yaml         <- what devman says would run
+```
+
+**Three statements about one run, and only the first is true.** Dagu ran
+`b-check`. `devman show` named `check`. The exit code said everything was fine.
+This is the failure `STAGE_4_PROMPT.md` §10 names — a successful run that did the
+wrong thing — and it needs no exotic setup: two projects, one of whose names is a
+prefix of the other, and one workflow whose name begins with the difference.
+
+**§9.2 half-knew.** `Registry.unproject` already refuses to remove a link that
+points elsewhere, with the comment *"`<project>-<workflow>` is ambiguous when one
+project name is a prefix of another, and the link target is not"*. The ambiguity
+was written down where it was inconvenient and nowhere else.
+
+### The fix, in the two places that were lying
+
+**`doctor` gains a `projection` check.** For every projected workflow it reads
+`dags/<project>-<workflow>.yaml` and compares the target against that project's
+own file. One `readlink` each, no daemon needed:
+
+```
+!!  projection     devman-b-check: the DAG of that name points at
+                   ../projects/devman/workflows/b-check.yaml
+                   a trigger enqueues by name, so these run the wrong file and
+                   report success — rename one project or one workflow (§9.2)
+```
+
+**And `devman run` refuses**, because a trigger states its target and this is the
+one thing it could not previously state:
+
+```
+$ devman run check --project devman-b
+devman: refusing to enqueue 'check' in 'devman-b'
+devman:  the DAG named devman-b-check points at ../projects/devman/workflows/b-check.yaml
+devman:  it resolved to …/projects/devman-b/workflows/check.yaml, and that is not what would run
+devman:  two projects render one flat DAG name — rename one project or one workflow
+devman:  (§9.2), then re-enter both shells                                       exit 1
+```
+
+**Evidence — the silent branch, on the healthy plane:**
+
+```
+ok  projection     39 DAG names each point at their own project's file
+```
+
+**What the fix does not do: it does not rename anything.** The plane cannot
+choose which of two projects owns a name, and §9.1 makes identity the
+repository's own statement. So both surfaces report and refuse, and a person
+renames — the same shape as §9.1's duplicate-identity refusal, one level down.
+
+**Charter impact:** **changes §9.2.** Its `dags/` block presents
+`<project>-<workflow>` as *the* machine-global key and does not say the mapping
+is not injective. Applied in its own commit, per rule 4, after this entry was
+written.
+
+---
+
+## S7 — §9.3 promised reconstruction and delivered it only for total loss
+
+**Answer:** *"Everything under `~/.local/share/devman/` is reconstructable by
+re-entering every registered repo's shell"* was true for deleting **all** of it
+and false for deleting **one link**. The guard compared the rendered registry
+*entry* against disk, plus one `[ -d dags ]`. A missing `dags/` link left the
+entry matching, so re-entering the shell did nothing and the workflow stayed
+unrunnable by name.
+
+**Found by the repair, not by looking.** S6's colliding projection removed
+`devman-b`'s link as collateral damage; re-entering that checkout's shell — the
+one remedy §9.3 offers — did not bring it back.
+
+**Command — the same fault, produced deliberately on a second project:**
+
+```bash
+rm ~/.local/share/devman/dags/s5-probe-review.yaml
+cd ~/s5-probe-moved && devenv shell -- true
+ls ~/.local/share/devman/dags/s5-probe-review.yaml
+```
+
+**Evidence:**
+
+```
+"…/dags/s5-probe-review.yaml": No such file or directory (os error 2)
+```
+
+**Why, read rather than assumed** (`modules/devenv.nix`):
+
+```bash
+if [ "$devman_disk" != "$devman_rendered" ] || [ ! -d "$devman_reg/dags" ]; then
+```
+
+The `[ -d ]` is there for exactly this reason — stage 2's S13 deleted the whole
+registry and re-entry rebuilt it byte for byte — and it checks the directory
+rather than what is in it. **Total loss was tested and partial loss was not.**
+
+### The fix: one `[ -L ]` per projected workflow, and no fork
+
+```bash
+devman_relink=""
+for devman_n in $devman_names; do
+  [ -L "$devman_reg/dags/<project>-$devman_n.yaml" ] || devman_relink=1
+done
+```
+
+`$devman_names` is the group-resolved set, known at evaluation time, plus the
+repository's own `.devman/workflows/` names, which the hook already walks.
+
+**Evidence — the same command, with the fixed module:**
+
+```
+$ rm ~/.local/share/devman/dags/s5-probe-review.yaml
+$ cd ~/s5-probe-moved && devenv shell -- true
+$ readlink ~/.local/share/devman/dags/s5-probe-review.yaml
+../projects/s5-probe/workflows/review.yaml                     <- rebuilt
+```
+
+**It tests existence and not the target, deliberately.** Reading a symlink costs
+a fork, and §5.2's rule that the hook must fork nothing is not a preference — it
+is why criterion 7 holds. A link pointing at *another project's* file is S6's
+`doctor` check, on a path that is allowed to spend a process.
+
+**What it costs, measured** (rule 2 — a timing without a spread is not a
+timing). The loop, over this repository's ten projected workflows, 200 firings
+per repeat, five repeats:
+
+```
+0.1878  0.1058  0.1085  0.0880  0.1674   ms per firing
+```
+
+Mean **0.13 ms**, range 0.088–0.188. `enterShell` fires twice per entry (§5.2),
+so about **0.26 ms per shell entry** against criterion 7's 10 ms budget, and it
+adds no process.
+
+**And it reaches repositories without a rebuild**, because `modules/devenv.nix`
+is the repo interface: each repository picks it up at its own next re-pin (§3.2).
+
+**Charter impact:** **none**, and that is the point — the fix makes §9.3's
+sentence true rather than making the sentence wrong. It is worth recording that
+the sentence was *load-bearing and unverified for partial damage* for four
+stages, and that the check which existed (`[ -d dags ]`) was written by somebody
+who had this exact failure in mind and stopped one level too high.
+
+---
+
+## S8 — Decision 4: `doctor` checks for a workflow that defines `handler_on`, and it is not §15.7
+
+**Answer:** **yes, and it ships.** A workflow defining its own `handler_on`
+replaces `base.yaml`'s whole-field and stops recording its runs — measured at
+stage 4 (S3), written into §9.2 in prose, and checked by nothing until now.
+
+**Where it falls on §15.7.** §15.7 says nothing checks that a default still
+fits: the plane holds no opinion about what a workflow *does*, what it costs, or
+whether a four-minute `check` is still a `check`. **This check has no opinion
+about any of that.** It is §11's check one field over: a workflow that silently
+takes away something the *machine* promised. The distinction that decides it:
+
+| §15.7 refuses a check about | This check is about |
+|---|---|
+| what the work is, and what it costs | whether the run is recorded at all |
+| a heuristic that cannot know your machine | one field, present or absent |
+| a rule the plane cannot check | a rule the plane can check exactly |
+
+`metadata.jsonl` is not decoration: §9.2 promises it survives every retention
+setting, stage 4's release gate reads it to decide whether a release may
+proceed, and `maintain` counts from it. A workflow that removes the writer takes
+all three away, and the run reports success.
+
+**Evidence — the firing branch**, against a throwaway registry carrying one such
+file:
+
+```
+!!  handlers       devman-_s5_handler defines handler_on (exit) — it replaces
+                   base.yaml's, so its runs append no line to
+                   .devman/.runs/metadata.jsonl (§9.2)
+```
+
+**Evidence — the silent branch**, against the real registry:
+
+```
+ok  handlers       no workflow defines handler_on, so every run is recorded
+```
+
+**It reports every key, not only `exit`.** `handler_on` is one field, so a DAG
+defining `success` alone still replaces the block, exit handler included. The
+check names what it found so the message is a fact rather than a rule.
+
+**Charter impact:** **none.** §9.2 already warns about this in prose; the warning
+now has a check behind it, which is what §10's list of "six things it must
+compute itself" is for.
