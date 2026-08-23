@@ -155,6 +155,36 @@ class Registry:
                 "  enter its devenv shell once to register it (§5.2), or name a\n"
                 "  project with --project"
             )
+        # A SECOND CHECKOUT INSIDE A REGISTERED ONE IS NOT A SUBDIRECTORY OF IT.
+        #
+        # `git worktree add .worktrees/feature` puts a whole other working tree
+        # under a registered path. Entering its shell is refused, because §9.1
+        # refuses a duplicate identity while the first path still exists — so it
+        # never registers, and "the deepest registered path containing this
+        # directory" answers with the OUTER project. Measured: `devman run
+        # check` typed inside such a checkout enqueued a run against the parent
+        # checkout, with nothing said (`STAGE_5_LOG.md`, S3).
+        #
+        # That is the failure this whole design refuses everywhere else: a run
+        # that succeeds and does its work in the wrong tree. So it is a refusal,
+        # and it names both directories.
+        #
+        # It walks UP a path the registry already names, one `exists` per level.
+        # §15.1 forbids walking the disk to find repositories; this finds none —
+        # it asks whether the directory the caller is standing in is its own
+        # checkout.
+        inner = _checkout_between(here, best.path.resolve())
+        if inner is not None:
+            raise RegistryError(
+                f"refusing to resolve '{best.name}' from this directory\n"
+                f"  {inner}\n"
+                f"  is a checkout of its own, inside '{best.name}' at"
+                f" {best.path}\n"
+                "  a run triggered here would do its work in the outer checkout,"
+                " not this one\n"
+                "  give this checkout a distinct devman.project and enter its"
+                " shell (§9.1), or say --project explicitly"
+            )
         return best
 
     def workflow_file(self, project: Project, workflow: str) -> Path:
@@ -212,6 +242,27 @@ class Registry:
             removed.append(meta)
         _rmdir(entry)
         return removed
+
+
+def _checkout_between(here: Path, root: Path) -> Path | None:
+    """The outermost directory strictly below `root` that holds its own `.git`.
+
+    `.git` is a directory in an ordinary clone and a **file** in a linked
+    worktree, so this tests existence rather than kind. The outermost one is
+    returned rather than the nearest, because that is the one that stands
+    between the caller and the project the registry would answer with.
+
+    A submodule answers this test too, and that is intended: a run triggered
+    inside a submodule and executed in the parent checkout is the same
+    ambiguity, and the plane's habit is to make it loud rather than to guess.
+    """
+    found: Path | None = None
+    here = here if here.is_dir() else here.parent
+    while here != root and here != here.parent:
+        if (here / ".git").exists():
+            found = here
+        here = here.parent
+    return found
 
 
 def _rmdir(path: Path) -> None:

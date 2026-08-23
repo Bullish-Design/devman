@@ -403,3 +403,293 @@ $ nix build .#checks.x86_64-linux.groups-validate --no-link   # exit 0
 **Charter impact:** **none.** §8 already says one watcher serves every
 repository and §15.3 already accepts that as a shared availability failure. This
 is the plane finally not *causing* one out of an ordinary `mv`.
+
+---
+
+## S3 — A second checkout: the refusal is exactly right, and the checkout *inside* the first one ran in the wrong tree
+
+**Answer:** §9.1's refusal fired word for word on a real registered repository,
+and §9.1's stated remedy — "the second checkout states a distinct `project`" —
+works and had never been run. **One case was silent and is now a refusal:** a
+second checkout **nested inside** a registered one. `devman run` there resolved
+to the outer project and enqueued a run against the outer tree, with nothing
+said.
+
+**Tested:** the installed plane, this repository, `git worktree`. `FINDINGS.md`
+C5 measured the refusal against a scratch copy of the module and two empty
+directories in `/tmp`; this is the first time it has been asked of a repository
+that is really in the plane, with 10 projected workflows and a live watcher.
+
+### The refusal, on a real repository
+
+**Command:**
+
+```bash
+git worktree add --detach ~/s5-devman-b HEAD
+cd ~/s5-devman-b && devenv shell -- true
+```
+
+**Evidence:**
+
+```
+devman: refusing to register 'devman'
+devman:   already registered at /home/andrew/.paseo/worktrees/1n48r26y/special-dragon, which still exists
+devman:   this repo is        /home/andrew/s5-devman-b
+devman:   set a different devman.project in one of them
+```
+
+**And it refused without breaking anything.** The shell opened, the registry
+entry still names the first checkout, and the projection is untouched:
+
+```
+$ grep '"path"' ~/.local/share/devman/projects/devman/metadata.json
+  "path": "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon"
+$ readlink ~/.local/share/devman/dags/devman-check.yaml
+../projects/devman/workflows/check.yaml
+```
+
+**And the refused checkout cannot trigger anything either**, which matters more
+than the message: a registration that refuses would be theatre if the CLI then
+ran from there anyway.
+
+```
+$ cd ~/s5-devman-b && devman run check --print
+devman: /home/andrew/s5-devman-b is not inside a registered repository
+devman:  enter its devenv shell once to register it (§5.2), or name a
+devman:  project with --project                                          exit 1
+```
+
+### §9.1's remedy, run for the first time
+
+**Command** — one word changed in the second checkout's own `devenv.nix`:
+
+```bash
+sed -i 's/project = "devman";/project = "devman-b";/' ~/s5-devman-b/devenv.nix
+cd ~/s5-devman-b && devenv shell -- true
+devman run check
+```
+
+**Evidence — two checkouts of one repository, both in the plane:**
+
+```
+devman   -> "path": "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon"
+devman-b -> "path": "/home/andrew/s5-devman-b"
+
+$ ls ~/.local/share/devman/dags/ | grep '^devman-b'
+devman-b-agent-review.yaml  devman-b-bench-entry.yaml  devman-b-check.yaml
+devman-b-format.yaml        devman-b-full-test.yaml    devman-b-maintain.yaml
+devman-b-release.yaml       devman-b-review.yaml       devman-b-stack-validate.yaml
+devman-b-validate.yaml
+
+level=INFO msg="Enqueued dag-run" dag=devman-b-check run-id=034Bq0AJLe6sSpBas2elOg
+    params="[DEVMAN_PROJECT_DIR=/home/andrew/s5-devman-b]"
+```
+
+Ten workflows, its own DAG names, its own `.devman/.runs/`, and the first
+checkout untouched. §9.2's "run output belongs to a **working tree**, not a
+project" is what makes that work rather than a coincidence.
+
+### The case that was silent: a checkout inside a checkout
+
+`git worktree add .worktrees/feature` is an ordinary layout, and it puts a whole
+other working tree **inside** a registered path. Such a checkout can never
+register — §9.1 refuses the duplicate identity — so `Registry.project_for`
+answers with the only registered path that contains it: **the outer one.**
+
+**Command:**
+
+```bash
+git worktree add --detach .worktrees/s5-inner HEAD
+cd .worktrees/s5-inner && devman run check --print
+```
+
+**Evidence — the installed 0.3.0:**
+
+```
+DEVMAN_PROJECT_DIR=/home/andrew/.paseo/worktrees/1n48r26y/special-dragon \
+  dagu … enqueue devman-check -- DEVMAN_PROJECT_DIR=/home/andrew/…/special-dragon
+exit=0
+```
+
+**The developer is standing in one working tree and the run happens in
+another**, on another commit, with a zero exit code and no message. That is
+`STAGE_4_PROMPT.md` §10's failure — a successful run that did the wrong thing —
+reached by typing an ordinary command in an ordinary directory.
+
+**Two readings, and only one of them is a defect.** "The deepest registered path
+containing this directory" is also what makes `devman run check` work from
+`src/devman/`, which must keep working. The separating fact is whether the
+directory between the caller and the project root is **a checkout of its own**:
+`src/devman/` is a subdirectory, `.worktrees/s5-inner` holds a `.git`.
+
+**The fix** walks up from the caller to the project root and refuses when it
+crosses a `.git` — a file in a linked worktree, a directory in a clone, and
+either way not part of the project the registry would answer with:
+
+```
+$ cd .worktrees/s5-inner && devman run check --print          # the built CLI
+devman: refusing to resolve 'devman' from this directory
+devman:  /home/andrew/…/special-dragon/.worktrees/s5-inner
+devman:  is a checkout of its own, inside 'devman' at /home/andrew/…/special-dragon
+devman:  a run triggered here would do its work in the outer checkout, not this one
+devman:  give this checkout a distinct devman.project and enter its shell (§9.1),
+devman:  or say --project explicitly                                       exit 1
+
+$ cd src/devman && devman run check --print                   # must still work
+DEVMAN_PROJECT_DIR=/home/andrew/…/special-dragon dagu … enqueue devman-check
+exit=0
+
+$ cd .worktrees/s5-inner && devman run check --project devman --print
+DEVMAN_PROJECT_DIR=/home/andrew/…/special-dragon dagu … enqueue devman-check
+exit=0                                        <- an explicit --project is not guessing
+```
+
+**It is not a scan.** §15.1 forbids walking the disk to find repositories; this
+walks **up** a path the registry already names, one `exists` per level, and
+finds no repository — it asks whether the directory the caller is standing in is
+its own checkout. `doctor`'s literal-directory check has the same shape
+downwards.
+
+**A submodule answers the test too, and that is intended.** A run triggered
+inside a submodule and executed in the parent checkout is the same ambiguity, and
+this plane's habit everywhere else is to refuse rather than to guess.
+
+**One thing this session did to itself, and rule 1 says to report it.** With
+`.worktrees/s5-inner` in place, three of this session's own commands ran there
+by accident — including a `nix build .#devman`, which quietly built the flake at
+`HEAD` instead of the working tree and produced a store path with none of the
+edits in it. The measurement above is what that looked like from the other side:
+**a tool that resolves "the project" from the current directory has no way to
+know which checkout you meant.**
+
+**Charter impact:** **none.** §9.1 already says the second checkout states a
+distinct project; this is the CLI enforcing at the trigger what registration
+already enforces at the shell.
+
+---
+
+## S4 — Criterion 11, on a real repository with real run history
+
+**Answer:** **it holds.** `pyjutsu` was moved **and** renamed in one command and
+re-entered: the identity survived, the entry was replaced rather than
+duplicated, the projection was rebuilt, both halves of the run history survived,
+and `devman run review` ran in the new location. Criterion 11 was last exercised
+at **stage 1**, against a throwaway `projA` with none of those things.
+
+**Tested:** the installed plane. `pyjutsu` — 5 projected workflows, 5 recorded
+runs, 4 reports, 2 log trees, on `main@099c032`, its tree clean.
+
+**Command** — a move and a rename at once, which is criterion 11's own wording:
+
+```bash
+mv ~/Documents/Projects/pyjutsu ~/s5-elsewhere/pyjutsu-renamed
+cd ~/s5-elsewhere/pyjutsu-renamed && devenv shell -- true
+```
+
+**Evidence — the entry was replaced, not duplicated:**
+
+```
+before re-entry:  "path": "/home/andrew/Documents/Projects/pyjutsu"     <- stale
+after  re-entry:  "path": "/home/andrew/s5-elsewhere/pyjutsu-renamed"
+projects/: devman  devman-b  nix-paseo  observantic  pydantree  pyjutsu  s5-probe  siteman
+```
+
+One `pyjutsu`, not two. §9.1's `[ -d ]` on the recorded path is the whole of the
+test: the old path was gone, so this is a move rather than a collision, so the
+entry is replaced. The refusal in S3 and the replacement here are the same three
+lines of shell taking different branches.
+
+**Evidence — the projection was rebuilt at the new path:**
+
+```
+$ ls ~/.local/share/devman/projects/pyjutsu/workflows/
+check.yaml  full-test.yaml  maintain.yaml  review.yaml  validate.yaml
+$ readlink ~/.local/share/devman/dags/pyjutsu-review.yaml
+../projects/pyjutsu/workflows/review.yaml
+```
+
+**Evidence — both halves of the run history survived, and they survive
+differently.** Repo-side output travels with the tree because it is *in* the
+tree; machine-side history stays where it is because it is keyed by DAG name and
+a move does not change the name:
+
+```
+repo-side   ~/s5-elsewhere/pyjutsu-renamed/.devman/.runs/metadata.jsonl   5 lines
+            .devman/.runs/reports/                                        4 files
+machine-side ~/.local/share/dagu/data/dag-runs/pyjutsu-maintain/…/22/
+            dag-run_20260822_232308Z_034Bp1wG5SOs46lNVfWnKn      ) all four
+            dag-run_20260822_232438Z_034Bp4DmT5plJ97J9Gm8Ve      ) recorded
+            dag-run_20260822_232535Z_034Bp5f4YQDOc7SYPo0wE1      ) before
+            dag-run_20260822_232835Z_034BpAEvDv2B5dtTH0TFD0      ) the move
+```
+
+**One thing a move leaves behind, and it is honest to say it.** Every
+`metadata.jsonl` line written before the move records an absolute `log` path
+that no longer exists:
+
+```
+{"dag":"pyjutsu-check", … "log":"/home/andrew/Documents/Projects/pyjutsu/.devman/.runs/logs/…"}
+```
+
+The logs themselves moved with the tree; the *recorded* path did not, because a
+line is a record of what was true when the run happened. Nothing rewrites it and
+nothing should: §9.3 makes the registry derived and the repository canonical, and
+a history that edits itself to stay plausible is worse than one that is dated.
+
+**Evidence — a workflow ran in the new location:**
+
+```
+$ cd ~/s5-elsewhere/pyjutsu-renamed && devman run review
+level=INFO msg="Enqueued dag-run" dag=pyjutsu-review run-id=034Bq2FKH3zqR0BMNwzngX
+    params="[DEVMAN_PROJECT_DIR=/home/andrew/s5-elsewhere/pyjutsu-renamed]"
+
+.devman/.runs/reports/review-034Bq2FKH3zqR0BMNwzngX.md
+# review — pyjutsu-review
+- head: `099c032` on `main`
+## verdict
+- `base:lint` pass
+- `base:test` FAIL
+```
+
+### `base:test` failed, and that is where two hypotheses had to be separated
+
+A failing check in the first run after a move is exactly the symptom that
+invites the wrong conclusion. Two readings: **the move broke the repository's
+own build environment** (a devenv venv full of absolute paths is a real thing),
+or **it fails identically at the old path** and the move cost nothing.
+
+**The probe is the restore**, which had to happen anyway (D10):
+
+```bash
+mv ~/s5-elsewhere/pyjutsu-renamed ~/Documents/Projects/pyjutsu
+cd ~/Documents/Projects/pyjutsu && devenv shell -- true && devman run review
+```
+
+**Evidence — the same failure, at the original path:**
+
+```
+{"dag":"pyjutsu-review","run_id":"034Bq4xqBy4W7OzXhPr8F5","status":"partially_succeeded"}
+## verdict
+- `base:lint` pass
+- `base:test` FAIL
+```
+
+```
+💥 maturin failed
+  Caused by: Couldn't find a virtualenv or conda environment …
+✖ Running pyjutsu:build — dep pyjutsu:test status=Completed(DependencyFailed)
+```
+
+**So it is pyjutsu's own debt, like pydantree's 920 ruff findings, and the move
+cost it nothing.** Corroborated rather than assumed: the moved checkout's
+`.devenv/state/venv` holds no reference to the old path — the shell entry that
+re-registered it rebuilt the venv at the new location, which is devenv doing its
+job and is the reason the entry took 18 s instead of 2 s.
+
+**And the report is the thing a person reads.** `review` recorded
+`partially_succeeded` in both places, because its check steps carry
+`continue_on` and stage 4's S8 measured that such a run does not open the release
+gate. A move did not turn a red repository green.
+
+**Charter impact:** **none.** Criterion 11 holds, and now against a repository
+with something to lose.
