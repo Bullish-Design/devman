@@ -2,8 +2,13 @@
 
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
 > and D (2026-08-22). Amended twice during stage 1, twice during stage 2, twice
-> during stage 3 and twice during stage 4 (2026-08-22), each time because
-> building the thing measured something the investigations had not. **Stage 4's
+> during stage 3, twice during stage 4 and once during stage 5 (2026-08-22),
+> each time because building the thing measured something the investigations had
+> not. **Stage 5's one: §9.2 now says the flat DAG key `<project>-<workflow>` is
+> not injective — two projects can render one name, the second projection takes
+> the link, and the measured result was a run that executed another
+> repository's workflow and reported success (`STAGE_5_LOG.md`, S6).**
+> **Stage 4's
 > two: §8's third trigger arrow is a user timer running `devman run` rather than
 > Dagu's own scheduler, because a scheduled run leaves both directory fields
 > literal and then fails on the machine's exit handler; and §9.2 now says that a
@@ -953,6 +958,18 @@ followed at all, at any setting; only file symlinks are.
 > override. Dagu follows the chain. Nothing above changes: the per-project
 > projection is still what §7.3 resolves, what `devman show` prints, and what
 > `doctor` unprojects when it prunes a stale entry (§10).
+>
+> **That key is machine-global and it is not injective.** `<project>` and
+> `<workflow>` are both free text with a hyphen allowed in each, so two
+> different pairs can render one name — `devman-b` + `check` and `devman` +
+> `b-check`. The projection is `ln -sfn`, so the second one written takes the
+> link, and every trigger for that name then runs **one** file: measured, the
+> run succeeded, worked in the directory of the project that asked, wrote its
+> logs there, and `devman show` printed the file that did not run
+> (`STAGE_5_LOG.md`, S6). **`doctor` checks it, and `devman run` refuses it**,
+> by comparing the link's target against the project's own file. The plane
+> cannot choose which project owns a name — identity is the repository's own
+> statement (§9.1) — so both surfaces report and a person renames.
 
 ### 9.3 Canonical and operational
 
