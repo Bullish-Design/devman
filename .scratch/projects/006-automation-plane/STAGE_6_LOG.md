@@ -137,3 +137,197 @@ handed over rather than activated.
   `$HOME`, so stage 4's S7 decision stands for a third stage.
 
 **Charter impact:** **none.** This entry is stage 6's own definition of done.
+
+---
+
+## S2 — The header, measured before the projection was changed
+
+**Answer:** the generated header is **four lines and purely additive**, and the
+shape was decided by measurement rather than by preference:
+
+```yaml
+env:
+  - DEVMAN_PROJECT_DIR: /home/andrew/project      # or DEVMAN_SELF_DIR (§11)
+working_dir: /home/andrew/project
+log_dir: /home/andrew/project/.devman/.runs/logs
+```
+
+**`env:` rather than `params:`, and that is the whole finding.** `STAGE_5_LOG.md`
+S12 proved a *params* header works, but three shipped workflows already declare
+a `params:` block — `maintain`, `agent-review` and `bench-entry` — so a params
+header would have to **edit** a block the workflow owns. An `env:` header only
+prepends.
+
+**Tested:** Dagu 2.15.0 on a throwaway `DAGU_HOME=/tmp/s6-env`, ports 8093 and
+50068, carrying a byte copy of the installed plane's `base.yaml`, with two DAGs
+differing only in the dangerous part.
+
+**Command:**
+
+```yaml
+# A — env only
+env:
+  - DEVMAN_PROJECT_DIR: /tmp/s6-proj
+working_dir: /tmp/s6-proj
+log_dir: /tmp/s6-proj/.devman/.runs/logs
+
+# B — the same header, plus a params block that leaves the SAME NAME empty,
+#     which is exactly what groups/base/workflows/maintain.yaml declares
+params:
+  - DEVMAN_PROJECT_DIR: ""
+  - KEEP_DAYS: "7"
+```
+
+**Evidence — six scheduled dispatches, three of each:**
+
+```
+A cwd=/tmp/s6-proj PROJ=[/tmp/s6-proj]
+B cwd=/tmp/s6-proj PROJ=[/tmp/s6-proj] KEEP=[7]
+```
+
+**`env:` outranks an empty `params:` default, and the workflow's other
+parameters keep theirs.** That is what makes the header additive: it never has
+to touch a `params:` block, so a workflow that declares parameters and one that
+declares none are projected the same way.
+
+**Evidence — and the machine's inherited exit handler still recorded every
+run**, which is the half S2-of-stage-4 lost:
+
+```
+$ cat /tmp/s6-proj/.devman/.runs/metadata.jsonl
+{"dag":"envparam", … "status":"succeeded", …}
+{"dag":"envonly",  … "status":"succeeded", …}
+… six lines, three each …
+```
+
+### The two rules the header keeps, and why they are rules
+
+**1. A cross-repo workflow gets `DEVMAN_SELF_DIR`, never `DEVMAN_PROJECT_DIR`.**
+§11 is explicit: a workflow that triggers other workflows must not hold the name
+it passes to its children, because a parent's environment outranks every child's
+own value. The projection detects it the same way `doctor` does — the file
+mentions `DEVMAN_SELF_DIR` — and `doctor`'s §11 check is what proves the result:
+
+```
+$ head -5 ~/.local/share/devman/projects/devman/workflows/stack-validate.yaml
+# devman: generated projection — do not edit.
+# Edit the source and re-enter the shell:
+#   …/.devman/workflows/stack-validate.yaml
+env:
+  - DEVMAN_SELF_DIR: /home/andrew/.paseo/worktrees/1n48r26y/special-dragon
+
+$ devman doctor
+ok  cross-repo     1 workflows trigger others, all name DEVMAN_SELF_DIR
+```
+
+**2. A body that states a field keeps its own.** `stack-validate` declares its
+own `working_dir` and `log_dir` (§11 requires it, because the inherited ones name
+`DEVMAN_PROJECT_DIR`), and the header adds neither. The same guard covers a body
+with its own `env:`, which no shipped workflow has: the header steps aside, and
+that file must then state the variable itself.
+
+**Charter impact:** **none yet.** The projection had not changed when this was
+measured. §7.2, §8 and §9.2 move in S4, after the real plane proved it.
+
+---
+
+## S3 — A scheduled run on the installed plane, fired by Dagu, with nobody triggering it
+
+**Answer:** **it works.** `groups/base/workflows/maintain.yaml` gained
+`schedule:`, this repository re-projected, and the installed daemon dispatched
+the workflow, ran it in the right directory, wrote its report and appended to
+`metadata.jsonl` — with no timer, no `devman run`, and no process of mine
+involved.
+
+**Tested:** the installed service. Dagu 2.15.0, `systemd --user` unit `dagu`,
+devman 0.3.0 from the closure the user activated between stage 5 and stage 6
+(`/nix/store/7ql2i1j…`, so stage 5's `projection` and `handlers` checks are live).
+
+**Command** — the schedule was temporarily set to every minute, so that a
+measurement did not have to wait until 00:05, then set back:
+
+```bash
+sed -i 's|^schedule: "5 0 \* \* \*"|schedule: "* * * * *"|' groups/base/workflows/maintain.yaml
+rm -f .devenv/nix-eval-cache.db*        # a group file inside a path: input (S7, stage 3)
+devenv shell -- true                    # the only way a projection is ever rebuilt
+```
+
+**Evidence — the daemon's own scheduler:**
+
+```
+$ journalctl --user -u dagu
+22:56:01 INFO msg="Dispatching planned run" dag=devman-maintain scheduleType=Start
+                                            scheduledTime=2026-08-22T22:56:00-04:00
+22:57:00 INFO msg="Dispatching planned run" dag=devman-maintain scheduleType=Start
+```
+
+**Evidence — Dagu says who triggered it, and it was not a person:**
+
+```
+$ curl -s .../api/v1/dags/devman-maintain/dag-runs
+034BuHL9m0vVSMlfnlSJjM  status 4  trigger: scheduler
+034BuFr2nmmgjDSo24aook  status 4  trigger: scheduler
+034BpAE5ko4TCqewEc1w2O  status 2  trigger: manual      <- an earlier run of mine
+```
+
+**Evidence — where the work happened, and what it left:**
+
+```
+$ tail -2 .devman/.runs/metadata.jsonl
+devman-maintain 034BuFr2nmmgjDSo24aook succeeded
+   log: /home/andrew/.paseo/worktrees/…/special-dragon/.devman/.runs/logs/devman-maintain/…
+devman-maintain 034BuHL9m0vVSMlfnlSJjM succeeded
+
+$ head .devman/.runs/reports/maintain-034BuHL9m0vVSMlfnlSJjM.md
+# maintain — devman-maintain
+- run id: `034BuHL9m0vVSMlfnlSJjM`
+- started: 2026-08-23T02:57:00Z
+- keep days: 7                          <- the param default, with no trigger to pass it
+## this project
+- reports: 14 before, 14 after — 0 pruned
+- artifacts: 1 entries, **never pruned here** — remove them by hand
+```
+
+**Every one of stage 4's S2 failures is absent, on the real machine**: the run
+worked in the project rather than in a directory named `${DEVMAN_PROJECT_DIR}`,
+the logs landed under the project, the machine's exit handler resolved its
+fallback and appended the record, and `KEEP_DAYS` took the default the workflow
+states.
+
+### The thing that nearly became a wrong conclusion
+
+**The first three minutes produced nothing**, and the tempting reading was "the
+scheduler builds its cron table at start-up, so every adoption needs a daemon
+restart" — which would have put back exactly the manual step this stage exists to
+remove. A restart did make it fire immediately, which *fits* that reading.
+
+**It is not the explanation, and one more probe separated them.** Two further
+measurements, each on the installed plane:
+
+| Probe | Result |
+|---|---|
+| **change** an existing schedule (`* * * * *` → `5 0 * * *`), no restart | firing stopped **within one minute**, and stayed stopped for six |
+| **add a whole new scheduled DAG** — `.devman/workflows/_s6-sched.yaml`, projected by an ordinary shell entry, no restart | dispatched **on the next minute boundary**, three minutes in a row, `trigger: scheduler` each time |
+
+```
+$ cat .devman/.runs/logs/devman-_s6-sched/…/tick….out
+scheduled tick in /home/andrew/.paseo/worktrees/1n48r26y/special-dragon at 23:07:00
+scheduled tick in /home/andrew/.paseo/worktrees/1n48r26y/special-dragon at 23:08:00
+```
+
+**So the case that matters for the promise — a repository adopting a scheduled
+workflow — needs no restart, and neither does removing one.** What was measured
+once, and not explained, is a DAG the daemon already knew **without** a schedule
+that then gained one: three scheduled minutes passed with nothing, and a restart
+cured it. That is the *transition* this stage causes, not the steady state, and
+the handover states it as one restart rather than as a rule.
+
+**Rule 1 of the prompt series says to report what happened.** The three-minute
+silence is recorded here rather than tidied away, together with the fact that the
+mechanism behind it is **not known** — only that it does not affect adoption,
+removal, or a changed expression.
+
+**Cleanup:** the probe workflow was deleted and re-projected; `dags/` holds no
+`_s6-sched` link, and the next minute produced no dispatch.
+
+**Charter impact:** **none yet.** S4 applies the three sections this forces.

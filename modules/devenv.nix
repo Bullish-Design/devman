@@ -161,11 +161,54 @@ let
   # scheduler. `<project>-<workflow>` is the machine-unique name. See
   # nix/nixos-module.nix, which points `dags_dir` at it.
   #
+  # STAGE 6: THE PER-PROJECT FILE IS GENERATED, NOT SYMLINKED, AND THE REASON IS
+  # THE SCHEDULE.
+  #
+  # `projects/<p>/workflows/<w>.yaml` used to be a symlink to the group file, so
+  # every projected DAG inherited `working_dir: ${DEVMAN_PROJECT_DIR}` and
+  # `log_dir: ${DEVMAN_PROJECT_DIR}/…` from the machine's `base.yaml`. Both
+  # interpolate from **whoever enqueues**, which is fine for `devman run` and
+  # impossible for Dagu's own scheduler: under `schedule:` the enqueueing process
+  # is the daemon, which has one environment for the whole machine, so both
+  # fields stayed literal and the run worked in a directory named
+  # `${DEVMAN_PROJECT_DIR}` (`STAGE_4_LOG.md`, S2).
+  #
+  # Measured on a throwaway carrying a byte copy of the installed `base.yaml`: a
+  # per-project file that STATES the three values schedules correctly — the
+  # daemon dispatched on the minute, `working_dir` and the variable resolved, the
+  # logs landed under the project, and the machine's inherited exit handler
+  # appended to that project's `metadata.jsonl` (`STAGE_5_LOG.md` S12,
+  # `STAGE_6_LOG.md` S2).
+  #
+  # So the generated file is a HEADER plus the source body, byte for byte:
+  #
+  #     env:
+  #       - DEVMAN_PROJECT_DIR: /home/you/project      # or DEVMAN_SELF_DIR (§11)
+  #     working_dir: /home/you/project
+  #     log_dir: /home/you/project/.devman/.runs/logs
+  #     <the group file, or this repository's own override, unchanged>
+  #
+  # `env:` rather than `params:`, because the header must not have to edit a
+  # `params:` block the workflow already declares. Measured: with `env:` set and
+  # `params: [DEVMAN_PROJECT_DIR: ""]` also present, the step and the exit
+  # handler both saw the env value, and the workflow's other parameters kept
+  # their own defaults (S2).
+  #
+  # THE HEADER ADDS; IT NEVER OVERWRITES. A body that states its own
+  # `working_dir` or `log_dir` keeps them — that is §11's cross-repo workflow,
+  # which must also be given `DEVMAN_SELF_DIR` rather than `DEVMAN_PROJECT_DIR`,
+  # because a workflow that triggers other workflows must not hold the name it
+  # passes to its children.
+  #
+  # The cost is stated in `STAGE_6_LOG.md` S1 rather than discovered: a
+  # repository's own `.devman/workflows/x.yaml` is no longer read live by Dagu.
+  # Editing it needs one shell entry to re-project.
+  #
   # This script forks. It runs only when the rendered entry differs from the one
   # on disk, which the guard in `enterShell` decides without forking at all.
   linkLines = lib.concatStringsSep "\n  "
     (lib.mapAttrsToList
-      (name: w: "devman_link ${lib.escapeShellArg name} ${w.file}")
+      (name: w: "devman_project ${lib.escapeShellArg name} ${w.file}")
       resolved);
 
   projectScript = pkgs.writeShellScript "devman-project-${cfg.project}" ''
@@ -211,19 +254,49 @@ let
       rm -f "$old"
     done
 
-    devman_link() {
-      ln -sfn "$2" "$pdir/workflows/$1.yaml"
-      ln -sfn "../projects/$proj/workflows/$1.yaml" "$dags/$proj-$1.yaml"
+    # One generated file per workflow: the header this project needs, then the
+    # source body unchanged. `dags/` still holds a symlink, because that layer is
+    # only Dagu's flat view of the name.
+    devman_project() {
+      devman_name="$1"
+      devman_src="$2"
+      devman_out="$pdir/workflows/$devman_name.yaml"
+
+      # §11: a workflow that triggers other workflows names its own directory
+      # `DEVMAN_SELF_DIR` and must not hold `DEVMAN_PROJECT_DIR`, because a
+      # parent's environment outranks every child's own value.
+      devman_var=DEVMAN_PROJECT_DIR
+      if grep -q 'DEVMAN_SELF_DIR' "$devman_src"; then
+        devman_var=DEVMAN_SELF_DIR
+      fi
+
+      {
+        printf '# devman: generated projection — do not edit.\n'
+        printf '# Edit the source and re-enter the shell:\n'
+        printf '#   %s\n' "$devman_src"
+        # A body with its own `env:` states the variable itself. Adding a second
+        # `env:` key would make the file fail to load, which `devman doctor`
+        # reports but nobody should have to read.
+        if ! grep -q '^env:' "$devman_src"; then
+          printf 'env:\n  - %s: %s\n' "$devman_var" "$root"
+        fi
+        grep -q '^working_dir:' "$devman_src" || printf 'working_dir: %s\n' "$root"
+        grep -q '^log_dir:' "$devman_src" || \
+          printf 'log_dir: %s/.devman/.runs/logs\n' "$root"
+        cat "$devman_src"
+      } > "$devman_out"
+
+      ln -sfn "../projects/$proj/workflows/$devman_name.yaml" "$dags/$proj-$devman_name.yaml"
     }
 
     ${linkLines}
 
-    # §7.3's last layer. It shadows every group, and it is a symlink, so
-    # editing the file changes what Dagu reads without any re-projection.
+    # §7.3's last layer. It shadows every group, and since stage 6 it is copied
+    # rather than linked, so an edit to it reaches Dagu at the next shell entry.
     for f in "$root"/.devman/workflows/*.yaml; do
       [ -e "$f" ] || continue
       stem=''${f##*/}; stem=''${stem%.yaml}
-      devman_link "$stem" "$f"
+      devman_project "$stem" "$f"
     done
 
     # Last, so that a projection interrupted half way leaves an entry that does

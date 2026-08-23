@@ -39,6 +39,33 @@
 # declares that one first (STAGE_4_LOG.md, S3). It is not the cross-repo case
 # §11 forbids: this workflow triggers no other DAG, so it targets its own
 # project and holding the name is correct.
+# ---------------------------------------------------------------------------
+# THE SCHEDULE LIVES HERE, AND IT IS DAGU'S OWN KEY (stage 6)
+#
+# Nightly at 00:05. Every repository that takes `base` is maintained without
+# anybody writing a systemd unit, and a repository that adopts `base` next month
+# is maintained from that night — which the hand-written timer it replaces could
+# never promise, because it held five project names somebody had to remember to
+# update (STAGE_5_LOG.md, S9).
+#
+# THIS WORKS ONLY BECAUSE THE PROJECTION IS GENERATED. Under `schedule:` the
+# enqueueing process is the Dagu daemon, which has one environment for the whole
+# machine, so a projection that interpolated `${DEVMAN_PROJECT_DIR}` produced a
+# run in a directory of that literal name (STAGE_4_LOG.md, S2). Since stage 6
+# each project's projected copy states its own `working_dir`, `log_dir` and
+# directory variable, so the daemon needs nothing from a trigger
+# (STAGE_6_LOG.md, S2).
+#
+# TO OPT OUT, USE §7.3. Shadow this file with your own `.devman/workflows/
+# maintain.yaml` and leave the key out, or do not take `base`. There is no
+# per-workflow Nix option, by §7.4, and a schedule is content exactly as a queue
+# name is.
+#
+# A SCHEDULED WORKFLOW THAT WRITES SOURCE FILES IS A DIFFERENT ANIMAL. This one
+# prunes its own report directory and reads the plane; it writes nothing a
+# watcher watches and nothing a person is editing. §8's argument for reactivity
+# being its own group applies to any group that would ship a scheduled formatter.
+schedule: "5 0 * * *"
 queue: light
 type: chain
 steps:

@@ -39,7 +39,7 @@ def main(args, reg: Registry) -> int:
         return 0
 
     path = reg.workflow_file(project, args.workflow)
-    target = Path(path).resolve()
+    target = source_file(project, args.workflow, path)
     if args.path:
         print(target)
         return 0
@@ -55,5 +55,34 @@ def main(args, reg: Registry) -> int:
     if shadows:
         print(f"devman:   shadows: {', '.join(shadows)}", file=sys.stderr)
     print(f"devman:   {target}", file=sys.stderr)
+    print(f"devman:   projected as {path}", file=sys.stderr)
     sys.stdout.write(target.read_text())
     return 0
+
+
+def source_file(project, workflow: str, projected: Path) -> Path:
+    """The file a person would copy — never the generated projection.
+
+    Since stage 6 the projection is a **generated** file: the group body with a
+    header stating this project's `working_dir`, `log_dir` and directory
+    variable, so that Dagu's own scheduler can fire it (`STAGE_6_LOG.md`, S2).
+    Printing that would break criterion 5's own wording —
+
+        devman show check > .devman/workflows/check.yaml
+
+    — because the saved copy would carry one project's absolute paths, and the
+    next projection would add a second header to it.
+
+    The registry already records where each workflow came from: `source` for a
+    group file, and the repository's own `.devman/workflows/` for an override.
+    """
+    if workflow in project.local:
+        own = project.path / ".devman" / "workflows" / f"{workflow}.yaml"
+        if own.is_file():
+            return own
+    source = (project.workflows.get(workflow) or {}).get("source")
+    if source and Path(source).is_file():
+        return Path(source)
+    # No recorded source: an older entry, or a projection whose group file is
+    # gone. The projected file is then the only thing there is to print.
+    return Path(projected).resolve()
