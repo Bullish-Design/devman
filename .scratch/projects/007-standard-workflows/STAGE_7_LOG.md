@@ -707,3 +707,268 @@ ships first.
 **None.** The tombstone uses `modules/devenv.nix:63`'s existing escape, which
 `CONCEPT.md` §7.4 already describes as a group that may ship no workflows. No
 section moves.
+
+---
+
+## Gate 1 — closed
+
+| | Item | Bar (`PLAN.md` §3) | Result |
+|---|---|---|---|
+| I-6 | what a developer sees on an unknown group | the shell refuses, the message is legible | **passes** — refuses, and the message is the last line |
+| S-3 | the tombstone group, three variants | an empty directory evaluates, ships nothing, produces no trigger | **passes**, with one correction: it needs a README |
+
+**Gate 2 may begin.** R-3 keeps the throw; R-1 ships tombstones with READMEs
+and no `triggers.toml`.
+
+---
+
+## Gate 2 — how it was built
+
+The four Gate 2 spikes write real files, so they were built on a **spike
+branch**, `spike/007-gate-2`, cut from `d183fff`. Nothing they produce is on
+`dagu-devenv-automation-eli5` except this log. R-1 adopts from that branch
+rather than re-typing it.
+
+`devman` itself follows the local tree — it imports `./modules` and `../groups`
+directly rather than pinning a rev — so building the content on that branch and
+entering the shell makes the **installed plane** run it. That is what makes S-6
+and S-5 real runs rather than throwaway-instance runs. The other five
+registered repositories pin `fb78a99` by `git+https` and were not affected at
+any point.
+
+---
+
+## S-2 — The five workflow files, validated
+
+**Answer: nine workflows in four groups become five in three, and all five
+load.** `nix build .#checks.x86_64-linux.groups-validate` passes, and the list
+of files it validated is also the proof that both tombstones ship nothing.
+
+### Versions
+
+Dagu 2.15.0 (the check builds its own copy from `nix/dagu.nix`), Nix 2.34.7.
+Spike branch `spike/007-gate-2` at `45ebbc7`.
+
+### What was written
+
+| Action | File |
+|---|---|
+| rewrite | `groups/base/workflows/check.yaml` — one step, `base:check`, **no `type: chain`** |
+| add | `groups/base/workflows/test.yaml` — one step, `base:test`, queue `normal` |
+| rewrite | `groups/base/workflows/maintain.yaml` — the `doctor` step goes, the `params:` block **stays** |
+| rename | `groups/python-format/` → `groups/format/`, task `python-format:fmt` → `format:fmt` |
+| rewrite | `groups/release/workflows/release.yaml` — the gate reads `<project>-test` (S-6) |
+| delete | `base/validate.yaml`, `base/full-test.yaml`, `base/review.yaml` |
+| delete | `python/workflows/` |
+| tombstone | `groups/python/README.md` and `groups/python-format/README.md`, each alone in its directory |
+
+**The two things `PLAN.md` §4 said to get right, both got right and both
+verified by the check's output.**
+
+1. `maintain.yaml` keeps `params: [DEVMAN_PROJECT_DIR: "", KEEP_DAYS: "7"]`.
+   Dagu rejects a parameter a DAG did not declare and `devman run` always passes
+   the directory variable, so removing the `doctor` step must not remove the
+   block. It did not, and `maintain` validated.
+2. `check.yaml` and `test.yaml` declare **no** `type: chain`. One step needs no
+   order, and the key existed only to stop two devenv invocations contending
+   for one devenv state directory. Both validated without it.
+
+`maintain.yaml` also lost `type: chain`, for the same reason — it is down to one
+step.
+
+### Command
+
+```bash
+nix build --no-link --print-build-logs .#checks.x86_64-linux.groups-validate
+```
+
+(`nix flake check .#checks…` is not a valid invocation — `nix flake check`
+takes no fragment. `nix build` on the same attribute is what runs it.)
+
+### Evidence
+
+```
+devman-groups-validate> validating base/workflows/check.yaml
+devman-groups-validate> validating base/workflows/maintain.yaml
+devman-groups-validate> validating base/workflows/test.yaml
+devman-groups-validate> validating format/workflows/format.yaml
+devman-groups-validate> validating release/workflows/release.yaml
+exit=0
+```
+
+**Five files, and only five.** `groups/python/` and `groups/python-format/`
+contributed nothing to a glob of `groups/*/workflows/*.yaml`, which is S-3's
+tombstone finding restated by a check that already existed.
+
+### The size, which the proposal claimed and did not quantify
+
+| | Files | Lines | Executable lines |
+|---|---|---|---|
+| before, nine workflows | 9 | 488 | **216** |
+| after, five workflows | 5 | 399 | **123** |
+| change | −4 | −18% | **−43%** |
+
+"Executable lines" is every line that is not a comment and not blank.
+
+**The honest reading is that the shrink is in the executable half, not in the
+file.** Total lines fell 18% because the new files carry *more* commentary per
+line of YAML — `check.yaml` is 4 executable lines under 28 of explanation. The
+claim in `PROPOSAL.md` §1.1 that the group files get shorter is true of the part
+a reader has to hold in their head, and R-6 should say which half it means.
+
+### Charter impact
+
+**None.** `groups-validate` is an existing check and this is content.
+
+---
+
+## S-6 — The `release` gate against the renamed `test`
+
+**Answer: the rename is safe, and all four cases behave.** The gate refuses when
+there is no record, refuses on `partially_succeeded`, and opens on a real
+`succeeded` line — and the adversarial case the rename creates does not fire,
+because the anchor that fixed the original bug also fixes this one.
+
+**`PLAN.md` §8's replacement clause does not fire.** The gate keeps deriving the
+project from `${context.dag.name}`; it does not need an explicit parameter, and
+the rename is not dropped.
+
+### Versions
+
+Dagu 2.15.0, devenv 2.1.2, devman 0.3.0, the installed plane. `devman` adopted
+the renamed content with the three edits `PROPOSAL.md` §6 tables for wave 1
+(`groups = [ "base" "format" "release" ]`, `base:lint` → `base:check`,
+`python-format:fmt` → `format:fmt`) and re-projected:
+
+```
+$ ls ~/.local/share/devman/projects/devman/workflows/
+agent-review  bench-entry  check  format  maintain  release  stack-validate  test
+```
+
+`validate`, `full-test` and `review` are gone from the projection, which is the
+first time the deletion has been real anywhere.
+
+### The one line that changed
+
+```diff
+-      want="\"dag\":\"${me%-*}-validate\""
++      want="\"dag\":\"${me%-*}-test\""
+```
+
+### The adversarial case, and why it does not fire
+
+`-test` is a suffix of a workflow name that existed until this stage —
+`full-test` — so `<project>-full-test` ends in the same characters the gate now
+wants. Tested directly on the construct rather than argued:
+
+```
+$ want='"dag":"devman-test"'
+  vs devman-test        -> 1 match
+  vs devman-full-test   -> 0
+  vs devman-stack-test  -> 0
+  vs foo-test-test      -> 0
+  vs other-test         -> 0
+```
+
+**The anchor is what saves it.** `grep -F` looks for the whole string
+`"dag":"devman-test"`, and in `"dag":"devman-full-test"` the character after
+`devman-` is `f`. That is the same anchor that stopped `devman-stack-validate`
+matching in stage 4's S5 — the fix for the original bug covers the new hazard
+without an edit.
+
+**A project whose own name ends in `-test` is also safe**, because the project
+is derived from *this* run's DAG name and never from the wanted one:
+
+```
+devman-release     -> project 'devman'    -> wants 'devman-test'
+nix-paseo-release  -> project 'nix-paseo' -> wants 'nix-paseo-test'
+foo-test-release   -> project 'foo-test'  -> wants 'foo-test-test'
+a-b-c-release      -> project 'a-b-c'     -> wants 'a-b-c-test'
+```
+
+The file's existing limit is unchanged and still stated in it: the derivation
+assumes **this workflow's own** file name has no hyphen.
+
+### The status match, against every status Dagu writes
+
+```
+succeeded            -> OPENS
+partially_succeeded  -> refuses
+failed               -> refuses
+cancelled            -> refuses
+queued               -> refuses
+```
+
+### The three cases, run for real
+
+**Case 1 — no `<project>-test` line.** The natural state: `metadata.jsonl` held
+81 `devman-format` lines, 9 `devman-maintain`, one `devman-validate` and no
+`devman-test` at all.
+
+```
+$ devman run release            # run 034COXSxycNngIgJE3INfT
+devman-release failed
+
+## gate
+- clean tree: yes
+- last test: **NONE RECORDED** for `devman-test` — refusing. Run `devman run test` first
+
+steps: gate=failed  build=skipped  record=skipped
+```
+
+**Case 2 — a `partially_succeeded` line.** One synthetic line appended to
+`metadata.jsonl`, copied from a real `devman-check` record with the dag, run id
+and status changed.
+
+```
+$ devman run release            # run 034COYghasrAUGIWPFAZDu
+devman-release failed
+
+## gate
+- clean tree: yes
+- last test: **NOT SUCCEEDED** — refusing.
+  `{"dag":"devman-test",…,"status":"partially_succeeded",…}`
+```
+
+> **One measurement error, recorded because it is a trap for anybody repeating
+> this.** The first injection used `json.dumps` defaults, which write
+> `{"dag": "devman-test"` **with a space**. Real records are compact. The gate's
+> `grep -F` did not match it and the run reported `NONE RECORDED` — case 1's
+> answer, wearing case 2's clothes. The line was rewritten with
+> `separators=(',', ':')` and the case then behaved. **A synthetic record must
+> be byte-shaped like a real one or it measures the wrong thing.**
+
+**Case 3 — a real `succeeded` line, clean tree.**
+
+```
+$ devman run test               # run 034COZ3faERcyzblfMzq18 — 45 s, mostly cached
+devman-test: succeeded
+
+$ devman run release            # run 034COaXpTmDqPvfYfAyULs
+devman-release: succeeded
+
+## gate
+- clean tree: yes
+- last test: succeeded — `{"dag":"devman-test","run_id":"034COZ3faERcyzblfMzq18",…,"status":"succeeded",…}`
+
+## built
+- head: `0376b9a304e22dc1ce1f7919b6353c286802b87f`
+- describes as: `0376b9a`
+devman -> /nix/store/5vk1chzi4rxd0vwsa2dymzj7ppakq793-devman-0.3.0
+
+steps: gate=succeeded  build=succeeded  record=succeeded
+```
+
+**The gate opened on the renamed line, the build ran, and the artifact
+appeared.** This is `PROPOSAL.md` §8's wave-1 proof for `observantic`, taken
+early in `devman`.
+
+### Verdict
+
+**Passes**, all four cases. `PLAN.md` §4's three plus the adversarial one.
+
+### Charter impact
+
+**None.** The gate's own file already documents its derivation and its limit;
+the rename adds one paragraph to that file explaining why `full-test` does not
+collide, so a later reader does not have to re-derive it.
