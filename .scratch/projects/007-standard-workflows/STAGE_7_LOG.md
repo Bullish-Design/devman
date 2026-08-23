@@ -1224,3 +1224,200 @@ for the refactor:
 which remains true — the bug is that entering the shell does not always
 *reconstruct* it. If R-8 changes the guard, §5.2's cost budget is the section to
 re-check.
+
+---
+
+## S-4 — The format glob/hash hazard, seen once on purpose
+
+**Answer: the failure is real, it is completely invisible, and it is
+byte-identical to a correct loop-break in every field the plane records.**
+
+**And that last fact is what decides `OPEN_QUESTIONS` §4.** The check
+`PLAN.md` §4 proposes — compare a `triggers.toml` glob list against the hash's
+`find` expression — **should not be written**, because it is the heuristic
+§15.7 forbids. A different, exact check is proposed instead, and the reasoning
+is below.
+
+### Versions
+
+Dagu 2.15.0, devenv 2.1.2, devman 0.3.0, watchexec via the installed
+`devman-watch` unit. The real watcher, the real plane, the real repository.
+
+### The setup — a group that widens the glob and not the hash
+
+```toml
+# groups/s7-widen/triggers.toml — throwaway, deleted afterwards
+"**/*.py"  = "format"
+"**/*.nix" = "format"
+```
+
+It ships **no** `workflows/`. Group trigger resolution is whole-file and
+last-group-wins, so `devman` taking `[ "base" "format" "release" "s7-widen" ]`
+replaces the mapping while `groups/format/workflows/format.yaml` still supplies
+the workflow — whose precondition hashes only `*.py`. That is the widening rule
+broken in the smallest possible way, which is also the most likely way somebody
+breaks it.
+
+```
+$ devman doctor
+ok  watcher        devman: **/*.nix, **/*.py -> format  [s7-widen]
+```
+
+### Command
+
+```bash
+devman run format                       # establish .devman/.runs/.format.hash
+cat > s7-probe.nix <<'EOF'
+{   pkgs ,  ... }:{
+  probe    =   "s7-4"  ;
+}
+EOF
+```
+
+### Evidence — what saving a `.nix` file produced
+
+```
+format runs before: 82
+format runs after:  83
+
+run 034COrZIMgZEqCTjS8lzgZ   succeeded
+  dag status  : 4    (succeeded)
+  step format : 5    (skipped)
+  step error  : ''
+```
+
+**The file the save named is untouched**, byte for byte as written.
+
+**The watcher recorded a success:**
+
+```
+{"at":"2026-08-23T19:43:15.313-04:00","project":"devman","workflow":"format",
+ "path":"…/s7-probe.nix","outcome":"enqueued"}
+```
+
+**`devman doctor` reports nothing wrong — and displays the firing as evidence
+of health:**
+
+```
+ok  watcher        devman: **/*.nix, **/*.py -> format  [s7-widen]
+                   fired 2026-08-23T19:43:15.313-04:00  devman/format
+                        <- …/s7-probe.nix
+Nothing to report.
+```
+
+### The comparison that makes it dangerous
+
+A **correct** loop-break was produced for contrast: `touch src/devman/show.py`,
+no content change, so the hash matches and the step rightly skips.
+
+| Field | HAZARD — `.nix` save, hash cannot ever cover it | CORRECT — `.py` touch, nothing changed |
+|---|---|---|
+| dag status | 4 | 4 |
+| step status | 5 (skipped) | 5 (skipped) |
+| step error | `None` | `None` |
+| `metadata.jsonl` | `succeeded` | `succeeded` |
+| `fired.jsonl` outcome | `enqueued` | `enqueued` |
+
+**Identical in every field.** The only thing that differs is the path in
+`fired.jsonl`, and nothing reads it for this purpose.
+
+### Answering `OPEN_QUESTIONS` §4 — is a `doctor` grep worth writing?
+
+**The failure is genuinely invisible**, so by `PLAN.md` §4's own test something
+is warranted. **But not the check it names.**
+
+**Against the proposed check.** It would have to read `"**/*.nix"` out of a TOML
+table and decide whether `-name '*.py'` inside a shell one-liner covers it. That
+is parsing a shell expression to guess which extensions a hash spans. It is
+defeated by any precondition that computes its hash another way — `git ls-files`,
+a script, a different `find` — and the plane cannot tell "this glob is not
+covered" from "this precondition is written in a way I cannot read". **A check
+that is wrong in both directions is §15.7's heuristic exactly**, and §15.7 is
+the section that says the plane will not grow one.
+
+**What the file does instead.** `groups/format/workflows/format.yaml` now
+carries the widening rule in capitals, next to the hash it governs, where the
+person adding a glob is already looking. That is where a rule belongs when no
+check can enforce it honestly.
+
+**What can be checked exactly, and is proposed instead:**
+
+| | Check | Why it is exact |
+|---|---|---|
+| **R-4d** | a trigger names a workflow the project does not project | set membership inside one registry entry (S-3) |
+| **R-4e** | a glob whose runs have *only ever* skipped | counting records the plane already writes |
+
+R-4e's data is already on disk and needs no parsing:
+
+```
+devman-format, every recorded step status:
+  did work (succeeded): 67
+  skipped (precondition): 17
+```
+
+A healthy glob produces both. A glob whose hash cannot cover it produces
+**only** skips, forever. Reporting that count is arithmetic, and the judgement
+stays with the reader — which is the line §15.7 actually draws.
+
+**Recommendation: ship R-4d, hold R-4e until the hazard bites in the wild.**
+R-4e needs a join between `fired.jsonl` and Dagu's per-run step statuses, which
+is a new data path in `doctor` for a hazard that has never occurred outside this
+spike. R-4a as written is refused.
+
+### Verdict
+
+**Passes** — the spike's job was to make the failure visible once, and it did.
+`PLAN.md` §4's decision for R-4a is settled: **do not ship it.**
+
+### Charter impact
+
+**None**, and the widening rule moves from `PROPOSAL.md` §4 into the workflow
+file itself, which is where R-1 already put it.
+
+---
+
+## Gate 2 — closed
+
+| | Spike | Result |
+|---|---|---|
+| S-2 | the five workflow files, validated | **passes** — 9 files become 5, 216 executable lines become 123, `groups-validate` exits 0 |
+| S-6 | the `release` gate against the renamed `test` | **passes** — all three cases plus the adversarial one |
+| S-5 | `plane-report`, one manual and one scheduled | **passes**, and found a latent truncation bug in `maintain` |
+| S-4 | the format glob/hash hazard | **passes** — invisible as predicted, and R-4a is refused on the evidence |
+
+**Gate 3 may begin** — S-1 (58 synthetic DAGs on the `light` queue) and I-2a
+(the `dagu validate` cost curve, whose first point S-5 already measured at
+2.70 s).
+
+### What Gate 2 changed about the refactor
+
+| | Change |
+|---|---|
+| R-1 | ships the five files from `spike/007-gate-2`; both tombstones carry a README; `format.yaml` carries the widening rule in its own text |
+| R-2 | `plane-report` ships with `\|\| rc=$?`, not `continue_on` |
+| R-4a | **refused** — the glob/hash comparison is a heuristic |
+| R-4d | **new**, from S-3 — a trigger must name a workflow the project projects |
+| R-4e | **new**, from S-4 — a glob that has only ever skipped. Held until it bites |
+| R-8 | **new**, from S-5a — an edited `.devman/workflows/` file must re-project. Before wave 2 |
+
+### What was left on the machine
+
+```
+$ devman doctor
+ok  watcher        devman: **/*.py -> format  [format]
+Nothing to report.                                                   exit 0
+
+$ git status --short
+                                                            (clean)
+```
+
+The throwaway group `s7-widen`, the probe `s7-probe.nix` and the three `_s5-*`
+workflows are deleted and re-projected. `plane-report`'s schedule is back at
+`20 0 * * *`.
+
+**`devman` is still running the spike content**, on branch `spike/007-gate-2`:
+`groups = [ "base" "format" "release" ]`, `base:check`, `format:fmt`, and a
+projection of `check`, `test`, `maintain`, `format`, `release`, `plane-report`
+plus its own three. That is deliberate — it is R-1 and R-2 and half of R-5,
+proved early — and it is one `git checkout` from reverting. The other five
+registered repositories pin `fb78a99` and were never touched.
