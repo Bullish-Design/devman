@@ -1,4 +1,10 @@
-# python-format/format — the workflow a save fires (CONCEPT.md §8).
+# format/format — the workflow a save fires (CONCEPT.md §8).
+#
+# Renamed from `python-format` at stage 7. Under §3's rule the group exists
+# because of the trigger and the write, not the language: naming it after the
+# language says the language is the reason, which is what the one-step rule
+# argues against (PROPOSAL.md §6). The glob stays `**/*.py`; widening it is a
+# `triggers.toml` edit under the widening rule below, not another rename.
 #
 # It rewrites the files its own trigger watches, which is the one case §8 calls
 # out: you save `foo.py`, the watcher fires `format`, `format` rewrites
@@ -24,6 +30,16 @@
 # on the DAG-level form would fill its history with runs that look like
 # failures (E1).
 #
+# ---------------------------------------------------------------------------
+# THE WIDENING RULE, STATED IN ADVANCE (PROPOSAL.md §4)
+#
+# ADDING A GLOB TO `triggers.toml` REQUIRES WIDENING THE HASH BELOW IN THE SAME
+# EDIT. A glob whose files the hash does not cover fires a run whose
+# precondition is never true, so the new language's saves produce a run that
+# skips and never formats. That failure is silent: the run reports `Succeeded`
+# with a skipped step, which is exactly the status a correct loop-break
+# produces. Nothing in the plane checks it.
+#
 # The hash file lives under `.devman/.runs/`, which is §7.1's third global name
 # and is git-ignored by registration — and which the watcher ignores, so writing
 # it is not itself an event.
@@ -33,8 +49,8 @@ steps:
     name: format
     preconditions:
       - condition: |
-          test "$(find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 | sort -z | xargs -0r sha256sum | sha256sum)" != "$(cat .devman/.runs/.python-format.hash 2>/dev/null)"
+          test "$(find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 | sort -z | xargs -0r sha256sum | sha256sum)" != "$(cat .devman/.runs/.format.hash 2>/dev/null)"
     run: |
-      devenv tasks run -v python-format:fmt
+      devenv tasks run -v format:fmt
       find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 \
-        | sort -z | xargs -0r sha256sum | sha256sum > .devman/.runs/.python-format.hash
+        | sort -z | xargs -0r sha256sum | sha256sum > .devman/.runs/.format.hash

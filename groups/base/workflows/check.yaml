@@ -1,7 +1,18 @@
-# base/check — the fast one (CONCEPT.md §7.2).
+# base/check — rung 1, the fast one (CONCEPT.md §7.2).
 #
-# No `name:`, no `working_dir`, no `log_dir`: the file name is the identity, and
-# the machine's base.yaml supplies both directories.
+# ONE WORKFLOW, ONE STEP, ONE DEVENV TASK (PROPOSAL.md §1.1). The workflow names
+# the rung; the repository's devenv graph decides what that rung pulls in. A
+# repository that wants a type checker in `check` writes one line in its own
+# devenv.nix:
+#
+#     tasks."base:check".after = [ "python:lint" "python:typecheck" ];
+#
+# NO `type: chain`. One step needs no order. The key existed to stop two devenv
+# invocations in one checkout contending for one devenv state directory
+# (groups/base/README.md); with one invocation there is nothing to serialise.
+#
+# NO `name:`, no `working_dir`, no `log_dir`: the file name is the identity, and
+# the projection supplies both directories.
 #
 # `-v` IS LOAD-BEARING, NOT DEBUG NOISE. Without it `devenv tasks run` captures
 # the task's stdout and never prints it, so a step running `ruff check .` writes
@@ -9,12 +20,13 @@
 # only flag that restores it: `--show-output` documents itself as equivalent and
 # is not.
 #
-# Which stream it lands on depends on the devenv version, so do not rely on one:
-# 2.1.2 puts the task's stdout on STDOUT and its own debug log on STDERR, while
-# 2.2.0 puts both on STDERR. Dagu files a step's two streams separately, so on
-# 2.1.2 the findings arrive clean and on 2.2.0 they arrive beside the noise.
-# Either way they arrive. See STAGE_2_LOG.md S4.
+# WHERE A FAILURE IS NAMED, measured rather than assumed (STAGE_7_LOG.md, I-3).
+# devenv names the failing task on STDERR and not on stdout, so the log to read
+# is `<step>.*.err`. The name also reaches the DAG-level log and Dagu's own
+# recorded error field, which is what the web UI shows. On devenv 2.1.2 the
+# task's own output is on stdout and devenv's ledger on stderr; 2.2.0 puts both
+# on stderr. Either way they arrive.
 queue: light
 steps:
-  - name: lint
-    run: devenv tasks run -v base:lint
+  - name: check
+    run: devenv tasks run -v base:check
