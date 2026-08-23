@@ -707,3 +707,717 @@ ships first.
 **None.** The tombstone uses `modules/devenv.nix:63`'s existing escape, which
 `CONCEPT.md` §7.4 already describes as a group that may ship no workflows. No
 section moves.
+
+---
+
+## Gate 1 — closed
+
+| | Item | Bar (`PLAN.md` §3) | Result |
+|---|---|---|---|
+| I-6 | what a developer sees on an unknown group | the shell refuses, the message is legible | **passes** — refuses, and the message is the last line |
+| S-3 | the tombstone group, three variants | an empty directory evaluates, ships nothing, produces no trigger | **passes**, with one correction: it needs a README |
+
+**Gate 2 may begin.** R-3 keeps the throw; R-1 ships tombstones with READMEs
+and no `triggers.toml`.
+
+---
+
+## Gate 2 — how it was built
+
+The four Gate 2 spikes write real files, so they were built on a **spike
+branch**, `spike/007-gate-2`, cut from `d183fff`. Nothing they produce is on
+`dagu-devenv-automation-eli5` except this log. R-1 adopts from that branch
+rather than re-typing it.
+
+`devman` itself follows the local tree — it imports `./modules` and `../groups`
+directly rather than pinning a rev — so building the content on that branch and
+entering the shell makes the **installed plane** run it. That is what makes S-6
+and S-5 real runs rather than throwaway-instance runs. The other five
+registered repositories pin `fb78a99` by `git+https` and were not affected at
+any point.
+
+---
+
+## S-2 — The five workflow files, validated
+
+**Answer: nine workflows in four groups become five in three, and all five
+load.** `nix build .#checks.x86_64-linux.groups-validate` passes, and the list
+of files it validated is also the proof that both tombstones ship nothing.
+
+### Versions
+
+Dagu 2.15.0 (the check builds its own copy from `nix/dagu.nix`), Nix 2.34.7.
+Spike branch `spike/007-gate-2` at `45ebbc7`.
+
+### What was written
+
+| Action | File |
+|---|---|
+| rewrite | `groups/base/workflows/check.yaml` — one step, `base:check`, **no `type: chain`** |
+| add | `groups/base/workflows/test.yaml` — one step, `base:test`, queue `normal` |
+| rewrite | `groups/base/workflows/maintain.yaml` — the `doctor` step goes, the `params:` block **stays** |
+| rename | `groups/python-format/` → `groups/format/`, task `python-format:fmt` → `format:fmt` |
+| rewrite | `groups/release/workflows/release.yaml` — the gate reads `<project>-test` (S-6) |
+| delete | `base/validate.yaml`, `base/full-test.yaml`, `base/review.yaml` |
+| delete | `python/workflows/` |
+| tombstone | `groups/python/README.md` and `groups/python-format/README.md`, each alone in its directory |
+
+**The two things `PLAN.md` §4 said to get right, both got right and both
+verified by the check's output.**
+
+1. `maintain.yaml` keeps `params: [DEVMAN_PROJECT_DIR: "", KEEP_DAYS: "7"]`.
+   Dagu rejects a parameter a DAG did not declare and `devman run` always passes
+   the directory variable, so removing the `doctor` step must not remove the
+   block. It did not, and `maintain` validated.
+2. `check.yaml` and `test.yaml` declare **no** `type: chain`. One step needs no
+   order, and the key existed only to stop two devenv invocations contending
+   for one devenv state directory. Both validated without it.
+
+`maintain.yaml` also lost `type: chain`, for the same reason — it is down to one
+step.
+
+### Command
+
+```bash
+nix build --no-link --print-build-logs .#checks.x86_64-linux.groups-validate
+```
+
+(`nix flake check .#checks…` is not a valid invocation — `nix flake check`
+takes no fragment. `nix build` on the same attribute is what runs it.)
+
+### Evidence
+
+```
+devman-groups-validate> validating base/workflows/check.yaml
+devman-groups-validate> validating base/workflows/maintain.yaml
+devman-groups-validate> validating base/workflows/test.yaml
+devman-groups-validate> validating format/workflows/format.yaml
+devman-groups-validate> validating release/workflows/release.yaml
+exit=0
+```
+
+**Five files, and only five.** `groups/python/` and `groups/python-format/`
+contributed nothing to a glob of `groups/*/workflows/*.yaml`, which is S-3's
+tombstone finding restated by a check that already existed.
+
+### The size, which the proposal claimed and did not quantify
+
+| | Files | Lines | Executable lines |
+|---|---|---|---|
+| before, nine workflows | 9 | 488 | **216** |
+| after, five workflows | 5 | 399 | **123** |
+| change | −4 | −18% | **−43%** |
+
+"Executable lines" is every line that is not a comment and not blank.
+
+**The honest reading is that the shrink is in the executable half, not in the
+file.** Total lines fell 18% because the new files carry *more* commentary per
+line of YAML — `check.yaml` is 4 executable lines under 28 of explanation. The
+claim in `PROPOSAL.md` §1.1 that the group files get shorter is true of the part
+a reader has to hold in their head, and R-6 should say which half it means.
+
+### Charter impact
+
+**None.** `groups-validate` is an existing check and this is content.
+
+---
+
+## S-6 — The `release` gate against the renamed `test`
+
+**Answer: the rename is safe, and all four cases behave.** The gate refuses when
+there is no record, refuses on `partially_succeeded`, and opens on a real
+`succeeded` line — and the adversarial case the rename creates does not fire,
+because the anchor that fixed the original bug also fixes this one.
+
+**`PLAN.md` §8's replacement clause does not fire.** The gate keeps deriving the
+project from `${context.dag.name}`; it does not need an explicit parameter, and
+the rename is not dropped.
+
+### Versions
+
+Dagu 2.15.0, devenv 2.1.2, devman 0.3.0, the installed plane. `devman` adopted
+the renamed content with the three edits `PROPOSAL.md` §6 tables for wave 1
+(`groups = [ "base" "format" "release" ]`, `base:lint` → `base:check`,
+`python-format:fmt` → `format:fmt`) and re-projected:
+
+```
+$ ls ~/.local/share/devman/projects/devman/workflows/
+agent-review  bench-entry  check  format  maintain  release  stack-validate  test
+```
+
+`validate`, `full-test` and `review` are gone from the projection, which is the
+first time the deletion has been real anywhere.
+
+### The one line that changed
+
+```diff
+-      want="\"dag\":\"${me%-*}-validate\""
++      want="\"dag\":\"${me%-*}-test\""
+```
+
+### The adversarial case, and why it does not fire
+
+`-test` is a suffix of a workflow name that existed until this stage —
+`full-test` — so `<project>-full-test` ends in the same characters the gate now
+wants. Tested directly on the construct rather than argued:
+
+```
+$ want='"dag":"devman-test"'
+  vs devman-test        -> 1 match
+  vs devman-full-test   -> 0
+  vs devman-stack-test  -> 0
+  vs foo-test-test      -> 0
+  vs other-test         -> 0
+```
+
+**The anchor is what saves it.** `grep -F` looks for the whole string
+`"dag":"devman-test"`, and in `"dag":"devman-full-test"` the character after
+`devman-` is `f`. That is the same anchor that stopped `devman-stack-validate`
+matching in stage 4's S5 — the fix for the original bug covers the new hazard
+without an edit.
+
+**A project whose own name ends in `-test` is also safe**, because the project
+is derived from *this* run's DAG name and never from the wanted one:
+
+```
+devman-release     -> project 'devman'    -> wants 'devman-test'
+nix-paseo-release  -> project 'nix-paseo' -> wants 'nix-paseo-test'
+foo-test-release   -> project 'foo-test'  -> wants 'foo-test-test'
+a-b-c-release      -> project 'a-b-c'     -> wants 'a-b-c-test'
+```
+
+The file's existing limit is unchanged and still stated in it: the derivation
+assumes **this workflow's own** file name has no hyphen.
+
+### The status match, against every status Dagu writes
+
+```
+succeeded            -> OPENS
+partially_succeeded  -> refuses
+failed               -> refuses
+cancelled            -> refuses
+queued               -> refuses
+```
+
+### The three cases, run for real
+
+**Case 1 — no `<project>-test` line.** The natural state: `metadata.jsonl` held
+81 `devman-format` lines, 9 `devman-maintain`, one `devman-validate` and no
+`devman-test` at all.
+
+```
+$ devman run release            # run 034COXSxycNngIgJE3INfT
+devman-release failed
+
+## gate
+- clean tree: yes
+- last test: **NONE RECORDED** for `devman-test` — refusing. Run `devman run test` first
+
+steps: gate=failed  build=skipped  record=skipped
+```
+
+**Case 2 — a `partially_succeeded` line.** One synthetic line appended to
+`metadata.jsonl`, copied from a real `devman-check` record with the dag, run id
+and status changed.
+
+```
+$ devman run release            # run 034COYghasrAUGIWPFAZDu
+devman-release failed
+
+## gate
+- clean tree: yes
+- last test: **NOT SUCCEEDED** — refusing.
+  `{"dag":"devman-test",…,"status":"partially_succeeded",…}`
+```
+
+> **One measurement error, recorded because it is a trap for anybody repeating
+> this.** The first injection used `json.dumps` defaults, which write
+> `{"dag": "devman-test"` **with a space**. Real records are compact. The gate's
+> `grep -F` did not match it and the run reported `NONE RECORDED` — case 1's
+> answer, wearing case 2's clothes. The line was rewritten with
+> `separators=(',', ':')` and the case then behaved. **A synthetic record must
+> be byte-shaped like a real one or it measures the wrong thing.**
+
+**Case 3 — a real `succeeded` line, clean tree.**
+
+```
+$ devman run test               # run 034COZ3faERcyzblfMzq18 — 45 s, mostly cached
+devman-test: succeeded
+
+$ devman run release            # run 034COaXpTmDqPvfYfAyULs
+devman-release: succeeded
+
+## gate
+- clean tree: yes
+- last test: succeeded — `{"dag":"devman-test","run_id":"034COZ3faERcyzblfMzq18",…,"status":"succeeded",…}`
+
+## built
+- head: `0376b9a304e22dc1ce1f7919b6353c286802b87f`
+- describes as: `0376b9a`
+devman -> /nix/store/5vk1chzi4rxd0vwsa2dymzj7ppakq793-devman-0.3.0
+
+steps: gate=succeeded  build=succeeded  record=succeeded
+```
+
+**The gate opened on the renamed line, the build ran, and the artifact
+appeared.** This is `PROPOSAL.md` §8's wave-1 proof for `observantic`, taken
+early in `devman`.
+
+### Verdict
+
+**Passes**, all four cases. `PLAN.md` §4's three plus the adversarial one.
+
+### Charter impact
+
+**None.** The gate's own file already documents its derivation and its limit;
+the rename adds one paragraph to that file explaining why `full-test` does not
+collide, so a later reader does not have to re-derive it.
+
+---
+
+## S-5 — `plane-report`, run once by hand and once by the daemon
+
+**Answer: it works, it costs about 3 seconds, and one of its three questions
+found a bug in a shipped file.** The workflow runs `devman doctor` once for the
+machine, writes a report, and is dispatched by Dagu's own scheduler.
+
+**The bug is the finding.** `base/maintain`'s `doctor` step, as shipped since
+stage 4, would have written a **truncated report** on any night `doctor` had a
+finding — which is the only night it mattered. It never fired because `doctor`
+has never had a finding on a scheduled night.
+
+### Versions
+
+Dagu 2.15.0, devenv 2.1.2, devman 0.3.0, the installed plane. 6 projects.
+
+### Question 1 — does a workflow whose step fails still write its report?
+
+**Not with the obvious shape, and the reason is that Dagu already sets `-e`.**
+
+`PLAN.md` §4 offers two candidate answers: copy `base/review`'s
+`continue_on: {failure: true}`, or write the report before the exit. **Both are
+wrong for this file, and the second is wrong for a reason nothing in six stages
+had measured.**
+
+**Probe: what flags does a step's script run with?**
+
+```yaml
+run: |
+  set -u
+  { echo "shell: $0"; echo "flags: $-"; } > "$out"
+  sh -c 'exit 3' >> "$out" 2>&1
+  echo "AFTER-FAILING-COMMAND rc=$?" >> "$out"
+```
+
+```
+shell: /tmp/dagu_script-745413007.sh
+flags: ehuB
+```
+
+**`e` is in the flag list.** `AFTER-FAILING-COMMAND` never appeared. Dagu runs
+the script with `set -e` already on, so a bare failing command aborts the whole
+step at that line.
+
+**What that does to the report**, measured with `plane-report`'s control flow
+and a command guaranteed to fail:
+
+```
+# probe — devman-_s5-fail
+```
+pretend findings
+```
+
+— and that is the whole file. The closing fence and the verdict line are
+missing, because the script died at the failing command.
+
+**The fix, measured:**
+
+```diff
+-      devman doctor >> "$report" 2>&1
+-      rc=$?
++      rc=0
++      devman doctor >> "$report" 2>&1 || rc=$?
+```
+
+```
+# probe — devman-_s5-fail
+```
+pretend findings
+```
+
+- doctor exit: 3
+
+run status: failed
+```
+
+**A complete report and a `failed` run, together.** That is the property the
+question was asking for. `continue_on` is rejected on its own terms: it exists
+so a *chain* can finish, one step has nothing to keep going for, and it would
+report `partially succeeded` — which says the workflow half worked when the
+plane is in fact unhealthy.
+
+> **This is a defect in `groups/base/workflows/maintain.yaml` as shipped**, and
+> R-1 fixes it by deleting the step. Any repository that shadowed `maintain` to
+> keep the `doctor` step carries the same latent truncation.
+
+### Question 2 — does it need `DEVMAN_PROJECT_DIR`?
+
+**It holds `DEVMAN_PROJECT_DIR`, and that is correct.** §11's rule binds a
+workflow that *triggers* other workflows; `plane-report` runs one command that
+reads the registry and triggers nothing. `doctor`'s own check is the proof:
+
+```
+ok  cross-repo     1 workflows trigger others, all name DEVMAN_SELF_DIR
+```
+
+**Still 1** — `stack-validate`. `plane-report` does not appear, so
+`Workflow.triggers_other_dags()` does not class it as a parent and the
+projection gave it the ordinary variable.
+
+### Question 3 — what does it cost?
+
+```
+$ devman doctor        # five runs, 6 projects, 34 workflows
+2.72  2.91  2.59  2.67  2.62 s        mean 2.70 s, range 2.59–2.91
+```
+
+The workflow around it adds under a second:
+
+```
+scheduled run 034COl5xURxTJaFKEaQ2on   3.0 s
+scheduled run 034COmcI6fQGMd6F72JUs8   2.0 s
+```
+
+**About 3 seconds at 6 projects.** That is `I-2a`'s first data point and the
+number its curve extrapolates from.
+
+### The proof — one manual run and one scheduled run
+
+**Manual:**
+
+```
+$ devman run plane-report              # 034COfFf3PxrqGuyjyizQM
+devman-plane-report: succeeded
+```
+
+The report holds `doctor`'s whole output inside a fenced block and ends
+`- doctor exit: 0`.
+
+**Scheduled**, with the expression temporarily at `* * * * *` in the shape
+stage 6's S3 used:
+
+```
+$ journalctl --user -u dagu | grep "Dispatching planned run"
+19:39:00 … msg="Dispatching planned run" dag=devman-plane-report scheduleType=Start
+19:40:00 … msg="Dispatching planned run" dag=devman-plane-report scheduleType=Start
+
+$ grep devman-plane-report .devman/.runs/metadata.jsonl | tail -2
+  034COl5xURxTJaFKEaQ2on  succeeded  2026-08-23T23:39:00Z
+  034COmcI6fQGMd6F72JUs8  succeeded  2026-08-23T23:40:00Z
+```
+
+**Dagu says who triggered each one**, and the contrast is the evidence:
+
+```
+manual run  : triggerType 2 | scheduleTime None
+scheduled   : triggerType 1 | scheduleTime 2026-08-23T19:40:00-04:00
+```
+
+The expression is back at `20 0 * * *` — fifteen minutes after `maintain`, so
+the nightly pruning finishes before the plane is asked how it is.
+
+### Verdict
+
+**Passes**, all three questions, and question 1 returned a defect rather than a
+confirmation.
+
+### Charter impact
+
+**None**, and one line owed to a group file rather than to the charter:
+`groups/base/README.md` describes `maintain` as the workflow that runs
+`devman doctor`. R-1 rewrites that README anyway.
+
+---
+
+## S-5a — A bug found while running S-5: an edited override does not re-project
+
+**Answer: editing a file in `.devman/workflows/` does NOT reach Dagu at the
+next shell entry.** `STAGE_6_LOG.md` S4 says it does. It does not, and the
+comment in the module says exactly why.
+
+This was found the hard way: the corrected `plane-report` was edited, the shell
+was re-entered, and the run that followed executed **the previous version** —
+it wrote a report under the old file name.
+
+### The mechanism, and it is one comment
+
+```
+$ sed -n '311,314p' modules/devenv.nix
+  # `@LOCAL@` is the set of names in
+  # `.devman/workflows/`, which is what makes the guard notice a repo adding or
+  # removing an override. It does not need to notice an *edit*: the projection
+  # is a symlink, so an edited file is already what Dagu reads.
+```
+
+**"The projection is a symlink" stopped being true at stage 6.** The projection
+is now a generated copy, so an edited source is *not* what Dagu reads — but the
+guard was never widened, and the entry it compares still records only names:
+
+```
+$ python3 -m json.tool ~/.local/share/devman/projects/devman/metadata.json
+  "local": ["agent-review","bench-entry","plane-report","stack-validate"],
+  "plan":  "/nix/store/2ksg5n9…-devman-project-devman"
+```
+
+Neither field changes when a `.devman/workflows/` file is edited in place, so
+the guard sees a matching entry and forks nothing.
+
+### Evidence
+
+```
+$ grep -n 'rc=0' .devman/workflows/plane-report.yaml
+89:      rc=0
+$ grep -n 'rc=0' ~/.local/share/devman/projects/devman/workflows/plane-report.yaml
+(nothing)
+```
+
+Two files were stale at once — `plane-report.yaml` and a throwaway probe — after
+an ordinary `devenv shell -- true`.
+
+### The workaround, measured
+
+```bash
+rm -f ~/.local/share/devman/projects/<project>/metadata.json
+devenv shell -- true
+```
+
+The guard finds no entry on disk, so it re-projects everything. Verified: both
+files matched their sources afterwards.
+
+Adding or removing any file in `.devman/workflows/` also works, because that
+changes `local`.
+
+### Why it matters beyond this spike
+
+**It is a correctness bug in the shipped plane, not a spike artefact.** A
+developer who edits their own `.devman/workflows/check.yaml` and re-enters the
+shell gets the old workflow, silently, with no message and a `doctor` that
+reports nothing wrong — `doctor` compares the projection against the *group*
+version it shadows, never against the repository's own source.
+
+**It is not in Gate 2's scope and it is not fixed here.** Recorded as a defect
+for the refactor:
+
+| | |
+|---|---|
+| Where | `modules/devenv.nix`, the `entryTemplate` guard, and the stale comment above it |
+| Fix | fold a content hash of `.devman/workflows/*.yaml` into `@LOCAL@`, or drop the guard's fast path for repositories that have any override |
+| Cost | one `$(<file)` per override on every shell entry, against §5.2's "fork nothing on the common path" — so the hash has to be built with bash parameter expansion, not `sha256sum` |
+| Also | `STAGE_6_LOG.md` S4's "an edit to it reaches Dagu at the next shell entry" is wrong and should be corrected where it stands |
+
+**Proposed as R-8**, gated on nothing, and it should ship before wave 2 — waves
+2 and 3 add repositories that will write their own overrides.
+
+### Charter impact
+
+**None yet.** §9.3 says the projection is reconstructable by entering the shell,
+which remains true — the bug is that entering the shell does not always
+*reconstruct* it. If R-8 changes the guard, §5.2's cost budget is the section to
+re-check.
+
+---
+
+## S-4 — The format glob/hash hazard, seen once on purpose
+
+**Answer: the failure is real, it is completely invisible, and it is
+byte-identical to a correct loop-break in every field the plane records.**
+
+**And that last fact is what decides `OPEN_QUESTIONS` §4.** The check
+`PLAN.md` §4 proposes — compare a `triggers.toml` glob list against the hash's
+`find` expression — **should not be written**, because it is the heuristic
+§15.7 forbids. A different, exact check is proposed instead, and the reasoning
+is below.
+
+### Versions
+
+Dagu 2.15.0, devenv 2.1.2, devman 0.3.0, watchexec via the installed
+`devman-watch` unit. The real watcher, the real plane, the real repository.
+
+### The setup — a group that widens the glob and not the hash
+
+```toml
+# groups/s7-widen/triggers.toml — throwaway, deleted afterwards
+"**/*.py"  = "format"
+"**/*.nix" = "format"
+```
+
+It ships **no** `workflows/`. Group trigger resolution is whole-file and
+last-group-wins, so `devman` taking `[ "base" "format" "release" "s7-widen" ]`
+replaces the mapping while `groups/format/workflows/format.yaml` still supplies
+the workflow — whose precondition hashes only `*.py`. That is the widening rule
+broken in the smallest possible way, which is also the most likely way somebody
+breaks it.
+
+```
+$ devman doctor
+ok  watcher        devman: **/*.nix, **/*.py -> format  [s7-widen]
+```
+
+### Command
+
+```bash
+devman run format                       # establish .devman/.runs/.format.hash
+cat > s7-probe.nix <<'EOF'
+{   pkgs ,  ... }:{
+  probe    =   "s7-4"  ;
+}
+EOF
+```
+
+### Evidence — what saving a `.nix` file produced
+
+```
+format runs before: 82
+format runs after:  83
+
+run 034COrZIMgZEqCTjS8lzgZ   succeeded
+  dag status  : 4    (succeeded)
+  step format : 5    (skipped)
+  step error  : ''
+```
+
+**The file the save named is untouched**, byte for byte as written.
+
+**The watcher recorded a success:**
+
+```
+{"at":"2026-08-23T19:43:15.313-04:00","project":"devman","workflow":"format",
+ "path":"…/s7-probe.nix","outcome":"enqueued"}
+```
+
+**`devman doctor` reports nothing wrong — and displays the firing as evidence
+of health:**
+
+```
+ok  watcher        devman: **/*.nix, **/*.py -> format  [s7-widen]
+                   fired 2026-08-23T19:43:15.313-04:00  devman/format
+                        <- …/s7-probe.nix
+Nothing to report.
+```
+
+### The comparison that makes it dangerous
+
+A **correct** loop-break was produced for contrast: `touch src/devman/show.py`,
+no content change, so the hash matches and the step rightly skips.
+
+| Field | HAZARD — `.nix` save, hash cannot ever cover it | CORRECT — `.py` touch, nothing changed |
+|---|---|---|
+| dag status | 4 | 4 |
+| step status | 5 (skipped) | 5 (skipped) |
+| step error | `None` | `None` |
+| `metadata.jsonl` | `succeeded` | `succeeded` |
+| `fired.jsonl` outcome | `enqueued` | `enqueued` |
+
+**Identical in every field.** The only thing that differs is the path in
+`fired.jsonl`, and nothing reads it for this purpose.
+
+### Answering `OPEN_QUESTIONS` §4 — is a `doctor` grep worth writing?
+
+**The failure is genuinely invisible**, so by `PLAN.md` §4's own test something
+is warranted. **But not the check it names.**
+
+**Against the proposed check.** It would have to read `"**/*.nix"` out of a TOML
+table and decide whether `-name '*.py'` inside a shell one-liner covers it. That
+is parsing a shell expression to guess which extensions a hash spans. It is
+defeated by any precondition that computes its hash another way — `git ls-files`,
+a script, a different `find` — and the plane cannot tell "this glob is not
+covered" from "this precondition is written in a way I cannot read". **A check
+that is wrong in both directions is §15.7's heuristic exactly**, and §15.7 is
+the section that says the plane will not grow one.
+
+**What the file does instead.** `groups/format/workflows/format.yaml` now
+carries the widening rule in capitals, next to the hash it governs, where the
+person adding a glob is already looking. That is where a rule belongs when no
+check can enforce it honestly.
+
+**What can be checked exactly, and is proposed instead:**
+
+| | Check | Why it is exact |
+|---|---|---|
+| **R-4d** | a trigger names a workflow the project does not project | set membership inside one registry entry (S-3) |
+| **R-4e** | a glob whose runs have *only ever* skipped | counting records the plane already writes |
+
+R-4e's data is already on disk and needs no parsing:
+
+```
+devman-format, every recorded step status:
+  did work (succeeded): 67
+  skipped (precondition): 17
+```
+
+A healthy glob produces both. A glob whose hash cannot cover it produces
+**only** skips, forever. Reporting that count is arithmetic, and the judgement
+stays with the reader — which is the line §15.7 actually draws.
+
+**Recommendation: ship R-4d, hold R-4e until the hazard bites in the wild.**
+R-4e needs a join between `fired.jsonl` and Dagu's per-run step statuses, which
+is a new data path in `doctor` for a hazard that has never occurred outside this
+spike. R-4a as written is refused.
+
+### Verdict
+
+**Passes** — the spike's job was to make the failure visible once, and it did.
+`PLAN.md` §4's decision for R-4a is settled: **do not ship it.**
+
+### Charter impact
+
+**None**, and the widening rule moves from `PROPOSAL.md` §4 into the workflow
+file itself, which is where R-1 already put it.
+
+---
+
+## Gate 2 — closed
+
+| | Spike | Result |
+|---|---|---|
+| S-2 | the five workflow files, validated | **passes** — 9 files become 5, 216 executable lines become 123, `groups-validate` exits 0 |
+| S-6 | the `release` gate against the renamed `test` | **passes** — all three cases plus the adversarial one |
+| S-5 | `plane-report`, one manual and one scheduled | **passes**, and found a latent truncation bug in `maintain` |
+| S-4 | the format glob/hash hazard | **passes** — invisible as predicted, and R-4a is refused on the evidence |
+
+**Gate 3 may begin** — S-1 (58 synthetic DAGs on the `light` queue) and I-2a
+(the `dagu validate` cost curve, whose first point S-5 already measured at
+2.70 s).
+
+### What Gate 2 changed about the refactor
+
+| | Change |
+|---|---|
+| R-1 | ships the five files from `spike/007-gate-2`; both tombstones carry a README; `format.yaml` carries the widening rule in its own text |
+| R-2 | `plane-report` ships with `\|\| rc=$?`, not `continue_on` |
+| R-4a | **refused** — the glob/hash comparison is a heuristic |
+| R-4d | **new**, from S-3 — a trigger must name a workflow the project projects |
+| R-4e | **new**, from S-4 — a glob that has only ever skipped. Held until it bites |
+| R-8 | **new**, from S-5a — an edited `.devman/workflows/` file must re-project. Before wave 2 |
+
+### What was left on the machine
+
+```
+$ devman doctor
+ok  watcher        devman: **/*.py -> format  [format]
+Nothing to report.                                                   exit 0
+
+$ git status --short
+                                                            (clean)
+```
+
+The throwaway group `s7-widen`, the probe `s7-probe.nix` and the three `_s5-*`
+workflows are deleted and re-projected. `plane-report`'s schedule is back at
+`20 0 * * *`.
+
+**`devman` is still running the spike content**, on branch `spike/007-gate-2`:
+`groups = [ "base" "format" "release" ]`, `base:check`, `format:fmt`, and a
+projection of `check`, `test`, `maintain`, `format`, `release`, `plane-report`
+plus its own three. That is deliberate — it is R-1 and R-2 and half of R-5,
+proved early — and it is one `git checkout` from reverting. The other five
+registered repositories pin `fb78a99` and were never touched.
