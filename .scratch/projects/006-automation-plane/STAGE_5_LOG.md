@@ -1158,3 +1158,113 @@ D6 named 11, 8, 13, 15 and 17. **All five were run rather than reasoned about**,
 and the table above quotes the command or the number for each. Criterion 7 was
 re-measured in the narrow sense that matters — the work stage 5 added to the hook
 — and not in the paired sense, which is stated rather than glossed.
+
+---
+
+## S11 — Stage 5 against its own definition of done, and what it left on the machine
+
+### The ten conditions of S1
+
+| | Condition | Result |
+|---|---|---|
+| D1 | four movements, each on a real registered repository, each with a run | **met.** Move and rename: `pyjutsu`, with 5 recorded runs (S4). Second checkout, same identity: this repository, refused word for word (S3). Second checkout, distinct identity: `devman-b`, ten workflows, a run enqueued (S3). Each quotes its registry entry and its `metadata.jsonl` line |
+| D2 | six surfaces per movement, not one | **met, and it is where the findings came from.** The registry was the only surface that behaved as expected every time. The watcher (S2), the projection (S6, S7) and `doctor` (S2's unconnected lines) each failed in a way no registry check would show |
+| D3 | no defect diagnosed from a symptom two hypotheses explain | **met, three times.** The moved repository's silence for 42 s (inode versus path — separated by a save). `base:test` failing after a move (the move versus pyjutsu's own debt — separated by the restore). The unrepaired link (the guard versus something else — separated by removing a second link deliberately) |
+| D4 | every fix ships in the plane, and one needing a rebuild is proved first | **met.** Four fixes: three in `src/devman/`, one in `modules/devenv.nix`. Every branch of every one was run against the built CLI, and both flake checks pass |
+| D5 | five decisions, none deferred | **met.** 2 (S9), 3 (S5), 4 (S8), 5 (S9), 6 (S9) |
+| D6 | every criterion still holds, measured | **met, with one honest exception.** S10. Criterion 15 did **not** hold for partial loss and now does; criterion 7's paired delta was not re-run and says so |
+| D7 | readable without re-running it | **met.** Every fix reports through `devman doctor`, whose output is quoted firing and silent for each; the log holds the commands |
+| D8 | no second entry path | **met, and it was wanted three times** (S9, decision 5). The registry gained no writer: `grep` over `src/devman/` still finds only `unproject`'s `unlink` |
+| D9 | the charter changes in its own commit, log entry first | **met.** One charter change (§9.2, `ecd6662`), after S6 was written, in a commit holding nothing else |
+| D10 | the machine left as found, every repository named | **met**, and detailed below |
+
+### D10 — what was left behind, and what was not
+
+```
+$ devman doctor
+devman doctor — 6 projects, 36 workflows
+ok  plane / queues / validate / queue names / literal dir / shadowing /
+    stale entries / run output / cross-repo / watcher            (eleven checks)
+Nothing to report.                                               exit 0
+
+$ /nix/store/…-devman-0.3.0/bin/devman doctor      # the built CLI, thirteen checks
+ok  projection     36 DAG names each point at their own project's file
+ok  handlers       no workflow defines handler_on, so every run is recorded
+Nothing to report.                                               exit 0
+```
+
+- **6 projects**, the same six. Both throwaway registrations — `s5-probe` and
+  `devman-b` — were removed with `devman doctor --prune`, which reported and
+  removed 20 links for one of them.
+- **Every repository is where it was.** `pyjutsu` was moved to
+  `~/s5-elsewhere/pyjutsu-renamed` and moved back; `~/s5-elsewhere` is gone. Its
+  working tree is unchanged and uncommitted — the move touched no tracked file,
+  and its `.devenv` was rebuilt twice by its own shell entries.
+- **No directory named literally `${DEVMAN_PROJECT_DIR}` or `${DEVMAN_SELF_DIR}`
+  anywhere**, checked by `doctor` in 9 places.
+- **Both throwaway checkouts were `git worktree`s of this repository** and both
+  were removed with `git worktree remove --force`. `git worktree list` shows the
+  two that were there before.
+- **The watcher is running**, the timer is enabled and next fires
+  `Sun 2026-08-23 00:02:40 EDT`, and Dagu has been up since 19:18.
+- **No `nixos-rebuild switch` was run.**
+
+### The repositories this stage changed (rule 7)
+
+| Repository | Commit | What changed |
+|---|---|---|
+| `observantic` | `d57cc8b` | `devenv.nix` — `"base"` in `groups`, two task aliases. It now has `review` and `maintain` (S5) |
+| `siteman` | `81cc93b` | `devenv.yaml` + `devenv.lock` — re-pin to `main@ecd6662`, which is how S7's guard fix was verified from a repository that consumes it |
+| `nix-meta` | `765452e` | `flake.nix` + `flake.lock` — re-pin to `main@c24425f`. Its unrelated `machines/server.nix` change was left alone |
+
+`pyjutsu`, `nix-paseo` and `pydantree` still pin `main@df9cfe5`. They keep S7's
+partial-loss gap until they re-pin, and the remedy for them today is in S10's
+criterion 15.
+
+### The handover — one rebuild, and one line the developer owns
+
+**1. `nixos-rebuild switch`.** `src/devman/` moves the machine closure, so the
+watcher fix, both `devman run` refusals and both new `doctor` checks are
+committed and **not installed**. `nix-meta` is re-pinned, evaluated and
+committed:
+
+```
+$ nix build .#nixosConfigurations.server.config.system.build.toplevel --no-link
+exit 0
+$ nix eval .#nixosConfigurations.server.config.systemd.user.services.devman-watch.serviceConfig.ExecStart --raw
+/nix/store/7ql2i1jqral800jaww04x23akil0iq83-devman-0.3.0/bin/devman watch
+```
+
+Until it is activated, **the installed watcher still dies when a registered path
+is missing** (S2). That is the one thing on this list with an operational cost.
+
+**2. One line in your own timer**, because S5 gave observantic `maintain` and §8
+says the schedule is yours:
+
+```ini
+# ~/.config/systemd/user/devman-maintain.service
+ExecStart=/run/current-system/sw/bin/devman run maintain --project observantic KEEP_DAYS=7
+```
+
+### What stage 5 did not do
+
+| Item | Why |
+|---|---|
+| a second machine | S1 said so in advance. The part a second machine tests that this host cannot is the module installing the service, `linger`, and activation restarting a user unit — all of which need a `nixos-rebuild switch` on a second host, which this session may not run. **§9.1's second-machine claim is still untested**, and it is now the only clause of that sentence that is |
+| publish anything | stage 4's trigger for §9.4 — a value that is not in `$HOME` — is still not met, and stage 5 chose a subject that does not need one (S9) |
+| re-pin `pyjutsu`, `nix-paseo`, `pydantree` | one re-pin proved the module fix travels (S7). Three more would prove nothing, and each is a commit in somebody else's repository |
+| re-run criterion 7 as a paired delta | the hook's added work was measured directly at 0.13 ms per firing. The paired protocol costs an interleaved run of dozens of shell entries and stage 5 changed the hook by one fork-free loop |
+| a `doctor` check for the timer | decision 6. It would make `doctor` read the developer's systemd units, which is §4's line from the other side |
+| rename anything on a DAG-name collision | S6. The plane cannot choose which project owns a name; both surfaces refuse and a person renames |
+
+### The one sentence stage 5 would give stage 6
+
+**Every defect in this stage was found by moving something the plane had only
+ever seen standing still**, and the two sharpest — a watcher that dies for
+everybody, and a run that executes another repository's workflow — were both
+invisible to `nix flake check`, to `dagu validate`, to `devman doctor` as it
+stood, and to reading the code. The remaining untested claim of the same kind is
+in §9.1's own sentence: **a second machine.**
+
+**Charter impact:** **none.** Stage 5's single charter change is §9.2's, recorded
+in S6 and applied in `ecd6662`.
