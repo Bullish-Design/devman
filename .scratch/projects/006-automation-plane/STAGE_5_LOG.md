@@ -1243,8 +1243,13 @@ says the schedule is yours:
 
 ```ini
 # ~/.config/systemd/user/devman-maintain.service
-ExecStart=/run/current-system/sw/bin/devman run maintain --project observantic KEEP_DAYS=7
+ExecStart=/run/current-system/sw/bin/devman run maintain --project observantic
 ```
+
+No `KEEP_DAYS`, because the five lines already there do not pass one: `devman
+run` fills a declared parameter from its default, so the group's `7` is what the
+timer has always used. The comment at the top of that file — "`observantic` is
+absent" — is stale for the same reason as the missing line.
 
 ### What stage 5 did not do
 
