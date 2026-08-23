@@ -1273,3 +1273,122 @@ in §9.1's own sentence: **a second machine.**
 
 **Charter impact:** **none.** Stage 5's single charter change is §9.2's, recorded
 in S6 and applied in `ecd6662`.
+
+---
+
+## S12 — Dagu's own scheduler works. S2's conclusion was scoped to the projection we happen to use
+
+**Answer:** **a scheduled run resolves everything correctly when the projected
+file carries the values, and stage 4's S2 never tested that.** S2 measured a DAG
+that inherits `working_dir` and `log_dir` from `base.yaml`, where both
+interpolate `${DEVMAN_PROJECT_DIR}` from whoever enqueues — and under a
+`schedule:` the enqueueing process is the daemon, which has one environment for
+the machine and no parameter to fill. That is true, and the conclusion drawn
+from it — *"Dagu's own scheduler cannot trigger anything this plane projects"* —
+is **too broad**. What cannot be scheduled is a **symlink to a shared group
+file**. A per-project file that states the three values can.
+
+This was asked by the owner, and it was the right question: the plane's
+projection shape is devman's own choice, and S2 folded it into a claim about
+Dagu.
+
+**Tested:** Dagu 2.15.0, a throwaway `DAGU_HOME=/tmp/s5-cron` on ports 8092 and
+50067, carrying a **byte copy of the installed plane's `base.yaml`** — so the
+machine's exit handler, retention and default queue are all in force — and a
+fake project tree at `/tmp/s5-cron-proj`.
+
+**Command** — what the projection would write if it materialised instead of
+symlinking, and nothing else:
+
+```yaml
+schedule: "* * * * *"
+params:
+  - DEVMAN_PROJECT_DIR: /tmp/s5-cron-proj      # the default, not a trigger
+working_dir: /tmp/s5-cron-proj                 # overrides base.yaml
+log_dir: /tmp/s5-cron-proj/.devman/.runs/logs  # overrides base.yaml
+steps:
+  - name: probe
+    run: |
+      echo "cwd=$(pwd)"
+      echo "PROJ=[$DEVMAN_PROJECT_DIR]"
+```
+
+**Evidence — the daemon fired it on the minute, twice, with nobody triggering:**
+
+```
+21:33:00 INFO msg="Dispatching planned run" dag=cronprobe scheduleType=Start
+21:34:00 INFO msg="Dispatching planned run" dag=cronprobe scheduleType=Start
+```
+
+**Evidence — every one of S2's three failures is absent:**
+
+```
+$ dagu status cronprobe
+Succeeded - 2026-08-22T21:34:00-04:00
+├─log: /tmp/s5-cron-proj/.devman/.runs/logs/cronprobe/dag-run_…/…log
+├─probe (0s) [succeeded]
+│     cwd=/tmp/s5-cron-proj                    <- working_dir resolved
+│     PROJ=[/tmp/s5-cron-proj]                 <- the param default reached the step
+└─onExit (0s) [succeeded]                      <- the machine's handler did not fail
+
+$ cat /tmp/s5-cron-proj/.devman/.runs/metadata.jsonl
+{"dag":"cronprobe","run_id":"034BsDAJ9LqSjAgvWXp1HW", … "status":"succeeded", …}
+{"dag":"cronprobe","run_id":"034BsDWy1z25Jo0E8o1J9b", … "status":"succeeded", …}
+{"dag":"cronprobe","run_id":"034BsF3IjpGn7ApPoc7HQf", … "status":"succeeded", …}
+
+$ find /tmp -maxdepth 2 -name '${DEVMAN*'; ls -d ~/'${DEVMAN_PROJECT_DIR}'
+                                               <- none, anywhere
+```
+
+Three scheduled runs, logs under the project, **three lines in the project's own
+`metadata.jsonl` written by the machine's inherited exit handler**, and no
+literally-named directory. Compare S2, where the same daemon produced a run in
+`~/${DEVMAN_PROJECT_DIR}` and a failed handler.
+
+### And one thing that is genuinely closed, measured on the way
+
+**Dagu's scheduler cannot be switched off**, so a `schedule:` key in a projected
+file will always be acted on by it. It is not only a scheduler — **it is the
+queue reader**:
+
+```
+# server + coordinator, no scheduler
+$ dagu enqueue probe && sleep 12 && dagu status probe
+Result: Queued                      light: queued 1, running 0
+
+# start ONLY the scheduler, change nothing else
+the queue drained at 21:26:36       Result: Succeeded
+```
+
+So "let devman own the schedule and keep Dagu's daemon out of it" cannot be done
+by disabling a process. Either the projected file carries a `schedule:` and
+Dagu's scheduler runs it — which the measurement above says works — or the
+projected file carries none and something else triggers.
+
+### What it would cost to take it
+
+**The projection stops being a symlink.** Today
+`projects/<p>/workflows/<w>.yaml` is a symlink to the group file in the store,
+and `dags/<p>-<w>.yaml` is a symlink to that. Materialising means writing a small
+per-project file: the three concrete values plus the group file's body.
+
+| Consequence | Weight |
+|---|---|
+| §7.2's "devman never parses a workflow" weakens to "devman writes a header and copies a body" | §12.1 already names this as the recoverable fallback if interpolation had failed. It never had to be used; this is a second reason it might |
+| a repository's own `.devman/workflows/x.yaml` is no longer live-edited | today an edit changes what Dagu reads with no re-projection. It would need a shell entry. **This is the real loss** |
+| the projection holds absolute paths | criterion 10 is about workflow *files* in `groups/` and `.devman/workflows/`, which stay clean. The registry's `metadata.json` already holds a path |
+| a group file change reaches a repository only at re-projection | already true: the guard's `plan` field changes when a group file changes, and the next shell entry re-projects |
+
+**What it buys is the whole of §8's third arrow.** A schedule becomes a line in a
+file the repository version-controls, `devman-maintain.timer` and its
+hand-maintained project list disappear, and decision 6's silent drift — a
+repository that gains `base` and is never maintained — cannot happen, because
+the declaration and the workflow are the same file.
+
+**Charter impact: none yet, and that is deliberate.** §8's third arrow is a user
+timer, and that is **true of the plane as it is**: with a symlink projection,
+Dagu's scheduler produces S2's failure exactly as recorded. Nothing above is
+implemented, so nothing in the charter changes today. **Stage 6 decides**, and
+if it takes this, §8 and §7.2 both move — in their own commit, after the entry
+that measures the materialised projection end to end on the real plane rather
+than on a throwaway.
