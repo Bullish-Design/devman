@@ -204,6 +204,22 @@ a parameter, and **refuses with a message** when it cannot — which is the whol
 difference from the Dagu scheduler, whose failure is a directory named after the
 variable that did not resolve.
 
+### The timer holds project names, so keep it in step
+
+One `ExecStart` per project is the price of the machine never learning which
+project takes which group (`CONCEPT.md` §4). The list drifts in two directions
+and only one of them tells you:
+
+| What changed | What you see |
+|---|---|
+| a project was renamed, or left the plane, and a line still names it | the service **fails**: `devman: no project named 'X'`, exit 1, in `systemctl --user list-units --failed` |
+| a project took `base` for the first time, and no line names it | **nothing.** It is simply never maintained |
+
+So the rule when a repository adopts `base`: **add its line to the timer in the
+same sitting.** Nothing checks this, and nothing will — a `doctor` that reads
+your systemd units has an opinion about what should be scheduled, which is the
+line §4 draws, arrived at from the other side (`STAGE_5_LOG.md`, S9).
+
 ## Why the multi-step files say `type: chain`
 
 `chain` runs the steps in order. `graph`, Dagu's default, runs steps with no

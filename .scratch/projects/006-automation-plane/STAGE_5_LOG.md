@@ -1019,3 +1019,93 @@ check names what it found so the message is a fact rather than a rule.
 **Charter impact:** **none.** §9.2 already warns about this in prose; the warning
 now has a check behind it, which is what §10's list of "six things it must
 compute itself" is for.
+
+---
+
+## S9 — Decisions 2, 5 and 6, stated
+
+### Decision 2 — §9.4 stays unused, and stage 5 is not the stage that changes it
+
+**Answer: no secret, and the machine module grows nothing.** Stage 4 decided the
+same by measurement and wrote its own trigger condition into S7: *a value that
+is not in `$HOME`*, which is what publishing needs. **Stage 5 publishes
+nothing.** A move, a rename, a second checkout and a duplicate identity all run
+under the developer's own `$HOME`, git credentials and SSH agent (§4), exactly
+as stage 4's deliverables did.
+
+**That this was a choice and not an oversight is what S1 wrote down in advance**:
+publishing is irreversible, wants a credential, and would be fired by a timer
+with nobody watching. Stage 5 deliberately took a subject that does not need one,
+because the alternative was to acquire a credential in order to justify a
+section.
+
+So §9.4 is **specified and unused after five stages**, and the word `secret`
+still appears nowhere in `nix/`, `modules/`, `groups/` or `src/`. S7 of stage 4
+still names exactly what would change the answer and what the module would gain:
+one `EnvironmentFile=` option on the Dagu unit, never an `environment.X = value`,
+because a value in a NixOS module is a value in the world-readable store.
+
+### Decision 5 — what the machine module may still not learn
+
+§4's table is the load-bearing wall, and `STAGE_5_PROMPT.md` §7 asks for what
+this stage *wanted* before it refused it. **Stage 5 wanted three things. All
+three were refused, and two were refused into an existing mechanism rather than
+into nothing:**
+
+| What stage 5 wanted | Why it was refused | Where the need went |
+|---|---|---|
+| **`devman move <project> <path>`**, when S4's registry entry still named the old path | It is D8's forbidden second entry path wearing the clothes of a repair. The registry is derived (§9.3): the repository states where it is by being entered, and a command that writes a path makes the registry canonical for one field | nowhere — S4 measured that entering the shell already does it, in one command the developer was going to run anyway |
+| **`doctor` reading `~/.config/systemd/user/*.timer`**, so it could report that observantic gained `maintain` and the timer does not know | The machine module would not hold the fact, but `doctor` would — and §8 says a schedule is the developer's, exactly as a hook is the repository's. A `doctor` that reads the developer's units has an opinion about what should be scheduled, which is §4's line from the other side | decision 6 below: the drift is real, one direction of it is loud, and the recipe says so |
+| **a `previous_path` field in the registry entry**, so a move could be reported rather than inferred | It makes the registry hold history, and §9.3 says the registry is derived from what is true now. A derived store with memory is a store that can be wrong about the past | `metadata.jsonl`, which already records each run's log path as it was, and which S4 shows is exactly where a stale path is legible |
+
+**And one thing stage 5 wanted that was not a machine option, and was still
+refused for the same reason.** The nested-checkout fix (S3) could have *guessed*:
+resolve the inner checkout's own root and treat it as the project. It refuses
+instead, because guessing which checkout a developer meant is identity inferred
+from the filesystem, which is §9.1's first sentence.
+
+### Decision 6 — the timer stays as it is, and stage 5 made its drift visible
+
+**Answer: it stays.** `devman-maintain.timer` remains hand-written in
+`~/.config/systemd/user/`, with one `ExecStart` line per project. devman ships no
+timer, no option and no command, and `doctor` learns nothing about it.
+
+**The drift is real and this stage caused an instance of it.** S5 gave
+observantic the `base` group, so it now projects `maintain`, and the timer's five
+lines do not include it. Nothing said so.
+
+**The two directions are not equally silent, and that is what decides it.**
+
+| Drift | What happens | Loud? |
+|---|---|---|
+| a project is renamed, or leaves the plane, while a timer line names it | `devman run maintain --project X` exits **1**, and the unit records the failure | **yes** |
+| a project gains `maintain` and no line names it | nothing happens, ever | **no** |
+
+**Evidence — the loud direction, measured:**
+
+```
+$ devman run maintain --project pyjutsu-renamed
+devman: no project named 'pyjutsu-renamed' in /home/andrew/.local/share/devman
+devman:  registered: devman, nix-paseo, observantic, pydantree, pyjutsu, siteman
+devman:  a repository joins by entering its shell once (§5.2)          exit 1
+```
+
+That is the property S2 of stage 4 chose the local trigger *for*: a schedule that
+cannot be resolved gets a non-zero exit and a message naming what is missing,
+instead of a successful run in a garbage directory. A `systemd` timer whose
+service exits non-zero is visible in `systemctl --user list-units --failed` and
+in the journal.
+
+**The silent direction is a gap in the recipe, not in the plane.** The remedy is
+one line in a file the developer owns, and the alternative — the machine
+enumerating which projects take which group — is the machine holding a project
+fact (§4). `groups/base/README.md` now says it in the recipe, beside the timer:
+**a project that gains `base` gains `maintain`, and the timer does not notice.**
+
+**And the one-line change this session did not make.** Adding observantic to
+`~/.config/systemd/user/devman-maintain.service` is the developer's, by §8's own
+rule, so it is in the handover (S11) rather than applied here.
+
+**Charter impact:** **none** for any of the three. §8, §9.3 and §4 all stand
+unamended, and the entries above are the record of what they cost when they were
+tested.
