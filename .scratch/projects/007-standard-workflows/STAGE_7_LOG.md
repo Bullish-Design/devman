@@ -400,3 +400,310 @@ which git ignores and `hist_retention_days` prunes in seven days.
 
 **No file under `groups/`, `modules/` or `src/` was changed. Gate 0 was
 measurement.**
+
+---
+
+## I-6 — Confirm the unknown-group throw, and see what a developer sees
+
+**Answer: the shell refuses, and the message is the last line on the screen.**
+Nix ends an evaluation failure with `error: <the message>`, so the throw
+`PLAN.md` §0.2 read in the source arrives at the bottom of the trace, where the
+eye already is. 292 lines of trace precede it and none of them has to be read.
+
+**Passes.** `PLAN.md` §3's bar is "the shell refuses and the message is
+legible". Both hold.
+
+### Versions
+
+Measured against the rev a **registered repository actually pins**, not against
+`HEAD`: `siteman` pins `fb78a99`, and `modules/devenv.nix:62` is byte-identical
+there and at `d183fff`. devenv 2.1.2, Nix 2.34.7.
+
+### The setup — a throwaway clone of a registered repository
+
+`siteman`, copied to `/tmp/s7-i6`. Three edits, and two of them exist only so
+that a *successful* evaluation could not reach the real registry:
+
+```nix
+project    = "s7-i6";                        # was "siteman"
+registryDir = "/tmp/s7-reg";                 # was the default $HOME/.local/share/devman
+groups     = [ "base" "not-a-group" ];       # was [ "base" ]
+```
+
+### Command
+
+```bash
+cp -a ~/Documents/Projects/siteman /tmp/s7-i6
+cd /tmp/s7-i6 && rm -rf .devenv .devman/.runs
+devenv shell -- true > /tmp/s7-i6.out 2> /tmp/s7-i6.err; echo "exit=$?"
+```
+
+### Evidence
+
+```
+exit=1
+stdout bytes: 0
+stderr lines: 292
+```
+
+The first line of the trace is devenv's, and it says nothing useful:
+
+```
+✖ Evaluating shell in 4.47s (failed)
+  × Failed to get drvPath from shell derivation:
+  … while calling the 'derivationStrict' builtin
+```
+
+The last line of the trace is the module's, and it says everything:
+
+```
+line 291 of 292:
+error: devman: group 'not-a-group' does not exist.
+       There is no /nix/store/sqxmkgpgrc8hmw42x9ym83qpw0k8wi3k-source/groups/not-a-group.
+```
+
+The trace also quotes the throw in context at line 285, with the file and line
+number of `modules/devenv.nix:62`.
+
+**Nothing was written.** `/tmp/s7-reg` did not exist after the run: the throw is
+an evaluation failure, so `enterShell` never ran and no registry entry, `dags/`
+link or `.devman/.runs/` tree was created.
+
+### The one weakness, and it is small
+
+**The path in the message is a store path, not the developer's own file.**
+`/nix/store/sqxmk…-source/groups/not-a-group` is literally correct — the groups
+root *is* the pinned input — but it points at a directory the developer cannot
+edit and does not name the line of their own `devenv.nix` that caused it. The
+group name is in the message, which is the part that matters, and the trace
+above it names `modules/devenv.nix:62`.
+
+**This does not justify changing the throw.** A developer who reads
+`group 'not-a-group' does not exist` knows which word they typed wrong.
+
+### Verdict and what it decides
+
+**Passes.** `PLAN.md` §3 says a failure here would make the tombstone
+mandatory rather than preferred. It did not fail, so the tombstone is decided
+on its own merits by S-3 — which is below, and which recommends shipping it
+anyway.
+
+**R-3 keeps the throw.** `PLAN.md` §6's decision is settled in the direction it
+predicted: the throw is correct for a misspelled group, it is legible, and S-3
+shows the tombstone handles the deletion case, so the two do not compete.
+
+### Charter impact
+
+**None.** §0.2 of `PLAN.md` read the source correctly and this confirms it on a
+real repository.
+
+---
+
+## S-3 — The tombstone group, three variants
+
+**Answer: a tombstone works, and it must contain a file.** An empty directory
+evaluates, ships nothing and produces no trigger — but **git cannot carry an
+empty directory**, so the only tombstone that survives a `git+https` pin is
+`PLAN.md`'s second variant: a directory holding a `README.md` and nothing else.
+The third variant is the trap the plan predicted, and it is real.
+
+**Passes**, with one correction to `PLAN.md` §3's recommendation: ship the
+tombstone as **a directory with a README**, never as an empty directory.
+
+### Versions
+
+devenv 2.1.2, Nix 2.34.7, devman 0.3.0, Dagu 2.15.0. Three throwaway devman
+source trees built with `git archive HEAD`, three throwaway consumer
+repositories, and a **throwaway registry at `/tmp/s7-reg`** — the module's own
+`registryDir` option, so the real registry was never a participant.
+
+### The setup
+
+```bash
+for v in v1 v2 v3; do
+  mkdir -p /tmp/s7-devman-$v && git archive HEAD | tar -x -C /tmp/s7-devman-$v
+done
+rm -rf /tmp/s7-devman-v1/groups/python && mkdir -p /tmp/s7-devman-v1/groups/python
+rm -rf /tmp/s7-devman-v2/groups/python/workflows
+rm -rf /tmp/s7-devman-v3/groups/python-format/workflows \
+       /tmp/s7-devman-v3/groups/python-format/README.md
+```
+
+Each consumer is four lines of `devenv.nix` and a `path:` input with
+`flake: false`:
+
+```nix
+devman = {
+  enable = true;
+  project = "s7v1";                 # s7v2, s7v3
+  registryDir = "/tmp/s7-reg";
+  groups = [ "base" "python" ];     # [ "base" "python-format" ] for v3
+};
+```
+
+### Variant 1 — an empty directory
+
+```
+$ cd /tmp/s7-rv1 && devenv shell -- true; echo "exit=$?"
+exit=0
+```
+
+**It evaluates and the shell enters.** The module takes
+`modules/devenv.nix:63`'s existing escape — the group exists, `workflows/` does
+not, so `groupFiles` returns `{ }`.
+
+```
+$ ls /tmp/s7-reg/projects/s7v1/workflows/
+check.yaml  full-test.yaml  maintain.yaml  review.yaml  validate.yaml
+
+$ python3 -m json.tool /tmp/s7-reg/projects/s7v1/metadata.json
+  "groups":    ["base", "python"],
+  "workflows": { five entries, every one "group": "base" },
+  "triggers":  null
+```
+
+**Exactly `base`'s five workflows, and nothing else.** The entry records
+`python` as a group the repository takes, and records not one file from it.
+Five `dags/` links, all pointing at this project's own files.
+
+### The thing that kills variant 1 anyway
+
+```
+$ cd /tmp/s7-devman-v1 && git init -q . && git add -A groups/
+$ git diff --cached --name-only | grep '^groups/python/' | wc -l
+0
+$ git status --porcelain groups/python | wc -l
+0
+```
+
+**git carries zero paths under an empty directory.** A repository pinning
+`git+https` fetches a source tree in which `groups/python/` does not exist, so
+`builtins.pathExists` is false and it gets I-6's throw — the exact flag day the
+tombstone exists to prevent. **An empty-directory tombstone is a tombstone that
+only works in the checkout that created it.**
+
+### Variant 2 — a directory holding only `README.md`
+
+```
+$ cd /tmp/s7-rv2 && devenv shell -- true; echo "exit=$?"
+exit=0
+
+$ ls /tmp/s7-reg/projects/s7v2/workflows/
+check.yaml  full-test.yaml  maintain.yaml  review.yaml  validate.yaml
+
+groups   : ['base', 'python']
+workflows: {'check': 'base', 'full-test': 'base', 'maintain': 'base',
+            'review': 'base', 'validate': 'base'}
+triggers : None
+local    : []
+```
+
+**Byte-for-byte the same outcome as variant 1, and it is git-shippable.**
+`README.md` is inert, as §7.2 promises: the module's filter is
+`kind == "regular" && hasSuffix ".yaml"`, so nothing named `README.md` can be
+projected, and nothing was.
+
+**This is the variant R-1 ships.**
+
+### Variant 3 — a stale `triggers.toml` with no `workflows/`
+
+**The trap is real.** Evaluation succeeds, `base`'s five workflows project, and
+the registry entry carries a trigger pointing at a workflow that does not exist:
+
+```
+$ ls /tmp/s7-reg/projects/s7v3/workflows/
+check.yaml  full-test.yaml  maintain.yaml  review.yaml  validate.yaml
+
+groups   : ['base', 'python-format']
+workflows: ['check', 'full-test', 'maintain', 'review', 'validate']
+triggers : {"group": "python-format", "map": {"**/*.py": "format"}}
+```
+
+**`format` is in `triggers`. `format` is not in `workflows`.**
+
+**`devman doctor` does not object**, and that is the second half of the finding:
+
+```
+$ devman --registry /tmp/s7-reg doctor
+devman doctor — 3 projects, 15 workflows
+ok  validate       15 projected workflows load
+..  watcher        s7v3: **/*.py -> format  [python-format]
+                   the watcher has never run — no state file
+Nothing to report.                                                   exit 0
+```
+
+The watcher check prints the mapping and never compares `format` against the
+project's own workflow set. `src/devman/doctor.py`'s `check_watcher` has no such
+comparison in it.
+
+**What a save would actually cost, measured by issuing the dispatcher's own
+command.** `watch.py`'s `dispatch` runs
+`devman run <workflow> --project <project>` per matched path:
+
+```
+$ devman --registry /tmp/s7-reg run format --project s7v3
+devman: project 's7v3' has no workflow named 'format'
+devman:  it projects: check, full-test, maintain, review, validate
+exit=1
+```
+
+**So the failure is loud at the point of use and quiet everywhere else.** Every
+`.py` save in a stale repository forks a `devman run` that refuses, `watch.py`
+records `refused (1)` in `fired.jsonl`, and the developer — who is editing, not
+reading the journal — sees nothing. Nothing is enqueued and no Dagu run reports
+success, so this is **not** the silent-success shape §15.7 fears. It is waste
+plus an unread complaint.
+
+### The variants, side by side
+
+| Variant | Evaluates | Projects | Trigger | Git-shippable | Verdict |
+|---|---|---|---|---|---|
+| directory removed entirely (I-6) | **no — throws** | — | — | yes | the flag day |
+| empty directory | yes | `base` only | none | **no** | works, cannot ship |
+| directory + `README.md` | yes | `base` only | none | yes | **ship this** |
+| directory + stale `triggers.toml` | yes | `base` only | **dangling** | yes | a refused dispatch per save |
+
+### Verdict
+
+**Passes.** `PLAN.md` §3's bar is "an empty directory evaluates, ships nothing,
+and produces no trigger". It does. One correction and one addition:
+
+- **The tombstone is a directory with a `README.md`**, because git cannot carry
+  an empty one. `PLAN.md` §6's R-1 row already says "tombstone — empty, **no
+  `triggers.toml`**"; the word "empty" has to become "a README and nothing
+  else".
+- **`groups/python-format/`'s tombstone must drop its `triggers.toml`**, which
+  the plan predicted and which variant 3 now demonstrates rather than asserts.
+
+### What this decides
+
+**R-1 ships tombstones**, and `PLAN.md` §3's recommendation stands: keep them
+until one full rollout after wave 4, then delete them. The cost is two
+directories and two READMEs.
+
+**R-3 keeps the throw** (with I-6). The tombstone handles deletion; the throw
+handles a misspelling. They do not compete.
+
+### One new `doctor` check worth writing, and why it is not a heuristic
+
+Variant 3 found a gap `OPEN_QUESTIONS` does not list: **nothing checks that a
+trigger's workflow name is a workflow the project projects.**
+
+This is **not** the same kind of proposal as R-4a. R-4a compares a TOML glob
+list against a `find` expression, which is a heuristic, and `CONCEPT.md` §15.7
+says the plane grows no heuristics. This one is exact set membership inside a
+single registry entry:
+
+```python
+entry.workflow in proj.workflows      # both are already in metadata.json
+```
+
+It costs no fork, reads no repository, and has one true answer. **Proposed as
+R-4d, gated on nothing**, and cheap enough to ride with whichever of R-4a/b/c
+ships first.
+
+### Charter impact
+
+**None.** The tombstone uses `modules/devenv.nix:63`'s existing escape, which
+`CONCEPT.md` §7.4 already describes as a group that may ship no workflows. No
+section moves.
