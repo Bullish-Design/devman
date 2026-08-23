@@ -345,3 +345,58 @@ Two consequences for the refactor, neither of them new work:
    workflow calls no repository task**. Today that holds. A future group that
    ships a scheduled or watched workflow calling a task would break it, and the
    place to say so is §6 rather than a later stage's surprise.
+
+---
+
+## Gate 0 — closed
+
+| | Investigation | Bar (`PLAN.md` §2) | Result |
+|---|---|---|---|
+| I-3 | a one-step log names the failing devenv task | the log names `t7:b`, the run reports `failed` | **passes**, and the name reaches three places |
+| I-5 | an undefined task fails loudly | devenv exits non-zero, names the task, `metadata.jsonl` records `failed` | **passes**, in two repositories |
+
+**`PLAN.md` §8's stop rule does not fire.** Neither failure clause applies, so
+`PROPOSAL.md` §1.1 is not rewritten. **The hinge survives, and Gate 1 — I-6 and
+S-3 — may begin.**
+
+`PROPOSAL.md` carries three small debts, all recorded above and all additive.
+They belong in R-6, not in a stop-and-rewrite:
+
+| Section | Debt |
+|---|---|
+| §1.1 | say the failing name is on **stderr**, not stdout |
+| §1.1 | say the one-step rule also trades `type: chain`'s fail-fast for devenv's concurrent fan-out |
+| §6 | bound "no automatic run breaks" to the schedule; the watcher fires `format`, which does call a task |
+
+### What was left on the machine
+
+```
+$ devman doctor
+devman doctor — 6 projects, 36 workflows
+ok  plane / queues / validate / queue names / literal dir / shadowing /
+    stale entries / run output / projection / handlers / cross-repo / watcher
+Nothing to report.                                                   exit 0
+
+$ git status --short
+                                                            (clean)
+```
+
+Back to 36 workflows from the 38 the measurement projected. The three
+throwaway workflow files are deleted and re-projected; `dags/` holds no `_t7`
+link. `devenv.nix` is back at `d183fff` — the `t7:*` tasks existed for about
+four minutes, on purpose.
+
+**Three run records are deliberately left in place**, because they are the
+evidence this entry quotes:
+
+```
+devman-_t7-check  failed
+devman-_t7-chain  failed
+devman-_t7-undef  failed
+```
+
+They sit in `.devman/.runs/metadata.jsonl` and under `.devman/.runs/logs/`,
+which git ignores and `hist_retention_days` prunes in seven days.
+
+**No file under `groups/`, `modules/` or `src/` was changed. Gate 0 was
+measurement.**
