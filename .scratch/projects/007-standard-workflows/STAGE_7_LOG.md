@@ -972,3 +972,255 @@ early in `devman`.
 **None.** The gate's own file already documents its derivation and its limit;
 the rename adds one paragraph to that file explaining why `full-test` does not
 collide, so a later reader does not have to re-derive it.
+
+---
+
+## S-5 — `plane-report`, run once by hand and once by the daemon
+
+**Answer: it works, it costs about 3 seconds, and one of its three questions
+found a bug in a shipped file.** The workflow runs `devman doctor` once for the
+machine, writes a report, and is dispatched by Dagu's own scheduler.
+
+**The bug is the finding.** `base/maintain`'s `doctor` step, as shipped since
+stage 4, would have written a **truncated report** on any night `doctor` had a
+finding — which is the only night it mattered. It never fired because `doctor`
+has never had a finding on a scheduled night.
+
+### Versions
+
+Dagu 2.15.0, devenv 2.1.2, devman 0.3.0, the installed plane. 6 projects.
+
+### Question 1 — does a workflow whose step fails still write its report?
+
+**Not with the obvious shape, and the reason is that Dagu already sets `-e`.**
+
+`PLAN.md` §4 offers two candidate answers: copy `base/review`'s
+`continue_on: {failure: true}`, or write the report before the exit. **Both are
+wrong for this file, and the second is wrong for a reason nothing in six stages
+had measured.**
+
+**Probe: what flags does a step's script run with?**
+
+```yaml
+run: |
+  set -u
+  { echo "shell: $0"; echo "flags: $-"; } > "$out"
+  sh -c 'exit 3' >> "$out" 2>&1
+  echo "AFTER-FAILING-COMMAND rc=$?" >> "$out"
+```
+
+```
+shell: /tmp/dagu_script-745413007.sh
+flags: ehuB
+```
+
+**`e` is in the flag list.** `AFTER-FAILING-COMMAND` never appeared. Dagu runs
+the script with `set -e` already on, so a bare failing command aborts the whole
+step at that line.
+
+**What that does to the report**, measured with `plane-report`'s control flow
+and a command guaranteed to fail:
+
+```
+# probe — devman-_s5-fail
+```
+pretend findings
+```
+
+— and that is the whole file. The closing fence and the verdict line are
+missing, because the script died at the failing command.
+
+**The fix, measured:**
+
+```diff
+-      devman doctor >> "$report" 2>&1
+-      rc=$?
++      rc=0
++      devman doctor >> "$report" 2>&1 || rc=$?
+```
+
+```
+# probe — devman-_s5-fail
+```
+pretend findings
+```
+
+- doctor exit: 3
+
+run status: failed
+```
+
+**A complete report and a `failed` run, together.** That is the property the
+question was asking for. `continue_on` is rejected on its own terms: it exists
+so a *chain* can finish, one step has nothing to keep going for, and it would
+report `partially succeeded` — which says the workflow half worked when the
+plane is in fact unhealthy.
+
+> **This is a defect in `groups/base/workflows/maintain.yaml` as shipped**, and
+> R-1 fixes it by deleting the step. Any repository that shadowed `maintain` to
+> keep the `doctor` step carries the same latent truncation.
+
+### Question 2 — does it need `DEVMAN_PROJECT_DIR`?
+
+**It holds `DEVMAN_PROJECT_DIR`, and that is correct.** §11's rule binds a
+workflow that *triggers* other workflows; `plane-report` runs one command that
+reads the registry and triggers nothing. `doctor`'s own check is the proof:
+
+```
+ok  cross-repo     1 workflows trigger others, all name DEVMAN_SELF_DIR
+```
+
+**Still 1** — `stack-validate`. `plane-report` does not appear, so
+`Workflow.triggers_other_dags()` does not class it as a parent and the
+projection gave it the ordinary variable.
+
+### Question 3 — what does it cost?
+
+```
+$ devman doctor        # five runs, 6 projects, 34 workflows
+2.72  2.91  2.59  2.67  2.62 s        mean 2.70 s, range 2.59–2.91
+```
+
+The workflow around it adds under a second:
+
+```
+scheduled run 034COl5xURxTJaFKEaQ2on   3.0 s
+scheduled run 034COmcI6fQGMd6F72JUs8   2.0 s
+```
+
+**About 3 seconds at 6 projects.** That is `I-2a`'s first data point and the
+number its curve extrapolates from.
+
+### The proof — one manual run and one scheduled run
+
+**Manual:**
+
+```
+$ devman run plane-report              # 034COfFf3PxrqGuyjyizQM
+devman-plane-report: succeeded
+```
+
+The report holds `doctor`'s whole output inside a fenced block and ends
+`- doctor exit: 0`.
+
+**Scheduled**, with the expression temporarily at `* * * * *` in the shape
+stage 6's S3 used:
+
+```
+$ journalctl --user -u dagu | grep "Dispatching planned run"
+19:39:00 … msg="Dispatching planned run" dag=devman-plane-report scheduleType=Start
+19:40:00 … msg="Dispatching planned run" dag=devman-plane-report scheduleType=Start
+
+$ grep devman-plane-report .devman/.runs/metadata.jsonl | tail -2
+  034COl5xURxTJaFKEaQ2on  succeeded  2026-08-23T23:39:00Z
+  034COmcI6fQGMd6F72JUs8  succeeded  2026-08-23T23:40:00Z
+```
+
+**Dagu says who triggered each one**, and the contrast is the evidence:
+
+```
+manual run  : triggerType 2 | scheduleTime None
+scheduled   : triggerType 1 | scheduleTime 2026-08-23T19:40:00-04:00
+```
+
+The expression is back at `20 0 * * *` — fifteen minutes after `maintain`, so
+the nightly pruning finishes before the plane is asked how it is.
+
+### Verdict
+
+**Passes**, all three questions, and question 1 returned a defect rather than a
+confirmation.
+
+### Charter impact
+
+**None**, and one line owed to a group file rather than to the charter:
+`groups/base/README.md` describes `maintain` as the workflow that runs
+`devman doctor`. R-1 rewrites that README anyway.
+
+---
+
+## S-5a — A bug found while running S-5: an edited override does not re-project
+
+**Answer: editing a file in `.devman/workflows/` does NOT reach Dagu at the
+next shell entry.** `STAGE_6_LOG.md` S4 says it does. It does not, and the
+comment in the module says exactly why.
+
+This was found the hard way: the corrected `plane-report` was edited, the shell
+was re-entered, and the run that followed executed **the previous version** —
+it wrote a report under the old file name.
+
+### The mechanism, and it is one comment
+
+```
+$ sed -n '311,314p' modules/devenv.nix
+  # `@LOCAL@` is the set of names in
+  # `.devman/workflows/`, which is what makes the guard notice a repo adding or
+  # removing an override. It does not need to notice an *edit*: the projection
+  # is a symlink, so an edited file is already what Dagu reads.
+```
+
+**"The projection is a symlink" stopped being true at stage 6.** The projection
+is now a generated copy, so an edited source is *not* what Dagu reads — but the
+guard was never widened, and the entry it compares still records only names:
+
+```
+$ python3 -m json.tool ~/.local/share/devman/projects/devman/metadata.json
+  "local": ["agent-review","bench-entry","plane-report","stack-validate"],
+  "plan":  "/nix/store/2ksg5n9…-devman-project-devman"
+```
+
+Neither field changes when a `.devman/workflows/` file is edited in place, so
+the guard sees a matching entry and forks nothing.
+
+### Evidence
+
+```
+$ grep -n 'rc=0' .devman/workflows/plane-report.yaml
+89:      rc=0
+$ grep -n 'rc=0' ~/.local/share/devman/projects/devman/workflows/plane-report.yaml
+(nothing)
+```
+
+Two files were stale at once — `plane-report.yaml` and a throwaway probe — after
+an ordinary `devenv shell -- true`.
+
+### The workaround, measured
+
+```bash
+rm -f ~/.local/share/devman/projects/<project>/metadata.json
+devenv shell -- true
+```
+
+The guard finds no entry on disk, so it re-projects everything. Verified: both
+files matched their sources afterwards.
+
+Adding or removing any file in `.devman/workflows/` also works, because that
+changes `local`.
+
+### Why it matters beyond this spike
+
+**It is a correctness bug in the shipped plane, not a spike artefact.** A
+developer who edits their own `.devman/workflows/check.yaml` and re-enters the
+shell gets the old workflow, silently, with no message and a `doctor` that
+reports nothing wrong — `doctor` compares the projection against the *group*
+version it shadows, never against the repository's own source.
+
+**It is not in Gate 2's scope and it is not fixed here.** Recorded as a defect
+for the refactor:
+
+| | |
+|---|---|
+| Where | `modules/devenv.nix`, the `entryTemplate` guard, and the stale comment above it |
+| Fix | fold a content hash of `.devman/workflows/*.yaml` into `@LOCAL@`, or drop the guard's fast path for repositories that have any override |
+| Cost | one `$(<file)` per override on every shell entry, against §5.2's "fork nothing on the common path" — so the hash has to be built with bash parameter expansion, not `sha256sum` |
+| Also | `STAGE_6_LOG.md` S4's "an edit to it reaches Dagu at the next shell entry" is wrong and should be corrected where it stands |
+
+**Proposed as R-8**, gated on nothing, and it should ship before wave 2 — waves
+2 and 3 add repositories that will write their own overrides.
+
+### Charter impact
+
+**None yet.** §9.3 says the projection is reconstructable by entering the shell,
+which remains true — the bug is that entering the shell does not always
+*reconstruct* it. If R-8 changes the guard, §5.2's cost budget is the section to
+re-check.
