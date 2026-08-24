@@ -3977,3 +3977,230 @@ already running.
 | 3 | eventic `9bdecc8` · flora `d90a9fe8` · flora-core `3ada834` · flora-qc `9805484` · foreman `c7a21da` · gitman `3c49fa5` · image-gen-pipeline `dcc9d4f` · interplay `57ccdb8` · llgym `c6bcb19` · lodestar `6fbcac0` |
 | 4 | my-ai `fc38860` · mypi-agent `5011589` · nix-nvim `835d2c7` · nix-secrets `c2eef93` · nixvim `976a876` · pytuin `a0bde75` · repoman `e55ac7c` · shellij `7c5f70b` · structured-agents-v2 `febefd6` · talkee `2dd0648` |
 | 5 | terminal-state `79c56dc` · testee `3df2617` · vendomat `bd1f207` |
+
+## R-7 wave 4 tail — the `atuout` reconciler branch: salvaged, and the stale-entry lifecycle measured
+
+**Answer: option A, executed in full. The test work is on `atuout` `main`; the
+branch, its remote and the worktree are gone; the registry entry did not die on
+its own — `devman doctor --prune` removed it, exactly as CONCEPT §9.3 says it
+must. The salvage was not free. On `main` the suite is not the same suite: it
+caught a first-boot race that `main` already shipped and that the in-process
+tests cannot see.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure
+(`/nix/store/8m2g8im0jcqxiq4qpk9mwlx2rngr4rz8-devman-0.3.0`). atuin
+**18.18.0-beta.2 (NO_GIT)**, built by the devenv from `atuin-src` `2f9357e`, so
+PR #3510's Semantic service is present and nothing skipped for its absence.
+
+### The topology, re-verified — one number in the branch prompt is wrong
+
+| | |
+|---|---|
+| branch `reconciler-process-test` | `b9b12a2`, upstream `origin/reconciler-process-test` at the same commit |
+| its parent, and the merge-base | `ab4dbb1` — `merge-base --is-ancestor ab4dbb1 main` → **YES**, the SIGTERM fix is on `main` |
+| `main` at the start | `3ae56d0` |
+| the branch's only committed delta | `b9b12a2`, touching `devenv.yaml` and `devenv.nix` only |
+
+**The prompt says `main` is "5 commits ahead of `ab4dbb1`". It is 17.**
+`git log --oneline ab4dbb1..main` lists the five named commits plus twelve more
+from a lineage merged in below them. The claim the number was carrying — that
+the SIGTERM fix is on `main` — is true and was re-verified; the count is not.
+The correction matters because those twelve commits are where the bug below
+came from.
+
+The two `devenv.nix` files declare different `project =` values
+(`atuout-reconciler-test` vs `atuout`), as the prompt says. **No merge was
+proposed.**
+
+### The deciding measurement, and its split answer
+
+`tests/test_reconciler_process.py`, run in both checkouts:
+
+| Checkout | Command | Result |
+|---|---|---|
+| `atuout` (`main`) | `uv run pytest tests/test_reconciler_process.py -m slow` | **5 passed in 3.52s**, 0 skipped |
+| `atuout` (`main`) | `::test_spawn_and_backfill`, 10 runs | **3 failed** |
+| `atuout` (`main`) | `::test_spawn_and_backfill`, 12 runs | **4 failed** |
+| `atuout-reconciler-test` | `::test_spawn_and_backfill`, 10 runs | **10 passed, 0 failed** |
+
+**7 failures in 22 runs on `main`; 0 in 10 in the worktree where it was
+written.** The first `-m slow` run passing 5 of 5 is exactly the trap the wave-4
+prompt warns about in the other direction: one green run is not a pass rate.
+Skip counts were checked every time — nothing skipped, so no run was vacuous.
+
+### The trace — a real bug on `main`, not a flaky test
+
+The test sends the detached child's stderr to `/dev/null`. A debug copy that
+keeps it, run 12 times, failed 4 times with the **same** traceback each time:
+
+```
+Exception in thread reconciler-tail:
+  File ".../src/atuout/reconciler.py", line 338, in _run_loop
+    conn = store.connect()  # created on this thread; sqlite connections are thread-affine
+  File ".../src/atuout/store.py", line 41, in connect
+    conn.execute("PRAGMA journal_mode=WAL")
+sqlite3.OperationalError: database is locked
+```
+
+with `child.poll() = 0` and `pidfile exists = False` at the moment of the
+assertion. **The mechanism, end to end:** `run()` starts two threads that each
+call `store.connect()`. `PRAGMA journal_mode=WAL` takes a brief exclusive lock
+and does **not** invoke SQLite's busy handler, so on a DB that does not exist
+yet the two connects race and the loser raises. When the loser is
+`reconciler-agent-retry`, the thread dies silently and the reconciler runs on
+with its retries dead. When the loser is `reconciler-tail`, `run()`'s poll loop
+sees `not worker.is_alive()`, breaks, and its `finally` removes the pidfile and
+exits 0 — **the reconciler dies on first boot.** `read_pid()` then returns
+`None`, which is the assertion the test fails on.
+
+Isolated from the test entirely — two threads calling `connect()` at one
+instant, 200 rounds per row:
+
+| Variant | Rounds hitting `database is locked` |
+|---|---|
+| current order, **fresh** DB | **37/200** |
+| current order, **existing** (already-WAL) DB | **0/200** |
+| PRAGMAs reordered (`busy_timeout` first) | **87/200** |
+
+The middle row is why no one has seen this on a real machine: the reconciler's
+DB already exists there, and the PRAGMA is then a no-op. It bites first boot
+only — and every test run, which gets a fresh `tmp_path` DB.
+
+**Why the worktree passes 10 of 10:** `store.py` is byte-identical between
+`ab4dbb1` and `main` (`git diff ab4dbb1..main -- src/atuout/store.py` is empty).
+The bug is latent at the branch point because `run()` there starts **one**
+connecting thread. `edb5572` — one of the twelve commits the prompt's count
+omitted — added the second. **The branch could not have caught this; only the
+salvage to `main` could.**
+
+**A wrong hypothesis, recorded rather than tidied away.** The first fix tried
+was reordering the two PRAGMAs so `busy_timeout` precedes the WAL switch. It is
+the obvious fix and it is wrong: 87/200, worse than the 37/200 it was meant to
+repair. Measuring it before committing it is the only reason it is not on
+`main`.
+
+### The fix, and the proof
+
+Five lines in `run()`: create the DB on the main thread before either worker
+connects. Both workers then open a file that already exists in WAL mode, where
+the PRAGMA cannot fail.
+
+| Measurement | Before | After |
+|---|---|---|
+| `::test_spawn_and_backfill` | 15 of 22 passed | **15 of 15 passed** |
+| `tests/test_reconciler_process.py`, 3 consecutive runs | — | **5 passed** each time |
+| full suite | — | **103 passed, 1 skipped** |
+| `uv run ruff check src tests` | — | **All checks passed** |
+| plane `devman run check` / `devman run test` | — | **status 4 / status 4** |
+
+Dagu's status codes were not assumed: `grail-check`'s last run reads `2` and is
+the known lint failure, `atuout-check` reads `4`. 4 is success.
+
+### What landed on `atuout`, and what was dropped
+
+| Commit | What |
+|---|---|
+| `6046f4f` | `fix(reconciler): create the DB before the worker threads connect` |
+| `1a81540` | `test: out-of-process reconciler integration suite` |
+
+Pushed to `origin/main` directly, `3ae56d0..1a81540`, `git rev-list --count
+@{u}..HEAD` = **0**. The test file is byte-identical to the worktree's
+(`diff -q` clean before the commit and after).
+
+**The `pyproject.toml` change was dropped, on purpose.** `main` already declares
+the marker, with different wording:
+
+```
+main:     "slow: spawns real processes / waits on timers (opt-in integration tests)"
+worktree: "slow: spawns detached processes / waits on timers (opt-in with -m slow)"
+```
+
+No `--strict-markers` is configured anywhere in the repository, so nothing
+needed the addition; and two `markers` keys in one TOML table is not a merge,
+it is a parse error. **Nothing of the user's work was lost** — the 427-line test
+file landed verbatim, and the only other hunk was a redundant redeclaration.
+Copies of both files as they stood are at `/tmp/salvage-worktree-*`.
+
+### The registry lifecycle — the part nobody had measured
+
+Measured in order, with the path already gone:
+
+| Step | Observation |
+|---|---|
+| worktree removed, path gone | registry entry **still present**; 3 DAGs still projected; 54 projects / 169 workflows |
+| `devman doctor` | **flags it**: `!! stale entries  atuout-reconciler-test -> …/atuout-reconciler-test (gone) — its workflows still project and would pass, vacuously, in a directory Dagu creates` |
+| the 00:05 `maintain` | **still scheduled** — `schedule: "5 0 * * *"` still in the projected DAG |
+| `devenv shell -- true` in `atuout` | **does not clear it.** Entry, DAGs and schedule all survive a sibling's shell entry |
+| `devman doctor --prune` | entry removed, **all three DAGs unprojected**; 53 projects / 166 workflows |
+| `devman doctor` after | `ok  stale entries  every registered path is a directory` — **Nothing to report.** |
+
+**The answer to the open question: the entry does not self-remove, and nothing
+reclaims it on a schedule.** Left alone it would have kept running `maintain` at
+00:05 forever, in a directory Dagu recreates, passing vacuously — which is
+precisely the failure `doctor`'s message names.
+
+**The branch prompt's premise that there is no deregister command is right in
+letter and misleading in effect.** There is no `unregister` verb, as CONCEPT
+§10's command table says. But `devman doctor --prune` is the sanctioned path,
+it exists in the installed 0.3.0, and it did unproject the workflows as well as
+drop the entry.
+
+### I-2b — `doctor` across the removal
+
+```
+54 projects / 169 workflows:  12561 14873 13059 11484 13857 ms   mean 13167 = 77.9 ms/file
+53 projects / 166 workflows:  12164 12192 11909 11904 12895 ms   mean 12213 = 73.6 ms/file
+```
+
+Wave 4's close measured **87.6** ms/file over the same 169 workflows; this
+session measures **77.9** on an unchanged plane. The per-file line holds, and
+the spread between two sessions at identical size (~11%) is the honest error
+bar on every earlier point of the curve.
+
+### Verdict
+
+**Option A, and the harness is retired.** The test was worth salvaging for a
+better reason than the one the prompt gave: it does not only cover `ab4dbb1`
+from outside, it found a live first-boot crash on `main` that eleven other test
+files miss. Options B and C were both refuted by measurement — B would have kept
+a 00:05 sweep for a checkout with nothing left to test, and C would have thrown
+away the only test that catches the bug.
+
+### Charter impact
+
+**None, and §9.3 got its first live measurement.** The stale-entry text
+predicted this run exactly: an entry whose `path` is not a directory is stale,
+`doctor` may prune rather than only report, and `doctor` must also unproject the
+pruned project's workflows "because a projection outliving its repository still
+passes every other check". All three held. §5.2's automatic registration and
+§10's "no `unregister`, and none is needed: the way out is deleting the
+repository, and `doctor` reconciles the derived state afterwards" are now
+measured rather than argued.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| `atuout` `main` | `6046f4f` reconciler fix, `1a81540` test | committed, **pushed** to `origin/main` |
+| `origin/reconciler-process-test` | **deleted** | the remote branch wave 4 created is gone |
+| local branch `reconciler-process-test` | **deleted** (was `b9b12a2`) | its only delta was the adoption commit, which is checkout-specific and never belonged on `main` |
+| `~/Documents/Projects/atuout-reconciler-test` | **worktree removed** | tree made clean first: the salvaged test file deleted after landing on `main`, the redundant `pyproject.toml` hunk reverted |
+| devman registry | `atuout-reconciler-test` **pruned** | 54 → 53 projects, 169 → 166 workflows, `doctor` clean |
+
+**Left on the machine:** `atuout` on `main` at `1a81540`, clean, its
+`.scratch/projects/002-atuin-ai-client/reference/` untracked tree untouched as
+in batch 1. Salvage copies at `/tmp/salvage-worktree-pyproject.toml` and
+`/tmp/salvage-worktree-test_reconciler_process.py`, plus the two measurement
+scripts `/tmp/repro_reconciler.py` and `/tmp/wal_race.py`; 612 scratch temp
+directories they created were removed. The debug copy of the test
+(`tests/test_reconciler_process_dbg.py`) was deleted and never committed. Two
+`atuout reconcile --daemonize` processes from the installed `atuout-0.2.0` and
+the user's `atuin daemon` were already running and were not touched.
+
+**`nixos-rebuild switch` is still needed and was not run.** `devman doctor` has
+no `trigger target` line, so R-4d and R-4f remain merged and uninstalled.
+
+**This entry rides PR #131**, which is open on `dagu-devenv-automation-eli5` for
+the wave-4 log.
