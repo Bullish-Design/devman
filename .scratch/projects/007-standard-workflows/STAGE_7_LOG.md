@@ -2567,6 +2567,35 @@ tree and not in the installed binary — the plane report of 24 August shows
 `doctor` without the `trigger target` line, which is the proof. A
 `nixos-rebuild switch` is what changes that.
 
+### Wave 1's five re-pins were committed and not pushed, until now
+
+**Found on 24 August while auditing what was published.** R-5's five repository
+commits were made on 23 August at 21:01–21:07, on each repository's own `main`,
+and **none of them reached `origin`**. The plane worked anyway, because a
+projection reads the working tree rather than the remote, so nothing on this
+machine noticed and nothing in this log said so.
+
+They were pushed on 24 August, unchanged, each still pinning `02d00f6` — a rev
+that was already on `origin/main`, so no commit needed rewriting:
+
+| Repository | Commit | pushed |
+|---|---|---|
+| `siteman` | `d249bfa..541cf25` | `main -> main` |
+| `nix-paseo` | `c1dd6ec..65f564c` | `main -> main` |
+| `pyjutsu` | `71a765d..8323e09` | `main -> main` |
+| `pydantree` | `d421a85..be150be` | `main -> main` |
+| `observantic` | `e02d1b8..0f835d4` | `main -> main` |
+
+All five are now clean and 0 ahead / 0 behind. `devman`'s own re-pin is on
+`dagu-devenv-automation-eli5`, not on `main`, and PR #129 is what lands it.
+
+**The lesson for waves 2–4, and it is a checklist item rather than a design
+fact:** a wave's proof — registry count, `doctor`, `check`, `test` — passes
+identically whether or not the repository's commit was pushed. **The push is not
+observable from the plane.** Each wave's proof must include
+`git rev-list --count @{u}..HEAD` per repository, or the next wave will end the
+same way.
+
 ### A note on branches
 
 Partway through Gate 2 something in this environment checked out `main` and
