@@ -3499,3 +3499,133 @@ after proof:** `grail/.grail/*/check.json` (rewritten by the suite's own run).
 `devenv.lock` was committed where the repository tracks it; `atuout`,
 `browsee` and `grail` ignore it, and the adoption there is the two devenv files
 alone.
+
+## R-7 wave 4, batch 2 — ten adopted, the alias repo, and two consumer-facing modules
+
+**Answer: batch 2 is done — ten repositories, all registered, all pushed. The
+template-default count is now 7 of the 15 `enterTest` repositories (3 of this
+batch's 5). Every suite passed; batch 2 produced no recorded failure.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### The template-default count, extended
+
+| Repository | `enterTest` | `base:test` |
+|---|---|---|
+| `knappy` | **template default** | `uv run --extra dev pytest` |
+| `nixbuild` | **template default** | `nix flake check` (no suite) |
+| `templateer_v2` | **template default** | `uv run --extra dev pytest` |
+| `tyo3` | custom (maturin + pytest) | `VIRTUAL_ENV=…; maturin develop && … uv run --group dev pytest … -x` |
+| `zelligate` | custom (`pytest`) | `uv run --extra dev pytest` |
+
+**Cumulative template-default count: 7 of 15.** None of the seven adopted
+`devenv test`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `knappy` | `4eecc77` | ok — ruff clean (`src`) | ok — **218 passed** |
+| `nixbuild` | `6b1f13f` | ok — ruff clean (`src`) | ok — **nix flake check** all passed |
+| `templateer_v2` | `9ce584f` | ok — ruff clean | ok — **444 passed**, 9 skipped |
+| `tyo3` | `94d429f` | ok — ruff clean (`src`) | ok — suite green |
+| `zelligate` | `06d0297` | ok — ruff clean (`src`) | ok — **273 passed** |
+| `loci-core` | `f3542a3` | ok — via `loci:lint` alias | ok — via `loci:test` alias |
+| `allium-env` | `0cc8bd9` | ok — ruff clean (`src`) | ok — **16 passed** |
+| `argentic` | `8f32312` | ok — ruff clean (`src`+`consumer/src`) | ok — suite green |
+| `copyroom` | `a45a50d` | ok — ruff clean (`src`) | ok — **603 passed** (152.8 s) |
+| `docman` | `279b9cb` | ok — ruff clean (`src`) | ok — **18 passed** |
+
+All ten at `@{u}..HEAD = 0`.
+
+### What the batch spent its effort on
+
+**`tyo3` needed two task-env facts, both measured.** First, `maturin develop`
+fails in the task environment because `VIRTUAL_ENV` is unset there (the
+interactive shell sets it) — the task exports
+`VIRTUAL_ENV=$DEVENV_ROOT/.devenv/state/venv`. Second, the venv python has no
+pytest and the nix `pytest` wrapper delegates into the venv once `VIRTUAL_ENV`
+is set, so the run must use `uv run --group dev pytest` (tyo3's dev deps are a
+uv `[dependency-groups]`, not an extra). The first cold maturin build took
+**546 s**; the suite itself is seconds. A timeout here would have measured the
+cache, not the repository — I-4b's rule, hit for real.
+
+**`loci-core` is the alias case** (`PROPOSAL.md` §6 rule 6). It already owns
+`loci:lint`/`loci:test`; `base`'s two names forward to them with
+`devenv tasks run` rather than duplicating command bodies. Its checkout was on
+a detached HEAD; the adoption landed on `main` (its default branch).
+
+**`copyroom` and `docman` are consumer-facing modules.** Their root `devenv.nix`
+is what a consumer's `imports: - copyroom` / `- docman` merges, so the devman
+block and toolchain live in a **dev-only layer**: copyroom already had
+`dev/devenv.nix` (wired via its root `devenv.yaml`'s `- ./dev`); docman had no
+such layer and its root devenv provided no Python at all, so `dev/devenv.nix`
+was created (venv + devman + tasks) and the root consumer surface left
+untouched. A devman block in either root would have registered project
+"copyroom"/"docman" inside every consumer's shell — the exact §12 rule 5
+failure this avoids.
+
+**`nixbuild` has no suite** (its pytest config points at a `../tests` that does
+not exist). Its gate is the flake: `base:check` is the repo's configured linter
+(`ruff check src`, from `src/pyproject.toml`) and `base:test` is `nix flake
+check` (builds the CLI package). The direct shape, like `nix-desktop`.
+
+**`argentic`'s local `main` had no upstream.** The push itself worked
+(`ade3f09..8f32312 main -> main`); only the `@{u}` proof needed
+`git push -u origin main` to resolve. Recorded because it is the second
+repository whose push bookkeeping differed from the default.
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        31   (was 21)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    100   (was 70)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a fifth point on `doctor`'s curve — five timings at 31 projects:**
+
+```
+8549  8297  9032  9047  9169 ms      mean 8819 ms over 100 workflows = 88.2 ms/file
+```
+
+83.6 (I-2a), 87 at six, 78.9 at 34, 82.2 at 70 — **88.2 at 100 workflows. The
+serial `check_load` line holds; it has not crossed 30 s, so `plane-report` and
+OPEN_QUESTIONS §2 stay unurgent.**
+
+**I-1 pending:** the overnight `maintain` sweep and the single `plane-report`
+after both batches remain scheduled for the coming night.
+
+### Verdict
+
+Batch 2 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 31
+projects and 100 workflows. No recorded failures. The two consumer-facing
+modules prove the dev-layer pattern the plane's own repo already uses.
+
+### Charter impact
+
+**None.** §12 rule 4's count is now 7 of 15 measured directly; nothing the
+batch found contradicts a charter sentence.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `knappy` | `4eecc77` | committed, **pushed** to `origin/main` |
+| `nixbuild` | `6b1f13f` | committed, **pushed** to `origin/main` |
+| `templateer_v2` | `9ce584f` | committed, **pushed** to `origin/main` |
+| `tyo3` | `94d429f` | committed, **pushed** to `origin/main` |
+| `zelligate` | `06d0297` | committed, **pushed** to `origin/main` |
+| `loci-core` | `f3542a3` | committed, **pushed** to `origin/main` (was detached) |
+| `allium-env` | `0cc8bd9` | committed, **pushed** to `origin/main` |
+| `argentic` | `8f32312` | committed, **pushed** to `origin/main` (upstream set) |
+| `copyroom` | `a45a50d` | committed, **pushed** to `origin/main` |
+| `docman` | `279b9cb` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** `tyo3`'s maturin build cache (546 s cold, warm now),
+which is what made the batch's long pole short on re-run. Nothing was deleted.
+`loci-core` and `argentic` were moved from detached HEAD to their local `main`
+(the adoption branch); both were clean before and after.
