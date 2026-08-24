@@ -1983,6 +1983,155 @@ to Gate 3 set what they are.
 
 ---
 
+## R-7 wave 2b — the two blocked repositories, and two wrong guesses
+
+**Answer: both adopted. Wave 2 is five of five registered.** The blocker was
+**not** what wave 2's entry guessed, and the correction is the point of this
+entry.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Both pin `main` at `70c8e2f`.
+
+### Wrong guess 1 — `flake: false` was correlation, not cause
+
+Wave 2 recorded a **perfect** correlation: the two repositories that could not
+enter a shell were exactly the two declaring the `shellij` input as a flake
+rather than `flake: false`, and the three that worked all set it. Five for five.
+
+**It was wrong.** Adding `flake: false` to both changed nothing:
+
+```
+webdantic    shell: STILL FAILS — git-hooks or pre-commit-hooks input required
+parsedantic  shell: STILL FAILS — git-hooks or pre-commit-hooks input required
+```
+
+The change was reverted rather than kept, because the comment justifying it
+stated a reason that is false.
+
+**A five-for-five correlation over five samples is not a mechanism**, and wave 2
+had the evidence to know better: it never traced the error, it matched a column.
+
+### The actual cause, traced rather than correlated
+
+devenv's own integration module throws, and it is reached while evaluating
+`config.shell` — so the failure is total, not partial:
+
+```
+… while calling the 'throw' builtin
+  at /nix/store/71bpdsq…-source/src/modules/integrations/git-hooks.nix:9:11:
+     8|       or inputs.pre-commit-hooks
+     9|       or (throw "git-hooks or pre-commit-hooks input required");
+```
+
+**`pydantree` carries the same template and the same direct `shellij/modules`
+import, and works** — because it declares the input:
+
+```
+$ grep -A1 'pre-commit-hooks' pydantree/devenv.yaml
+  pre-commit-hooks:
+    url: github:cachix/pre-commit-hooks.nix
+```
+
+One input each, and both shells enter:
+
+```
+webdantic    SHELL ENTERS
+parsedantic  SHELL ENTERS
+```
+
+### Wrong guess 2 — a bare `pytest` is not `base:test`
+
+Both were adopted with `base:test` = `pytest`, copying wave 1. Both failed with
+`command not found`:
+
+```
+$ devenv shell -- command -v pytest
+webdantic    MISSING     ruff:ok
+parsedantic  MISSING     ruff:ok
+```
+
+**`pytest` is in `[project.optional-dependencies].dev`, and devenv's venv
+installs only the base dependencies.** Wave 1's Python repositories have pytest
+in the venv because `testee` puts it there; these two do not. `base:test` is
+therefore:
+
+```nix
+"webdantic:test".exec = "uv run --extra dev pytest";
+```
+
+```
+63 passed, 3 skipped in 2.59s
+```
+
+**This is `PROPOSAL.md` §12 rule 6 in miniature** — one logical task, one
+implementation, every caller reaching it the same way. A `base:test` naming a
+command that is not on the shell's PATH is a second implementation that never
+worked.
+
+### Evidence — wave 2, complete
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `poddantic` | `a295423` | **failed** — 20 `ruff` | ok — 233 passed, 2 skipped |
+| `nix-desktop` | `c775f2f` | ok | ok |
+| `loci.nvim` | `7e6d984` | ok | ok |
+| `webdantic` | `2486f27` | **failed** — 275 `ruff` | ok — 63 passed, 3 skipped |
+| `parsedantic` | `e473af5` | **failed** — 78 `ruff` | **failed** — 13 collection errors |
+
+```
+$ devman doctor
+devman doctor — 11 projects, 40 workflows
+Nothing to report.                                                   exit 0
+```
+
+**`parsedantic`'s test failure is the repository's own, and it is controlled.**
+13 errors during collection, every one
+`TypeError: function() argument 'code' must be code, not str` — the library
+builds functions at import time and the Python in this shell rejects it. With
+devman's block removed and only the `pre-commit-hooks` input kept:
+
+```
+$ devenv shell -- uv run --extra dev pytest -q
+13 errors in 0.39s        <- identical
+```
+
+**Not repaired.** Three of five now fail `check` on lint debt (20, 275 and 78
+findings) and one fails `test` on a real bug. Adoption and repair stay separate,
+as wave 1 decided for `pydantree`.
+
+### What this changes for waves 3 and 4
+
+**Two checks per repository, before any file is edited:**
+
+1. **`devenv shell -- true`.** A repository whose shell does not enter cannot
+   register at all, and I-4's static sweep cannot see it.
+2. **`command -v <the tool base:test would call>`, inside that shell.** A task
+   naming a command the shell does not have fails identically to a failing
+   suite, and only the log distinguishes them.
+
+**And a rule for this log: trace the error before reporting the cause.** Both
+wrong guesses here were plausible, and one had five-for-five agreement.
+
+### Charter impact
+
+**None.** §5.2 already says shell entry is the only registration path; wave 2b
+is that sentence being expensive.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `webdantic` | `2486f27` | committed, **pushed** to `origin/main` |
+| `parsedantic` | `e473af5` | committed, **pushed** to `origin/main` |
+
+The registry went from 9 projects to **11**, and 34 workflows to **40**.
+`doctor` is clean. The `flake: false` edits were reverted and are in neither
+commit.
+
+---
+
 ## R-9 — `.devman/` belongs to the repository · a decision, and what it costs
 
 **Answer: the §15.2 whitelist is removed.** Registration no longer looks at what
