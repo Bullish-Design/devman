@@ -1983,6 +1983,166 @@ to Gate 3 set what they are.
 
 ---
 
+## I-11 — The overnight scheduled runs, after wave 1's re-pins
+
+**Answer: six `maintain` runs and exactly one `plane-report`, all succeeded,
+and stage 6's three-minute silence did not reappear.** The longest gap between
+the scheduled minute and a run starting was **596 ms**. Every one of the seven
+started inside the same second Dagu dispatched it.
+
+**`pyjutsu-maintain` succeeded**, which is what S-5 predicted when `doctor` left
+`maintain`. It had failed 4 of its previous 5 runs.
+
+### The night this measures, and a correction to the plan
+
+**The plan expected this evidence on the night of 23 August. It was not there,
+and the reason is chronology rather than a fault.** Wave 1's re-pins landed
+between 19:30 and 21:07 on 23 August, and `plane-report` was authored at 19:42
+that evening (`ccd91a0`). So:
+
+| | |
+|---|---|
+| 23 Aug 00:05 | six `maintain` runs fired and succeeded — but ~15 h **before** wave 1, under the old two-step `maintain` (`prune` + `doctor`) |
+| 23 Aug 00:20 | **no `plane-report`**, because the workflow did not exist for another 19 hours |
+| **24 Aug 00:05** | six `maintain` runs, prune-only, **after** every re-pin — this entry |
+| **24 Aug 00:20** | one `plane-report` — this entry |
+
+The 23 August runs are recorded here because they were read first and would
+otherwise look like the answer.
+
+### Versions
+
+Dagu **2.15.0** (`MainPID` 2216556, started 23 Aug 20:38:03), devenv **2.1.2**,
+devman **0.3.0** from the machine closure. 6 projects, 25 workflows.
+
+### Command
+
+```bash
+journalctl --user -u dagu --since "2026-08-24 00:00" --until "2026-08-24 00:30" \
+  | grep "Dispatching planned run"
+# then, per project, the report, the metadata.jsonl line and the run record
+```
+
+### Evidence 1 — the dispatch, and the gap per repository
+
+Every line the daemon wrote in that half hour is a dispatch. There are seven.
+
+```
+00:05:00.003  devman-maintain
+00:05:00.003  observantic-maintain
+00:05:00.003  pyjutsu-maintain
+00:05:00.003  nix-paseo-maintain
+00:05:00.004  pydantree-maintain
+00:05:00.010  siteman-maintain
+00:20:00.002  devman-plane-report
+```
+
+The run's own log file names the millisecond it started, so the gap is exact:
+
+| DAG | dispatched | started | gap |
+|---|---|---|---|
+| `nix-paseo-maintain` | 00:05:00.003 | 00:05:00.087 | **84 ms** |
+| `devman-maintain` | 00:05:00.003 | 00:05:00.097 | **94 ms** |
+| `pydantree-maintain` | 00:05:00.004 | 00:05:00.101 | **97 ms** |
+| `pyjutsu-maintain` | 00:05:00.003 | 00:05:00.438 | **435 ms** |
+| `siteman-maintain` | 00:05:00.010 | 00:05:00.489 | **479 ms** |
+| `observantic-maintain` | 00:05:00.003 | 00:05:00.599 | **596 ms** |
+| `devman-plane-report` | 00:20:00.002 | 00:20:00.065 | **63 ms** |
+
+**The spread is six repositories starting inside 512 ms of each other**, which is
+S-1's picture exactly: the scheduler dispatches all of them at once and nothing
+throttles them. Six is far below where that matters.
+
+### Evidence 2 — six reports, six records, all `succeeded`
+
+Every project wrote its `maintain-<run-id>.md` and every `metadata.jsonl` gained
+one line:
+
+```
+devman       034CVHpDuplH9fI001dbCL  succeeded   27 reports before, 27 after — 0 pruned
+siteman      034CVHpE0rWjs1c19XBgWs  succeeded    8 reports before,  8 after — 0 pruned
+nix-paseo    034CVHpDuhR8nVwJUtJCix  succeeded    5 reports before,  5 after — 0 pruned
+pyjutsu      034CVHpE0dO0qHRPCHrfql  succeeded    7 reports before,  7 after — 0 pruned
+pydantree    034CVHpE0kcmrL6OMGREkb  succeeded    5 reports before,  5 after — 0 pruned
+observantic  034CVHpDuY0vj3KrElsHlx  succeeded    6 reports before,  6 after — 0 pruned
+```
+
+Each run record holds **one node**, named `prune`. The 23 August records hold
+two, `prune` and `doctor`. That is R-1 landing, visible in the run data.
+
+**Nothing was pruned anywhere, and that is correct** — `KEEP_DAYS` is 7 and no
+report is older than two days. The prune path is exercised; its effect is zero
+because there is nothing yet to remove.
+
+### Evidence 3 — exactly one plane report
+
+```
+$ find .devman/.runs/reports -name 'plane-*.md' -newermt "2026-08-24 00:00" | wc -l
+1
+```
+
+`plane-034CVeeG6jG8CqPSBwTnnQ.md`, 2.0 s, `doctor exit: 0`, holding the whole of
+`devman doctor` — 6 projects, 25 workflows, nothing to report. **One report for
+the machine, not six**, which is `PROPOSAL.md` §5's whole argument, running.
+
+**And the report proves the handover point about the closure.** Its `doctor`
+output has no `trigger target` line, because the `devman` the DAG ran is the one
+in the machine closure and R-4d is not in it yet. The plane reports on itself
+with the `devman` the machine has, which is the version a `nixos-rebuild switch`
+changes.
+
+### The question this investigation exists for
+
+**`STAGE_6_LOG.md` S3's three-minute silence did not reappear.** Its case was a
+DAG the daemon already knew *without* a schedule that then gained one: three
+scheduled minutes passed with nothing, and a restart cured it.
+
+**Two things happened here that would have shown it, and neither did:**
+
+1. **Five repositories were re-pinned at 21:01–21:07 on 23 August**, after the
+   daemon's last start at 20:38:03. Their `maintain` DAGs were re-projected —
+   new file content, same name, same expression — and every one dispatched on
+   the first scheduled minute after.
+2. **`plane-report` is a new scheduled DAG**, projected at 20:56 on 23 August,
+   also after the last start. It fired at its first scheduled minute, 63 ms late.
+
+```
+$ systemctl --user show dagu -p ActiveEnterTimestamp -p NRestarts
+ActiveEnterTimestamp=Sun 2026-08-23 20:38:03 EDT
+NRestarts=0
+```
+
+**The honest limit on this result.** The 20:38:03 start is the recovery from the
+90-second outage S-1 caused, and `devman`'s own re-pin at 19:30 came *before*
+it. So `devman-maintain` cannot be counted as a re-pin that needed no restart —
+one happened in between, by accident. **The five that can be counted are
+`siteman`, `nix-paseo`, `pyjutsu`, `pydantree` and `observantic`**, and they
+are enough: five re-pins and one new scheduled DAG, no restart, no silence.
+
+**What is still unmeasured is stage 6's exact transition** — a DAG the daemon
+knows without a schedule that gains one. Nothing on the plane underwent it
+tonight, so this entry does not close `OPEN_QUESTIONS` §7. It closes the
+question the plan asked, which is whether a re-pin reproduces it. It does not.
+
+### Rule 7 — what this entry did to the machine
+
+**Nothing.** Every command is a read: `journalctl`, `find`, `sed`, and reads of
+`status.jsonl` and `metadata.jsonl`. No workflow was run, no file projected, no
+service touched.
+
+**One thing another entry did, recorded here because it shows in this evidence.**
+Editing `src/devman/doctor.py` for R-4f and R-4d fired the watcher three times
+at 23:53:38, 23:53:40 and 23:53:41 — three `devman/format` runs, all succeeded.
+They are in the plane report's watcher section above. That is the watcher
+working, and it is why the report names `doctor.py` three times.
+
+### Charter impact
+
+**None.** §8's three arrows are unchanged and criterion 12's narrowing is
+already R-6's. This entry is confirmation, not a new fact about the design.
+
+---
+
 ## R-6 — The charter, and the three corrections that belong to the proposal
 
 **Six charter sections change, not five.** `PROPOSAL.md` §9 drafted five. S-1
