@@ -490,10 +490,11 @@ schema throughout.
 or lies. They need to be stable only *within* a group, because only that group's
 files call them.
 
-**Workflow names are not reserved either.** The base group ships `check`,
-`validate`, and `full-test` because most repos want a fast one, a gate, and an
-exhaustive one — so `devman run check` usually resolves. A repo that wants
-`smoke` and `ci` renames the files. The plane does not police what a name means,
+**Workflow names are not reserved either.** The base group ships `check` and
+`test` because most repos want a fast one and a gate — so `devman run check`
+usually resolves. There is no third rung: an exhaustive tier was measured to
+carry no information in more than half the population (stage 7). A repo that
+wants `smoke` and `ci` renames the files. The plane does not police what a name means,
 because a rule it cannot check is a rule it should not have.
 
 ### 7.2 A workflow is a Dagu file
@@ -745,11 +746,16 @@ stays intact.
 > fact; and a file the watcher reads at run time may not, because the watcher
 > would then need §7.3's resolution too.
 >
-> **Reactivity is its own group.** §7.4's "an inherited workflow you never
-> trigger costs nothing" does not carry over — a *triggered* workflow rewrites
-> the developer's files while they are editing them — so a group that declares
-> triggers ships the workflows they fire and nothing else. Taking it is the
-> opt-in; not taking it is the whole opt-out (`STAGE_3_LOG.md`, S4).
+> **A workflow that writes the repository's own files without being asked is its
+> own group.** §7.4's "an inherited workflow you never trigger costs nothing"
+> does not carry over — such a workflow rewrites the developer's files while
+> they are editing them — so the group that ships it ships the workflows it
+> fires and nothing else. Taking it is the opt-in; not taking it is the whole
+> opt-out (`STAGE_3_LOG.md`, S4). **What fires it is not the test; what it
+> touches is.** A self-firing workflow that writes only under `.devman/.runs/`,
+> which the plane created and the watcher ignores, may ride in a general group.
+> `maintain` is the worked example, and its schedule is why the distinction had
+> to be stated (stage 7).
 
 The cost is honest and already accepted elsewhere: one watcher is a second
 shared-availability failure alongside the one instance (§15.3). It is also why
@@ -1385,6 +1391,13 @@ review workflows   release   maintenance   benchmark campaigns
 agent workflows    policy gating
 ```
 
+### Stage 7 — the standard set
+
+Nine workflows in four groups become five in three. The ladder is two rungs. The
+universal contract is `base:check` and `base:test`. `devman doctor` moves out of
+`maintain` and into one plane report. The plane goes from 6 registered
+repositories to 58, in four waves.
+
 ---
 
 ## 14. Success criteria
@@ -1402,7 +1415,7 @@ agent workflows    policy gating
 | 9 | Registration covers only opted-in repos | a repo without `devman.enable` never appears in the registry |
 | 10 | No workflow contains an absolute path | grep the registry and `workflows/`; zero hits |
 | 11 | Identity survives a move or a rename | move and rename the directory, re-enter its shell — same project, same run history |
-| 12 | Queues are real | two workflows naming the `exclusive` queue serialize **when enqueued** — `dagu start` bypasses queues entirely, so the measurement must use the real trigger path (§8) |
+| 12 | Queues bind the enqueue path | two workflows naming the `exclusive` queue serialize **when enqueued** — `dagu start` and Dagu's own scheduler both bypass queues entirely, so the measurement must use `dagu enqueue`, which is the path §8's first two arrows take |
 | 13 | The watchers do not chase each other | a file-writing workflow plus a watcher on those files: one save, exactly one run **that does work**, and the sequence stops within one further run, which skips. A workflow that does not write its watched files produces exactly one run. Then edit again immediately — it must run again |
 | 14 | The task graph exists once | no default workflow re-states a dependency devenv already declares |
 | 15 | A rebuild is inconvenient, not catastrophic | delete Dagu state, re-enter every registered shell, every workflow runs again |
@@ -1432,6 +1445,25 @@ produces is **bounded and self-stopping**. Measured at stage 3, in both shapes,
 with the control (`STAGE_3_LOG.md`, S6). The last clause is not decoration: a
 suppression window passes "one save, one run" and fails "edit again
 immediately", which is the whole reason §8 requires a content hash.
+
+**Criterion 12 is narrower than it read, and the narrowing is measured.** It
+said "queues are real" without saying which path they bind. **Queues bind the
+enqueue path.** `devman run`, a VCS hook and the watcher all reach Dagu through
+`dagu enqueue`, and a queue's `max_concurrency` holds exactly: 58 enqueued runs
+on `light` never exceeded 4 concurrent and drained in 311 s (stage 7, S-1). **A
+run started by Dagu's own scheduler does not pass through the queue** — 58 DAGs
+sharing one `schedule:` all ran at once with queue depth 0, and on the installed
+plane two DAGs on `exclusive` with a limit of 1 both started in the same second.
+So a `schedule:` is throttled by nothing, and the rule follows: **what the plane
+schedules must be cheap by construction** (`PROPOSAL.md` §12, rule 8). This
+distinction has existed since stage 6 put schedules in workflow files; stage 7 is
+where it was measured.
+
+**Criterion 14 holds by construction since stage 7.** A default workflow runs
+exactly one `devenv tasks run`, so it declares no order and cannot re-state one.
+Before that it held only because almost no repository declared a task
+dependency — and `pyjutsu` already declared one, so the criterion was one
+ordinary `devenv.nix` edit away from being false.
 
 **Criterion 17 is the load-bearing one.** It is what lets the registry be
 derived, lets §9.3 promise reconstruction, and lets §5.2 have no manual register
@@ -1525,13 +1557,16 @@ is that each now has a reason rather than a preference.
   Revisit only when a third party wants to publish one.
 - **The machine module does not manage a Dagu it did not install.** It cannot:
   the conflict is a port collision, and it is loud (§4).
-- **Python and Nix, and nothing else yet.** Of 71 repositories surveyed,
-  `devenv.nix` appears in 57 and `pyproject.toml` in 52; `package.json` and
-  `Cargo.toml` appear in **one each**, and `go.mod` in none. A TypeScript or Rust
-  group would serve one repository, which is `.devman/workflows/` content by
-  §7.3's own promotion rule — a group begins when a *second* repo wants the same
-  file. The highest-coverage marker is `devenv.nix` at 80%, which is why the
-  `base` group carries the leverage rather than either language group.
+- **There are no ecosystem groups.** A language differs in what a task *is*, and
+  `devenv.nix` already holds that. A language group's whole content, once a
+  workflow is one step calling one task, is a namespace prefix — which §7.3
+  cannot promote and no second repository can want. The `python` group was
+  deleted at stage 7 for this reason, and `rust`, `node` and `lua` were never
+  created: each would serve one repository (`pyjutsu`,
+  `paloma-story-generation`, `loci.nvim`). The surviving groups are named for
+  what taking them costs — a task name, or a write to your own files — and the
+  highest-coverage marker is still `devenv.nix` at 58 of 68, which is why `base`
+  carries the leverage.
 - **Retention — settled, and the earlier caveat was wrong.**
   `hist_retention_days: 7` in `base.yaml` prunes **both** Dagu's machine-side
   history and the per-project log tree under `log_dir`. The log half needs no
