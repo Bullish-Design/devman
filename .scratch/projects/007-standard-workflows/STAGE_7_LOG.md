@@ -1983,6 +1983,158 @@ to Gate 3 set what they are.
 
 ---
 
+## I-4b — The shell-entry survey across all 58 · **wave 4's real size**
+
+**Answer: 54 of 58 repositories can enter their own devenv shell. Four cannot.**
+Wave 4 is **43 repositories**, and the work per repository is one `devenv.nix`
+task line — not a repair pass.
+
+**This is the check I-4 could not make.** I-4 read `devenv.nix` and never
+entered a shell. §5.2 makes shell entry the only registration path, so a
+repository whose shell fails is not "hard to adopt", it is **impossible to
+adopt** and invisible to `doctor` while it stays that way.
+
+### Versions
+
+devenv **2.1.2**, devman **0.3.0**. 58 repositories under
+`~/Documents/Projects` holding a `devenv.nix`. `devman` is read at its
+registered path, the worktree.
+
+### Command
+
+```bash
+for d in $(find . -maxdepth 2 -name devenv.nix -printf '%h\n' | sort); do
+  (cd "$d" && timeout 240 devenv shell -- true)
+done
+```
+
+Sequential, not parallel, so that one repository's build does not distort
+another's. **The whole sweep is a real cost and it is stated:** ~35 minutes of
+wall clock, and it warmed a great many Nix caches.
+
+### Evidence — the four that fail, and four distinct causes
+
+| Repository | Cause | Class |
+|---|---|---|
+| `PyGentic` | `git-hooks or pre-commit-hooks input required` | devenv integration — **one input line** |
+| `clinch` | `attribute 'configPath' missing` | the repository's own module |
+| `inferference` | `Refusing to evaluate package 'cuda12.9-cuda_nvcc-12.9.86'` | unfree licence, not declared |
+| `fsdantic` | `agentfs-src/cli/Cargo.toml` does not exist | vendored source absent (wave 3) |
+
+**Only `PyGentic` repeats a cause already solved.** It is the same
+`pre-commit-hooks` gap wave 2b traced in `webdantic` and `parsedantic`, so it is
+one line away from adoptable. The other three are each their own repair.
+
+**An honest correction to the headline.** This survey ran **after** wave 2b, so
+`webdantic` and `parsedantic` report `OK` because they were fixed an hour
+earlier, not natively. **The pre-session figure is 6 of 58 unadoptable**, and
+that is the number to compare against wave 2's alarming 2-in-5.
+
+### One result that was wrong until it was re-measured
+
+`terminal-state` recorded **TIMEOUT at 568 s** against a 240 s limit — the
+process outlived its own timeout, which is worth noting on its own. Re-run
+immediately afterwards:
+
+```
+$ cd terminal-state && devenv shell -- true
+rc=0  elapsed=3s
+```
+
+**It was a cold build, and the first run warmed it.** Recorded as `OK`, and
+recorded here as a reminder that a timeout in this survey measures the cache,
+not the repository. Its first-entry cost is the one real data point: **568 s
+cold.**
+
+### Cold-entry cost, which nobody had measured
+
+```
+terminal-state  568s      structured-agents-v2   48s
+repoman         216s      llgym                  40s
+nixvim          114s      boomtube               37s
+browsee          53s      tyo3                   36s
+```
+
+Everything else is under 30 s, and most is under 10 s. **Criterion 7's ≤10 ms
+budget is about a warm entry**, and nothing here touches it — but a wave that
+adopts ten repositories at once should expect minutes, not seconds, the first
+time.
+
+### What wave 4 actually is
+
+```
+total repositories        58
+shell enters              54
+shell does NOT enter       4
+already adopted           11        (waves 0-2b)
+WAVE 4 = adoptable now    43
+```
+
+**By what `base:test` would be, across those 43:**
+
+| | Count | Work per repository |
+|---|---|---|
+| a suite, no task | **27** | one task line naming the suite |
+| `enterTest` only | **15** | one task line, **and** a check that it tests anything |
+| a `<x>:test` task | **1** | one alias line |
+
+**The 15 are the ones that can adopt a lie.** `PROPOSAL.md` §12 rule 4 rests on
+`devenv test` exiting 0 having tested nothing in 30 of 58 repositories, and wave
+2 hit it twice: `webdantic` and `parsedantic` both had the devenv template's
+default `enterTest`, which greps `git --version`. Neither got `devenv test` as
+its `base:test`. **These 15 go first in wave 4**, so the failure mode is met
+while the batch is small.
+
+### The two checks wave 4 runs per repository, before editing anything
+
+Both were bought with a wasted wave:
+
+1. **`devenv shell -- true`.** This survey is that check, run once for all 58.
+2. **`command -v <the tool `base:test` would call>`, inside that shell.** Wave
+   2b found `pytest` absent from two venvs where `pyproject.toml` declares it —
+   it lives in `[project.optional-dependencies]`, which devenv's venv does not
+   install. The answer there was `uv run --extra dev pytest`.
+
+### A third thing, found while waiting, that `doctor` cannot see
+
+The `devman` repository root holds an **empty, untracked directory literally
+named** `${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}`, dated 22 August. It is the
+fingerprint of §7.2's unset-variable bug, from before stage 6 generated
+per-project files.
+
+**`doctor`'s `literal dir` check does not find it, and cannot.** That check
+greps the *projected YAML* for literal `${…}` strings and reports "none in 12
+places" — it catches the **cause** and never the **consequence**. `git status`
+misses it too, because git does not track empty directories.
+
+**Not deleted**, and reported rather than tidied away. It is inert. If a check
+for it is ever wanted it belongs in `doctor` as a filesystem test next to check
+3, and it is a `find` on each registered path — a fork per project on a path
+that is already allowed to spend one.
+
+### Verdict
+
+**`PLAN.md` §8's sizing question is answered, and the answer changed twice.**
+I-4 said wave 4 was 46 repositories × one line. Wave 2 said 2 in 5 might be
+unadoptable, which would have made it a repair pass. **The survey says 43 × one
+line, plus 4 repairs that are somebody else's work.** The middle estimate was
+the wrong one, and it came from five samples.
+
+### Charter impact
+
+**None.** §5.2 and §15.1 already say what this measures. What is new is the
+number.
+
+### Rule 7 — what this entry did to the machine
+
+**No repository was edited and nothing was committed to any of them.** The sweep
+entered 58 shells and `terminal-state`'s a second time. That is not free: it
+realised a large number of Nix store paths that were not there before,
+`terminal-state`'s alone taking 568 s. Nothing was deleted. The registry is
+unchanged at **11 projects, 40 workflows**.
+
+---
+
 ## R-7 wave 3 — `fsdantic`, blocked before the thing it was scheduled to test
 
 **Answer: `fsdantic` cannot be adopted, and not for any reason wave 3 was
