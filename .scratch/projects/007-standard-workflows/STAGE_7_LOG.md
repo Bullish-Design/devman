@@ -2552,7 +2552,15 @@ is one `devenv.nix` line. Wave 1's two failures — `pyjutsu`'s native build and
 **Waves 2–4 pin `ref=main&rev=`, and `main` does not carry R-8, R-4d or R-4f.**
 Those repositories consume the module and the CLI, so wave 2 cannot start until
 a rev carrying them is on `main`. The owner's chosen route is a pull request
-from `dagu-devenv-automation-eli5`.
+from `dagu-devenv-automation-eli5`, and it is open:
+**https://github.com/Bullish-Design/devman/pull/129**, head `008ecb9`.
+
+**Wave 2 starts when that merges**, and its order is `PROPOSAL.md` §8: five
+repositories — `webdantic`, `poddantic`, `parsedantic`, `nix-desktop` and
+`loci.nvim` — of which `nix-desktop` and `loci.nvim` passing is the proof the
+universal contract is not a Python fiction. `nix-desktop` is one of I-4's four
+with no suite, so it is also the first repository that has to decide what
+`base:test` means with nothing to test.
 
 **And the machine's `devman` is the closure's.** R-4d and R-4f are in the source
 tree and not in the installed binary — the plane report of 24 August shows
