@@ -1983,6 +1983,116 @@ to Gate 3 set what they are.
 
 ---
 
+## I-4 — The `base:test` sweep across 58, static · **run before wave 4, not during**
+
+**Answer: 4 of 58 repositories have nothing to test. The other 54 have a suite
+and 48 of them have no task pointing at it.** So wave 4's per-repository work is
+overwhelmingly **one line in `devenv.nix`**, not authoring a test suite.
+
+**This is the static classification only.** The owner's call, taken before the
+sweep ran: report the table from inspection, state the split from it, and leave
+the live run to the session that starts wave 4. **So no repository here carries
+a measured pass or fail.** Wave 1's six do, and they are the only ones that do.
+
+### Versions
+
+Inspection of `devenv.nix` and the working tree in each of the 58 repositories
+under `~/Documents/Projects` that hold one. `devman` is read at its **registered
+path**, the worktree, not at the second checkout (I-9).
+
+### Command
+
+```bash
+find . -maxdepth 2 -name devenv.nix -printf '%h\n' | wc -l      # 58
+# then, per repository: the `"<x>:<y>"` task names in devenv.nix, whether
+# `enterTest` is set, and whether a suite exists on disk
+```
+
+### Evidence — the 58, by what they would put in `base:test`
+
+| Class | Count | What `base:test` would be | What wave 4 owes it |
+|---|---|---|---|
+| **adopted** | **6** | `base:test`, already defined | nothing — this is wave 1 |
+| **a `<x>:test` task** | **1** | `devenv tasks run loci:test` | one alias line |
+| **`enterTest` only** | **19** | `devenv test` | one alias line, **and a check that `devenv test` tests anything** |
+| **a suite, no task** | **28** | none yet | one task line naming the suite |
+| **no suite at all** | **4** | none | a decision, not a line |
+
+```
+adopted          6   devman nix-paseo observantic pydantree pyjutsu siteman
+task             1   loci-core
+enterTest       19   PyGentic atuout atuout-reconciler-test boomtube browsee
+                     cairn clinch embeddy fleetman forgelab fornix grail
+                     knappy nixbuild parsedantic templateer_v2 tyo3 webdantic
+                     zelligate
+suite, no task  28   allium-env argentic copyroom docman eventic flora
+                     flora-core flora-qc foreman fsdantic gitman
+                     image-gen-pipeline inferference interplay llgym loci.nvim
+                     lodestar my-ai mypi-agent poddantic pytuin repoman
+                     shellij structured-agents-v2 talkee terminal-state testee
+                     vendomat
+no suite         4   nix-desktop nix-nvim nix-secrets nixvim
+```
+
+### The split, stated explicitly, which is what `PLAN.md` §8 asks for
+
+**Wave 4 is adoption plus one authoring line, not adoption plus repair.** That is
+a different and smaller answer than wave 1 suggested, and the reason is that
+wave 1's two failures are not the population's shape:
+
+- **`pyjutsu` fails `test`** because `pyjutsu:build` needs a virtualenv `maturin`
+  cannot find. That is a native-extension build, and `pyjutsu` is the only
+  repository in the inventory with one.
+- **`pydantree` fails `check`** on 256 `ruff` findings, almost all under
+  `.scratch/` and `examples/`. That is a lint configuration, and it is not a
+  `base:test` fact at all.
+
+**Neither failure is the thing this investigation was sizing.** The sizing
+question was "do these repositories have tests that pass", and the static answer
+is that **54 of 58 have something to point at**.
+
+**Three bounds on that, and they are why the live run still has to happen.**
+
+1. **`devenv test` is not a safe default for the 19.** `PROPOSAL.md` §12's
+   fourth rule rests on a measurement — `devenv test` exits 0 having tested
+   nothing in 30 of 58 repositories. An `enterTest` that is set is not an
+   `enterTest` that runs a suite. Those 19 are the group most likely to adopt a
+   green workflow that tests nothing, which is the failure §12 rule 4 exists to
+   forbid.
+2. **A suite on disk is not a passing suite.** 28 repositories have `tests/` and
+   `test_*.py` and nothing has run them. The static pass cannot tell a
+   maintained suite from an abandoned one.
+3. **The heuristic has a known blind spot, and `siteman` is it.** `siteman`
+   shows "no suite" by file inspection and is nonetheless adopted: its
+   `base:test` is `ci`, an offline end-to-end build of `examples/demo`, because
+   it has no unit tests by design. **A repository can honour the contract with
+   no `tests/` directory**, so the 4 in "no suite" are candidates for a
+   decision, not a verdict.
+
+### Verdict
+
+**The bar `PLAN.md` §8 sets is met: the sizing question is answered before wave
+4 rather than during it.** Wave 4 is 46 repositories × one `devenv.nix` line,
+plus 19 `devenv test` invocations that need checking against §12 rule 4, plus 4
+repositories that need a decision about what `base:test` means when there is
+nothing to test.
+
+**What is deliberately not answered: pass or fail, per repository.** That is the
+live sweep, and it belongs to the session that starts wave 4, with the 19
+`enterTest` repositories first because they are the ones that can adopt a lie.
+
+### Charter impact
+
+**None.** §16's "no ecosystem groups" already carries the population figure, and
+R-6 landed it. This entry adds no claim the charter states.
+
+### Rule 7 — what this entry did to the machine
+
+**Nothing.** One `find` and one Python script that reads `devenv.nix` and lists
+directories. No shell entered, no workflow run, no repository written to.
+
+---
+
 ## R-8 — An edited override re-projects, and the obvious way to write it was too slow
 
 **Answer: fixed, proved byte for byte, and it costs 2.82 ms per shell entry.**
