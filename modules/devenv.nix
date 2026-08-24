@@ -446,18 +446,24 @@ in
       devman_reg="${cfg.registryDir}"
       devman_meta="$devman_reg/projects/${cfg.project}/metadata.json"
 
-      # §15.2: `.devman/` may hold only `workflows/` and `.runs/`. A survey of
-      # 77 checkouts found four shapes, so the test is a whitelist rather than a
-      # check for a known-old marker (D6). One directory listing, no fork.
-      devman_bad=""
-      for devman_f in "$devman_root"/.devman/* "$devman_root"/.devman/.*; do
-        [ -e "$devman_f" ] || continue
-        devman_b="''${devman_f##*/}"
-        case "$devman_b" in
-          . | .. | workflows | .runs) ;;
-          *) devman_bad="$devman_bad $devman_b" ;;
-        esac
-      done
+      # §15.2: `.devman/` IS THE REPOSITORY'S. devman reserves two names inside
+      # it — `workflows/` and `.runs/` — and never reads, writes or inspects
+      # anything else there.
+      #
+      # There used to be a whitelist here: any other top-level entry made
+      # registration refuse and report. It was removed by decision at stage 7,
+      # and the reason is that it contradicted §7.4. The plane's whole claim is
+      # that it names the smallest vocabulary it has to and leaves the rest to
+      # the repository; a directory the repository already owned is not the
+      # place to make an exception. `.devman/` is open for whatever else a
+      # repository or an add-on wants to keep there.
+      #
+      # Nothing replaces it, deliberately. A `doctor` check that listed
+      # unrecognised entries would be the same opinion with a softer voice, and
+      # §15.7 says `doctor` does not guess.
+      #
+      # So there is no directory listing on this path at all, which also makes
+      # the hook cheaper than the version that policed it.
 
       devman_disk=""
       [ -f "$devman_meta" ] && devman_disk=$(<"$devman_meta")
@@ -559,13 +565,7 @@ in
           ;;
       esac
 
-      if [ -n "$devman_bad" ]; then
-        echo "devman: refusing to register '${cfg.project}'" >&2
-        echo "devman:   .devman/ holds entries devman does not recognise:$devman_bad" >&2
-        echo "devman:   only workflows/ and .runs/ may be there" >&2
-        echo "devman:   move them, or unset devman.enable in this repository" >&2
-
-      elif [ -n "$devman_recorded" ] && [ "$devman_recorded" != "$devman_root" ] \
+      if [ -n "$devman_recorded" ] && [ "$devman_recorded" != "$devman_root" ] \
            && [ -d "$devman_recorded" ]; then
         # §9.1: refuse a duplicate, but only when the recorded path still
         # exists. A recorded path that is gone means the project moved, and the
@@ -625,7 +625,7 @@ in
         fi
       fi
 
-      unset devman_root devman_reg devman_meta devman_bad devman_b devman_f \
+      unset devman_root devman_reg devman_meta devman_b devman_f \
             devman_disk devman_local devman_names devman_n devman_relink \
             devman_stale devman_proj devman_body devman_have \
             devman_tmpl devman_rendered \
