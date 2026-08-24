@@ -1983,6 +1983,125 @@ to Gate 3 set what they are.
 
 ---
 
+## R-9 — `.devman/` belongs to the repository · a decision, and what it costs
+
+**Answer: the §15.2 whitelist is removed.** Registration no longer looks at what
+else is under `.devman/`. devman reserves two names — `workflows/` and `.runs/`
+— and never reads, writes or inspects anything else there.
+
+**This is an owner decision, not a measurement**, and it is recorded as one. The
+ask was to keep `.devman/` open for add-on functionality. The measurement below
+is the proof the change does what it says, not the reason it was made.
+
+### Why the rule was wrong, in the charter's own terms
+
+**It contradicted §7.4.** The plane's claim is that it names the smallest
+vocabulary it has to and leaves everything else to the repository. `.devman/` is
+a directory the repository already owned, and "refuse to register until you move
+your files" is an opinion about a repository's layout — the exact kind §7.1 says
+the plane does not hold.
+
+**Wave 3 was built around the refusal, and that was the tell.** `PROPOSAL.md` §8
+scheduled `fsdantic` as the repository that "must fail first", because it holds
+`.devman/store/vendor/agentfs` — a tracked symlink to a vendored checkout that
+predates the plane entirely. A wave whose stated purpose is to make a
+repository move its own files, so the plane will consent to notice it, is a wave
+arguing for the wrong side.
+
+### Versions
+
+devenv **2.1.2**, devman **0.3.0**, in `devman` itself, which imports
+`./modules` and therefore picks up the change without a re-pin.
+
+### The measurement — paired, on one tree
+
+A throwaway `.devman/store/vendor/marker` was created in `devman`'s own
+checkout, and the module was swapped underneath it. **Same tree, same file, two
+modules.**
+
+```
+$ mkdir -p .devman/store/vendor && echo probe > .devman/store/vendor/marker
+
+# the old module
+$ git stash push -- modules/devenv.nix
+$ rm -f .devenv/nix-eval-cache.db* && devenv shell -- true
+devman: refusing to register 'devman'
+devman:   .devman/ holds entries devman does not recognise: store
+devman:   only workflows/ and .runs/ may be there
+devman:   move them, or unset devman.enable in this repository
+
+# the new module, nothing else changed
+$ git stash pop
+$ rm -f .devenv/nix-eval-cache.db* && devenv shell -- true
+(no output)
+
+$ python3 -m json.tool ~/.local/share/devman/projects/devman/metadata.json
+  "project": "devman"
+  "path":    "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon"
+  "local":   ["agent-review","bench-entry","plane-report","stack-validate"]
+
+$ find .devman/store
+  .devman/store  .devman/store/vendor  .devman/store/vendor/marker
+```
+
+**It registers, and the foreign directory is untouched.** The probe was removed
+afterwards and `.devman/` holds `workflows/` and `.runs/` again.
+
+### What was removed, precisely
+
+`modules/devenv.nix`: the `devman_bad` loop, the refusal branch that led the
+`if`/`elif` chain, and the variable from the `unset` list. **The duplicate-path
+refusal (§9.1) is untouched** and is now the first branch.
+
+**Nothing replaces it, deliberately.** A `doctor` check that listed unrecognised
+entries would be the same opinion in a softer voice, and §15.7 says `doctor`
+does not guess.
+
+**The hook got cheaper.** The whitelist was one directory listing on the common
+path, on every shell entry, twice. It is gone, which pays back a little of R-8's
+2.82 ms.
+
+### What this gives up, stated rather than glossed
+
+**A repository holding a `devman 0.2.0` workspace now registers silently**, and
+the two tools share `.devman/` without either knowing. That is the case the
+whitelist was written for, and it is the one that is genuinely lost.
+
+**The older tool is the destructive one.** Its `init` refuses a non-empty
+`.devman/`, and `--force` calls `shutil.rmtree` on it — which would delete the
+tracked `workflows/` this charter calls canonical. **§3.3's removal of that
+binary stops being a tidiness task and becomes the mitigation.** Nothing in the
+plane can defend against a tool that deletes the directory out from under it,
+and nothing in the plane now tries.
+
+### What this changes about wave 3
+
+**Wave 3's purpose inverts.** It was "the whitelist refuses, then `fsdantic`
+moves its directory". It becomes "`fsdantic` adopts the plane **and keeps its
+store**, and the two do not interact". The proof is the same shape — one
+repository, one shell entry, `check` and `test` — and the thing being proved is
+better.
+
+**`fsdantic` cannot adopt until a `main` rev carries this**, because it pins
+`ref=main&rev=`. The rev on `main` at the time of this entry is `70c8e2f`, which
+still holds the whitelist.
+
+### Charter impact
+
+**§15.2, rewritten, in its own commit** (`ff62a7f`, after `0b6e013`), per stage
+6's D9. It keeps the 77-checkout survey that justified the old rule, says
+plainly that the rule is reversed by decision, and names what the reversal costs.
+
+### Rule 7 — what this entry did to the machine
+
+| | |
+|---|---|
+| `devman` | `modules/devenv.nix` (`0b6e013`), `CONCEPT.md` §15.2 (`ff62a7f`) |
+| a probe | `.devman/store/vendor/marker`, created and **deleted**; `.devman/` holds `workflows/` and `.runs/` |
+| the registry | re-projected three times; 9 projects, 34 workflows, `doctor` clean |
+
+---
+
 ## R-7 wave 2 — three of five adopted, and two cannot be adopted at all
 
 **Answer: the universal contract is not a Python fiction, and wave 2 proves it.**
