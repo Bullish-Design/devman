@@ -100,6 +100,17 @@ being live-edited, because Dagu reads a generated copy rather than a symlink to
 it. This log states the remedy (`devenv shell -- true`), measures how long it
 takes, and says plainly whether it is acceptable.
 
+> **CORRECTED AT STAGE 7 — the remedy this log states did not work.**
+> `devenv shell -- true` rebuilt the projection only when the *rendered entry*
+> changed, and the entry records the set of override **names**. Editing a
+> `.devman/workflows/*.yaml` in place changes no name, so the guard matched, the
+> projection was not rebuilt, and the next run executed the **previous** version
+> — silently, with `devman doctor` reporting nothing wrong. Found while running
+> stage 7's S-5 and recorded there as S-5a; fixed by R-8, which makes the guard
+> compare each override's body against the tail of its projection. Everything
+> else this entry measures stands. The claim that failed is the one D6 exists to
+> make, which is why it is corrected here rather than only in stage 7's log.
+
 **D7 — Whatever a schedule inherits, a repository can refuse.** A `schedule:` in
 a group file reaches every repository that takes the group. That is the same
 promotion rule §16 already applies to the file itself, and the escape hatches are
@@ -251,6 +262,11 @@ sed -i 's|^schedule: "5 0 \* \* \*"|schedule: "* * * * *"|' groups/base/workflow
 rm -f .devenv/nix-eval-cache.db*        # a group file inside a path: input (S7, stage 3)
 devenv shell -- true                    # the only way a projection is ever rebuilt
 ```
+
+This one worked because a `groups/` file is inside the store path the entry
+records as `plan`, so the entry changed. **An edit to a `.devman/workflows/`
+file changed nothing in the entry and was therefore not projected at all** —
+see the correction under D6.
 
 **Evidence — the daemon's own scheduler:**
 
@@ -459,7 +475,7 @@ Run against the installed service, 6 projects and 36 DAGs.
 | D3 | the header is auditable and minimal | **met.** Four lines, additive, `DEVMAN_SELF_DIR` for the cross-repo case, proved by `doctor`'s §11 check |
 | D4 | the timer is retired only after the schedule is proved | **met** — and retiring it is one command in the handover, because the unit is the developer's own |
 | D5 | criteria re-run by command | **met.** 5, 6, 7, 10, 13 and 17 above |
-| D6 | the cost is stated, not discovered later | **met.** `show` had to change, live-editing an override is gone, projecting costs 355 ms |
+| D6 | the cost is stated, not discovered later | **partly met, and stage 7 found the gap.** `show` had to change, live-editing an override is gone, projecting costs 355 ms — but the stated remedy did not rebuild an edited override at all (see the correction under D6). The cost was stated; one consequence of it was not |
 | D7 | a schedule a group ships can be refused | **met**, and the repositories it starts work in are named: all six, nightly at 00:05 |
 | D8 | no second entry path | **met** |
 | D9 | the charter changes in its own commit | **met** — §7.2, §8 and §9.2 in `5150205`, after S2 and S3 |

@@ -1983,6 +1983,177 @@ to Gate 3 set what they are.
 
 ---
 
+## R-8 — An edited override re-projects, and the obvious way to write it was too slow
+
+**Answer: fixed, proved byte for byte, and it costs 2.82 ms per shell entry.**
+The guard now compares each override's body against the tail of its projection.
+An edit reaches Dagu at the next shell entry, which is what `STAGE_6_LOG.md` D6
+promised and did not deliver.
+
+**The first implementation was correct and broke criterion 7.** Writing the tail
+test as `''${have%"$body"}` cost **11 ms per shell entry** on its own, against a
+budget of 10. The same test written as a slice costs **2.82 ms**. That is the
+finding worth carrying: in this hook, *how* a comparison is written matters more
+than whether it forks.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0**, bash 5.3p9, in `devman`
+itself. Five overrides totalling 18.3 KB — `agent-review` 4399 B, `bench-entry`
+6459 B, `plane-report` 4162 B, `stack-validate` 3282 B, and a 100 B probe.
+
+### Evidence 1 — the bug, reproduced on purpose before it was fixed
+
+A throwaway `.devman/workflows/_r8probe.yaml`, so that no tracked file was
+dirtied. Adding it changes `local`, which the old guard already caught, so it
+projected. Then it was **edited in place**, which is the case that fails:
+
+```
+$ sed -i 's/VERSION-ONE/VERSION-TWO/' .devman/workflows/_r8probe.yaml
+$ grep -n VERSION .devman/workflows/_r8probe.yaml
+5:    run: echo VERSION-TWO
+$ devenv shell -- true                                     # 1.8 s
+$ grep -n VERSION ~/.local/share/devman/projects/devman/workflows/_r8probe.yaml
+12:    run: echo VERSION-ONE                                <- what Dagu reads
+```
+
+**Two shell entries and a save, and the plane still holds the previous
+version.** No message, no warning, and `devman doctor` reports nothing wrong.
+
+### Evidence 2 — the fix, on a shell entry that changes nothing else
+
+The first entry after restoring the module is not proof: the module is part of
+`plan`, so the entry changed and the projection would have been rebuilt anyway.
+The decisive test is an edit with **the module already in place**:
+
+```
+$ sed -i 's/VERSION-THREE/VERSION-FOUR/' .devman/workflows/_r8probe.yaml
+$ devenv shell -- true                                     # 2.3 s
+$ grep -n VERSION ~/.local/share/devman/projects/devman/workflows/_r8probe.yaml
+12:    run: echo VERSION-FOUR
+```
+
+Byte for byte, by the same test the guard uses and by `diff`:
+
+```
+$ src=$(<.devman/workflows/_r8probe.yaml)
+$ have=$(<~/.local/share/devman/projects/devman/workflows/_r8probe.yaml)
+$ [ "''${have: -''${#src}}" = "$src" ] && echo MATCH
+MATCH
+
+$ tail -n "$(wc -l < .devman/workflows/_r8probe.yaml)" \
+    ~/.local/share/devman/projects/devman/workflows/_r8probe.yaml \
+  | diff - .devman/workflows/_r8probe.yaml && echo IDENTICAL
+IDENTICAL
+```
+
+### Evidence 3 — the cost, decomposed, and why the first version failed
+
+§5.2 forbids a fork on the common path, so S-5a proposed bash parameter
+expansion. **Forkless was not the hard part.** Each stage added to the existing
+`local` loop, 300 firings each:
+
+```
+1  glob + [ -f ] only                    0.129 ms per firing
+2  + one $(<file)  (the source)          0.296
+3  + both $(<file) (source + projection) 0.495     <- the reads cost 0.37 ms
+4  + ''${have%"$body"}                     6.057     <- +5.6 ms
+5  + [ "''${have: -''${#body}}" = "$body" ]  1.256     <- +0.76 ms
+```
+
+**The two reads do not fork**, which is the part §5.2 put in doubt: bash reads
+`$(<file)` internally. **Bash's pattern removal scans and a slice does not**, and
+over 18 KB that is a factor of 7.4.
+
+The shipped shape, 500 firings:
+
+| | per firing | per shell entry (fires twice) |
+|---|---|---|
+| pre-R-8, names only | 0.132 ms | 0.26 ms |
+| **R-8, tail slice** | **1.409 ms** | **2.82 ms** |
+| the `%` version, for the record | 6.057 ms | **12.11 ms — over budget** |
+| `sha256sum` per override, the forking version | 23.3 ms | 46.6 ms |
+
+**Criterion 7's budget is 10 ms per entry, so the per-firing budget is 5 ms.**
+R-8 uses 1.41 of it. The version that reads more naturally used 6.06 and would
+have broken the criterion the same commit claimed to respect.
+
+**A repository with no override pays the glob and nothing else.** That is every
+repository in waves 2 and 4 until it writes one, and `devman` — with five — is
+the worst case on the machine.
+
+### Evidence 4 — the paired end-to-end measurement, which cannot see it
+
+Criterion 7 asks for an interleaved paired difference. Three rounds, each
+variant getting one discarded warm-up entry (the module change forces a re-eval
+and a full re-projection) and six timed entries:
+
+```
+round 1  pre : 1752 1768 1673 1719 1789 1687 ms
+round 1  R-8 : 1664 1775 1694 1711 1744 1799 ms
+round 2  pre : 1819 1791 1716 1729 1742 1770 ms
+round 2  R-8 : 1563 1558 1776 2056 1653 1753 ms
+round 3  pre : 1798 1799 1774 1746 1667 1672 ms
+round 3  R-8 : 1608 1745 1750 1755 1740 1760 ms
+
+pre-R-8  n=18  mean 1745.1  median 1749.0  sd  47.9  range 1667-1819
+R-8      n=18  mean 1728.0  median 1744.5  sd 109.1  range 1558-2056
+paired delta: mean -17.1 ms, sd 134.8, range -256..+327
+```
+
+**R-8 measures 17 ms FASTER, which is noise and not a result.** A `devenv shell
+-- true` is ~1.75 s with a 500 ms spread; 2.8 ms is not resolvable inside it.
+This is exactly what §14's commentary on criterion 7 warns about — measuring the
+absolute figure measures the machine. **The isolated loop above is the
+measurement; this one is the control that shows why it had to be isolated**, and
+it is recorded rather than dropped because a null result here is easy to
+misreport as a pass.
+
+### What else changed
+
+**`modules/devenv.nix`, two comments that made the bug invisible.** The one above
+`entryTemplate` said the projection was a symlink, so an edit was already what
+Dagu reads. The one above the `.devman/workflows/` loop said an edit reaches
+Dagu at the next shell entry. Both now say what is true and why it was not.
+
+**`STAGE_6_LOG.md`, corrected where it stands**, as S-5a asked. D6's paragraph
+gains a boxed correction, S3's `devenv shell -- true` comment gains the reason
+it worked there and not for an override, and D6's row in the conditions table
+becomes "partly met, and stage 7 found the gap". Nothing measured in stage 6 is
+altered — the claim that failed is the one D6 exists to make.
+
+### Verdict
+
+**R-8 ships.** The plane is back to 25 workflows with the probe removed, `doctor`
+is clean, and `devman`'s own `check` and `test` both succeeded on the changed
+tree:
+
+```
+{"dag":"devman-check","run_id":"034CiMzNZCwRQmBOphsSiI","status":"succeeded",…}
+{"dag":"devman-test", "run_id":"034CiMzjV6rOUtubVUYwrJ","status":"succeeded",…}
+```
+
+### Charter impact
+
+**§5.2's cost budget is re-checked and holds**, which is the section S-5a named
+as the one to look at if R-8 changed the guard. The hook still forks nothing on
+the common path, and the added 2.82 ms per entry is inside criterion 7's 10 ms.
+**No charter text changes.** §9.3's "the projection is reconstructable by
+entering the shell" was already the promise; R-8 is what makes it true for an
+edited override.
+
+### Rule 7 — what this entry did to the machine
+
+| | |
+|---|---|
+| `devman` | `modules/devenv.nix` — the guard and two comments |
+| the registry | re-projected several times; ended at 25 workflows, `doctor` clean |
+| a probe | `.devman/workflows/_r8probe.yaml`, created, edited four times, **deleted**; no `_r8probe` file or `dags/` link remains |
+| runs added | 2 (`devman-check`, `devman-test`), both succeeded |
+| the module file | swapped between two variants 6 times for the paired measurement, and left on R-8 |
+
+---
+
 ## I-11 — The overnight scheduled runs, after wave 1's re-pins
 
 **Answer: six `maintain` runs and exactly one `plane-report`, all succeeded,
