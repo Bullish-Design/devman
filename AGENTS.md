@@ -9,12 +9,25 @@ inherits a small, shared set of workflows.
 **Dagu orchestrates. devenv executes. devman is the contract between them.**
 devman itself executes nothing, and never parses a workflow to understand it.
 
-53 repositories and 167 DAGs are registered on the development machine.
-
 ## Scope
 
 This file applies to the entire repository. Read
 [`AGENTS_GUIDE.md`](AGENTS_GUIDE.md) next for the map and the operations.
+
+**Mechanism and content are documented separately, and the split is deliberate.**
+`README.md`, `USER.md` and `AGENTS_GUIDE.md` describe the library — the
+interfaces, the contract, resolution, projection, the CLI, the refusals. **What
+this flake actually ships documents itself, in the directory that holds it:**
+
+| Directory | Its README |
+|---|---|
+| `groups/` | [`groups/README.md`](groups/README.md) — the group mechanism, and an index of the groups here |
+| `groups/<group>/` | what that group ships, and what taking it costs a repository |
+| `.devman/workflows/` | [`.devman/workflows/README.md`](.devman/workflows/README.md) — this repository's own workflows |
+
+Keep it that way. Never move a workflow's or a group's specifics up into a
+library document, and never leave a new group or workflow without its own README
+entry.
 
 ## The skills
 

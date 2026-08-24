@@ -1,6 +1,6 @@
 ---
 name: devman-adopt
-description: Bring a repository into the devman automation plane — the two devenv.yaml lines, the three devenv.nix keys, the two task names, and the proof. Holds the per-ecosystem task recipes and the adoption failures measured across the 53-repository rollout.
+description: Bring a repository into the devman automation plane — the two devenv.yaml lines, the three devenv.nix keys, the task names its groups call, and the proof. Holds the per-ecosystem task recipes and the adoption failures measured across the rollout.
 auto_trigger:
   keywords: ["adopt devman", "join the plane", "register a repository", "devman.enable", "devman project groups", "devman input pin", "base:check base:test", "devenv.yaml devman", "repository not registered", "no such task base:test", "devman doctor stale"]
 ---
@@ -10,8 +10,8 @@ auto_trigger:
 Read the `devman` skill first for the model. This one is the procedure and the
 recipes.
 
-**Adoption is four edits in two files, plus one shell entry.** The rollout across
-53 repositories measured the per-repository cost at **one `devenv.nix` task
+**Adoption is four edits in two files, plus one shell entry.** The rollout past
+50 repositories measured the per-repository cost at **one `devenv.nix` task
 line** plus the input line. What went wrong was never the plane — it was the
 repository's own environment.
 
@@ -107,33 +107,35 @@ devman = {
 Two more exist: `registryDir` (must match the machine's) and `installClient`
 (puts the Dagu client on this shell's PATH, default true).
 
-**Take `format` or `release` only if the repository wants what they cost:**
+**Read `groups/README.md` and then each candidate group's own README before
+adding it.** A group exists precisely when taking it costs the repository
+something it cannot decline any other way — a task name it must define, or a
+write to its own files it did not ask for. Take the default group set unless the
+repository wants what an extra group costs.
 
-```nix
-groups = [ "base" "format" ];    # a .py save now rewrites your source
-groups = [ "base" "release" ];   # one workflow nothing fires on its own
-```
-
-A repository still naming `python` or `python-format` keeps working — both are
-tombstones — but rename `python-format` to `format` and drop `python` when you
-next edit the file.
+**A group name that does not exist is an evaluation failure**, so the repository
+cannot enter its shell at all. A group that was *deleted* leaves a tombstone
+instead, which projects nothing and throws nothing — a stale name keeps working
+until somebody renames it.
 
 ---
 
-## 3. The two task names
+## 3. Define the task names your groups call
+
+**Taking a group is an agreement to define that group's task names.** Which
+names, and what each is expected to mean, is in that group's own `README.md`.
+Read it — do not guess from the group's name.
 
 ```nix
-tasks."base:check".exec = "ruff check .";
-tasks."base:test".exec  = "pytest";
+tasks."<group>:<name>".exec = "the command";
 ```
 
-| Task | Means | Budget |
-|---|---|---|
-| `base:check` | the fast check that needs no build and runs no test | ≤ 5 s warm |
-| `base:test` | the test suite | ≤ 5 min |
-
-**The `base:` prefix is not decoration — devenv requires `namespace:name`.** An
+**The namespace is not decoration — devenv requires `namespace:name`.** An
 un-namespaced name is an evaluation error.
+
+Whatever the names are, the shape of the answer is the same, and §4's recipes
+below cover it: a fast check that needs no build, and a suite. Match each command
+to what the group's README says the name means, and to the budget it states.
 
 ### If the repository already has its own task graph, alias
 
@@ -149,7 +151,7 @@ tasks."base:test".after  = [ "python:test" ];
 ### If the repository cannot honour a name
 
 **Do not define it.** `devman run check` then fails loudly with devenv's own
-`no such task`. **Never write `base:check = true`** — a workflow that reports
+`no such task`. **Never satisfy a name with a body of `true`** — a workflow that reports
 success having checked nothing is the one failure the whole design exists to
 prevent.
 
@@ -157,7 +159,9 @@ prevent.
 
 ## 4. The recipes, by what the repository is
 
-These are the shapes the 53-repository rollout actually used.
+These are the shapes the rollout actually used. They are written with the
+default group's task names; **substitute the names your groups' READMEs state.**
+The shape of the answer does not change with the name.
 
 ### Python, tools in the venv
 
@@ -225,8 +229,8 @@ Used by every Nix repository in the plane.
 ### A Neovim plugin, or Lua
 
 Either the flake answer above, or `luacheck` plus a headless `nvim` run. A Lua
-repository takes `base` and nothing else — there is no `lua` group and there will
-not be one.
+repository takes the default group and nothing else — **a language is not a
+reason for a group**, so there is no `lua` group and there will not be one.
 
 ### A repository with no language files
 
@@ -243,14 +247,14 @@ tasks."base:test".exec  = "ci";
 4 of 58 were in this class. **This is a decision, not a line.** Options, in
 order of preference:
 
-1. Point `base:test` at whatever proves the repository still works — an offline
+1. Point the test task at whatever proves the repository still works — an offline
    end-to-end build, a flake check, a schema validation.
 2. Take `groups = [ ]` and write the repository's own `.devman/workflows/`.
 3. Do not adopt it yet.
 
 **Never** point it at something that exits 0 having done nothing.
 
-### `enterTest` is not a `base:test`
+### `enterTest` is not a test task
 
 19 of 58 repositories had an `enterTest` and nothing else, and **7 of the 15
 examined carried the devenv template default** — which exits 0 having tested
@@ -258,7 +262,7 @@ nothing. `devenv test` was measured at 5.6 s in `copyroom` and 15.2 s in
 `nix-paseo`, both testing nothing. That is why `full-test` was deleted.
 
 Read the `enterTest` before aliasing to it. If it is the template default, point
-`base:test` at the real suite instead.
+the test task at the real suite instead.
 
 ---
 
@@ -275,7 +279,8 @@ tail -2 .devman/.runs/metadata.jsonl
 
 The proof for one repository:
 
-- `devman show` lists `check`, `test` and `maintain` from group `base`.
+- `devman show` lists every workflow the groups it takes project, and where
+  each came from.
 - `devman run check` and `devman run test` both reach `metadata.jsonl`.
 - `devman doctor` exits 0, and the project count went up by one.
 - The next night leaves one `maintain-<run id>.md` under
@@ -349,9 +354,9 @@ makes `devman doctor --prune` safe.
 | Symptom | Cause | Fix |
 |---|---|---|
 | shell entry fails before any devman edit | the repository's own devenv | fix it first; revert the devman edits meanwhile |
-| `devman: group 'X' does not exist` | a group that was deleted without a tombstone | rename the group. `python` and `python-format` are tombstones and do **not** throw |
-| `× Invalid task name: check` | devenv requires `namespace:name` | `base:check` |
-| `no such task base:test` | the group was taken, the name was not defined | define it, or drop the group |
+| `devman: group 'X' does not exist` | a group name that is not in `groups/`, or one deleted without a tombstone | fix the name. A tombstone projects nothing and does **not** throw |
+| `× Invalid task name: check` | devenv requires `namespace:name` | `<group>:<name>` |
+| `no such task <group>:<name>` | the group was taken, the name was not defined | define it, or drop the group |
 | `pytest: command not found` in a task, but present in the shell | the task runner's PATH is not the shell's | `uv run pytest` |
 | `ModuleNotFoundError` for the project's own package | the venv's editable install, or a shadowing `PYTHONPATH` | `env -u PYTHONPATH uv run …`, or fix the venv |
 | the shell entry says nothing at all | **by design.** devenv runs the hook twice, and the firing that performs the write has its output discarded. There is no `devman: registered` line and there cannot be one | `devman show` to confirm |

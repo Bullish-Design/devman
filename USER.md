@@ -1,14 +1,16 @@
 # USER.md — the devman user guide
 
 devman is a **development automation plane**. One Dagu control plane runs per
-machine. Every devenv-managed repository joins it through one Nix flake, and gets
-the same small set of workflows.
+machine. Every devenv-managed repository joins it through one Nix flake.
 
 **Dagu orchestrates. devenv executes. devman is the contract between them.**
 devman itself executes nothing.
 
-Read [`README.md`](README.md) for the shape of the whole thing. This file is how
-to use it.
+This file is how to use the plane. [`README.md`](README.md) is the shape of it.
+
+> **This guide describes the mechanism, not the content.** Which workflows exist,
+> and which task names they ask you to define, is in each group's own README —
+> start at [`groups/README.md`](groups/README.md).
 
 ---
 
@@ -17,7 +19,7 @@ to use it.
 | Need | Why |
 |---|---|
 | **NixOS**, with `services.devman-dagu.enable = true` | the Dagu user service, the queues, the `devman` CLI and the watcher all ship from `nixosModules.default` |
-| **devenv** in every repository that joins | every workflow step runs `devenv tasks run` |
+| **devenv** in every repository that joins | a workflow step runs `devenv tasks run` |
 | **git** | registration writes one ignore rule to `.git/info/exclude` |
 
 The machine side installs itself. Check it:
@@ -37,8 +39,6 @@ the plane runs one developer's own checkouts.
 
 ## 2. Adopt a repository
 
-Four edits, in two files, once per repository.
-
 ### 2.1 `devenv.yaml` — the input and the import
 
 ```yaml
@@ -57,7 +57,7 @@ head silently, so a local checkout is never pinned.
 The import path is `devman/modules`, not `devman/modules/devenv.nix`. devenv
 resolves `<input>/<subdir>` and then looks for `devenv.nix` inside it.
 
-### 2.2 `devenv.nix` — three keys and two tasks
+### 2.2 `devenv.nix` — three keys
 
 ```nix
 devman = {
@@ -65,21 +65,35 @@ devman = {
   project = "myproject";
   groups  = [ "base" ];
 };
-
-tasks."base:check".exec = "ruff check .";
-tasks."base:test".exec  = "pytest";
 ```
 
 | Key | Rule |
 |---|---|
 | `enable` | required to join |
 | `project` | **required, and stated rather than inferred.** Identity that defaulted to the directory name would break on a rename: the repository would re-register as new and lose its run history |
-| `groups` | defaults to `[ "base" ]`. `[ ]` is legal — the repository then has only its own `.devman/workflows/` |
+| `groups` | the groups this repository inherits, in precedence order. `[ ]` is legal — the repository then has only its own `.devman/workflows/` |
 
 Two optional keys exist: `registryDir` (must match the machine's) and
 `installClient` (puts the Dagu client on this shell's PATH, default true).
 
-### 2.3 Enter the shell once
+### 2.3 Define the task names your groups call
+
+**Taking a group is an agreement to define that group's task names.** Each
+group's README states which, and what each one is expected to mean.
+
+```nix
+tasks."<group>:<name>".exec = "the command";
+```
+
+The namespace is the group's own name. **devenv requires `namespace:name`** — an
+un-namespaced task is an evaluation error.
+
+**If a repository cannot honour a name, it does not define it.** The workflow
+then fails loudly with devenv's own `no such task`. Never satisfy a name with
+something that does nothing: a workflow reporting success having checked nothing
+is the one failure this whole design exists to avoid.
+
+### 2.4 Enter the shell once
 
 ```bash
 devenv shell -- true
@@ -88,24 +102,25 @@ devenv shell -- true
 That registers the repository. **There is no `devman register`, and there will
 never be one** — registration has exactly one path, so nothing can drift from it.
 
-The hook is guarded by a content hash, so the second entry and every entry after
-it cost about 0.3 ms.
+The hook is guarded by a content hash, so every entry after the first costs about
+0.3 ms. It also prints nothing on success, by design: devenv runs the hook twice
+and discards the output of the firing that performs the write.
 
-### 2.4 Confirm
+### 2.5 Confirm
 
 ```bash
 devman show          # what this project projects, and where each file came from
-devman run check     # trigger the fast rung
+devman run <workflow>
 devman doctor        # the plane's own health
 ```
 
-### 2.5 What registration creates
+### 2.6 What registration creates
 
 ```
-<repo>/.devman/workflows/     your own workflow files — TRACKED
-<repo>/.devman/.runs/logs/      each step's stdout and stderr
-<repo>/.devman/.runs/reports/   what a run left behind for a person to read
-<repo>/.devman/.runs/artifacts/ what a run built
+<repo>/.devman/workflows/            your own workflow files — TRACKED
+<repo>/.devman/.runs/logs/           each step's stdout and stderr
+<repo>/.devman/.runs/reports/        what a run leaves for a person to read
+<repo>/.devman/.runs/artifacts/      what a run builds
 <repo>/.devman/.runs/metadata.jsonl  one line per run: dag, id, status, log path
 ```
 
@@ -118,61 +133,13 @@ rule exists to keep clean.
 
 ---
 
-## 3. The standard set
-
-**One workflow runs exactly one `devenv tasks run`.** The workflow names the
-rung; your devenv task graph decides what that rung pulls in.
-
-| Workflow | Group | Queue | Fired by | Runs |
-|---|---|---|---|---|
-| `check` | `base` | `light` (4) | you; a post-commit hook | `base:check` |
-| `test` | `base` | `normal` (2) | you; a pre-push hook | `base:test` |
-| `maintain` | `base` | `light` (4) | the schedule, `5 0 * * *` | nothing of yours |
-| `format` | `format` | `light` (4) | the watcher, on a `.py` save | `format:fmt` |
-| `release` | `release` | `heavy` (1) | you | `release:build`, behind a gate |
-
-The ladder has two rungs and no third:
-
-| | `check` | `test` |
-|---|---|---|
-| Budget | ≤ 5 s warm | ≤ 5 min |
-| What it tells you | this tree does not lint, or does not typecheck | the suite passes |
-
-**A budget is guidance, not a check.** Nothing notices a `check` that grows to
-four minutes.
-
-### Composing rungs
-
-Do not add steps to a workflow. Add edges to your task graph, in `devenv.nix`,
-where you can also run them by hand:
-
-```nix
-tasks."base:check".after = [ "python:lint" "python:typecheck" ];
-tasks."base:test".after  = [ "base:check" ];
-```
-
-A task with only `after` needs no `exec`: it runs its dependencies and then does
-nothing itself, and a failure in a dependency still fails the run. That is how a
-repository honours two groups' names with one command body.
-
-**Siblings in an `after` list run concurrently**, so a failing task does not stop
-the others. If you want fail-fast ordering, chain the `after` edges.
-
-### If you cannot honour a task name
-
-**Do not define it.** `devman run check` then fails loudly with devenv's own
-`no such task`. Never write `base:check = true`: a workflow that reports success
-having checked nothing is the one failure the whole design exists to avoid.
-
----
-
-## 4. Run a workflow
+## 3. Run a workflow
 
 ```bash
-devman run check                      # in the current repository
-devman run test --project siteman     # from anywhere, by name
-devman run maintain KEEP_DAYS=30      # pass a declared parameter
-devman run check --print              # print the trigger, enqueue nothing
+devman run <workflow>                      # in the current repository
+devman run <workflow> --project NAME       # from anywhere
+devman run <workflow> NAME=VALUE           # pass a declared parameter
+devman run <workflow> --print              # print the trigger, enqueue nothing
 ```
 
 `devman run` resolves the project from the current directory, exports
@@ -187,7 +154,7 @@ Every refusal names the file and the field. See §8.
 
 ---
 
-## 5. Read what happened
+## 4. Read what happened
 
 ```bash
 tail -3 .devman/.runs/metadata.jsonl              # dag, run id, status, log path
@@ -210,21 +177,27 @@ Status strings you will see in `metadata.jsonl`:
 | `partially_succeeded` | a step failed under `continue_on: {failure: true}` |
 | `aborted` | cancelled, **or** a DAG-level precondition was not met |
 
+**A green run is not proof the trigger was right.** A run that got the parameter
+and not the environment succeeds and writes its logs into a directory named
+literally `${DEVMAN_PROJECT_DIR}`. `devman run` prevents this; `devman doctor`
+checks for the leftovers. If you ever enqueue by hand, check where the logs
+landed.
+
 ---
 
-## 6. Change what a workflow does
+## 5. Change what a workflow does
 
-### 6.1 Override one file
+### 5.1 Override one file
 
 Resolution layers by group in the order you list them, and your own
 `.devman/workflows/` is the last layer. Shadowing is **whole-file**, never a
 field merge.
 
 ```bash
-devman show test > .devman/workflows/test.yaml    # start from what runs today
-$EDITOR .devman/workflows/test.yaml
-devenv shell -- true                              # re-project
-devman show test                                  # confirm
+devman show <workflow> > .devman/workflows/<workflow>.yaml   # start from what runs today
+$EDITOR .devman/workflows/<workflow>.yaml
+devenv shell -- true                                         # re-project
+devman show <workflow>                                       # confirm
 ```
 
 `devman show` prints the file on stdout and everything about where it came from
@@ -236,9 +209,9 @@ the tail of its projection, so it notices an edit in place — but only at shell
 entry.
 
 `devman doctor` reports every override and how far it has drifted from the group
-file it shadows.
+file it shadows. That is a report, not a complaint.
 
-### 6.2 Write a new workflow
+### 5.2 Write a new workflow
 
 Put a Dagu YAML file in `.devman/workflows/<name>.yaml`. It is a plain Dagu file
 with no devman-specific key in it.
@@ -251,12 +224,12 @@ steps:
     run: devenv tasks run -v my:smoke
 ```
 
-Five rules, each of them forced by a measurement:
+Five rules, each forced by a measurement:
 
 1. **No top-level `name:`.** `dagu validate` fails — "entrypoint document must
    not define name". A DAG's identity is its file name.
 2. **No `working_dir:` and no `log_dir:`.** The projection writes both, per
-   project. State one only for a cross-repository workflow (§6.4).
+   project. State them only for a cross-repository workflow (§5.4).
 3. **Declare `DEVMAN_PROJECT_DIR: ""` first if you declare any parameter at
    all.** Dagu rejects a parameter a DAG did not declare, and `devman run` always
    passes the directory variable. Declare none, or declare that one first.
@@ -264,35 +237,55 @@ Five rules, each of them forced by a measurement:
    parameter that would be empty. A default that names a registered project is
    filled with that project's path, which is how a workflow points at another
    repository without holding an absolute path.
-5. **No `handler_on:`.** Dagu inherits `base.yaml` whole-field, so defining any
-   handler replaces the machine's exit handler — and the run then writes **no**
-   `metadata.jsonl` line at all, silently, with a clean `dagu status`.
+5. **No `handler_on:`.** Dagu inherits the machine's `base.yaml` whole-field, so
+   defining any handler replaces the exit handler — and the run then writes
+   **no** `metadata.jsonl` line at all, silently, with a clean `dagu status`.
+
+Two more that bite in practice:
+
+- **`-v` on every `devenv tasks run`.** Without it devenv captures the task's
+  stdout and prints none of it, on the success path and the failure path alike.
+- **Dagu runs a step's script with `set -e` already on.** A bare failing command
+  aborts the script at that line, so the rest never runs. Use `|| rc=$?` when the
+  script must finish.
 
 Then `devenv shell -- true` and `devman run smoke`.
 
+**Prefer the task graph to a second step.** Order belongs in `devenv.nix`, where
+you can also run it by hand:
+
+```nix
+tasks."my:test".after = [ "my:check" ];
+```
+
+A task with only `after` needs no `exec`: it runs its dependencies and then does
+nothing itself, and a failure in a dependency still fails the run. **Siblings in
+an `after` list run concurrently**, so chain the edges when you want fail-fast.
+
 Agents: the full checklist is `.agents/skills/devman-workflow/SKILL.md`.
 
-### 6.3 Choose a queue
+### 5.3 Choose a queue
 
 | Queue | Limit | Say it when |
 |---|---|---|
 | `light` | 4 | seconds of work, no build |
-| `normal` | 2 | the suite; minutes |
+| `normal` | 2 | minutes; also a workflow that fans out into child runs |
 | `heavy` | 1 | a build that wants the machine |
 | `gpu` | 1 | one caller at a time on the GPU |
 | `exclusive` | 1 | this must not overlap with other exclusive work — long, non-deterministic, reads a tree another run may rewrite |
 
 `heavy` says "this costs a lot of machine". `exclusive` says "this must not
-overlap with other exclusive work". `gpu` names a resource. All three are limit 1
-on this machine; say the one that is true, because `exclusive` would serialize a
-GPU run against every other exclusive workflow for a reason that has nothing to
-do with the GPU.
+overlap". `gpu` names a resource. All three are limit 1 on this machine; say the
+one that is true.
 
 **A queue name is a one-way door.** Dagu accepts a queue that does not exist
 silently and applies no limit at all, so a typo is unobservable at run time.
 `devman doctor` checks the names for you.
 
-### 6.4 A workflow that triggers other repositories' workflows
+**`exclusive` does not give a run the machine.** Dagu's queues are independent,
+so `light`, `normal` and `heavy` runs proceed beside an exclusive one.
+
+### 5.4 A workflow that triggers other repositories' workflows
 
 The parent must **not** hold `DEVMAN_PROJECT_DIR`. A parent exports its
 parameters into every child's environment, and that environment outranks the
@@ -306,7 +299,7 @@ is a **project name**:
 ```yaml
 params:
   - DEVMAN_SELF_DIR: ""
-  - OBSERVANTIC_DIR: observantic
+  - TARGET_DIR: someproject
 
 working_dir: ${DEVMAN_SELF_DIR}
 log_dir: ${DEVMAN_SELF_DIR}/.devman/.runs/logs
@@ -314,50 +307,50 @@ log_dir: ${DEVMAN_SELF_DIR}/.devman/.runs/logs
 queue: normal
 type: chain
 steps:
-  - name: observantic-check
+  - name: target-check
     action: dag.run
     with:
-      dag: observantic-check
+      dag: someproject-check
       params:
-        DEVMAN_PROJECT_DIR: ${OBSERVANTIC_DIR}
+        DEVMAN_PROJECT_DIR: ${TARGET_DIR}
 ```
 
 `devman run` enforces both halves of this rule and refuses if either is missing.
-The worked example is `.devman/workflows/stack-validate.yaml`.
+A workflow spanning several projects belongs to none of them, so it belongs to
+devman's own `.devman/workflows/`.
 
 ---
 
-## 7. Opt into more
+## 6. Opt into more
 
-### Format on save
+**Taking a group is the whole opt-in; not taking it is the whole opt-out.** There
+is no per-workflow Nix option, because an inherited workflow you never trigger
+costs nothing.
 
 ```nix
 groups = [ "base" "format" ];
-tasks."format:fmt".exec = "ruff format .";
 ```
 
-Saving a `.py` file now fires `format`. One `watchexec` user service reads the
-registry and watches only the repositories that declare triggers.
+Read that group's README before adding it. A group exists precisely when taking
+it costs you something you cannot decline any other way — a task name you must
+define, or a write to your own files you did not ask for. See
+[`groups/README.md`](groups/README.md).
 
-The loop is stopped by a **content hash** in the workflow's step-level
-precondition, not by a timer — so your own edit one second after the formatter
-wrote still fires. The watcher also ignores `.devman/.runs/`.
+### React to a save
 
-Taking the group is the whole opt-in. Not taking it is the whole opt-out.
+A group whose `triggers.toml` maps globs to workflow names makes this repository
+reactive. One `watchexec` user service reads the registry and watches only the
+repositories that declare triggers.
 
-### Build a release behind a gate
+A workflow that rewrites files its own trigger watches breaks the loop with a
+**step-level content-hash precondition** — a hash rather than a timer, so your
+own edit one second after the write still fires. The watcher also ignores
+`.devman/.runs/`.
 
-```nix
-groups = [ "base" "release" ];
-tasks."release:build".exec = "uv build --out-dir .devman/.runs/artifacts";
-```
-
-`devman run release` refuses unless the tree is clean **and** this project's last
-recorded `test` succeeded. A refused release reports `Failed`, on purpose.
-
-**It builds. It does not publish.** Pushing a tag or uploading a wheel is
-irreversible and wants a credential; a repository that wants that adds the step
-to its own shadowing copy.
+> **Widening a glob requires widening that workflow's hash in the same edit.**
+> Otherwise the new files fire a run whose precondition is never true, and the run
+> reports `Succeeded` with a skipped step — the same status a correct loop-break
+> produces. Nothing checks this.
 
 ### Run something on a commit
 
@@ -378,24 +371,60 @@ git-hooks.hooks.devman-check = {
 };
 ```
 
-**It is not a gate.** `devman run` enqueues and returns, so the commit is not
-blocked. It also costs about 20 ms on every shell entry, forever.
+- **It is not a gate.** `devman run` enqueues and returns, so the commit is not
+  blocked and the workflow starts a second or two later. To stop a bad commit,
+  use a `pre-commit` hook that runs the task directly.
+- **The run reads the tree it finds**, which is the tree after the commit.
+- **It costs a devenv input** — about 20 ms on every shell entry — and a
+  generated `.pre-commit-config.yaml` in the working tree.
 
 ### Run something on a schedule
 
-`maintain` already runs nightly in every repository that takes `base`. For your
-own workflow, use Dagu's own `schedule:` key in your own file:
+Use Dagu's own `schedule:` key, in the workflow file:
 
 ```yaml
 schedule: "5 0 * * *"
 queue: light
 ```
 
+This works because the projection is generated per project: each copy states its
+own `working_dir`, `log_dir` and directory variable, so the daemon needs nothing
+from a trigger.
+
 > **A scheduled run does not pass through its queue.** 58 DAGs sharing one
 > schedule all started at once with queue depth 0. **Nothing throttles the
 > scheduled set**, so schedule only work that is cheap by construction.
 
-To opt out of `maintain`'s schedule, shadow the file and leave the key out.
+To opt out of a schedule a group ships, shadow the file and leave the key out.
+
+**When a timer is right instead.** A systemd user timer is the answer when the
+schedule belongs to one repository rather than to a group:
+
+```ini
+[Service]
+Type=oneshot
+ExecStart=/run/current-system/sw/bin/devman run <workflow> --project <name>
+```
+
+`--project` is what makes this work from a timer, which has no working directory
+in any repository. **A timer holds project names and drifts in two directions,
+and only one tells you:** a renamed project makes the unit fail loudly; a newly
+adopted project is simply never scheduled, silently.
+
+---
+
+## 7. Housekeeping
+
+| Directory | Pruned by |
+|---|---|
+| `.devman/.runs/logs/` | the machine's `hist_retention_days` — **per DAG, and only when that DAG runs** |
+| `.devman/.runs/reports/` | whatever your groups ship for it |
+| `.devman/.runs/artifacts/` | **nothing.** Remove them by hand |
+| `.devman/.runs/metadata.jsonl` | nothing owns it, so it survives retention |
+
+The per-DAG rule is the one to remember: a repository whose workflows never run
+keeps its log tree forever. A cheap nightly run is what makes retention fire at
+all.
 
 ---
 
@@ -409,11 +438,13 @@ devman doctor
 
 It reports: files that fail `dagu validate`, queue names the machine does not
 declare, a literal `${DEVMAN_PROJECT_DIR}` directory, overrides that have drifted
-from what they shadow, stale registry entries, ageing runs, projection mismatches,
-`handler_on` blocks that would silence `metadata.jsonl`, cross-repo rule
-violations, triggers pointing at workflows nobody projects, and what the watcher
-last fired. `devman doctor --prune` removes stale entries; they restore
-themselves the next time that repository's shell is entered.
+from what they shadow, stale registry entries, ageing runs, projection
+mismatches, `handler_on` blocks that would silence `metadata.jsonl`, cross-repo
+rule violations, triggers pointing at workflows nobody projects, and what the
+watcher last fired.
+
+`devman doctor --prune` removes stale entries; they restore themselves the next
+time that repository's shell is entered.
 
 ### Common refusals, and what each one means
 
@@ -425,17 +456,10 @@ themselves the next time that repository's shell is entered.
 | `the DAG named X points at …` | two projects render the same flat `<project>-<workflow>` name | rename one project or one workflow, then re-enter both shells |
 | `these declared parameters have no value` | a parameter with an empty default | give it a real default, or pass `NAME=VALUE` |
 | `DEVMAN_PROJECT_DIR would be empty` | the directory variable would not resolve | the registered path is gone — `devman doctor --prune` |
-| `it triggers other workflows and defines DEVMAN_PROJECT_DIR for itself` | §6.4's rule | use `DEVMAN_SELF_DIR` and `with.params` |
-| `× Invalid task name: check` | devenv requires `namespace:name` | write `base:check`, not `check` |
+| `it triggers other workflows and defines DEVMAN_PROJECT_DIR for itself` | §5.4's rule | use `DEVMAN_SELF_DIR` and `with.params` |
+| `devman: group 'X' does not exist` | a group name that is not in `groups/` | fix the name; a deleted group leaves a tombstone that does **not** throw |
+| `× Invalid task name: check` | devenv requires `namespace:name` | write `<group>:<name>` |
 | `no such task` from devenv | you took a group and did not define its task | define it, or drop the group |
-
-### The failure that is not an error
-
-**A green run is not evidence that the trigger was right.** A run that got the
-parameter and not the environment succeeds and writes its logs into a directory
-named literally `${DEVMAN_PROJECT_DIR}` in whatever tree the daemon started in.
-`devman run` prevents this and `devman doctor` checks for the leftovers. If you
-enqueue by hand, check where the logs landed.
 
 ### Nothing happens when I save a file
 
@@ -443,9 +467,9 @@ enqueue by hand, check where the logs landed.
    the groups.
 2. Does the glob match? It is matched against a path relative to the repository
    root.
-3. Did the precondition skip the step? A skipped step reports `Succeeded`. If you
-   widened a glob without widening the hash in the same edit, every run will skip
-   forever and nothing will say so.
+3. Did the precondition skip the step? A skipped step reports `Succeeded`. If a
+   glob was widened without widening the hash, every run skips forever and
+   nothing says so.
 4. `systemctl --user status devman-watch`.
 
 ### My override does not seem to run
@@ -453,15 +477,23 @@ enqueue by hand, check where the logs landed.
 The projection is a generated copy. Run `devenv shell -- true`, then
 `devman show <workflow>` to confirm.
 
+### My task cannot find its tool
+
+**The task runner's PATH is not the interactive shell's PATH**, in both
+directions. A tool the shell finds may be missing in a task, and a module a task
+imports may be missing in the shell. Prove the task, not the shell:
+
+```bash
+devenv tasks run -v <group>:<name>
+```
+
 ---
 
 ## 9. Where else to look
 
 | Path | What |
 |---|---|
-| `groups/base/README.md` | the two task names, the two rungs, `maintain`, hooks, schedules |
-| `groups/format/README.md` | reactivity, the loop break, the widening rule |
-| `groups/release/README.md` | the policy gate and what it cannot check |
-| `.devman/workflows/README.md` | this repository's own workflows, and hand-triggering as a specification |
+| [`groups/README.md`](groups/README.md) | the group mechanism, and an index of the groups this flake ships |
+| [`.devman/workflows/README.md`](.devman/workflows/README.md) | devman's own workflows |
 | `.scratch/projects/006-automation-plane/CONCEPT.md` | the charter |
 | `.scratch/projects/007-standard-workflows/PROPOSAL.md` | the standard set, and what must never become a workflow |

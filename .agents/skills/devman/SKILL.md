@@ -14,8 +14,6 @@ a small, shared set of workflows.
 **Dagu orchestrates. devenv executes. devman is the contract between them.**
 devman executes nothing itself and never parses a workflow to understand it.
 
-53 repositories and 167 DAGs are registered on the development machine.
-
 ## Route
 
 | Ask | Go to |
@@ -37,7 +35,7 @@ devman executes nothing itself and never parses a workflow to understand it.
    landed.
 4. **A successful run that did the wrong thing is the failure this design exists
    to prevent.** Prefer a loud refusal to a silent default. Never make a check
-   pass by making it check nothing — `base:check = true` is forbidden.
+   pass by making it check nothing — a task whose body is `true` is forbidden.
 5. **The plane never learns a project fact.** No absolute path in a workflow
    file, no project name in the machine module, no per-project Nix option.
 6. **The registry is derived; the repository is canonical.** Read
@@ -46,28 +44,37 @@ devman executes nothing itself and never parses a workflow to understand it.
 7. **Exit codes:** `0` ok · `1` finding · `2` usage. `devman doctor` exits 1 when
    it has findings; that is a finding, not a crash.
 
-## The standard set
+## Groups — the mechanism
 
-**One workflow runs exactly one `devenv tasks run`.** The workflow names the
-rung; the repository's devenv task graph decides what that rung pulls in.
+devman ships the mechanism. **The content documents itself**: read
+`groups/README.md` for the index, and each group's own `README.md` for what it
+ships and what it asks a repository to define. Never state from memory which
+workflows exist — check.
 
-| Group | Workflows | Tasks it asks for | Taking it means |
-|---|---|---|---|
-| `base` | `check`, `test`, `maintain` | `base:check`, `base:test` | the default. Every repository takes it |
-| `format` | `format` | `format:fmt` | saving a `.py` file rewrites it |
-| `release` | `release` | `release:build` | one workflow nothing fires on its own |
+```nix
+devman.groups = [ "base" "format" ];    # precedence order
+```
 
-| Workflow | Queue | Fired by | Writes |
-|---|---|---|---|
-| `check` | `light` (4) | a person; a post-commit hook | no |
-| `test` | `normal` (2) | a person; a pre-push hook | no |
-| `maintain` | `light` (4) | `schedule: 5 0 * * *` | only under `.devman/.runs/` |
-| `format` | `light` (4) | the watcher, on `**/*.py` | **source files** |
-| `release` | `heavy` (1) | a person | a report and artifacts |
+- **Resolution is whole-file**, in the order the repository lists its groups,
+  with the repository's own `.devman/workflows/` as the last layer. No field
+  merge.
+- **Taking a group is an agreement to define that group's task names.** The
+  namespace is the group's own name; devenv requires `namespace:name`.
+- **Taking a group is the whole opt-in; not taking it is the whole opt-out.**
+  There is no per-workflow Nix option, because an inherited workflow nothing
+  triggers costs nothing.
+- **One workflow runs exactly one `devenv tasks run`.** The workflow names the
+  rung; the repository's devenv task graph decides what that rung pulls in.
+- A group exists when taking it costs the repository something it cannot decline
+  any other way: a task name it must define, or a write to its own files it did
+  not ask for.
+- A directory under `groups/` with no `workflows/` is a **tombstone** — a group
+  that was deleted, kept so a stale pin still evaluates. It projects nothing and
+  throws nothing.
 
-`groups/python/` and `groups/python-format/` are **tombstones** — empty
-directories that keep a stale pin evaluating. A repository still naming one
-should rename it, but nothing breaks until it does.
+```bash
+devman show          # the groups this project takes, and where each file came from
+```
 
 ## Commands
 
@@ -128,7 +135,7 @@ watcher last fired.
 | `the DAG named X points at …` | two projects render the same flat `<project>-<workflow>` | rename one, re-enter both shells |
 | `these declared parameters have no value` | an empty default | give it a real default, or pass `NAME=VALUE` |
 | `no such task` from devenv | a group's task name is not defined | define it, or drop the group |
-| `× Invalid task name: check` | devenv requires `namespace:name` | write `base:check` |
+| `× Invalid task name: check` | devenv requires `namespace:name` | write `<group>:<name>` |
 | an override does not run | the projection is a generated copy | `devenv shell -- true`, then `devman show <workflow>` |
 | a save fires nothing | no `triggers.toml` group, glob mismatch, or the hash precondition skipped | check `devman show` for the groups, then `systemctl --user status devman-watch` |
 
@@ -163,7 +170,8 @@ Say no, and point at `PROPOSAL.md` §12:
 1. anything an editor already does synchronously — LSP diagnostics, format-in-buffer
 2. anything irreversible outside this machine — publishing, tagging, deploying
 3. anything that writes tracked source with nobody present — dependency updates,
-   code generation. `format` is the single bounded exception
+   code generation. A formatter in its own group — one glob, a content hash —
+   is the single bounded exception
 4. anything whose success is indistinguishable from doing nothing
 5. anything needing a fact the repository did not state
 6. a second implementation of a task the repository already has

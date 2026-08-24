@@ -38,12 +38,9 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `nix/devman-cli.nix` | the CLI package. Ships from the NixOS module **only** |
 | `nix/tests/dagu-service.nix` | a NixOS VM test: the unit starts, a projected DAG is discovered, a run lands its logs in the right project |
 | `modules/devenv.nix` | the **repo** interface — three options, the `enterShell` guard, §7.3 resolution at evaluation time, and the projection script |
-| `groups/base/` | `check`, `test`, `maintain`. Every repository takes it |
-| `groups/format/` | `format` plus `triggers.toml`. Opt-in reactivity |
-| `groups/release/` | `release`, behind a policy gate. Opt-in |
-| `groups/python/`, `groups/python-format/` | **tombstones.** Empty on purpose, so a stale pin still evaluates |
+| `groups/` | workflow **content**, one directory per group. `groups/README.md` is the mechanism and the index; each group's own README says what taking it costs |
 | `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `registry`, `workflow` |
-| `.devman/workflows/` | this repository's own workflows, including the machine-wide `plane-report` |
+| `.devman/workflows/` | this repository's own workflows. `.devman/workflows/README.md` documents them |
 | `.scratch/projects/006-automation-plane/` | the charter and stage logs 1–6 |
 | `.scratch/projects/007-standard-workflows/` | the standard-set proposal, plan, open questions and stage log 7 |
 
@@ -162,10 +159,14 @@ devenv shell                       # interactive
 devenv shell -- <cmd>              # one command; also re-projects
 ```
 
+These are the task names **this repository** defines, because devman adopts
+itself. They come from the groups it takes; see `devenv.nix` and
+`groups/README.md`.
+
 | Task | Command |
 |---|---|
 | lint | `devenv tasks run -v base:check` |
-| the suite | `devenv tasks run -v base:test` (this repository: `nix flake check`) |
+| the suite | `devenv tasks run -v base:test` |
 | format | `devenv tasks run -v format:fmt` |
 | validate every shipped workflow | `nix build .#checks.x86_64-linux.groups-validate` |
 | the machine module, in a VM | `nix build .#checks.x86_64-linux.dagu-service` |

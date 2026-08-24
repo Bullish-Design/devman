@@ -25,15 +25,16 @@ say why (`PROPOSAL.md` §12):
    round trip after a content change is 1.44 s and lands in a log file.
 2. Is it irreversible outside this machine? Publishing, tagging, deploying.
 3. Does it write **tracked source** with nobody present? Dependency updates, code
-   generation, autofix beyond formatting. `format` is the single exception and it
-   is bounded three ways: one glob, a content hash, its own group.
+   generation, autofix beyond formatting. A formatter is the single exception,
+   and it is bounded three ways: one glob, a content hash, its own group.
 4. Could it succeed while doing nothing? `devenv test` exits 0 having tested
-   nothing in 30 of 58 repositories. That is why `full-test` was deleted.
+   nothing in 30 of 58 repositories, which is why the rung that ran it was
+   deleted.
 5. Does it need a fact the repository did not state — another project's path, an
    absolute path, a per-project schedule offset?
 6. Is it a second implementation of a task the repository already has? Running
-   `pytest` directly rather than `base:test` drifts, and drifts silently because
-   both keep passing.
+   `pytest` directly rather than calling the repository's own test task drifts,
+   and drifts silently because both keep passing.
 7. Will anybody read its output? A report produced 54 times is a report produced
    zero times.
 8. Is it expensive **and** scheduled? **A scheduled run bypasses its queue.**
@@ -61,8 +62,8 @@ create a group for a language — a language differs in what a task *is*, and
 **§3's group rule: a group exists when taking it costs the repository something
 it cannot decline any other way** — a task name it must define, or a write to its
 own files it did not ask for. What fires a workflow is not the test; what it
-touches is. `maintain` fires itself nightly and rides inside `base`, because it
-writes only under `.devman/.runs/`.
+touches is. A nightly housekeeping workflow may ride in a general group, because
+it writes only under `.devman/.runs/`.
 
 ---
 
@@ -312,7 +313,7 @@ Extra rules on top of §3:
 
 | Rule | Why |
 |---|---|
-| **The workflow names a task; the task names the tool** | `groups/base` calls `base:check`, never `ruff`. Then `black`, `ruff format` or a script all fit without the file changing |
+| **The workflow names a task; the task names the tool** | a group calls `<group>:check`, never `ruff`. Then `black`, `ruff format` or a script all fit without the file changing |
 | **The task namespace is the group's own name** | devenv requires `namespace:name`, so a group-local convention is literal |
 | **No project name, no absolute path, no per-repository offset** | the machine never learns a project fact |
 | **Document the cost in that group's `README.md`, in the same commit** | taking a group is an agreement to define its task names |
