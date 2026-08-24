@@ -1983,6 +1983,464 @@ to Gate 3 set what they are.
 
 ---
 
+## R-7 wave 2b — the two blocked repositories, and two wrong guesses
+
+**Answer: both adopted. Wave 2 is five of five registered.** The blocker was
+**not** what wave 2's entry guessed, and the correction is the point of this
+entry.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Both pin `main` at `70c8e2f`.
+
+### Wrong guess 1 — `flake: false` was correlation, not cause
+
+Wave 2 recorded a **perfect** correlation: the two repositories that could not
+enter a shell were exactly the two declaring the `shellij` input as a flake
+rather than `flake: false`, and the three that worked all set it. Five for five.
+
+**It was wrong.** Adding `flake: false` to both changed nothing:
+
+```
+webdantic    shell: STILL FAILS — git-hooks or pre-commit-hooks input required
+parsedantic  shell: STILL FAILS — git-hooks or pre-commit-hooks input required
+```
+
+The change was reverted rather than kept, because the comment justifying it
+stated a reason that is false.
+
+**A five-for-five correlation over five samples is not a mechanism**, and wave 2
+had the evidence to know better: it never traced the error, it matched a column.
+
+### The actual cause, traced rather than correlated
+
+devenv's own integration module throws, and it is reached while evaluating
+`config.shell` — so the failure is total, not partial:
+
+```
+… while calling the 'throw' builtin
+  at /nix/store/71bpdsq…-source/src/modules/integrations/git-hooks.nix:9:11:
+     8|       or inputs.pre-commit-hooks
+     9|       or (throw "git-hooks or pre-commit-hooks input required");
+```
+
+**`pydantree` carries the same template and the same direct `shellij/modules`
+import, and works** — because it declares the input:
+
+```
+$ grep -A1 'pre-commit-hooks' pydantree/devenv.yaml
+  pre-commit-hooks:
+    url: github:cachix/pre-commit-hooks.nix
+```
+
+One input each, and both shells enter:
+
+```
+webdantic    SHELL ENTERS
+parsedantic  SHELL ENTERS
+```
+
+### Wrong guess 2 — a bare `pytest` is not `base:test`
+
+Both were adopted with `base:test` = `pytest`, copying wave 1. Both failed with
+`command not found`:
+
+```
+$ devenv shell -- command -v pytest
+webdantic    MISSING     ruff:ok
+parsedantic  MISSING     ruff:ok
+```
+
+**`pytest` is in `[project.optional-dependencies].dev`, and devenv's venv
+installs only the base dependencies.** Wave 1's Python repositories have pytest
+in the venv because `testee` puts it there; these two do not. `base:test` is
+therefore:
+
+```nix
+"webdantic:test".exec = "uv run --extra dev pytest";
+```
+
+```
+63 passed, 3 skipped in 2.59s
+```
+
+**This is `PROPOSAL.md` §12 rule 6 in miniature** — one logical task, one
+implementation, every caller reaching it the same way. A `base:test` naming a
+command that is not on the shell's PATH is a second implementation that never
+worked.
+
+### Evidence — wave 2, complete
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `poddantic` | `a295423` | **failed** — 20 `ruff` | ok — 233 passed, 2 skipped |
+| `nix-desktop` | `c775f2f` | ok | ok |
+| `loci.nvim` | `7e6d984` | ok | ok |
+| `webdantic` | `2486f27` | **failed** — 275 `ruff` | ok — 63 passed, 3 skipped |
+| `parsedantic` | `e473af5` | **failed** — 78 `ruff` | **failed** — 13 collection errors |
+
+```
+$ devman doctor
+devman doctor — 11 projects, 40 workflows
+Nothing to report.                                                   exit 0
+```
+
+**`parsedantic`'s test failure is the repository's own, and it is controlled.**
+13 errors during collection, every one
+`TypeError: function() argument 'code' must be code, not str` — the library
+builds functions at import time and the Python in this shell rejects it. With
+devman's block removed and only the `pre-commit-hooks` input kept:
+
+```
+$ devenv shell -- uv run --extra dev pytest -q
+13 errors in 0.39s        <- identical
+```
+
+**Not repaired.** Three of five now fail `check` on lint debt (20, 275 and 78
+findings) and one fails `test` on a real bug. Adoption and repair stay separate,
+as wave 1 decided for `pydantree`.
+
+### What this changes for waves 3 and 4
+
+**Two checks per repository, before any file is edited:**
+
+1. **`devenv shell -- true`.** A repository whose shell does not enter cannot
+   register at all, and I-4's static sweep cannot see it.
+2. **`command -v <the tool base:test would call>`, inside that shell.** A task
+   naming a command the shell does not have fails identically to a failing
+   suite, and only the log distinguishes them.
+
+**And a rule for this log: trace the error before reporting the cause.** Both
+wrong guesses here were plausible, and one had five-for-five agreement.
+
+### Charter impact
+
+**None.** §5.2 already says shell entry is the only registration path; wave 2b
+is that sentence being expensive.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `webdantic` | `2486f27` | committed, **pushed** to `origin/main` |
+| `parsedantic` | `e473af5` | committed, **pushed** to `origin/main` |
+
+The registry went from 9 projects to **11**, and 34 workflows to **40**.
+`doctor` is clean. The `flake: false` edits were reverted and are in neither
+commit.
+
+---
+
+## R-9 — `.devman/` belongs to the repository · a decision, and what it costs
+
+**Answer: the §15.2 whitelist is removed.** Registration no longer looks at what
+else is under `.devman/`. devman reserves two names — `workflows/` and `.runs/`
+— and never reads, writes or inspects anything else there.
+
+**This is an owner decision, not a measurement**, and it is recorded as one. The
+ask was to keep `.devman/` open for add-on functionality. The measurement below
+is the proof the change does what it says, not the reason it was made.
+
+### Why the rule was wrong, in the charter's own terms
+
+**It contradicted §7.4.** The plane's claim is that it names the smallest
+vocabulary it has to and leaves everything else to the repository. `.devman/` is
+a directory the repository already owned, and "refuse to register until you move
+your files" is an opinion about a repository's layout — the exact kind §7.1 says
+the plane does not hold.
+
+**Wave 3 was built around the refusal, and that was the tell.** `PROPOSAL.md` §8
+scheduled `fsdantic` as the repository that "must fail first", because it holds
+`.devman/store/vendor/agentfs` — a tracked symlink to a vendored checkout that
+predates the plane entirely. A wave whose stated purpose is to make a
+repository move its own files, so the plane will consent to notice it, is a wave
+arguing for the wrong side.
+
+### Versions
+
+devenv **2.1.2**, devman **0.3.0**, in `devman` itself, which imports
+`./modules` and therefore picks up the change without a re-pin.
+
+### The measurement — paired, on one tree
+
+A throwaway `.devman/store/vendor/marker` was created in `devman`'s own
+checkout, and the module was swapped underneath it. **Same tree, same file, two
+modules.**
+
+```
+$ mkdir -p .devman/store/vendor && echo probe > .devman/store/vendor/marker
+
+# the old module
+$ git stash push -- modules/devenv.nix
+$ rm -f .devenv/nix-eval-cache.db* && devenv shell -- true
+devman: refusing to register 'devman'
+devman:   .devman/ holds entries devman does not recognise: store
+devman:   only workflows/ and .runs/ may be there
+devman:   move them, or unset devman.enable in this repository
+
+# the new module, nothing else changed
+$ git stash pop
+$ rm -f .devenv/nix-eval-cache.db* && devenv shell -- true
+(no output)
+
+$ python3 -m json.tool ~/.local/share/devman/projects/devman/metadata.json
+  "project": "devman"
+  "path":    "/home/andrew/.paseo/worktrees/1n48r26y/special-dragon"
+  "local":   ["agent-review","bench-entry","plane-report","stack-validate"]
+
+$ find .devman/store
+  .devman/store  .devman/store/vendor  .devman/store/vendor/marker
+```
+
+**It registers, and the foreign directory is untouched.** The probe was removed
+afterwards and `.devman/` holds `workflows/` and `.runs/` again.
+
+### What was removed, precisely
+
+`modules/devenv.nix`: the `devman_bad` loop, the refusal branch that led the
+`if`/`elif` chain, and the variable from the `unset` list. **The duplicate-path
+refusal (§9.1) is untouched** and is now the first branch.
+
+**Nothing replaces it, deliberately.** A `doctor` check that listed unrecognised
+entries would be the same opinion in a softer voice, and §15.7 says `doctor`
+does not guess.
+
+**The hook got cheaper.** The whitelist was one directory listing on the common
+path, on every shell entry, twice. It is gone, which pays back a little of R-8's
+2.82 ms.
+
+### What this gives up, stated rather than glossed
+
+**A repository holding a `devman 0.2.0` workspace now registers silently**, and
+the two tools share `.devman/` without either knowing. That is the case the
+whitelist was written for, and it is the one that is genuinely lost.
+
+**The older tool is the destructive one.** Its `init` refuses a non-empty
+`.devman/`, and `--force` calls `shutil.rmtree` on it — which would delete the
+tracked `workflows/` this charter calls canonical. **§3.3's removal of that
+binary stops being a tidiness task and becomes the mitigation.** Nothing in the
+plane can defend against a tool that deletes the directory out from under it,
+and nothing in the plane now tries.
+
+### What this changes about wave 3
+
+**Wave 3's purpose inverts.** It was "the whitelist refuses, then `fsdantic`
+moves its directory". It becomes "`fsdantic` adopts the plane **and keeps its
+store**, and the two do not interact". The proof is the same shape — one
+repository, one shell entry, `check` and `test` — and the thing being proved is
+better.
+
+**`fsdantic` cannot adopt until a `main` rev carries this**, because it pins
+`ref=main&rev=`. The rev on `main` at the time of this entry is `70c8e2f`, which
+still holds the whitelist.
+
+### Charter impact
+
+**§15.2, rewritten, in its own commit** (`ff62a7f`, after `0b6e013`), per stage
+6's D9. It keeps the 77-checkout survey that justified the old rule, says
+plainly that the rule is reversed by decision, and names what the reversal costs.
+
+### Rule 7 — what this entry did to the machine
+
+| | |
+|---|---|
+| `devman` | `modules/devenv.nix` (`0b6e013`), `CONCEPT.md` §15.2 (`ff62a7f`) |
+| a probe | `.devman/store/vendor/marker`, created and **deleted**; `.devman/` holds `workflows/` and `.runs/` |
+| the registry | re-projected three times; 9 projects, 34 workflows, `doctor` clean |
+
+---
+
+## R-7 wave 2 — three of five adopted, and two cannot be adopted at all
+
+**Answer: the universal contract is not a Python fiction, and wave 2 proves it.**
+`nix-desktop` (a Home Manager flake) and `loci.nvim` (a Neovim plugin written in
+Lua, whose tests are Nix derivations) both take `base` with no group of their
+own, and both pass `check` and `test`.
+
+**But two of the five could not be adopted, and the reason is not devman.**
+`webdantic` and `parsedantic` **cannot enter their own devenv shell**, before
+any devman change. §5.2 makes shell entry the only registration path, so a
+repository that cannot enter its shell is invisible to the plane.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+All three adopted repositories pin `main` at
+`70c8e2f59883541f48a39534440f6b17d3dbef9f`, the merge of PR #129.
+
+### Evidence 1 — the blocker, and it was found by measuring rather than by adopting
+
+`webdantic` was edited first. Its shell entry failed:
+
+```
+error: git-hooks or pre-commit-hooks input required
+```
+
+**The control says the failure is not mine.** With `devenv.yaml` and
+`devenv.nix` stashed — no devman input, no devman module — the same entry fails
+the same way:
+
+```
+$ git stash push -- devenv.yaml devenv.nix
+$ devenv shell -- true
+error: git-hooks or pre-commit-hooks input required
+```
+
+So the baseline was taken for the other four before writing another line:
+
+```
+poddantic     shell ok
+parsedantic   SHELL FAILS — git-hooks or pre-commit-hooks input required
+nix-desktop   shell ok
+loci.nvim     shell ok
+```
+
+**The cause correlates perfectly, and it is one line.** The two that fail are
+exactly the two that declare the `shellij` input as a *flake*; the three that
+work declare `flake: false`:
+
+| Repository | `shellij` input | shell |
+|---|---|---|
+| `poddantic` | `flake: false` | ok |
+| `nix-desktop` | `flake: false` | ok |
+| `loci.nvim` | `flake: false` | ok |
+| `webdantic` | *(flake, the default)* | **fails** |
+| `parsedantic` | *(flake, the default)* | **fails** |
+
+`webdantic`'s edits were **reverted** rather than committed, because a
+repository pinned to the plane and never registered is worse than one that is
+not pinned: the pin is config that does nothing, and it goes stale.
+
+**This is a class of blocker `I-4` could not see.** I-4 read `devenv.nix`. It
+never entered a shell. **A repository can have a suite, a task and a clean
+`devenv.nix`, and still be unadoptable**, and nothing before wave 2 would have
+said so. Waves 3 and 4 must run `devenv shell -- true` as their first step, per
+repository, before any file is edited.
+
+### Evidence 2 — the plane after the wave
+
+```
+$ devman doctor
+devman doctor — 9 projects, 34 workflows
+ok  plane / queues / validate / queue names / literal dir / shadowing
+ok  stale entries / run output / projection / handlers / cross-repo / watcher
+Nothing to report.                                                   exit 0
+```
+
+6 projects and 25 workflows became **9 and 34** — three repositories × `check`,
+`test` and `maintain`.
+
+**I-2b, a third point on `doctor`'s curve:**
+
+```
+2740  2756  2544  2669  2701 ms      mean 2682 ms over 34 workflows = 78.9 ms/file
+```
+
+**78.9 ms/file against I-2a's 83.6 and I-2b's 87 at six projects.** The line
+holds. This is still the closure's **serial** `check_load` — R-4f is merged but
+not installed, which is what the `nixos-rebuild` note is about.
+
+### Evidence 3 — `check` and `test`, per repository
+
+| Repository | commit | `check` | `test` |
+|---|---|---|---|
+| `poddantic` | `a295423` | **failed — pre-existing** | ok — 233 passed, 2 skipped |
+| `nix-desktop` | `c775f2f` | ok | ok |
+| `loci.nvim` | `7e6d984` | ok | ok — after an intermittent failure, below |
+
+**`poddantic`'s `check` failure is lint debt, and the control proves it.** 20
+`ruff` findings, mostly `E501` in `tests/`. With the devman changes stashed:
+
+```
+$ devenv shell -- ruff check .
+Found 20 errors.
+```
+
+Identical. **Not a migration regression.** Not repaired here — adoption and
+repair are separate passes, which is the same call wave 1 made for `pydantree`.
+
+### Evidence 4 — `loci.nvim` failed once, and chasing it was worth the time
+
+The first `test` run failed: `34 passed, 1 failed`, on `t21_move_document`. The
+tempting entry was "a pre-existing test failure". **It is not that, and it is not
+a regression either.** Six subsequent executions passed:
+
+| Execution | Result |
+|---|---|
+| control — `nix flake check`, devman changes stashed | all checks passed |
+| `nix flake check` ×2, changes restored | all checks passed *(cache hits — see below)* |
+| `nix build --rebuild` ×4, forced re-execution | rc=0, four times |
+| **the plane again, after `nix store delete` of the output** | **succeeded** |
+
+**The middle two prove nothing on their own and are recorded as such.** Nix
+caches a successful check, so a re-run after a pass is a cache hit. The forced
+rebuilds and the store deletion are what make the last row a real second
+execution *in the plane's own environment* — which is the environment that
+failed.
+
+**Verdict: `t21_move_document` is intermittent.** One failure in seven
+executions. It is the repository's own test and it is recorded here rather than
+filed as an adoption problem.
+
+### Evidence 5 — two things confirmed in passing
+
+**I-3's stream split, live and costly.** `loci.nvim`'s failing run wrote **0
+bytes to `test.*.out`** and 13,300 bytes to `test.*.err`. A reader who opened
+the `.out` file would have seen an empty file and no failure at all. This is
+exactly what I-3 measured on devenv 2.1.2, now hit by accident on a real
+failure rather than on a probe.
+
+**A project name may contain a dot.** `loci.nvim` is the first. devman projects
+`loci.nvim-check.yaml` and records `"dag":"loci.nvim-test"` in
+`metadata.jsonl`, so `release`'s gate — which greps `<project>-test` — still
+matches. **Dagu writes its run directory as `loci_nvim-test`**, substituting the
+dot. Nothing broke, `doctor`'s projection and run-output checks both pass, and
+it is written down because the two names differ and somebody will grep for the
+wrong one.
+
+### Verdict
+
+**Wave 2 passes on what it was built to answer.** `PROPOSAL.md` §8 says
+`nix-desktop` and `loci.nvim` passing is the proof the contract is not a Python
+fiction. Both pass, both took `base` alone, and neither needed a group, a
+language option, or a line of Python.
+
+**Wave 2 fails on coverage: three of five.** The two that are missing are
+blocked on a one-line change to a flake input that has nothing to do with the
+plane, and that change is **not made here**.
+
+### Charter impact
+
+**None, and one sharp edge earns a sentence when the next stage edits §15.**
+§15.1 already says a repository is invisible until you enter its shell once.
+What wave 2 adds is that **a repository whose shell does not enter is invisible
+permanently**, and the plane cannot report it — `doctor` lists what is
+registered, and an unregistrable repository is nowhere. That is a gap in §10's
+coverage, not a bug in it, and it belongs to whoever writes the adoption
+checklist.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `poddantic` | `a295423` | committed, **pushed** to `origin/main` |
+| `nix-desktop` | `c775f2f` | committed, **pushed** to `origin/main` |
+| `loci.nvim` | `7e6d984` | committed, **pushed** to `origin/main` |
+| `webdantic` | — | edited, then **reverted**; tree clean, nothing committed |
+| `parsedantic` | — | never edited |
+
+**`loci.nvim` was on a detached HEAD** at exactly `main` and `origin/main`, so
+`git checkout main` lost nothing. It was checked before the checkout, not after.
+
+**One store path was deleted on purpose** —
+`/nix/store/bskl00m5x9jins3amhyiqzwjmwr1gbaq-loci-nvim-tests` — to force the
+plane to re-execute a cached check. It has since been rebuilt.
+
+The registry went from 6 projects to 9, and `doctor` is clean.
+
+---
+
 ## I-4 — The `base:test` sweep across 58, static · **run before wave 4, not during**
 
 **Answer: 4 of 58 repositories have nothing to test. The other 54 have a suite
