@@ -1536,3 +1536,271 @@ needs one number to confirm the line rather than to discover it.
 of duplicated work; the 14 s is now measured and the argument is stronger, not
 weaker. The one number `PROPOSAL.md` §5 should gain is that the cost is linear
 and the per-file constant is 84 ms.
+
+---
+
+## S-1 — 58 DAGs on the `light` queue, and the queue is not what makes them fine
+
+**Answer: `PROPOSAL.md` §5's conclusion is right and its mechanism is wrong.**
+58 simultaneous `maintain` dispatches are fine — they took **2 seconds** — but
+**not because the queue absorbed them.** The queue did nothing at all.
+
+> **A run started by Dagu's own scheduler does not go through the queue.**
+> Measured on a throwaway instance and confirmed on the installed plane: 58
+> DAGs naming `light` (limit 4) and sharing one `schedule:` all started in the
+> same second, all 58 concurrent, queue depth 0.
+>
+> The same 58 DAGs put through `dagu enqueue` — the path `devman run` and the
+> watcher take — **never exceeded 4 concurrent** and drained in 311 s with a
+> queue depth of 54.
+
+**`PLAN.md` §8's row for S-1 does not fire as written** — nothing failed, so
+`light`'s limit does not need to rise. **And raising it would change nothing**,
+because the scheduled path never consults it. The replacement is below.
+
+### Versions
+
+Dagu 2.15.0, 8 cores. A throwaway `DAGU_HOME=/tmp/s7-s1/dagu`, web port 8094,
+coordinator port 50069, carrying a **byte copy** of the installed `base.yaml`
+(`diff` clean) and the installed `config.yaml` with only the two ports and
+`dags_dir` changed. Started with `dagu start-all` — **the identical command the
+installed user unit runs**, which is what makes the comparison fair.
+
+### Evidence 1 — the shipped shape, 58 at once
+
+58 DAGs, each `queue: light`, each doing what `maintain` does after stage 7: a
+`find` over a report directory, a report write, nothing else. All sharing one
+`schedule:`.
+
+```
+runs              : 58
+statuses          : {'succeeded': 58}
+first start       : 20:22:00
+last finish       : 20:22:02
+wall clock        : 2s
+max concurrent    : 4          <- see below; this number is an artefact
+per-run duration  : median 0s, range 0-1s
+total CPU-time    : 0.1 CPU-minutes
+peak dagu CPU     : 571%
+```
+
+**All 58 succeeded in 2 seconds.** `PLAN.md` §5's bar — "all 58 complete within
+a few minutes and none fails" — is met with three orders of magnitude to spare.
+
+**The `max concurrent 4` is not evidence of the queue.** Dagu records
+second-resolution timestamps and every run finished inside 1 s, so the overlap
+count cannot distinguish 4 from 58. The next two measurements exist because of
+that.
+
+### Evidence 2 — the control, and it is much worse than the proposal estimated
+
+The same 58, each running `devman doctor` against a 58-project registry — which
+is what `maintain` does **today**.
+
+```
+runs              : 58
+statuses          : {'succeeded': 58}
+wall clock        : 143s
+max concurrent    : 58              <- unambiguous: runs last minutes
+per-run duration  : median 139s, range 135-142s
+total CPU-time    : 134.5 CPU-minutes
+peak dagu CPU     : 638%
+```
+
+**Every run is inflated tenfold by contention.** `devman doctor` at 58 projects
+costs 14.3 s alone (I-2a); run 58 at a time on 8 cores it costs **139 s each**.
+
+**`PROPOSAL.md` §5 estimated 13 CPU-minutes for this. It is 134.** The estimate
+assumed the queue serialised the work four at a time. It does not, so the real
+figure is ten times the one the proposal used to justify removing `doctor` from
+`maintain`. **The argument for `plane-report` is far stronger than it was
+written.**
+
+### Evidence 3 — the decisive test, and then the real plane
+
+The two runs above differ in duration, so a clean test was built: 58 DAGs,
+`queue: light`, one step, `sleep 20`.
+
+| | scheduled | enqueued (`dagu enqueue`) |
+|---|---|---|
+| max concurrent running | **58** | **4** |
+| max queue depth | **0** | **54** |
+| wall clock | ~22 s | **311 s** ≈ 58 ÷ 4 × 20 s |
+
+```
+scheduled:  t=45  queued 0  running 20
+            t=47  queued 0  running 58        <- all of them
+            t=67  queued 0  finished 58
+
+enqueued:   t=0   queued 54  running 4
+            t=19  queued 50  running 4
+            …every 20 s, four more…
+            t=311 queued  0  running 0
+```
+
+**The enqueued column is criterion 12 working exactly as the charter says.** The
+scheduled column is the same DAGs, the same queue, the same daemon.
+
+**Confirmed on the installed plane**, so this is not an artefact of the
+throwaway. Two DAGs on `exclusive` — `max_concurrency: 1`, the strictest queue
+the machine has — sharing one schedule:
+
+```
+devman-_s1-excl-a  start 20:36:00  finish 20:36:20  status 4  triggerType 1
+devman-_s1-excl-b  start 20:36:00  finish 20:36:20  status 4  triggerType 1
+
+second start - first start = 0s
+VERDICT: queue BYPASSED (concurrent)
+```
+
+**A queue with a limit of one ran two runs at once, because the scheduler
+started them.**
+
+### What this falsifies, precisely
+
+**`PROPOSAL.md` §5, the paragraph headed "The schedule shape at 58
+repositories".** Its sentence —
+
+> "58 simultaneous dispatches at `5 0 * * *` are fine, and the queue is what
+> makes them fine. `maintain` names `light`, limit 4, so 58 enqueued runs
+> proceed four at a time."
+
+— is wrong twice. They are not enqueued, and they do not proceed four at a time.
+**The conclusion survives on a different footing:** they are fine because the
+work is milliseconds, and for no other reason.
+
+**§5's argument against a stagger loses its counterweight.** It says a stagger
+has exactly one legal carrier — "The queue, if anything… it is the only legal
+carrier." That carrier does not exist for scheduled runs. The argument against
+writing an offset into a shared group file still stands on its own (it would
+give all 58 the same offset), but **nothing now throttles the scheduled set**,
+and §5 must say so instead of pointing at a mechanism that is not engaged.
+
+**`CONCEPT.md` criterion 12 — "queues are real" — must be narrowed.** It is true
+of `devman run` and of the watcher, both of which reach Dagu through
+`dagu enqueue`. It is false of `schedule:`. That distinction has existed since
+stage 6 put schedules in workflow files, and nothing had measured it.
+
+### What replaces it
+
+**The scheduled set must be cheap by construction, because nothing throttles
+it.** That is now a rule rather than a preference, and it is `PROPOSAL.md` §12's
+eighth entry:
+
+> **8. Anything expensive, on a schedule.** A scheduled run does not pass
+> through its queue, so the limit that protects the machine from a burst of
+> `devman run` does not protect it from a burst of `schedule:`. 58 repositories
+> firing one cheap DAG at 00:05 costs 2 seconds. The same 58 firing anything
+> that takes seconds costs the machine minutes of full load, at ten times the
+> per-run cost, with nobody present.
+
+**Two things follow for the refactor, and neither is new work:**
+
+1. **R-1's `maintain` is already correct** — one `find` and one report write is
+   exactly the shape this rule demands, and S-2 already built it.
+2. **R-2's `plane-report` is the only other scheduled workflow**, it runs once
+   for the machine rather than 58 times, and it costs 3 s (S-5). Also correct.
+
+**What is genuinely open**, and named rather than guessed: whether Dagu can be
+made to enqueue scheduled runs instead of dispatching them. `maxActiveRuns` is
+per-DAG and cannot bound 58 different DAGs. **Nothing was measured about a
+machine-side fix**, and this log does not propose one. The measurement a stage 8
+would take is whether any Dagu configuration routes `schedule:` through a queue;
+if none does, the rule above is the whole answer.
+
+### Verdict
+
+**Passes on the letter of `PLAN.md` §5** — all 58 complete, none fails. **Fails
+the assumption underneath it**, which is the more useful result. Gate 3's job was
+to learn this before wave 4, and it did.
+
+### Charter impact
+
+**One section, and it is a narrowing rather than a reversal.** Criterion 12's
+commentary gains:
+
+> "**Queues bind the enqueue path.** `devman run`, a VCS hook and the watcher all
+> reach Dagu through `dagu enqueue`, and a queue's `max_concurrency` holds
+> exactly: 58 enqueued runs on `light` never exceeded 4 concurrent and drained
+> in 311 s (stage 7, S-1). **A run started by Dagu's own scheduler does not pass
+> through the queue** — 58 DAGs sharing one `schedule:` all ran at once, and two
+> DAGs on `exclusive` with a limit of 1 both ran at once. So a `schedule:` is not
+> throttled by anything, and §12's rule follows: what the plane schedules must be
+> cheap by construction."
+
+R-6 carries it, after this measurement rather than before.
+
+### Rule 7 — what this entry did to the machine, including a mistake
+
+**I killed the installed Dagu service for about ninety seconds, by accident.**
+Cleaning up the throwaway daemon, `pkill -f 'dagu start-all'` matched the
+throwaway **and the user unit**, because S-1 deliberately gave them the same
+command line.
+
+- Detected immediately: the real plane's API returned nothing on 8080.
+- Repaired with `systemctl --user start dagu`; `active` and HTTP 200 within
+  six seconds.
+- **Nothing was lost.** No run was in flight — the last two records are the
+  `_s1-excl` probes, both `succeeded` at 20:36:20, sixty seconds before the
+  kill. `maintain` fires at 00:05 and `plane-report` at 00:20, both outside the
+  window. The watcher is a separate unit and never stopped. The daemon journal
+  reports no error since the restart.
+- **`plane` now reads `up 0h` instead of `up 20h`**, which is the only visible
+  trace.
+
+The correct command was `pkill -f 'DAGU_HOME=/tmp/s7-s1'`, or killing the
+recorded PID. Recorded here rather than tidied away.
+
+**Everything else is as it was found:**
+
+```
+$ devman doctor
+devman doctor — 6 projects, 35 workflows
+ok  plane          healthy — dagu 2.15.0, up 0h
+Nothing to report.                                                   exit 0
+
+$ git status --short
+                                                            (clean)
+```
+
+The throwaway `DAGU_HOME`, the two `_s1-excl` workflows, and I-2a's synthetic
+registries under `/tmp` are all deleted. No `_s1` link remains in `dags/`.
+
+---
+
+## Gate 3 — closed
+
+| | Item | Bar (`PLAN.md` §5) | Result |
+|---|---|---|---|
+| S-1 | 58 DAGs on the `light` queue | all 58 complete in a few minutes, none fails | **passes** — 2 s, 58/58 — but the queue is not why |
+| I-2a | the `dagu validate` cost curve | is `doctor` linear? | **passes** — linear, 83.6 ms/file, 14.33 s at 174 files |
+
+**All four gates are closed. R-1 may begin.**
+
+### The refactor, as Gate 3 leaves it
+
+| | Status after gates 0–3 |
+|---|---|
+| R-1 group content | **ready** — built and validated on `spike/007-gate-2` |
+| R-2 `plane-report` | **ready** — built, run manually and on a schedule, `\|\| rc=$?` fixed |
+| R-3 the module | **ready** — I-6 settled the throw; two lines |
+| R-4a glob/hash check | **refused** — S-4 showed it can only be a heuristic |
+| R-4b `doctor --project` | **not needed** — I-2a: 30 s arrives at ~120 projects |
+| R-4c check 6 asleep-vs-stopped | unchanged, still gated on I-10 |
+| R-4d trigger names a real workflow | **new**, from S-3 — exact, ships |
+| R-4e a glob that has only ever skipped | **new**, from S-4 — held until it bites |
+| R-4f parallelise `check_load` | **new**, from I-2a — 14.3 s → ~2.3 s, four lines |
+| R-5 wave 1 | **half done** — `devman` already carries its three edits |
+| R-6 the charter | **grew** — criterion 12 narrows (S-1), plus §1.1 and §6 from Gate 0 |
+| R-8 edited override must re-project | **new**, from S-5a — before wave 2 |
+
+### The three things a reader should carry out of stage 7 so far
+
+1. **The hinge held.** One workflow, one step, one devenv task survives every
+   measurement, and the failing task's name reaches more places than predicted.
+2. **Three latent defects were found by building rather than by reading**: a
+   truncated report on the one night it matters (S-5), an edited override that
+   never re-projects (S-5a), and a queue that does not bind the scheduler (S-1).
+   None was in `OPEN_QUESTIONS.md`.
+3. **Two proposed changes were refused on their own evidence** — R-4a and R-4b —
+   and three cheaper ones took their place.
