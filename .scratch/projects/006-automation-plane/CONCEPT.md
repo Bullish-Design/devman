@@ -1477,34 +1477,45 @@ command. Every ordinary entry path was enumerated and tested against it.
 §5.2 puts it in `enterShell` behind a hash guard. A repo is invisible until you
 enter its shell once. Do not solve this by scanning.
 
-**15.2 `.devman/` has carried other meanings, and the test must be a
-whitelist.** Some repositories already hold a `.devman/` of another shape.
-Registration must detect a directory it does not recognize and report it, never
-silently adopt it.
+**15.2 `.devman/` belongs to the repository. The plane reserves two names in
+it and ignores everything else.**
 
-> **`.devman/` may hold only `workflows/` and `.runs/`. Any other top-level
-> entry means registration refuses and reports.**
+> **devman reserves `.devman/workflows/` and `.devman/.runs/`. Every other entry
+> under `.devman/` is the repository's, and the plane never reads, writes or
+> inspects it.**
 
-A whitelist rather than a check for a known-old marker, because a survey of 77
-checkouts found **four** shapes and the anticipated one occurs **zero** times:
+`.devman/` is open for whatever else a repository or an add-on keeps there — a
+vendored store, agent reference material, a future tool nobody has written yet.
+Adopting the plane costs a repository two reserved names, not a directory.
 
-| shape | top level | seen |
-|---|---|---|
-| `devman 0.2.0` workspace | `devman.toml`, `interaction.md`, `nvim/` | in the installed package only |
-| agent reference material | `context/` | 1 repo |
-| vendored store | `store/` | 1 repo |
-| the plane | `workflows/`, `.runs/` | this repo |
+**This reverses an earlier rule, by decision at stage 7.** Registration used to
+carry a whitelist: any top-level entry under `.devman/` other than `workflows/`
+and `.runs/` made it refuse and report. A survey of 77 checkouts had found four
+shapes — a `devman 0.2.0` workspace (`devman.toml`, `interaction.md`, `nvim/`),
+agent reference material (`context/`), a vendored store (`store/`), and the
+plane's own — and the whitelist existed so the plane never silently adopted one
+of the others.
 
-A blacklist looking for `devman.toml` is correct against one shape and wrong
-against three — it would silently adopt both real specimens. The whitelist costs
-one directory listing per registration, and the survey says it will almost never
-fire: 2 of 77 checkouts carry a `.devman/` at all.
+**It was removed because it contradicted §7.4.** The plane's claim is that it
+names the smallest vocabulary it has to and leaves everything else to the
+repository. A directory the repository already owned is the wrong place to make
+an exception, and "refuse to register until you move your files" is an opinion
+about a repository's layout — the exact kind §7.1 says the plane does not hold.
+`fsdantic`, which carries `.devman/store/vendor/agentfs`, is the worked example:
+it now adopts the plane and keeps its store, and the two do not interact.
 
-**The collision runs both ways, and the older tool is the destructive one.**
-`devman 0.2.0`'s `init` refuses a non-empty `.devman/` — and `--force` calls
-`shutil.rmtree` on it, which would delete the tracked `workflows/` this charter
-calls canonical. §3.3 makes removing that binary a stage-1 task for this reason
-as much as for §10's.
+**Nothing replaces it, deliberately.** A `doctor` check listing unrecognised
+entries would be the same opinion in a softer voice, and §15.7 says `doctor`
+does not guess.
+
+**What the reversal gives up, stated.** A repository holding a `devman 0.2.0`
+workspace now registers silently, and the two tools share a directory without
+either knowing. The older tool is the destructive one: its `init` refuses a
+non-empty `.devman/`, and `--force` calls `shutil.rmtree`, which would delete
+the tracked `workflows/` this charter calls canonical. **§3.3's removal of that
+binary is what makes this safe**, and it is no longer merely a tidiness task —
+it is the mitigation. Nothing in the plane can defend against a tool that
+deletes the directory out from under it.
 
 **15.3 One instance per machine is a shared availability failure.** A wedged
 queue blocks every repo, not one. §9.3 bounds the damage — state is
