@@ -1983,6 +1983,105 @@ to Gate 3 set what they are.
 
 ---
 
+## R-7 wave 3 — `fsdantic`, blocked before the thing it was scheduled to test
+
+**Answer: `fsdantic` cannot be adopted, and not for any reason wave 3 was
+about.** Its shell does not enter:
+
+```
+$ devenv shell -- true
+error: path '/nix/store/ngar1l1sc6h4qf45w2ixj6k6i3c72aqz-agentfs-src/cli/Cargo.toml'
+       does not exist
+```
+
+**R-9 already answered wave 3's original question**, so nothing is lost from the
+plane's side: `.devman/store/` no longer blocks registration, and the paired
+measurement in R-9 proves it on a real tree. What wave 3 would have added is one
+more repository, and that is what is blocked.
+
+### Versions
+
+devenv **2.1.2**, devman **0.3.0**. `fsdantic` on branch
+`fix/materialization-remove-exdev-fallback`, clean, 0 ahead of its upstream.
+**No file in `fsdantic` was edited** — the check that stopped this is wave 2b's
+new first step, run before anything was written.
+
+### The cause, traced
+
+`fsdantic`'s own `devenv.nix` reads a Rust manifest at **evaluation** time, so a
+missing file is a total shell failure rather than a build failure:
+
+```nix
+# fsdantic/devenv.nix
+agentfsPath = ./.devman/store/vendor/agentfs;
+agentfsSrc  = builtins.path { path = agentfsPath; name = "agentfs-src"; };
+cargoToml   = builtins.fromTOML (builtins.readFile (agentfsSrc + "/cli/Cargo.toml"));
+```
+
+The symlink chain resolves, and the source is not at the end of it:
+
+```
+.devman/store/vendor/agentfs
+  -> /home/andrew/Documents/Projects/vendor/agentfs        (itself a symlink)
+  -> /home/andrew/Documents/Projects/fsdantic/.context/agentfs-main   (exists)
+
+$ find .context/agentfs-main -maxdepth 1
+  agentfs-main/   MANUAL.md   README.md   SPEC.md   examples/   sdk/
+
+$ find .context/agentfs-main -maxdepth 3 -name Cargo.toml
+  (nothing)
+```
+
+**The vendored checkout holds documentation and an SDK, and no Rust crate at
+all.** The nested `agentfs-main/` is empty. There is no `cli/Cargo.toml` to
+read, at any depth.
+
+**Pre-existing and unrelated to the plane.** `fsdantic`'s tree is untouched and
+was clean before and after. Not repaired here: restoring a vendored Rust source
+tree is `fsdantic`'s own work, and it is a long way from adoption.
+
+### What this does to `PROPOSAL.md` §8's wave 3
+
+**Wave 3's purpose was already spent by R-9.** §8 scheduled `fsdantic` as the
+repository that "must fail first", so §15.2's whitelist could be seen firing in
+the wild. That whitelist no longer exists, and the decision that removed it was
+measured on `devman`'s own tree with a probe of exactly `fsdantic`'s shape.
+
+**So wave 3 is closed as "not needed, and separately blocked".** When
+`fsdantic`'s vendored source is restored it adopts like any other repository —
+with `.devman/store/` in place and nothing to move.
+
+### The check that caught this, and it is the whole point
+
+Wave 2b's closing rule was: **run `devenv shell -- true` before editing
+anything.** It was written after two wrong guesses cost a wave. Its first
+application, on the very next repository, found a third unadoptable repository
+with a third distinct cause:
+
+| Repository | Cause | Class |
+|---|---|---|
+| `webdantic` | missing `pre-commit-hooks` input | devenv integration |
+| `parsedantic` | missing `pre-commit-hooks` input | devenv integration |
+| `fsdantic` | vendored Rust source absent | repository's own state |
+
+**Three of twelve repositories touched so far could not enter their own shell**,
+for two unrelated reasons. That ratio is why the survey below exists, and why
+it runs before wave 4 rather than during it.
+
+### Charter impact
+
+**None.** §15.2 was already rewritten by R-9. §5.2's "a repository is invisible
+until you enter its shell once" is doing all the work here, and it is correct as
+written.
+
+### Rule 7 — what this entry did to the machine
+
+**Nothing.** One `devenv shell -- true` in `fsdantic`, which failed, plus reads
+of its `devenv.nix` and the symlink chain. No file was edited, nothing was
+committed, and `fsdantic` is on the same branch and the same commit as before.
+
+---
+
 ## R-7 wave 2b — the two blocked repositories, and two wrong guesses
 
 **Answer: both adopted. Wave 2 is five of five registered.** The blocker was
