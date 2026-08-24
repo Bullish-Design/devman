@@ -6,7 +6,7 @@
 #   devman = {
 #     enable  = true;
 #     project = "pyjutsu";
-#     groups  = [ "base" "python" ];
+#     groups  = [ "base" ];
 #   };
 #
 #   inputs:
@@ -61,10 +61,24 @@ let
     if !builtins.pathExists (groupsRoot + "/${group}") then
       throw "devman: group '${group}' does not exist. There is no ${toString (groupsRoot + "/${group}")}."
     else if !builtins.pathExists dir then
-    # A group may ship no workflows at all. A triggers-only group is how a
-    # repository opts into reactivity without also inheriting somebody's
-    # workflows, which is what keeps §7.4's "an inherited workflow you never
-    # trigger costs nothing" true — a *triggered* workflow costs plenty (§8).
+    # A group may ship no workflows at all. Two shapes use this branch, and the
+    # second was measured at stage 7.
+    #
+    # A TRIGGERS-ONLY GROUP is how a repository opts into reactivity without
+    # also inheriting somebody's workflows, which is what keeps §7.4's "an
+    # inherited workflow you never trigger costs nothing" true — a *triggered*
+    # workflow costs plenty (§8).
+    #
+    # A TOMBSTONE is a group that has been deleted. The throw above is an
+    # EVALUATION failure, so a repository that re-pins to a rev where its group
+    # is gone cannot enter its shell at all — a flag day rather than a
+    # migration. A directory that ships no `workflows/` evaluates and projects
+    # nothing, so a stale pin keeps working and the repository renames its group
+    # when it is next edited (STAGE_7_LOG.md, I-6 and S-3).
+    #
+    # A tombstone MUST hold at least one file, because git cannot carry an empty
+    # directory, and MUST NOT hold a `triggers.toml`, because the mapping would
+    # keep firing a workflow the repository no longer projects.
       { }
     else
       lib.mapAttrs'
@@ -328,7 +342,7 @@ let
   # version that was. §12.4's measurement asks the same question.
   #
   #   "workflows": {
-  #     "check": {"group":"python","shadows":["base"],"source":"/nix/store/..."}
+  #     "check": {"group":"base","shadows":[],"source":"/nix/store/..."}
   #   }
   #
   # `local` stays, and the two are read together: a name in `local` is the
@@ -372,7 +386,7 @@ in
     groups = mkOption {
       type = types.listOf types.str;
       default = [ "base" ];
-      example = [ "base" "python" ];
+      example = [ "base" "format" ];
       description = "Workflow groups this repository inherits, in precedence order (§7.3). `[ ]` is legal: the repository then has only its own `.devman/workflows/`.";
     };
 
