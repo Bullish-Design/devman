@@ -3876,3 +3876,104 @@ repositories (7 template-default, 8 custom); the count stands.
 warm copier cache, and the warmed Nix caches. `my-ai` and `nix-nvim` were
 moved from detached HEAD to local `main`; all checkouts are clean apart from
 the noted pre-existing changes.
+
+## R-7 wave 4, batch 5 — three adopted, and wave 4 closes at 54 registered
+
+**Answer: batch 5 is done — the last three repositories. Wave 4 is complete:
+all 43 repositories are registered, all pushed, and the plane holds 54 projects
+and 169 workflows with `doctor` clean.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `terminal-state` | `79c56dc` | **failed — 1 ruff finding** (recorded) | ok — **31 passed** — see below |
+| `testee` | `3df2617` | ok — ruff clean (`src`) | ok — **121 passed** |
+| `vendomat` | `bd1f207` | ok — ruff clean (`src`) | ok — **89 passed** |
+
+All three at `@{u}..HEAD = 0`.
+
+### The batch's one traced failure, and the fix that is not a repair
+
+**`terminal-state`'s suite failed at collection with 7 errors:
+`No module named 'pydantic_core._pydantic_core'`.** Traced, not guessed: this
+devenv's `PYTHONPATH` prepends a chain of Nix **python3.13** site-packages
+(asciinema/shellij/pydantic stacks) over the project's **3.11** venv, so
+`import pydantic_core` resolves the 3.13 binary inside the 3.11 interpreter.
+The venv's own `_pydantic_core.cpython-311…so` is present and correct — it is
+shadowed, not missing.
+
+**The task states the environment it needs, in the fornix shape:** `env -u
+PYTHONPATH uv run --extra dev pytest`. `src` stays importable through the
+venv's editable `.pth`, and the suite collects 31 tests and passes. The
+devenv's PYTHONPATH remains the repository's own misconfiguration, reported
+rather than changed.
+
+### Evidence — the batch proof and wave 4's close
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        54   (was 51; 11 before wave 4)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    169   (was 160; 40 before wave 4)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, the final point on `doctor`'s curve — five timings at 54 projects:**
+
+```
+14981  15726  15572  14369  13346 ms      mean 14799 ms over 169 workflows = 87.6 ms/file
+```
+
+83.6 (I-2a) → 87 (6 projects) → 78.9 (34) → 82.2 (70) → 88.2 (100) → 89.5
+(130) → 88.1 (160) → **87.6 (169). The serial `check_load` line held across the
+entire rollout, and never came close to the 30 s alert line — so `plane-report`
+stays unpaginated and OPEN_QUESTIONS §2 stays unurgent.**
+
+**I-1, still pending and now due:** the first night after the full rollout —
+00:05's `maintain` sweep across 54 projects and the single `plane-report` — is
+the last wave-4 proof. It cannot be produced from this session; it is the
+next morning's check.
+
+### Verdict
+
+**Wave 4 is complete.** 43 of 43 repositories adopted, each with its own
+`chore(devman): adopt the stage-7 workflow set` commit on its own default
+branch, pushed. 53 `devenv.yaml` files carry the pinned devman input (the 54th
+registered project is devman itself, which imports `./modules`). The recorded
+failures across the whole wave — all pre-existing, all traced to their
+mechanism — are the live half of what §12 rule 4 and I-4's caveats predicted:
+template-default `enterTest` repos (7 of 15), suites whose tools live in
+extras the venv does not install (wave 2b's lesson, hit repeatedly), no-suite
+repos that still honour the contract, and environment facts that only the task
+environment reveals.
+
+### Charter impact
+
+**None.** Wave 4 was expected to force no charter change and forced none.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `terminal-state` | `79c56dc` | committed, **pushed** to `origin/main` |
+| `testee` | `3df2617` | committed, **pushed** to `origin/main` |
+| `vendomat` | `bd1f207` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** the plane at 54 projects / 169 workflows, `doctor`
+clean; terminal-state's devenv PYTHONPATH untouched; the warmed caches of 43
+rollouts. Nothing was deleted, and nothing was left running that was not
+already running.
+
+**The wave in one table — all 43, by commit:**
+
+| Batch | Repositories (commit) |
+|---|---|
+| 1 | atuout `3ae56d0` · atuout-reconciler-test `b9b12a2` · boomtube `868d208` · browsee `55f5d28` · cairn `b2b4742` · embeddy `42cff82` · fleetman `98e1947` · forgelab `39f17b3` · fornix `0e5ca5e` · grail `7aad6f2` |
+| 2 | knappy `4eecc77` · nixbuild `6b1f13f` · templateer_v2 `9ce584f` · tyo3 `94d429f` · zelligate `06d0297` · loci-core `f3542a3` · allium-env `0cc8bd9` · argentic `8f32312` · copyroom `a45a50d` · docman `279b9cb` |
+| 3 | eventic `9bdecc8` · flora `d90a9fe8` · flora-core `3ada834` · flora-qc `9805484` · foreman `c7a21da` · gitman `3c49fa5` · image-gen-pipeline `dcc9d4f` · interplay `57ccdb8` · llgym `c6bcb19` · lodestar `6fbcac0` |
+| 4 | my-ai `fc38860` · mypi-agent `5011589` · nix-nvim `835d2c7` · nix-secrets `c2eef93` · nixvim `976a876` · pytuin `a0bde75` · repoman `e55ac7c` · shellij `7c5f70b` · structured-agents-v2 `febefd6` · talkee `2dd0648` |
+| 5 | terminal-state `79c56dc` · testee `3df2617` · vendomat `bd1f207` |
