@@ -3750,3 +3750,129 @@ warmed Nix caches every shell entry buys. `flora`, `flora-qc`, `foreman`,
 `gitman`, `image-gen-pipeline` and `interplay` were moved from detached HEAD to
 their local `main`; all were clean (or carried only the noted pre-existing
 changes).
+
+## R-7 wave 4, batch 4 — ten adopted, and the first no-suite repo that was miscounted
+
+**Answer: batch 4 is done — ten repositories, all registered, all pushed. The
+three Nix repositories adopted with the flake gate. One repository (`my-ai`)
+that I-4 counted as having a suite has none — pytest collects 0 items — and got
+a real end-to-end gate instead. Two recorded lint debts and one recorded
+failing own-gate.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `my-ai` | `fc38860` | ok — ruff clean (whole tree) | ok — **copier render gate** (below) |
+| `mypi-agent` | `5011589` | **failed — 16 ruff findings** (recorded) | **2 failed, 54 passed** — see below |
+| `nix-nvim` | `835d2c7` | ok — `nix flake check --no-build` | ok — `nix flake check` |
+| `nix-secrets` | `c2eef93` | ok — flake check `--no-build` | ok — `nix flake check` |
+| `nixvim` | `976a876` | ok — flake check `--no-build` | ok — `nix flake check` |
+| `pytuin` | `a0bde75` | ok — ruff clean (`src`) | ok — **161 passed** |
+| `repoman` | `e55ac7c` | ok — ruff clean (`src`) | **own gate failed** — see below |
+| `shellij` | `7c5f70b` | ok — ruff clean (`src`) | ok — **169 passed**, 17 skipped |
+| `structured-agents-v2` | `febefd6` | **failed — 12 ruff findings** (recorded) | ok — **41 passed** |
+| `talkee` | `2dd0648` | ok — ruff clean (`src`) | ok — **78 passed** |
+
+All ten at `@{u}..HEAD = 0`.
+
+### The measurement I-4 got wrong, corrected live
+
+**`my-ai` has no test suite.** I-4's static sweep counted it in "a suite, no
+task" because `pyproject.toml` declares `testpaths = ["tests"]` — but the
+directory does not exist and never has (no `tests/` in git history). `uv run
+pytest` collects 0 items and exits 5. Its own comment says what it is: "my-ai
+is a Copier template, not a Python package" (`[tool.uv] package = false`).
+
+**Its gate is the repository's deliverable, in the siteman shape:** render the
+layer with copier into a scratch dir and assert the seed files exist and the
+`CLAUDE.md → AGENTS.md` symlink survives (`_preserve_symlinks` is load-bearing;
+rendering is the only way to prove it). `copier` resolves from the machine
+repoman venv, which the task environment reaches. This is the honest no-suite
+gate, and it passes.
+
+### Two traced failures, both the repository's own
+
+**`mypi-agent`: 2 failed, one mechanism — a code/test message drift.** The test
+asserts the sync output contains "advisory: upgrades require explicit sync";
+the code prints "advisory: configuration changed; run `mypi sync` to apply
+upgrades" (`cli.py:72`). The message was renamed in the code and the test was
+not. Control run fails identically. Recorded, not fixed.
+
+**`repoman`: its own gate fails on its own standards.** `base:test` forwards to
+`repoman:test` — the testee manager's `testee verify --mode quick` — which
+reports `ruff=passed, ruff-format=failed, ty=failed, pytest=passed`, 11
+blocking format/type findings. The pytest half passes; the repo's own verify
+gate does not. Recorded, not fixed. `repoman` is the third forward-only case
+(its `repoman:test` exists; duplicating it would be rule 6's sin).
+
+### What else the batch spent its effort on
+
+- **`mypi-agent` is consumer-facing** like copyroom/docman — the devman block
+  lives in `dev/devenv.nix`, not the root module.
+- **`nixvim` is a config-style module** (top-level `options`), so devman and
+  tasks sit inside `config` — the third repo to bite on this shape after flora
+  and flora-qc.
+- The three Nix repos follow `nix-desktop`: `base:check` = `nix flake check
+  --no-build`, `base:test` = `nix flake check`. All three flakes evaluate and
+  check clean.
+- `pytuin`, `shellij`, `talkee` and `structured-agents-v2` are the plain repoman
+  pattern; `ruff check src` matched each repo's own scope.
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        51   (was 41)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    160   (was 130)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a seventh point on `doctor`'s curve — five timings at 51 projects:**
+
+```
+14147  14566  14851  14207  12696 ms      mean 14093 ms over 160 workflows = 88.1 ms/file
+```
+
+83.6 → 87 → 78.9 → 82.2 → 88.2 → 89.5 → **88.1 ms/file. The serial `check_load`
+line holds; still 2.1× under the 30 s alert line.**
+
+**I-1 pending:** the overnight `maintain` sweep after four batches remains
+scheduled for the coming night.
+
+### Verdict
+
+Batch 4 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 51
+projects and 160 workflows. One live correction to I-4's classification
+(`my-ai`), two recorded lint debts, one recorded failing own-gate, one recorded
+code/test drift — all traced to their mechanism.
+
+### Charter impact
+
+**None.** §12 rule 4's live half now covers all fifteen `enterTest`
+repositories (7 template-default, 8 custom); the count stands.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `my-ai` | `fc38860` | committed, **pushed** to `origin/main` |
+| `mypi-agent` | `5011589` | committed, **pushed** to `origin/main` |
+| `nix-nvim` | `835d2c7` | committed, **pushed** to `origin/main` |
+| `nix-secrets` | `c2eef93` | committed, **pushed** to `origin/main` |
+| `nixvim` | `976a876` | committed, **pushed** to `origin/main` |
+| `pytuin` | `a0bde75` | committed, **pushed** to `origin/main` |
+| `repoman` | `e55ac7c` | committed, **pushed** to `origin/main` |
+| `shellij` | `7c5f70b` | committed, **pushed** to `origin/main` |
+| `structured-agents-v2` | `febefd6` | committed, **pushed** to `origin/main` |
+| `talkee` | `2dd0648` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** `nixvim`'s pre-existing modified `.devenv/gc/shell` and
+`.devenv/imports.txt` (devenv state files it tracks — untouched), `my-ai`'s
+warm copier cache, and the warmed Nix caches. `my-ai` and `nix-nvim` were
+moved from detached HEAD to local `main`; all checkouts are clean apart from
+the noted pre-existing changes.
