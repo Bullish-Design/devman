@@ -1983,6 +1983,257 @@ to Gate 3 set what they are.
 
 ---
 
+## I-4b — The shell-entry survey across all 58 · **wave 4's real size**
+
+**Answer: 54 of 58 repositories can enter their own devenv shell. Four cannot.**
+Wave 4 is **43 repositories**, and the work per repository is one `devenv.nix`
+task line — not a repair pass.
+
+**This is the check I-4 could not make.** I-4 read `devenv.nix` and never
+entered a shell. §5.2 makes shell entry the only registration path, so a
+repository whose shell fails is not "hard to adopt", it is **impossible to
+adopt** and invisible to `doctor` while it stays that way.
+
+### Versions
+
+devenv **2.1.2**, devman **0.3.0**. 58 repositories under
+`~/Documents/Projects` holding a `devenv.nix`. `devman` is read at its
+registered path, the worktree.
+
+### Command
+
+```bash
+for d in $(find . -maxdepth 2 -name devenv.nix -printf '%h\n' | sort); do
+  (cd "$d" && timeout 240 devenv shell -- true)
+done
+```
+
+Sequential, not parallel, so that one repository's build does not distort
+another's. **The whole sweep is a real cost and it is stated:** ~35 minutes of
+wall clock, and it warmed a great many Nix caches.
+
+### Evidence — the four that fail, and four distinct causes
+
+| Repository | Cause | Class |
+|---|---|---|
+| `PyGentic` | `git-hooks or pre-commit-hooks input required` | devenv integration — **one input line** |
+| `clinch` | `attribute 'configPath' missing` | the repository's own module |
+| `inferference` | `Refusing to evaluate package 'cuda12.9-cuda_nvcc-12.9.86'` | unfree licence, not declared |
+| `fsdantic` | `agentfs-src/cli/Cargo.toml` does not exist | vendored source absent (wave 3) |
+
+**Only `PyGentic` repeats a cause already solved.** It is the same
+`pre-commit-hooks` gap wave 2b traced in `webdantic` and `parsedantic`, so it is
+one line away from adoptable. The other three are each their own repair.
+
+**An honest correction to the headline.** This survey ran **after** wave 2b, so
+`webdantic` and `parsedantic` report `OK` because they were fixed an hour
+earlier, not natively. **The pre-session figure is 6 of 58 unadoptable**, and
+that is the number to compare against wave 2's alarming 2-in-5.
+
+### One result that was wrong until it was re-measured
+
+`terminal-state` recorded **TIMEOUT at 568 s** against a 240 s limit — the
+process outlived its own timeout, which is worth noting on its own. Re-run
+immediately afterwards:
+
+```
+$ cd terminal-state && devenv shell -- true
+rc=0  elapsed=3s
+```
+
+**It was a cold build, and the first run warmed it.** Recorded as `OK`, and
+recorded here as a reminder that a timeout in this survey measures the cache,
+not the repository. Its first-entry cost is the one real data point: **568 s
+cold.**
+
+### Cold-entry cost, which nobody had measured
+
+```
+terminal-state  568s      structured-agents-v2   48s
+repoman         216s      llgym                  40s
+nixvim          114s      boomtube               37s
+browsee          53s      tyo3                   36s
+```
+
+Everything else is under 30 s, and most is under 10 s. **Criterion 7's ≤10 ms
+budget is about a warm entry**, and nothing here touches it — but a wave that
+adopts ten repositories at once should expect minutes, not seconds, the first
+time.
+
+### What wave 4 actually is
+
+```
+total repositories        58
+shell enters              54
+shell does NOT enter       4
+already adopted           11        (waves 0-2b)
+WAVE 4 = adoptable now    43
+```
+
+**By what `base:test` would be, across those 43:**
+
+| | Count | Work per repository |
+|---|---|---|
+| a suite, no task | **27** | one task line naming the suite |
+| `enterTest` only | **15** | one task line, **and** a check that it tests anything |
+| a `<x>:test` task | **1** | one alias line |
+
+**The 15 are the ones that can adopt a lie.** `PROPOSAL.md` §12 rule 4 rests on
+`devenv test` exiting 0 having tested nothing in 30 of 58 repositories, and wave
+2 hit it twice: `webdantic` and `parsedantic` both had the devenv template's
+default `enterTest`, which greps `git --version`. Neither got `devenv test` as
+its `base:test`. **These 15 go first in wave 4**, so the failure mode is met
+while the batch is small.
+
+### The two checks wave 4 runs per repository, before editing anything
+
+Both were bought with a wasted wave:
+
+1. **`devenv shell -- true`.** This survey is that check, run once for all 58.
+2. **`command -v <the tool `base:test` would call>`, inside that shell.** Wave
+   2b found `pytest` absent from two venvs where `pyproject.toml` declares it —
+   it lives in `[project.optional-dependencies]`, which devenv's venv does not
+   install. The answer there was `uv run --extra dev pytest`.
+
+### A third thing, found while waiting, that `doctor` cannot see
+
+The `devman` repository root holds an **empty, untracked directory literally
+named** `${DEVMAN_PROJECT_DIR:-$DEVMAN_SELF_DIR}`, dated 22 August. It is the
+fingerprint of §7.2's unset-variable bug, from before stage 6 generated
+per-project files.
+
+**`doctor`'s `literal dir` check does not find it, and cannot.** That check
+greps the *projected YAML* for literal `${…}` strings and reports "none in 12
+places" — it catches the **cause** and never the **consequence**. `git status`
+misses it too, because git does not track empty directories.
+
+**Not deleted**, and reported rather than tidied away. It is inert. If a check
+for it is ever wanted it belongs in `doctor` as a filesystem test next to check
+3, and it is a `find` on each registered path — a fork per project on a path
+that is already allowed to spend one.
+
+### Verdict
+
+**`PLAN.md` §8's sizing question is answered, and the answer changed twice.**
+I-4 said wave 4 was 46 repositories × one line. Wave 2 said 2 in 5 might be
+unadoptable, which would have made it a repair pass. **The survey says 43 × one
+line, plus 4 repairs that are somebody else's work.** The middle estimate was
+the wrong one, and it came from five samples.
+
+### Charter impact
+
+**None.** §5.2 and §15.1 already say what this measures. What is new is the
+number.
+
+### Rule 7 — what this entry did to the machine
+
+**No repository was edited and nothing was committed to any of them.** The sweep
+entered 58 shells and `terminal-state`'s a second time. That is not free: it
+realised a large number of Nix store paths that were not there before,
+`terminal-state`'s alone taking 568 s. Nothing was deleted. The registry is
+unchanged at **11 projects, 40 workflows**.
+
+---
+
+## R-7 wave 3 — `fsdantic`, blocked before the thing it was scheduled to test
+
+**Answer: `fsdantic` cannot be adopted, and not for any reason wave 3 was
+about.** Its shell does not enter:
+
+```
+$ devenv shell -- true
+error: path '/nix/store/ngar1l1sc6h4qf45w2ixj6k6i3c72aqz-agentfs-src/cli/Cargo.toml'
+       does not exist
+```
+
+**R-9 already answered wave 3's original question**, so nothing is lost from the
+plane's side: `.devman/store/` no longer blocks registration, and the paired
+measurement in R-9 proves it on a real tree. What wave 3 would have added is one
+more repository, and that is what is blocked.
+
+### Versions
+
+devenv **2.1.2**, devman **0.3.0**. `fsdantic` on branch
+`fix/materialization-remove-exdev-fallback`, clean, 0 ahead of its upstream.
+**No file in `fsdantic` was edited** — the check that stopped this is wave 2b's
+new first step, run before anything was written.
+
+### The cause, traced
+
+`fsdantic`'s own `devenv.nix` reads a Rust manifest at **evaluation** time, so a
+missing file is a total shell failure rather than a build failure:
+
+```nix
+# fsdantic/devenv.nix
+agentfsPath = ./.devman/store/vendor/agentfs;
+agentfsSrc  = builtins.path { path = agentfsPath; name = "agentfs-src"; };
+cargoToml   = builtins.fromTOML (builtins.readFile (agentfsSrc + "/cli/Cargo.toml"));
+```
+
+The symlink chain resolves, and the source is not at the end of it:
+
+```
+.devman/store/vendor/agentfs
+  -> /home/andrew/Documents/Projects/vendor/agentfs        (itself a symlink)
+  -> /home/andrew/Documents/Projects/fsdantic/.context/agentfs-main   (exists)
+
+$ find .context/agentfs-main -maxdepth 1
+  agentfs-main/   MANUAL.md   README.md   SPEC.md   examples/   sdk/
+
+$ find .context/agentfs-main -maxdepth 3 -name Cargo.toml
+  (nothing)
+```
+
+**The vendored checkout holds documentation and an SDK, and no Rust crate at
+all.** The nested `agentfs-main/` is empty. There is no `cli/Cargo.toml` to
+read, at any depth.
+
+**Pre-existing and unrelated to the plane.** `fsdantic`'s tree is untouched and
+was clean before and after. Not repaired here: restoring a vendored Rust source
+tree is `fsdantic`'s own work, and it is a long way from adoption.
+
+### What this does to `PROPOSAL.md` §8's wave 3
+
+**Wave 3's purpose was already spent by R-9.** §8 scheduled `fsdantic` as the
+repository that "must fail first", so §15.2's whitelist could be seen firing in
+the wild. That whitelist no longer exists, and the decision that removed it was
+measured on `devman`'s own tree with a probe of exactly `fsdantic`'s shape.
+
+**So wave 3 is closed as "not needed, and separately blocked".** When
+`fsdantic`'s vendored source is restored it adopts like any other repository —
+with `.devman/store/` in place and nothing to move.
+
+### The check that caught this, and it is the whole point
+
+Wave 2b's closing rule was: **run `devenv shell -- true` before editing
+anything.** It was written after two wrong guesses cost a wave. Its first
+application, on the very next repository, found a third unadoptable repository
+with a third distinct cause:
+
+| Repository | Cause | Class |
+|---|---|---|
+| `webdantic` | missing `pre-commit-hooks` input | devenv integration |
+| `parsedantic` | missing `pre-commit-hooks` input | devenv integration |
+| `fsdantic` | vendored Rust source absent | repository's own state |
+
+**Three of twelve repositories touched so far could not enter their own shell**,
+for two unrelated reasons. That ratio is why the survey below exists, and why
+it runs before wave 4 rather than during it.
+
+### Charter impact
+
+**None.** §15.2 was already rewritten by R-9. §5.2's "a repository is invisible
+until you enter its shell once" is doing all the work here, and it is correct as
+written.
+
+### Rule 7 — what this entry did to the machine
+
+**Nothing.** One `devenv shell -- true` in `fsdantic`, which failed, plus reads
+of its `devenv.nix` and the symlink chain. No file was edited, nothing was
+committed, and `fsdantic` is on the same branch and the same commit as before.
+
+---
+
 ## R-7 wave 2b — the two blocked repositories, and two wrong guesses
 
 **Answer: both adopted. Wave 2 is five of five registered.** The blocker was
@@ -3065,3 +3316,891 @@ to `origin`. The owner's decision was to leave `main` where it is. So:
 | `origin/main` at `02d00f6` | the stage-7 group content, `plane-report`, `devman`'s own edits, and this log up to Gate 3 — **this is what wave 1 pins** |
 | `dagu-devenv-automation-eli5` | all of the above, plus R-3, R-6, R-4f, R-4d, R-8, I-11 and I-4 |
 | `spike/007-gate-2` | the Gate 2 spike history, now an ancestor of both |
+
+## R-7 wave 4, batch 1 — ten adopted, four with the template-default `enterTest`
+
+**Answer: batch 1 is done — ten repositories, all registered, all pushed. The
+live half of §12 rule 4 has its first direct count: 4 of the first 10
+`enterTest` repositories carried the devenv template default.** The work per
+repository stayed one `devenv.nix` task line plus the input line; the costs that
+surfaced were environment facts, not repair passes.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### The pre-checks, per repository (wave 2b's two steps)
+
+`devenv shell -- true` passed in all ten (I-4b's survey re-confirmed, not
+trusted). `command -v <tool>` found the suite runner in six; **four needed the
+`uv run` resolution** because `pytest` lives in `[project.optional-dependencies]
+.dev` (boomtube, browsee, cairn) or the tool lives in the venv the task runner
+cannot see (below).
+
+### Two environment facts the batch bought, neither of which is a repair
+
+**The task runner's PATH is not the interactive shell's PATH.** `fleetman`'s
+venv has `pytest` (requirements `-e .[dev]`) and the interactive shell finds it,
+but `devenv tasks run base:test` failed with `pytest: command not found`. The
+task environment does not put the venv bin on PATH. The task is `uv run pytest
+-q`. **A `command -v` inside the interactive shell is not a proof for the task
+environment** — wave 2b's check needs the same scope for tools that live in a
+devenv-managed venv.
+
+**`forgelab` inverted it.** The interactive shell run failed with 45
+`ModuleNotFoundError: No module named 'pyjutsu'`, and `repoman-sync` did not
+help (toolchain is machine-level). The plane's own run — `devenv tasks run -v
+base:test` under the daemon's environment — passed: **Ran 85 tests, OK**, three
+times. The task environment reaches the machine repoman venv that holds the
+`pyjutsu` wheel; the interactive shell does not. Recorded as the plane's
+environment being the one that matters, and as a reminder that the opposite of
+wave 2b's wrong guess is also a wrong guess: **the shell is not the task
+environment either.**
+
+### The template-default count (the live half of §12 rule 4)
+
+| Repository | `enterTest` | `base:test` |
+|---|---|---|
+| `atuout` | custom (uv sync + ruff + ty + pytest) | `uv run pytest` |
+| `atuout-reconciler-test` | custom (uv sync + ruff + mypy + pytest) | `uv run pytest` |
+| `boomtube` | **template default** | `uv run --extra dev pytest` |
+| `browsee` | **template default** | `uv run --extra dev --extra scrape pytest` |
+| `cairn` | custom (sandbox gate) | `CAIRN_REQUIRE_SANDBOX_TESTS=1 uv run --extra dev pytest -q --cov=cairn --cov-report=term-missing` |
+| `embeddy` | **template default** | `LD_LIBRARY_PATH=…zlib… uv run --group dev pytest` |
+| `fleetman` | custom (`pytest -q`) | `uv run pytest -q` |
+| `forgelab` | custom (unittest) | `PYTHONPATH=src python -m unittest discover -s tests` |
+| `fornix` | custom (`uv run pytest -q`) | session-bus env + `uv run pytest -q` |
+| `grail` | **template default** | `uv run pytest` |
+
+**4 of 10 carried the template default** — the number §12 rule 4 was written
+for, now measured directly. None of the four got `devenv test` as `base:test`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `atuout` | `3ae56d0` | ok — ruff clean | ok — **75 passed**, 1 skipped |
+| `atuout-reconciler-test` | `b9b12a2` | ok — ruff clean | ok — **63 passed** |
+| `boomtube` | `868d208` | ok — ruff clean (`src`) | ok — **225 passed** |
+| `browsee` | `55f5d28` | ok — ruff clean (`src`) | **1 failed, 489 passed** — see below |
+| `cairn` | `b2b4742` | ok — ruff clean | ok — **314 passed**, 8 deselected |
+| `embeddy` | `42cff82` | ok — ruff clean | ok — **535 passed**, 3 skipped |
+| `fleetman` | `98e1947` | ok — compileall | ok — **105 passed** |
+| `forgelab` | `39f17b3` | ok — compileall | ok — **85 tests, OK** |
+| `fornix` | `0e5ca5e` | ok — ruff clean (`src`) | **1 failed, 181 passed** — see below |
+| `grail` | `7aad6f2` | **failed — 83 ruff findings** (recorded) | ok — **192 passed** |
+
+All ten at `@{u}..HEAD = 0` (pushed; wave 1's lesson applied per repository).
+
+**`browsee`'s one failure is a wall-clock time bomb, traced not guessed.** The
+test `test_dispatch_moderate_confidence_uses_fallback` builds a skill whose
+`last_success` is the fixture's hardcoded `2026-05-30T00:00:00Z`. The
+dispatcher's 30-day staleness check compares it to `datetime.now`, so since
+~2026-06-30 the confidence drops 0.6 → 0.4 and the expected mode
+`replay_with_fallback` becomes `explore`. The fixture was added 2026-06-11 when
+it was 12 days old. Not the plane's regression; recorded, not fixed.
+
+**`fornix`'s one failure is a host btrfs quota.** `test_fork_and_remove_subvolume
+_roundtrip` creates a subvolume under pytest's `/tmp` basetemp and deletes it;
+`/tmp` is a btrfs volume with qgroups the user cannot manage, so the delete
+returns EPERM (reproduced outside pytest: `btrfs qgroup show /tmp` →
+`Operation not permitted`). The suite's own guard skips when `tmp_path` is not
+btrfs, and it is. The e2e test that needed the user-session bus now passes —
+the task states `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` defaults,
+mirroring `enterShell`. The btrfs failure is the repository's environment, not
+the plane's; recorded, not fixed.
+
+**`grail`'s `check` failure is the repository's own lint debt.** 83 `ruff`
+findings in the repo's own `src`/`tests` scope (select `E,F,I` per its
+pyproject). `ruff check .` finds 321, most under `.context/monty-main/` —
+vendored. Adoption and repair stay separate; the 83 are recorded. One side
+effect worth naming: grail's suite rewrites tracked `.grail/*/check.json`
+fixtures with the current pytest tmp path — the tree was restored after the
+proof, and the repo's own suite dirties its tree on every run.
+
+### The adoption shape, and where the batch spent its effort
+
+Every repository got the same three pieces: the `devman` input (pinned `f20a9c1`
+with `imports: devman/modules`), the `devman.enable` block with `groups =
+["base"]`, and two task lines. The effort went to naming the honest suite:
+
+- **`embeddy`** is a uv virtual workspace: its dev deps are `[dependency-groups]`
+  (`--group dev`), not extras. Its `qdrant_client`/numpy wheel needs `libz.so.1`
+  on the loader path, which the devenv shell does not provide — the task
+  prepends `${pkgs.zlib}/lib`.
+- **`browsee`**'s suite imports `websockets`, which lives in the `scrape` extra,
+  not `dev` — 26 ImportError failures without it.
+- **`boomtube`/`browsee`/`cairn`** lint is scoped to the repo's own
+  `src = ["src"]` ruff config; full-tree `ruff check .` counts `.scratch/` and
+  vendored trees that are not source.
+- **`fleetman`/`forgelab`** declare no linter at all, so `base:check` is the
+  stdlib compile of `src` (the direct shape, like `nix-desktop`).
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        21   (was 11)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l     70   (was 40)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a fourth point on `doctor`'s curve — five timings at 21 projects:**
+
+```
+5415  5914  5766  5760  5933 ms      mean 5758 ms over 70 workflows = 82.2 ms/file
+```
+
+I-2a 83.6, 87 at six projects, 78.9 at 34 workflows — **82.2 at 70 workflows.
+The serial `check_load` line holds.** R-4f remains merged and uninstalled.
+
+**I-1 pending, not provable from here:** the next 00:05 `maintain` sweep and the
+single `plane-report` are scheduled for the night after this batch. The batch
+recorded its registry and pushed commits instead of waiting.
+
+### Verdict
+
+Batch 1 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 21
+projects. Two recorded test failures and one recorded lint debt are all
+pre-existing and traced to their mechanism. **The template-default count for the
+batch is 4 of 10, and none of them adopted `devenv test`.**
+
+### Charter impact
+
+**None.** §5.2's shell-entry registration and §12 rule 4's warning both held as
+written; the batch supplied the number rule 4 lacked.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `atuout` | `3ae56d0` | committed, **pushed** to `origin/main` |
+| `atuout-reconciler-test` | `b9b12a2` | committed, **pushed** — see note |
+| `boomtube` | `868d208` | committed, **pushed** to `origin/main` |
+| `browsee` | `55f5d28` | committed, **pushed** to `origin/main` |
+| `cairn` | `b2b4742` | committed, **pushed** to `origin/main` |
+| `embeddy` | `42cff82` | committed, **pushed** to `origin/main` |
+| `fleetman` | `98e1947` | committed, **pushed** to `origin/main` |
+| `forgelab` | `39f17b3` | committed, **pushed** to `origin/main` |
+| `fornix` | `0e5ca5e` | committed, **pushed** to `origin/main` |
+| `grail` | `7aad6f2` | committed, **pushed** to `origin/main` |
+
+**`atuout-reconciler-test` is a git worktree of `atuout` on branch
+`reconciler-process-test`, which had no upstream.** Pushing created
+`origin/reconciler-process-test` (set as upstream, `@{u}..HEAD = 0`). Recorded
+here because it is a new remote branch the owner did not ask for; the 
+checkout's in-progress work (`pyproject.toml`, `tests/test_reconciler_process
+.py`) was not committed.
+
+**Pre-existing changes left untouched:** `forgelab/AGENTS.md` (fornix direct-
+workflow note), `atuout`'s untracked `.scratch/projects/002-atuin-ai-client/
+reference/`, and `atuout-reconciler-test`'s in-progress test work. **Restored
+after proof:** `grail/.grail/*/check.json` (rewritten by the suite's own run).
+`devenv.lock` was committed where the repository tracks it; `atuout`,
+`browsee` and `grail` ignore it, and the adoption there is the two devenv files
+alone.
+
+## R-7 wave 4, batch 2 — ten adopted, the alias repo, and two consumer-facing modules
+
+**Answer: batch 2 is done — ten repositories, all registered, all pushed. The
+template-default count is now 7 of the 15 `enterTest` repositories (3 of this
+batch's 5). Every suite passed; batch 2 produced no recorded failure.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### The template-default count, extended
+
+| Repository | `enterTest` | `base:test` |
+|---|---|---|
+| `knappy` | **template default** | `uv run --extra dev pytest` |
+| `nixbuild` | **template default** | `nix flake check` (no suite) |
+| `templateer_v2` | **template default** | `uv run --extra dev pytest` |
+| `tyo3` | custom (maturin + pytest) | `VIRTUAL_ENV=…; maturin develop && … uv run --group dev pytest … -x` |
+| `zelligate` | custom (`pytest`) | `uv run --extra dev pytest` |
+
+**Cumulative template-default count: 7 of 15.** None of the seven adopted
+`devenv test`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `knappy` | `4eecc77` | ok — ruff clean (`src`) | ok — **218 passed** |
+| `nixbuild` | `6b1f13f` | ok — ruff clean (`src`) | ok — **nix flake check** all passed |
+| `templateer_v2` | `9ce584f` | ok — ruff clean | ok — **444 passed**, 9 skipped |
+| `tyo3` | `94d429f` | ok — ruff clean (`src`) | ok — suite green |
+| `zelligate` | `06d0297` | ok — ruff clean (`src`) | ok — **273 passed** |
+| `loci-core` | `f3542a3` | ok — via `loci:lint` alias | ok — via `loci:test` alias |
+| `allium-env` | `0cc8bd9` | ok — ruff clean (`src`) | ok — **16 passed** |
+| `argentic` | `8f32312` | ok — ruff clean (`src`+`consumer/src`) | ok — suite green |
+| `copyroom` | `a45a50d` | ok — ruff clean (`src`) | ok — **603 passed** (152.8 s) |
+| `docman` | `279b9cb` | ok — ruff clean (`src`) | ok — **18 passed** |
+
+All ten at `@{u}..HEAD = 0`.
+
+### What the batch spent its effort on
+
+**`tyo3` needed two task-env facts, both measured.** First, `maturin develop`
+fails in the task environment because `VIRTUAL_ENV` is unset there (the
+interactive shell sets it) — the task exports
+`VIRTUAL_ENV=$DEVENV_ROOT/.devenv/state/venv`. Second, the venv python has no
+pytest and the nix `pytest` wrapper delegates into the venv once `VIRTUAL_ENV`
+is set, so the run must use `uv run --group dev pytest` (tyo3's dev deps are a
+uv `[dependency-groups]`, not an extra). The first cold maturin build took
+**546 s**; the suite itself is seconds. A timeout here would have measured the
+cache, not the repository — I-4b's rule, hit for real.
+
+**`loci-core` is the alias case** (`PROPOSAL.md` §6 rule 6). It already owns
+`loci:lint`/`loci:test`; `base`'s two names forward to them with
+`devenv tasks run` rather than duplicating command bodies. Its checkout was on
+a detached HEAD; the adoption landed on `main` (its default branch).
+
+**`copyroom` and `docman` are consumer-facing modules.** Their root `devenv.nix`
+is what a consumer's `imports: - copyroom` / `- docman` merges, so the devman
+block and toolchain live in a **dev-only layer**: copyroom already had
+`dev/devenv.nix` (wired via its root `devenv.yaml`'s `- ./dev`); docman had no
+such layer and its root devenv provided no Python at all, so `dev/devenv.nix`
+was created (venv + devman + tasks) and the root consumer surface left
+untouched. A devman block in either root would have registered project
+"copyroom"/"docman" inside every consumer's shell — the exact §12 rule 5
+failure this avoids.
+
+**`nixbuild` has no suite** (its pytest config points at a `../tests` that does
+not exist). Its gate is the flake: `base:check` is the repo's configured linter
+(`ruff check src`, from `src/pyproject.toml`) and `base:test` is `nix flake
+check` (builds the CLI package). The direct shape, like `nix-desktop`.
+
+**`argentic`'s local `main` had no upstream.** The push itself worked
+(`ade3f09..8f32312 main -> main`); only the `@{u}` proof needed
+`git push -u origin main` to resolve. Recorded because it is the second
+repository whose push bookkeeping differed from the default.
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        31   (was 21)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    100   (was 70)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a fifth point on `doctor`'s curve — five timings at 31 projects:**
+
+```
+8549  8297  9032  9047  9169 ms      mean 8819 ms over 100 workflows = 88.2 ms/file
+```
+
+83.6 (I-2a), 87 at six, 78.9 at 34, 82.2 at 70 — **88.2 at 100 workflows. The
+serial `check_load` line holds; it has not crossed 30 s, so `plane-report` and
+OPEN_QUESTIONS §2 stay unurgent.**
+
+**I-1 pending:** the overnight `maintain` sweep and the single `plane-report`
+after both batches remain scheduled for the coming night.
+
+### Verdict
+
+Batch 2 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 31
+projects and 100 workflows. No recorded failures. The two consumer-facing
+modules prove the dev-layer pattern the plane's own repo already uses.
+
+### Charter impact
+
+**None.** §12 rule 4's count is now 7 of 15 measured directly; nothing the
+batch found contradicts a charter sentence.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `knappy` | `4eecc77` | committed, **pushed** to `origin/main` |
+| `nixbuild` | `6b1f13f` | committed, **pushed** to `origin/main` |
+| `templateer_v2` | `9ce584f` | committed, **pushed** to `origin/main` |
+| `tyo3` | `94d429f` | committed, **pushed** to `origin/main` |
+| `zelligate` | `06d0297` | committed, **pushed** to `origin/main` |
+| `loci-core` | `f3542a3` | committed, **pushed** to `origin/main` (was detached) |
+| `allium-env` | `0cc8bd9` | committed, **pushed** to `origin/main` |
+| `argentic` | `8f32312` | committed, **pushed** to `origin/main` (upstream set) |
+| `copyroom` | `a45a50d` | committed, **pushed** to `origin/main` |
+| `docman` | `279b9cb` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** `tyo3`'s maturin build cache (546 s cold, warm now),
+which is what made the batch's long pole short on re-run. Nothing was deleted.
+`loci-core` and `argentic` were moved from detached HEAD to their local `main`
+(the adoption branch); both were clean before and after.
+
+## R-7 wave 4, batch 3 — ten adopted, and the batch that hit config-style modules
+
+**Answer: batch 3 is done — ten repositories, all registered, all pushed. One
+recorded lint finding and one recorded test failure (three tests, one traced
+cause). Every other suite passed.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `eventic` | `9bdecc8` | ok — ruff clean (`src`) | ok — suite green |
+| `flora` | `d90a9fe8` | ok — ruff clean (`src`) | ok — **840 passed**, 18 skipped |
+| `flora-core` | `3ada834` | **failed — 1 I001 finding** (recorded) | ok — **275 passed** |
+| `flora-qc` | `9805484` (+`2eb1a41`) | ok — ruff clean (`src`) | ok — suite green |
+| `foreman` | `c7a21da` | ok — ruff clean (`src`) | **3 failed, 165 passed** — see below |
+| `gitman` | `3c49fa5` | ok — via existing `gitman:lint` | ok — **255 passed** |
+| `image-gen-pipeline` | `dcc9d4f` | ok — ruff clean (`src`) | ok — **246 passed**, 21 skipped |
+| `interplay` | `57ccdb8` | ok — compileall | ok — **13 passed** |
+| `llgym` | `c6bcb19` | ok — ruff clean (`src`) | ok — **210 passed** |
+| `lodestar` | `6fbcac0` | ok — ruff clean (`src`) | ok — **59 passed**, 16 skipped |
+
+All ten at `@{u}..HEAD = 0`.
+
+### What the batch spent its effort on
+
+**`flora` and `flora-qc` are config-style devenv modules** (`options.*` +
+`config = { … }` at the top level). In devenv, a module that declares `config`
+accepts only declared module options, so a top-level `devman = { … }` fails
+evaluation with "unsupported attribute". The block goes **inside `config`**,
+with the tasks, and the shell enters again. This is the same shape the plane's
+own module already requires of its consumers; batch 3 is where the shape bit.
+
+**`eventic`'s suite deps live in a `test` extra**, not `dev` — pytest and ruff
+are under `[project.optional-dependencies].test`, so the flag is
+`--extra test` (wave 2b's rule, one more spelling of "the tool lives where the
+venv does not look").
+
+**`foreman`'s three failures are one traced cause, and it is the checkout's
+state, not the code.** `test_manager_boundary.py` runs the real `gitman status`
+against foreman's own checkout and requires `current_lane` to carry a head.
+This checkout has **0 lanes** (`gitman status`: "No lanes yet") — the owner's
+work is in lanes elsewhere. `revision()` raises `NoLaneError`; the control run
+fails identically. Recorded, not fixed: starting a lane would change the
+checkout's git state, which is the owner's call.
+
+**`gitman` is the second forward-only case.** It owns `gitman:lint`/`gitman:test`
+(./nix/gitman.nix, venv-bin resolved at Nix eval time), so `base:check` and
+`base:test` are `after`-dependencies on those names — no duplicated bodies
+(PROPOSAL.md §6 rule 6).
+
+**`interplay` declares no linter** (its `ruff check .` findings are all in
+vendored `firmware/` board drivers), so it takes the direct shape:
+`base:check` is a stdlib compile of the host-side Python (`sim tests harness`),
+`base:test` is the host suite. Board and sim-UI tests need hardware or the SDL
+sim and are not part of the gate.
+
+**Two side effects recorded honestly.** `flora-qc`'s `uv.lock` carried version
+0.1.0 while pyproject says 0.2.0; the dev-group sync refreshed it, and the
+one-line fix got its own commit (`2eb1a41`). `image-gen-pipeline` carries
+uncommitted in-progress work (`GUIDE.md`, `anime.py`, a new test file) that was
+not touched; the adoption commit is the two devenv files alone.
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        41   (was 31)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    130   (was 100)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a sixth point on `doctor`'s curve — five timings at 41 projects:**
+
+```
+11573  11857  11787  11711  11278 ms      mean 11641 ms over 130 workflows = 89.5 ms/file
+```
+
+83.6 → 87 → 78.9 → 82.2 → 88.2 → **89.5 ms/file. The serial `check_load` line
+holds; it is still 2.5× under the 30 s alert line, so `plane-report` stays
+unpaginated.**
+
+**I-1 pending:** the overnight `maintain` sweep after three batches remains
+scheduled for the coming night.
+
+### Verdict
+
+Batch 3 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 41
+projects and 130 workflows. Two recorded failures, both traced to their
+mechanism and both the repository's own.
+
+### Charter impact
+
+**None.**
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `eventic` | `9bdecc8` | committed, **pushed** to `origin/main` |
+| `flora` | `d90a9fe8` | committed, **pushed** to `origin/main` |
+| `flora-core` | `3ada834` | committed, **pushed** to `origin/main` |
+| `flora-qc` | `9805484` | committed, **pushed** to `origin/main` |
+| `flora-qc` | `2eb1a41` | `uv.lock` refresh, **pushed** |
+| `foreman` | `c7a21da` | committed, **pushed** to `origin/main` |
+| `gitman` | `3c49fa5` | committed, **pushed** to `origin/main` |
+| `image-gen-pipeline` | `dcc9d4f` | committed, **pushed** to `origin/main` |
+| `interplay` | `57ccdb8` | committed, **pushed** to `origin/main` |
+| `llgym` | `c6bcb19` | committed, **pushed** to `origin/main` |
+| `lodestar` | `6fbcac0` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** `image-gen-pipeline`'s uncommitted work (untouched),
+`gitman`'s untracked `.scratch/projects/32-loci-core-adoption-issues/`, and the
+warmed Nix caches every shell entry buys. `flora`, `flora-qc`, `foreman`,
+`gitman`, `image-gen-pipeline` and `interplay` were moved from detached HEAD to
+their local `main`; all were clean (or carried only the noted pre-existing
+changes).
+
+## R-7 wave 4, batch 4 — ten adopted, and the first no-suite repo that was miscounted
+
+**Answer: batch 4 is done — ten repositories, all registered, all pushed. The
+three Nix repositories adopted with the flake gate. One repository (`my-ai`)
+that I-4 counted as having a suite has none — pytest collects 0 items — and got
+a real end-to-end gate instead. Two recorded lint debts and one recorded
+failing own-gate.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `my-ai` | `fc38860` | ok — ruff clean (whole tree) | ok — **copier render gate** (below) |
+| `mypi-agent` | `5011589` | **failed — 16 ruff findings** (recorded) | **2 failed, 54 passed** — see below |
+| `nix-nvim` | `835d2c7` | ok — `nix flake check --no-build` | ok — `nix flake check` |
+| `nix-secrets` | `c2eef93` | ok — flake check `--no-build` | ok — `nix flake check` |
+| `nixvim` | `976a876` | ok — flake check `--no-build` | ok — `nix flake check` |
+| `pytuin` | `a0bde75` | ok — ruff clean (`src`) | ok — **161 passed** |
+| `repoman` | `e55ac7c` | ok — ruff clean (`src`) | **own gate failed** — see below |
+| `shellij` | `7c5f70b` | ok — ruff clean (`src`) | ok — **169 passed**, 17 skipped |
+| `structured-agents-v2` | `febefd6` | **failed — 12 ruff findings** (recorded) | ok — **41 passed** |
+| `talkee` | `2dd0648` | ok — ruff clean (`src`) | ok — **78 passed** |
+
+All ten at `@{u}..HEAD = 0`.
+
+### The measurement I-4 got wrong, corrected live
+
+**`my-ai` has no test suite.** I-4's static sweep counted it in "a suite, no
+task" because `pyproject.toml` declares `testpaths = ["tests"]` — but the
+directory does not exist and never has (no `tests/` in git history). `uv run
+pytest` collects 0 items and exits 5. Its own comment says what it is: "my-ai
+is a Copier template, not a Python package" (`[tool.uv] package = false`).
+
+**Its gate is the repository's deliverable, in the siteman shape:** render the
+layer with copier into a scratch dir and assert the seed files exist and the
+`CLAUDE.md → AGENTS.md` symlink survives (`_preserve_symlinks` is load-bearing;
+rendering is the only way to prove it). `copier` resolves from the machine
+repoman venv, which the task environment reaches. This is the honest no-suite
+gate, and it passes.
+
+### Two traced failures, both the repository's own
+
+**`mypi-agent`: 2 failed, one mechanism — a code/test message drift.** The test
+asserts the sync output contains "advisory: upgrades require explicit sync";
+the code prints "advisory: configuration changed; run `mypi sync` to apply
+upgrades" (`cli.py:72`). The message was renamed in the code and the test was
+not. Control run fails identically. Recorded, not fixed.
+
+**`repoman`: its own gate fails on its own standards.** `base:test` forwards to
+`repoman:test` — the testee manager's `testee verify --mode quick` — which
+reports `ruff=passed, ruff-format=failed, ty=failed, pytest=passed`, 11
+blocking format/type findings. The pytest half passes; the repo's own verify
+gate does not. Recorded, not fixed. `repoman` is the third forward-only case
+(its `repoman:test` exists; duplicating it would be rule 6's sin).
+
+### What else the batch spent its effort on
+
+- **`mypi-agent` is consumer-facing** like copyroom/docman — the devman block
+  lives in `dev/devenv.nix`, not the root module.
+- **`nixvim` is a config-style module** (top-level `options`), so devman and
+  tasks sit inside `config` — the third repo to bite on this shape after flora
+  and flora-qc.
+- The three Nix repos follow `nix-desktop`: `base:check` = `nix flake check
+  --no-build`, `base:test` = `nix flake check`. All three flakes evaluate and
+  check clean.
+- `pytuin`, `shellij`, `talkee` and `structured-agents-v2` are the plain repoman
+  pattern; `ruff check src` matched each repo's own scope.
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        51   (was 41)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    160   (was 130)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a seventh point on `doctor`'s curve — five timings at 51 projects:**
+
+```
+14147  14566  14851  14207  12696 ms      mean 14093 ms over 160 workflows = 88.1 ms/file
+```
+
+83.6 → 87 → 78.9 → 82.2 → 88.2 → 89.5 → **88.1 ms/file. The serial `check_load`
+line holds; still 2.1× under the 30 s alert line.**
+
+**I-1 pending:** the overnight `maintain` sweep after four batches remains
+scheduled for the coming night.
+
+### Verdict
+
+Batch 4 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 51
+projects and 160 workflows. One live correction to I-4's classification
+(`my-ai`), two recorded lint debts, one recorded failing own-gate, one recorded
+code/test drift — all traced to their mechanism.
+
+### Charter impact
+
+**None.** §12 rule 4's live half now covers all fifteen `enterTest`
+repositories (7 template-default, 8 custom); the count stands.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `my-ai` | `fc38860` | committed, **pushed** to `origin/main` |
+| `mypi-agent` | `5011589` | committed, **pushed** to `origin/main` |
+| `nix-nvim` | `835d2c7` | committed, **pushed** to `origin/main` |
+| `nix-secrets` | `c2eef93` | committed, **pushed** to `origin/main` |
+| `nixvim` | `976a876` | committed, **pushed** to `origin/main` |
+| `pytuin` | `a0bde75` | committed, **pushed** to `origin/main` |
+| `repoman` | `e55ac7c` | committed, **pushed** to `origin/main` |
+| `shellij` | `7c5f70b` | committed, **pushed** to `origin/main` |
+| `structured-agents-v2` | `febefd6` | committed, **pushed** to `origin/main` |
+| `talkee` | `2dd0648` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** `nixvim`'s pre-existing modified `.devenv/gc/shell` and
+`.devenv/imports.txt` (devenv state files it tracks — untouched), `my-ai`'s
+warm copier cache, and the warmed Nix caches. `my-ai` and `nix-nvim` were
+moved from detached HEAD to local `main`; all checkouts are clean apart from
+the noted pre-existing changes.
+
+## R-7 wave 4, batch 5 — three adopted, and wave 4 closes at 54 registered
+
+**Answer: batch 5 is done — the last three repositories. Wave 4 is complete:
+all 43 repositories are registered, all pushed, and the plane holds 54 projects
+and 169 workflows with `doctor` clean.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `terminal-state` | `79c56dc` | **failed — 1 ruff finding** (recorded) | ok — **31 passed** — see below |
+| `testee` | `3df2617` | ok — ruff clean (`src`) | ok — **121 passed** |
+| `vendomat` | `bd1f207` | ok — ruff clean (`src`) | ok — **89 passed** |
+
+All three at `@{u}..HEAD = 0`.
+
+### The batch's one traced failure, and the fix that is not a repair
+
+**`terminal-state`'s suite failed at collection with 7 errors:
+`No module named 'pydantic_core._pydantic_core'`.** Traced, not guessed: this
+devenv's `PYTHONPATH` prepends a chain of Nix **python3.13** site-packages
+(asciinema/shellij/pydantic stacks) over the project's **3.11** venv, so
+`import pydantic_core` resolves the 3.13 binary inside the 3.11 interpreter.
+The venv's own `_pydantic_core.cpython-311…so` is present and correct — it is
+shadowed, not missing.
+
+**The task states the environment it needs, in the fornix shape:** `env -u
+PYTHONPATH uv run --extra dev pytest`. `src` stays importable through the
+venv's editable `.pth`, and the suite collects 31 tests and passes. The
+devenv's PYTHONPATH remains the repository's own misconfiguration, reported
+rather than changed.
+
+### Evidence — the batch proof and wave 4's close
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        54   (was 51; 11 before wave 4)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    169   (was 160; 40 before wave 4)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, the final point on `doctor`'s curve — five timings at 54 projects:**
+
+```
+14981  15726  15572  14369  13346 ms      mean 14799 ms over 169 workflows = 87.6 ms/file
+```
+
+83.6 (I-2a) → 87 (6 projects) → 78.9 (34) → 82.2 (70) → 88.2 (100) → 89.5
+(130) → 88.1 (160) → **87.6 (169). The serial `check_load` line held across the
+entire rollout, and never came close to the 30 s alert line — so `plane-report`
+stays unpaginated and OPEN_QUESTIONS §2 stays unurgent.**
+
+**I-1, still pending and now due:** the first night after the full rollout —
+00:05's `maintain` sweep across 54 projects and the single `plane-report` — is
+the last wave-4 proof. It cannot be produced from this session; it is the
+next morning's check.
+
+### Verdict
+
+**Wave 4 is complete.** 43 of 43 repositories adopted, each with its own
+`chore(devman): adopt the stage-7 workflow set` commit on its own default
+branch, pushed. 53 `devenv.yaml` files carry the pinned devman input (the 54th
+registered project is devman itself, which imports `./modules`). The recorded
+failures across the whole wave — all pre-existing, all traced to their
+mechanism — are the live half of what §12 rule 4 and I-4's caveats predicted:
+template-default `enterTest` repos (7 of 15), suites whose tools live in
+extras the venv does not install (wave 2b's lesson, hit repeatedly), no-suite
+repos that still honour the contract, and environment facts that only the task
+environment reveals.
+
+### Charter impact
+
+**None.** Wave 4 was expected to force no charter change and forced none.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `terminal-state` | `79c56dc` | committed, **pushed** to `origin/main` |
+| `testee` | `3df2617` | committed, **pushed** to `origin/main` |
+| `vendomat` | `bd1f207` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** the plane at 54 projects / 169 workflows, `doctor`
+clean; terminal-state's devenv PYTHONPATH untouched; the warmed caches of 43
+rollouts. Nothing was deleted, and nothing was left running that was not
+already running.
+
+**The wave in one table — all 43, by commit:**
+
+| Batch | Repositories (commit) |
+|---|---|
+| 1 | atuout `3ae56d0` · atuout-reconciler-test `b9b12a2` · boomtube `868d208` · browsee `55f5d28` · cairn `b2b4742` · embeddy `42cff82` · fleetman `98e1947` · forgelab `39f17b3` · fornix `0e5ca5e` · grail `7aad6f2` |
+| 2 | knappy `4eecc77` · nixbuild `6b1f13f` · templateer_v2 `9ce584f` · tyo3 `94d429f` · zelligate `06d0297` · loci-core `f3542a3` · allium-env `0cc8bd9` · argentic `8f32312` · copyroom `a45a50d` · docman `279b9cb` |
+| 3 | eventic `9bdecc8` · flora `d90a9fe8` · flora-core `3ada834` · flora-qc `9805484` · foreman `c7a21da` · gitman `3c49fa5` · image-gen-pipeline `dcc9d4f` · interplay `57ccdb8` · llgym `c6bcb19` · lodestar `6fbcac0` |
+| 4 | my-ai `fc38860` · mypi-agent `5011589` · nix-nvim `835d2c7` · nix-secrets `c2eef93` · nixvim `976a876` · pytuin `a0bde75` · repoman `e55ac7c` · shellij `7c5f70b` · structured-agents-v2 `febefd6` · talkee `2dd0648` |
+| 5 | terminal-state `79c56dc` · testee `3df2617` · vendomat `bd1f207` |
+
+## R-7 wave 4 tail — the `atuout` reconciler branch: salvaged, and the stale-entry lifecycle measured
+
+**Answer: option A, executed in full. The test work is on `atuout` `main`; the
+branch, its remote and the worktree are gone; the registry entry did not die on
+its own — `devman doctor --prune` removed it, exactly as CONCEPT §9.3 says it
+must. The salvage was not free. On `main` the suite is not the same suite: it
+caught a first-boot race that `main` already shipped and that the in-process
+tests cannot see.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure
+(`/nix/store/8m2g8im0jcqxiq4qpk9mwlx2rngr4rz8-devman-0.3.0`). atuin
+**18.18.0-beta.2 (NO_GIT)**, built by the devenv from `atuin-src` `2f9357e`, so
+PR #3510's Semantic service is present and nothing skipped for its absence.
+
+### The topology, re-verified — one number in the branch prompt is wrong
+
+| | |
+|---|---|
+| branch `reconciler-process-test` | `b9b12a2`, upstream `origin/reconciler-process-test` at the same commit |
+| its parent, and the merge-base | `ab4dbb1` — `merge-base --is-ancestor ab4dbb1 main` → **YES**, the SIGTERM fix is on `main` |
+| `main` at the start | `3ae56d0` |
+| the branch's only committed delta | `b9b12a2`, touching `devenv.yaml` and `devenv.nix` only |
+
+**The prompt says `main` is "5 commits ahead of `ab4dbb1`". It is 17.**
+`git log --oneline ab4dbb1..main` lists the five named commits plus twelve more
+from a lineage merged in below them. The claim the number was carrying — that
+the SIGTERM fix is on `main` — is true and was re-verified; the count is not.
+The correction matters because those twelve commits are where the bug below
+came from.
+
+The two `devenv.nix` files declare different `project =` values
+(`atuout-reconciler-test` vs `atuout`), as the prompt says. **No merge was
+proposed.**
+
+### The deciding measurement, and its split answer
+
+`tests/test_reconciler_process.py`, run in both checkouts:
+
+| Checkout | Command | Result |
+|---|---|---|
+| `atuout` (`main`) | `uv run pytest tests/test_reconciler_process.py -m slow` | **5 passed in 3.52s**, 0 skipped |
+| `atuout` (`main`) | `::test_spawn_and_backfill`, 10 runs | **3 failed** |
+| `atuout` (`main`) | `::test_spawn_and_backfill`, 12 runs | **4 failed** |
+| `atuout-reconciler-test` | `::test_spawn_and_backfill`, 10 runs | **10 passed, 0 failed** |
+
+**7 failures in 22 runs on `main`; 0 in 10 in the worktree where it was
+written.** The first `-m slow` run passing 5 of 5 is exactly the trap the wave-4
+prompt warns about in the other direction: one green run is not a pass rate.
+Skip counts were checked every time — nothing skipped, so no run was vacuous.
+
+### The trace — a real bug on `main`, not a flaky test
+
+The test sends the detached child's stderr to `/dev/null`. A debug copy that
+keeps it, run 12 times, failed 4 times with the **same** traceback each time:
+
+```
+Exception in thread reconciler-tail:
+  File ".../src/atuout/reconciler.py", line 338, in _run_loop
+    conn = store.connect()  # created on this thread; sqlite connections are thread-affine
+  File ".../src/atuout/store.py", line 41, in connect
+    conn.execute("PRAGMA journal_mode=WAL")
+sqlite3.OperationalError: database is locked
+```
+
+with `child.poll() = 0` and `pidfile exists = False` at the moment of the
+assertion. **The mechanism, end to end:** `run()` starts two threads that each
+call `store.connect()`. `PRAGMA journal_mode=WAL` takes a brief exclusive lock
+and does **not** invoke SQLite's busy handler, so on a DB that does not exist
+yet the two connects race and the loser raises. When the loser is
+`reconciler-agent-retry`, the thread dies silently and the reconciler runs on
+with its retries dead. When the loser is `reconciler-tail`, `run()`'s poll loop
+sees `not worker.is_alive()`, breaks, and its `finally` removes the pidfile and
+exits 0 — **the reconciler dies on first boot.** `read_pid()` then returns
+`None`, which is the assertion the test fails on.
+
+Isolated from the test entirely — two threads calling `connect()` at one
+instant, 200 rounds per row:
+
+| Variant | Rounds hitting `database is locked` |
+|---|---|
+| current order, **fresh** DB | **37/200** |
+| current order, **existing** (already-WAL) DB | **0/200** |
+| PRAGMAs reordered (`busy_timeout` first) | **87/200** |
+
+The middle row is why no one has seen this on a real machine: the reconciler's
+DB already exists there, and the PRAGMA is then a no-op. It bites first boot
+only — and every test run, which gets a fresh `tmp_path` DB.
+
+**Why the worktree passes 10 of 10:** `store.py` is byte-identical between
+`ab4dbb1` and `main` (`git diff ab4dbb1..main -- src/atuout/store.py` is empty).
+The bug is latent at the branch point because `run()` there starts **one**
+connecting thread. `edb5572` — one of the twelve commits the prompt's count
+omitted — added the second. **The branch could not have caught this; only the
+salvage to `main` could.**
+
+**A wrong hypothesis, recorded rather than tidied away.** The first fix tried
+was reordering the two PRAGMAs so `busy_timeout` precedes the WAL switch. It is
+the obvious fix and it is wrong: 87/200, worse than the 37/200 it was meant to
+repair. Measuring it before committing it is the only reason it is not on
+`main`.
+
+### The fix, and the proof
+
+Five lines in `run()`: create the DB on the main thread before either worker
+connects. Both workers then open a file that already exists in WAL mode, where
+the PRAGMA cannot fail.
+
+| Measurement | Before | After |
+|---|---|---|
+| `::test_spawn_and_backfill` | 15 of 22 passed | **15 of 15 passed** |
+| `tests/test_reconciler_process.py`, 3 consecutive runs | — | **5 passed** each time |
+| full suite | — | **103 passed, 1 skipped** |
+| `uv run ruff check src tests` | — | **All checks passed** |
+| plane `devman run check` / `devman run test` | — | **status 4 / status 4** |
+
+Dagu's status codes were not assumed: `grail-check`'s last run reads `2` and is
+the known lint failure, `atuout-check` reads `4`. 4 is success.
+
+### What landed on `atuout`, and what was dropped
+
+| Commit | What |
+|---|---|
+| `6046f4f` | `fix(reconciler): create the DB before the worker threads connect` |
+| `1a81540` | `test: out-of-process reconciler integration suite` |
+
+Pushed to `origin/main` directly, `3ae56d0..1a81540`, `git rev-list --count
+@{u}..HEAD` = **0**. The test file is byte-identical to the worktree's
+(`diff -q` clean before the commit and after).
+
+**The `pyproject.toml` change was dropped, on purpose.** `main` already declares
+the marker, with different wording:
+
+```
+main:     "slow: spawns real processes / waits on timers (opt-in integration tests)"
+worktree: "slow: spawns detached processes / waits on timers (opt-in with -m slow)"
+```
+
+No `--strict-markers` is configured anywhere in the repository, so nothing
+needed the addition; and two `markers` keys in one TOML table is not a merge,
+it is a parse error. **Nothing of the user's work was lost** — the 427-line test
+file landed verbatim, and the only other hunk was a redundant redeclaration.
+Copies of both files as they stood are at `/tmp/salvage-worktree-*`.
+
+### The registry lifecycle — the part nobody had measured
+
+Measured in order, with the path already gone:
+
+| Step | Observation |
+|---|---|
+| worktree removed, path gone | registry entry **still present**; 3 DAGs still projected; 54 projects / 169 workflows |
+| `devman doctor` | **flags it**: `!! stale entries  atuout-reconciler-test -> …/atuout-reconciler-test (gone) — its workflows still project and would pass, vacuously, in a directory Dagu creates` |
+| the 00:05 `maintain` | **still scheduled** — `schedule: "5 0 * * *"` still in the projected DAG |
+| `devenv shell -- true` in `atuout` | **does not clear it.** Entry, DAGs and schedule all survive a sibling's shell entry |
+| `devman doctor --prune` | entry removed, **all three DAGs unprojected**; 53 projects / 166 workflows |
+| `devman doctor` after | `ok  stale entries  every registered path is a directory` — **Nothing to report.** |
+
+**The answer to the open question: the entry does not self-remove, and nothing
+reclaims it on a schedule.** Left alone it would have kept running `maintain` at
+00:05 forever, in a directory Dagu recreates, passing vacuously — which is
+precisely the failure `doctor`'s message names.
+
+**The branch prompt's premise that there is no deregister command is right in
+letter and misleading in effect.** There is no `unregister` verb, as CONCEPT
+§10's command table says. But `devman doctor --prune` is the sanctioned path,
+it exists in the installed 0.3.0, and it did unproject the workflows as well as
+drop the entry.
+
+### I-2b — `doctor` across the removal
+
+```
+54 projects / 169 workflows:  12561 14873 13059 11484 13857 ms   mean 13167 = 77.9 ms/file
+53 projects / 166 workflows:  12164 12192 11909 11904 12895 ms   mean 12213 = 73.6 ms/file
+```
+
+Wave 4's close measured **87.6** ms/file over the same 169 workflows; this
+session measures **77.9** on an unchanged plane. The per-file line holds, and
+the spread between two sessions at identical size (~11%) is the honest error
+bar on every earlier point of the curve.
+
+### Verdict
+
+**Option A, and the harness is retired.** The test was worth salvaging for a
+better reason than the one the prompt gave: it does not only cover `ab4dbb1`
+from outside, it found a live first-boot crash on `main` that eleven other test
+files miss. Options B and C were both refuted by measurement — B would have kept
+a 00:05 sweep for a checkout with nothing left to test, and C would have thrown
+away the only test that catches the bug.
+
+### Charter impact
+
+**None, and §9.3 got its first live measurement.** The stale-entry text
+predicted this run exactly: an entry whose `path` is not a directory is stale,
+`doctor` may prune rather than only report, and `doctor` must also unproject the
+pruned project's workflows "because a projection outliving its repository still
+passes every other check". All three held. §5.2's automatic registration and
+§10's "no `unregister`, and none is needed: the way out is deleting the
+repository, and `doctor` reconciles the derived state afterwards" are now
+measured rather than argued.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| `atuout` `main` | `6046f4f` reconciler fix, `1a81540` test | committed, **pushed** to `origin/main` |
+| `origin/reconciler-process-test` | **deleted** | the remote branch wave 4 created is gone |
+| local branch `reconciler-process-test` | **deleted** (was `b9b12a2`) | its only delta was the adoption commit, which is checkout-specific and never belonged on `main` |
+| `~/Documents/Projects/atuout-reconciler-test` | **worktree removed** | tree made clean first: the salvaged test file deleted after landing on `main`, the redundant `pyproject.toml` hunk reverted |
+| devman registry | `atuout-reconciler-test` **pruned** | 54 → 53 projects, 169 → 166 workflows, `doctor` clean |
+
+**Left on the machine:** `atuout` on `main` at `1a81540`, clean, its
+`.scratch/projects/002-atuin-ai-client/reference/` untracked tree untouched as
+in batch 1. Salvage copies at `/tmp/salvage-worktree-pyproject.toml` and
+`/tmp/salvage-worktree-test_reconciler_process.py`, plus the two measurement
+scripts `/tmp/repro_reconciler.py` and `/tmp/wal_race.py`; 612 scratch temp
+directories they created were removed. The debug copy of the test
+(`tests/test_reconciler_process_dbg.py`) was deleted and never committed. Two
+`atuout reconcile --daemonize` processes from the installed `atuout-0.2.0` and
+the user's `atuin daemon` were already running and were not touched.
+
+**`nixos-rebuild switch` is still needed and was not run.** `devman doctor` has
+no `trigger target` line, so R-4d and R-4f remain merged and uninstalled.
+
+**This entry rides PR #131**, which is open on `dagu-devenv-automation-eli5` for
+the wave-4 log.
