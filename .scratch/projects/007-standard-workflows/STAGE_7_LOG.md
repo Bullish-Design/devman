@@ -1983,6 +1983,99 @@ to Gate 3 set what they are.
 
 ---
 
+## R-6 — The charter, and the three corrections that belong to the proposal
+
+**Six charter sections change, not five.** `PROPOSAL.md` §9 drafted five. S-1
+forced a sixth — criterion 12 — and that one had no drafted text because the
+measurement that forced it came after §9 was written. **The charter asserted a
+safety property the plane does not have.**
+
+### Versions
+
+The charter is `.scratch/projects/006-automation-plane/CONCEPT.md` at
+`9a0f5f4`. No code and no group file changes in this entry; it is documentation
+against measurements already recorded above.
+
+### The six charter edits
+
+| Section | What changed | Forced by |
+|---|---|---|
+| §7.1 | `check`, `validate`, `full-test` becomes `check` and `test`; the ladder is two rungs and the third is stated to carry no information | `PROPOSAL.md` §9, and §12 rule 4's measurement |
+| §8, the boxed note | "Reactivity is its own group" becomes "a workflow that writes the repository's own files without being asked is its own group" | R-1/S-2 — `maintain` self-fires and must not be exiled |
+| §14, criterion 12 | **narrowed** — queues bind the enqueue path and not `schedule:` | **S-1** |
+| §14, criterion 14 | gains its mechanism — one `devenv tasks run` per workflow declares no order | I-3, and §1.1 |
+| §16 | "Python and Nix, and nothing else yet" becomes "there are no ecosystem groups" | R-3 — the `python` group's content was a namespace prefix |
+| §13 | gains "Stage 7 — the standard set" | the rollout |
+
+### The one that was not drafted, and it is a narrowing of a safety claim
+
+Criterion 12 read **"Queues are real"**, with the caveat that `dagu start`
+bypasses queues. That caveat is true and incomplete. **Dagu's own scheduler
+bypasses queues too**, and the charter never said so, so a reader took
+`max_concurrency` to be a machine-wide bound on everything the plane runs.
+
+The row and the commentary now say which path a queue binds:
+
+```
+$ sed -n '/^| 12 |/p' .scratch/projects/006-automation-plane/CONCEPT.md
+| 12 | Queues bind the enqueue path | two workflows naming the `exclusive` queue
+serialize **when enqueued** — `dagu start` and Dagu's own scheduler both bypass
+queues entirely, so the measurement must use `dagu enqueue`, which is the path
+§8's first two arrows take |
+```
+
+The commentary carries S-1's numbers — 58 enqueued never exceeding 4 and
+draining in 311 s, 58 scheduled all at once with queue depth 0, and two
+`exclusive` DAGs starting in the same second on the installed plane — and ends
+on the rule that replaces the property: **what the plane schedules must be cheap
+by construction.**
+
+### The three corrections that belong to `PROPOSAL.md`
+
+**These are not charter text. They are places the proposal argued from something
+a gate later measured.**
+
+**§1.1 — the stated loss is smaller, and there is a second trade (I-3).** §1.1
+said the failing task's name moves "from a step name to a log line". It reaches
+three places, including Dagu's recorded `error` field, which the UI renders. The
+caveat is the stream split: on devenv 2.1.2 the name appears **0 times** on the
+step's `.out` file, so the instruction to a developer is read `.err` or read the
+`error` field. And §1.1 never named the second trade — under a devenv `after`
+list siblings run **concurrently**, so the one-step shape trades `type: chain`'s
+fail-fast for fan-out.
+
+**§6 — "no automatic run breaks" is bounded (I-5).** True of the schedule, not
+of the watcher. `format` is watcher-fired and does call a repository task. The
+claim survives only because `devman` is the sole taker of `python-format` and
+owns the group files. §6 now states the general rule: a repository may be
+re-pinned ahead of its task rename **only while every automatically triggered
+workflow calls no repository task**.
+
+**§12 gains an eighth rule, and §5 loses its mechanism (S-1).** Rule 8 is
+"anything expensive, on a schedule", with S-1's figures. §5's paragraph "The
+schedule shape at 58 repositories" is corrected in place rather than deleted:
+its conclusion holds, its stated reason does not, and its second-order effect
+was backwards — a developer's `format` at 00:05 does **not** queue behind the
+scheduled burst, because the burst is not in the queue. It competes for CPU
+instead, bounded by nothing.
+
+### Verdict
+
+**R-6 is done for every measurement Gates 0–3 produced.** Two sections stay open
+by design and are named rather than left silent:
+
+- **§5.2's cost budget** — S-5a flagged it as the section to re-check *if* R-8
+  changes the guard. R-8 has not landed at the time of this entry, so §5.2 is
+  untouched here and R-8 owns it.
+- **§15.2's whitelist** — untouched until wave 3 fires it against `fsdantic`.
+
+### Charter impact
+
+**This entry is the charter impact.** Recorded so that the next stage reads one
+list rather than nine.
+
+---
+
 ## Where stage 7 stands
 
 **Done:** Gates 0–3 (I-3, I-5, I-6, S-3, S-2, S-6, S-5, S-4, S-1, I-2a), R-1,

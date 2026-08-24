@@ -98,6 +98,28 @@ changes from a step name to a log line. **This is the one real loss in the
 proposal**, and OPEN_QUESTIONS §10 names the measurement that decides whether it
 is acceptable.
 
+**Measured at stage 7, I-3 — the loss is smaller than this section predicted,
+and there is a second trade it did not name.** The failing devenv task's name
+reaches three places, not one: the step's `stderr` file, the DAG-level log, and
+**Dagu's own recorded `error` field for the step**, which is the string the UI
+renders. So the name does not move from a label into a file nobody opens; it
+also lands on the screen.
+
+**The caveat decides where the rollout tells a developer to look.** On devenv
+2.1.2 the task's own output goes to **stdout** and devenv's task ledger goes to
+**stderr**, and Dagu files the two separately. The failing task name appears
+**0 times** on `check.*.out`. A reader who opens the `.out` file alone sees what
+the task printed and never sees which task printed it — so the instruction is
+read `.err`, or read the `error` field. devenv 2.2.0 puts both streams on
+stderr, and this measurement is 2.1.2 only.
+
+**The second trade: fail-fast for fan-out.** Under a devenv `after` list the
+siblings run **concurrently**, so a failing task does not stop the others.
+Today's `type: chain` stops at the first failed step. This section trades a step
+label for a task name; it also trades fail-fast for fan-out, and a repository
+that wants the old ordering states it in `devenv.nix` rather than in the
+workflow.
+
 ---
 
 ## 2. The universal contract
@@ -356,26 +378,39 @@ artifacts without ever deleting one.
 
 ### The schedule shape at 58 repositories
 
-**58 simultaneous dispatches at `5 0 * * *` are fine, and the queue is what makes
-them fine.** `maintain` names `light`, limit 4, so 58 enqueued runs proceed four
-at a time. After `devman doctor` is removed, each run is a `find` over one
-repository's report directory — milliseconds of work. Total wall clock is
-seconds.
+**58 simultaneous dispatches at `5 0 * * *` are fine, and the reason is the size
+of the work and nothing else.** Measured at stage 7 (S-1): 58 DAGs sharing one
+`schedule:` all succeeded in **2 seconds**, all 58 running at once. After
+`devman doctor` is removed, each run is a `find` over one repository's report
+directory — milliseconds of work.
 
-**Nothing carries a stagger, and nothing should.**
+> **This paragraph asserted the wrong mechanism, and the correction matters more
+> than the conclusion.** It said "the queue is what makes them fine — `maintain`
+> names `light`, limit 4, so 58 enqueued runs proceed four at a time." **They are
+> not enqueued, and they do not proceed four at a time.** A run started by Dagu's
+> own scheduler bypasses the queue: 58 DAGs on `light` ran concurrently with
+> queue depth 0, and on the installed plane two DAGs on `exclusive` — limit 1 —
+> both started in the same second. The same 58 put through `dagu enqueue` never
+> exceeded 4 and drained in 311 s. **Nothing throttles the scheduled set**, which
+> is why §12 gains an eighth rule.
+
+**Nothing carries a stagger, and nothing can.**
 
 - **Not the expression.** A group file is shared, so an offset written there
   gives all 58 repositories the *same* offset. A per-repository offset requires
   shadowing 58 files, which is `STAGE_5_LOG.md` S9's timer problem in a new
   place: a project fact held outside the project, that nobody remembers to
   update.
-- **The queue, if anything.** The concurrency limit is machine-side, it is one
-  number, and §4 already lets the machine state how much may run at once. It is
-  the only legal carrier.
+- **Not the queue.** This section called the machine-side concurrency limit "the
+  only legal carrier". It is not a carrier at all for scheduled runs, because
+  they never consult it. Raising `light`'s limit would change nothing.
 
-**The second-order effect, stated.** For those seconds the `light` queue is
-saturated, so a `format` fired by a developer at 00:05 waits. That is acceptable
-and self-limiting.
+**The second-order effect, corrected.** This section said a `format` fired by a
+developer at 00:05 would wait behind a saturated `light` queue. It would not —
+the scheduled runs are not in the queue. The real second-order effect is the
+opposite and worse in kind: the scheduled burst competes for **CPU** with
+whatever is enqueued, unbounded by any limit. At the shipped size that burst is
+2 seconds. **What protects the plane is rule 8, not the queue.**
 
 ### The candidates, sorted
 
@@ -493,6 +528,22 @@ devenv's own "no such task", which is loud and correct.
 rename it looks for `<project>-test` in `metadata.jsonl`, finds no line, and
 refuses with `NONE RECORDED`. That is the gate working, and the message text
 changes with the file.
+
+**The bound on "no automatic run breaks", measured at stage 7 (I-5).** The claim
+is true of the **schedule** and not of the **watcher**. `format` is fired
+automatically by the watcher and it **does** call a repository task
+(`python-format:fmt`). The claim survives only because the watcher reaches
+exactly one repository: `devman` is the only taker of `python-format` in the
+whole inventory (§4), and `devman` owns the group files, so it renames the group
+and the task in the same sitting — one commit, not a wave.
+
+**So the rule generalises, and it is stated here rather than found later.** A
+repository can be re-pinned safely ahead of its task rename **only while every
+automatically triggered workflow calls no repository task**. Today that holds:
+`maintain` is both the only scheduled workflow and the only one of the nine that
+calls no `devenv tasks run`, which is one `grep`. A future group that ships a
+scheduled or watched workflow calling a task breaks this argument, and that
+group's stage owes a migration order.
 
 ---
 
@@ -757,7 +808,7 @@ file. Two further conditions apply to this one, and both are about secrets.
 
 ## 12. What must never become a workflow (Q7)
 
-Seven rules. This is what a future stage points at when it wants to say no.
+Eight rules. This is what a future stage points at when it wants to say no.
 
 **1. Anything an editor already does synchronously.** LSP diagnostics,
 format-in-buffer, jump-to-definition. The plane's round trip after a content
@@ -794,6 +845,16 @@ drifts, and it drifts silently because both keep passing.
 **7. Anything whose output nobody reads.** 58 nightly `devman doctor` reports is
 the worked example, and this proposal deletes it. A report produced 58 times is a
 report produced zero times.
+
+**8. Anything expensive, on a schedule.** A scheduled run does not pass through
+its queue, so the limit that protects the machine from a burst of `devman run`
+does not protect it from a burst of `schedule:` (stage 7, S-1). 58 repositories
+firing one cheap DAG at 00:05 costs 2 seconds. The same 58 firing anything that
+takes seconds costs the machine minutes of full load, at ten times the per-run
+cost, with nobody present: 58 concurrent `devman doctor` runs measured 139 s
+each against 14.3 s alone, and 134 CPU-minutes against the 13 this proposal
+estimated. **The scheduled set must be cheap by construction, because nothing
+throttles it.**
 
 ---
 
