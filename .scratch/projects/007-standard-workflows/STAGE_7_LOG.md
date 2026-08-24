@@ -1804,3 +1804,806 @@ registries under `/tmp` are all deleted. No `_s1` link remains in `dags/`.
    None was in `OPEN_QUESTIONS.md`.
 3. **Two proposed changes were refused on their own evidence** — R-4a and R-4b —
    and three cheaper ones took their place.
+
+---
+
+## R-3 — The module · gated on I-6 and S-3
+
+**Two lines and one decision, and Gate 1 had already settled the decision.**
+
+```diff
+-      example = [ "base" "python" ];
++      example = [ "base" "format" ];
+```
+
+**The throw stays.** `PLAN.md` §6 left this open: if S-3 failed, the throw would
+have to become a warning and the module would skip an unknown group — a real
+loosening. S-3 passed and I-6 showed the refusal is legible, so the two
+mechanisms do not compete. **The throw is correct for a misspelled group; the
+tombstone handles the deletion case.** A module that silently ignored a
+misspelled group would be §15.4's misspelled-queue hazard in a second place.
+
+**The no-workflows branch gained the second shape it now serves.** It was
+documented only as a triggers-only group. Since stage 7 it is also how a deleted
+group keeps every stale pin evaluating, and both constraints S-3 measured are
+now stated beside the code: a tombstone must hold a file, because git cannot
+carry an empty directory, and must not hold a `triggers.toml`.
+
+Two stale group names in the module's own documentation went with it — the
+adoption example at the top and the schema-2 example in the entry comment both
+said `python`.
+
+**Verified:** no group name and no workflow name survives anywhere in `modules/`
+or `src/`, which is what `PLAN.md` §0.1 measured before the stage began. The
+module still evaluates and `devman doctor` is clean.
+
+### A note on where this landed
+
+`origin/main` had already taken the stage-7 content (see the branch note at the
+end of this log). R-3's only non-comment change is the `example` attribute,
+which is Nix option metadata and changes no evaluated result, so **wave 1 pins
+`02d00f6`** — a commit already on `main` carrying the complete group set. R-3
+itself sits on `dagu-devenv-automation-eli5`.
+
+---
+
+## R-5 — Wave 1 · the six registered repositories
+
+**Answer: all six adopted. Thirteen lines, as `PROPOSAL.md` §6 tabled them.
+`devman doctor` is clean at 6 projects, and the plane went from 36 projected
+workflows to 25.**
+
+**Two repositories fail their own contract, and neither failure is caused by the
+migration.** That is I-4's signal arriving three waves early, and it is recorded
+rather than repaired.
+
+### The six, and what each cost
+
+| Repository | Edits | Commit | `check` | `test` |
+|---|---|---|---|---|
+| `devman` | 3 | `0376b9a` (during S-6) | ok | ok |
+| `siteman` | 2 + delete | `541cf25` | **ok** | **ok** |
+| `nix-paseo` | 1 | `65f564c` | **ok** | **ok** |
+| `pyjutsu` | 1 | `8323e09` | **ok** | **fails** |
+| `pydantree` | 3 | `be150be` | **fails** | **ok** |
+| `observantic` | 3 | `0f835d4` | **ok** | **ok** |
+
+Each also bumped `rev=` to `02d00f6` and ran `devenv update devman && devenv
+shell -- true`, which is the ordinary adoption command.
+
+### The two failures, and why neither is a regression
+
+**`pyjutsu-test`.** `base:test` was **not edited** — the only change to that
+repository is `base:lint` → `base:check`. The log names the failing task, on
+stderr, exactly as I-3 measured:
+
+```
+✖ Running pyjutsu:build in 49.1ms (failed)
+  💥 maturin failed
+  Caused by: Couldn't find a virtualenv or conda environment…
+✖ Running pyjutsu:test in 120µs (dependency failed)
+✖ Running base:test in 13.6µs (dependency failed)
+```
+
+`pyjutsu:test` declares `.after = [ "pyjutsu:build" ]` — the very dependency
+`PROPOSAL.md` §1.1 cites as proof that criterion 14 was one edit from being
+false. Confirmed independently: `devenv tasks run -v base:test` fails the same
+way outside the plane, and **this repository had never once run the old
+`validate` workflow**, so nothing had ever exercised the path.
+
+**`pydantree-check`.** Pre-existing and already observed: the DAG had **failed
+both times it ran before this change**. `python:lint` and `python:typecheck`
+each exit 1 standalone — 256 ruff findings, almost all under `.scratch/` and
+`examples/`.
+
+**Coverage did not shrink when the `python` group went.** `python/check.yaml`
+ran `python:lint` then `python:typecheck` as two Dagu steps; `base:check` now
+pulls both through the devenv graph. Same two tasks, one invocation, and the
+repository can run them by hand. `observantic` proves it from the other side —
+its `check` passes with the extended alias.
+
+### Wave 1's own proof
+
+**`observantic`'s `release` gate opened on the renamed line** — S-6's third case,
+in a second repository, for real:
+
+```
+observantic-release: succeeded
+
+## gate
+- clean tree: yes
+- last test: succeeded — `{"dag":"observantic-test","run_id":"034CQrpQUmu1pe6FnK8hxf",…,"status":"succeeded",…}`
+```
+
+**The cross-repo workflow survives untouched**, which `PLAN.md` §6 said to
+confirm rather than assume. `stack-validate` names `observantic-check` and
+`siteman-check`; neither DAG name changed:
+
+```
+devman-stack-validate  status 4   nodes ['observantic-check', 'siteman-check']
+  sub  siteman-check     status 4   nodes ['check']
+  sub  observantic-check status 4   nodes ['check']
+```
+
+Each child's own record shows a single step named `check` — the one-step shape,
+two projects deep.
+
+**The plane, after the wave:**
+
+```
+$ devman doctor
+devman doctor — 6 projects, 25 workflows
+ok  shadowing      devman/agent-review: invented — no group version to diff
+                   devman/bench-entry: invented — no group version to diff
+                   devman/plane-report: invented — no group version to diff
+                   devman/stack-validate: invented — no group version to diff
+Nothing to report.                                                   exit 0
+```
+
+**36 workflows became 25**, and `siteman/full-test` has left the shadowing check
+because the file it shadowed no longer exists.
+
+### The investigations this wave carried
+
+**I-2b — `devman doctor` at 6 projects, post-change.** The curve's first real
+point after the content shrank:
+
+```
+2.23  2.36  2.25  2.07  1.90 s      mean 2.16 s over 25 workflows = 87 ms/file
+```
+
+**87 ms/file against I-2a's 83.6 ms/file** — the line holds, and the absolute
+cost fell from 3.00 s to 2.16 s purely because the plane projects ten fewer
+files. Deleting four workflows bought back 28% of `doctor`.
+
+**I-9 — `devman` is checked out twice.** Resolved, and it is not a problem:
+
+| | |
+|---|---|
+| registered path | `/home/andrew/.paseo/worktrees/1n48r26y/special-dragon` |
+| the other checkout | `/home/andrew/Documents/Projects/devman`, on `spike/agent-factory-round-trip` |
+| does it carry `.devman/.runs/`? | **no** |
+| runs recorded there | 0 |
+| runs recorded in the registered checkout | 136 |
+
+**Only one checkout is registered, and only that one has a run tree.** The
+second has never entered a shell with `devman.enable` under this registry, so
+`.devman/.runs/` was never created. `doctor`'s check 6 has nothing to say
+because there is nothing ambiguous: one path, one entry, one history.
+
+**I-11 — the first scheduled `maintain` after each re-pin — is still open.** It
+cannot be measured before 00:05, and the evidence to read is six
+`maintain-*.md` reports and **one** plane report. That is the last outstanding
+item of wave 1's proof.
+
+### Charter impact
+
+**None from R-3 or R-5 themselves.** The charter changes are R-6's, and Gate 0
+to Gate 3 set what they are.
+
+---
+
+## I-4 — The `base:test` sweep across 58, static · **run before wave 4, not during**
+
+**Answer: 4 of 58 repositories have nothing to test. The other 54 have a suite
+and 48 of them have no task pointing at it.** So wave 4's per-repository work is
+overwhelmingly **one line in `devenv.nix`**, not authoring a test suite.
+
+**This is the static classification only.** The owner's call, taken before the
+sweep ran: report the table from inspection, state the split from it, and leave
+the live run to the session that starts wave 4. **So no repository here carries
+a measured pass or fail.** Wave 1's six do, and they are the only ones that do.
+
+### Versions
+
+Inspection of `devenv.nix` and the working tree in each of the 58 repositories
+under `~/Documents/Projects` that hold one. `devman` is read at its **registered
+path**, the worktree, not at the second checkout (I-9).
+
+### Command
+
+```bash
+find . -maxdepth 2 -name devenv.nix -printf '%h\n' | wc -l      # 58
+# then, per repository: the `"<x>:<y>"` task names in devenv.nix, whether
+# `enterTest` is set, and whether a suite exists on disk
+```
+
+### Evidence — the 58, by what they would put in `base:test`
+
+| Class | Count | What `base:test` would be | What wave 4 owes it |
+|---|---|---|---|
+| **adopted** | **6** | `base:test`, already defined | nothing — this is wave 1 |
+| **a `<x>:test` task** | **1** | `devenv tasks run loci:test` | one alias line |
+| **`enterTest` only** | **19** | `devenv test` | one alias line, **and a check that `devenv test` tests anything** |
+| **a suite, no task** | **28** | none yet | one task line naming the suite |
+| **no suite at all** | **4** | none | a decision, not a line |
+
+```
+adopted          6   devman nix-paseo observantic pydantree pyjutsu siteman
+task             1   loci-core
+enterTest       19   PyGentic atuout atuout-reconciler-test boomtube browsee
+                     cairn clinch embeddy fleetman forgelab fornix grail
+                     knappy nixbuild parsedantic templateer_v2 tyo3 webdantic
+                     zelligate
+suite, no task  28   allium-env argentic copyroom docman eventic flora
+                     flora-core flora-qc foreman fsdantic gitman
+                     image-gen-pipeline inferference interplay llgym loci.nvim
+                     lodestar my-ai mypi-agent poddantic pytuin repoman
+                     shellij structured-agents-v2 talkee terminal-state testee
+                     vendomat
+no suite         4   nix-desktop nix-nvim nix-secrets nixvim
+```
+
+### The split, stated explicitly, which is what `PLAN.md` §8 asks for
+
+**Wave 4 is adoption plus one authoring line, not adoption plus repair.** That is
+a different and smaller answer than wave 1 suggested, and the reason is that
+wave 1's two failures are not the population's shape:
+
+- **`pyjutsu` fails `test`** because `pyjutsu:build` needs a virtualenv `maturin`
+  cannot find. That is a native-extension build, and `pyjutsu` is the only
+  repository in the inventory with one.
+- **`pydantree` fails `check`** on 256 `ruff` findings, almost all under
+  `.scratch/` and `examples/`. That is a lint configuration, and it is not a
+  `base:test` fact at all.
+
+**Neither failure is the thing this investigation was sizing.** The sizing
+question was "do these repositories have tests that pass", and the static answer
+is that **54 of 58 have something to point at**.
+
+**Three bounds on that, and they are why the live run still has to happen.**
+
+1. **`devenv test` is not a safe default for the 19.** `PROPOSAL.md` §12's
+   fourth rule rests on a measurement — `devenv test` exits 0 having tested
+   nothing in 30 of 58 repositories. An `enterTest` that is set is not an
+   `enterTest` that runs a suite. Those 19 are the group most likely to adopt a
+   green workflow that tests nothing, which is the failure §12 rule 4 exists to
+   forbid.
+2. **A suite on disk is not a passing suite.** 28 repositories have `tests/` and
+   `test_*.py` and nothing has run them. The static pass cannot tell a
+   maintained suite from an abandoned one.
+3. **The heuristic has a known blind spot, and `siteman` is it.** `siteman`
+   shows "no suite" by file inspection and is nonetheless adopted: its
+   `base:test` is `ci`, an offline end-to-end build of `examples/demo`, because
+   it has no unit tests by design. **A repository can honour the contract with
+   no `tests/` directory**, so the 4 in "no suite" are candidates for a
+   decision, not a verdict.
+
+### Verdict
+
+**The bar `PLAN.md` §8 sets is met: the sizing question is answered before wave
+4 rather than during it.** Wave 4 is 46 repositories × one `devenv.nix` line,
+plus 19 `devenv test` invocations that need checking against §12 rule 4, plus 4
+repositories that need a decision about what `base:test` means when there is
+nothing to test.
+
+**What is deliberately not answered: pass or fail, per repository.** That is the
+live sweep, and it belongs to the session that starts wave 4, with the 19
+`enterTest` repositories first because they are the ones that can adopt a lie.
+
+### Charter impact
+
+**None.** §16's "no ecosystem groups" already carries the population figure, and
+R-6 landed it. This entry adds no claim the charter states.
+
+### Rule 7 — what this entry did to the machine
+
+**Nothing.** One `find` and one Python script that reads `devenv.nix` and lists
+directories. No shell entered, no workflow run, no repository written to.
+
+---
+
+## R-8 — An edited override re-projects, and the obvious way to write it was too slow
+
+**Answer: fixed, proved byte for byte, and it costs 2.82 ms per shell entry.**
+The guard now compares each override's body against the tail of its projection.
+An edit reaches Dagu at the next shell entry, which is what `STAGE_6_LOG.md` D6
+promised and did not deliver.
+
+**The first implementation was correct and broke criterion 7.** Writing the tail
+test as `''${have%"$body"}` cost **11 ms per shell entry** on its own, against a
+budget of 10. The same test written as a slice costs **2.82 ms**. That is the
+finding worth carrying: in this hook, *how* a comparison is written matters more
+than whether it forks.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0**, bash 5.3p9, in `devman`
+itself. Five overrides totalling 18.3 KB — `agent-review` 4399 B, `bench-entry`
+6459 B, `plane-report` 4162 B, `stack-validate` 3282 B, and a 100 B probe.
+
+### Evidence 1 — the bug, reproduced on purpose before it was fixed
+
+A throwaway `.devman/workflows/_r8probe.yaml`, so that no tracked file was
+dirtied. Adding it changes `local`, which the old guard already caught, so it
+projected. Then it was **edited in place**, which is the case that fails:
+
+```
+$ sed -i 's/VERSION-ONE/VERSION-TWO/' .devman/workflows/_r8probe.yaml
+$ grep -n VERSION .devman/workflows/_r8probe.yaml
+5:    run: echo VERSION-TWO
+$ devenv shell -- true                                     # 1.8 s
+$ grep -n VERSION ~/.local/share/devman/projects/devman/workflows/_r8probe.yaml
+12:    run: echo VERSION-ONE                                <- what Dagu reads
+```
+
+**Two shell entries and a save, and the plane still holds the previous
+version.** No message, no warning, and `devman doctor` reports nothing wrong.
+
+### Evidence 2 — the fix, on a shell entry that changes nothing else
+
+The first entry after restoring the module is not proof: the module is part of
+`plan`, so the entry changed and the projection would have been rebuilt anyway.
+The decisive test is an edit with **the module already in place**:
+
+```
+$ sed -i 's/VERSION-THREE/VERSION-FOUR/' .devman/workflows/_r8probe.yaml
+$ devenv shell -- true                                     # 2.3 s
+$ grep -n VERSION ~/.local/share/devman/projects/devman/workflows/_r8probe.yaml
+12:    run: echo VERSION-FOUR
+```
+
+Byte for byte, by the same test the guard uses and by `diff`:
+
+```
+$ src=$(<.devman/workflows/_r8probe.yaml)
+$ have=$(<~/.local/share/devman/projects/devman/workflows/_r8probe.yaml)
+$ [ "''${have: -''${#src}}" = "$src" ] && echo MATCH
+MATCH
+
+$ tail -n "$(wc -l < .devman/workflows/_r8probe.yaml)" \
+    ~/.local/share/devman/projects/devman/workflows/_r8probe.yaml \
+  | diff - .devman/workflows/_r8probe.yaml && echo IDENTICAL
+IDENTICAL
+```
+
+### Evidence 3 — the cost, decomposed, and why the first version failed
+
+§5.2 forbids a fork on the common path, so S-5a proposed bash parameter
+expansion. **Forkless was not the hard part.** Each stage added to the existing
+`local` loop, 300 firings each:
+
+```
+1  glob + [ -f ] only                    0.129 ms per firing
+2  + one $(<file)  (the source)          0.296
+3  + both $(<file) (source + projection) 0.495     <- the reads cost 0.37 ms
+4  + ''${have%"$body"}                     6.057     <- +5.6 ms
+5  + [ "''${have: -''${#body}}" = "$body" ]  1.256     <- +0.76 ms
+```
+
+**The two reads do not fork**, which is the part §5.2 put in doubt: bash reads
+`$(<file)` internally. **Bash's pattern removal scans and a slice does not**, and
+over 18 KB that is a factor of 7.4.
+
+The shipped shape, 500 firings:
+
+| | per firing | per shell entry (fires twice) |
+|---|---|---|
+| pre-R-8, names only | 0.132 ms | 0.26 ms |
+| **R-8, tail slice** | **1.409 ms** | **2.82 ms** |
+| the `%` version, for the record | 6.057 ms | **12.11 ms — over budget** |
+| `sha256sum` per override, the forking version | 23.3 ms | 46.6 ms |
+
+**Criterion 7's budget is 10 ms per entry, so the per-firing budget is 5 ms.**
+R-8 uses 1.41 of it. The version that reads more naturally used 6.06 and would
+have broken the criterion the same commit claimed to respect.
+
+**A repository with no override pays the glob and nothing else.** That is every
+repository in waves 2 and 4 until it writes one, and `devman` — with five — is
+the worst case on the machine.
+
+### Evidence 4 — the paired end-to-end measurement, which cannot see it
+
+Criterion 7 asks for an interleaved paired difference. Three rounds, each
+variant getting one discarded warm-up entry (the module change forces a re-eval
+and a full re-projection) and six timed entries:
+
+```
+round 1  pre : 1752 1768 1673 1719 1789 1687 ms
+round 1  R-8 : 1664 1775 1694 1711 1744 1799 ms
+round 2  pre : 1819 1791 1716 1729 1742 1770 ms
+round 2  R-8 : 1563 1558 1776 2056 1653 1753 ms
+round 3  pre : 1798 1799 1774 1746 1667 1672 ms
+round 3  R-8 : 1608 1745 1750 1755 1740 1760 ms
+
+pre-R-8  n=18  mean 1745.1  median 1749.0  sd  47.9  range 1667-1819
+R-8      n=18  mean 1728.0  median 1744.5  sd 109.1  range 1558-2056
+paired delta: mean -17.1 ms, sd 134.8, range -256..+327
+```
+
+**R-8 measures 17 ms FASTER, which is noise and not a result.** A `devenv shell
+-- true` is ~1.75 s with a 500 ms spread; 2.8 ms is not resolvable inside it.
+This is exactly what §14's commentary on criterion 7 warns about — measuring the
+absolute figure measures the machine. **The isolated loop above is the
+measurement; this one is the control that shows why it had to be isolated**, and
+it is recorded rather than dropped because a null result here is easy to
+misreport as a pass.
+
+### What else changed
+
+**`modules/devenv.nix`, two comments that made the bug invisible.** The one above
+`entryTemplate` said the projection was a symlink, so an edit was already what
+Dagu reads. The one above the `.devman/workflows/` loop said an edit reaches
+Dagu at the next shell entry. Both now say what is true and why it was not.
+
+**`STAGE_6_LOG.md`, corrected where it stands**, as S-5a asked. D6's paragraph
+gains a boxed correction, S3's `devenv shell -- true` comment gains the reason
+it worked there and not for an override, and D6's row in the conditions table
+becomes "partly met, and stage 7 found the gap". Nothing measured in stage 6 is
+altered — the claim that failed is the one D6 exists to make.
+
+### Verdict
+
+**R-8 ships.** The plane is back to 25 workflows with the probe removed, `doctor`
+is clean, and `devman`'s own `check` and `test` both succeeded on the changed
+tree:
+
+```
+{"dag":"devman-check","run_id":"034CiMzNZCwRQmBOphsSiI","status":"succeeded",…}
+{"dag":"devman-test", "run_id":"034CiMzjV6rOUtubVUYwrJ","status":"succeeded",…}
+```
+
+### Charter impact
+
+**§5.2's cost budget is re-checked and holds**, which is the section S-5a named
+as the one to look at if R-8 changed the guard. The hook still forks nothing on
+the common path, and the added 2.82 ms per entry is inside criterion 7's 10 ms.
+**No charter text changes.** §9.3's "the projection is reconstructable by
+entering the shell" was already the promise; R-8 is what makes it true for an
+edited override.
+
+### Rule 7 — what this entry did to the machine
+
+| | |
+|---|---|
+| `devman` | `modules/devenv.nix` — the guard and two comments |
+| the registry | re-projected several times; ended at 25 workflows, `doctor` clean |
+| a probe | `.devman/workflows/_r8probe.yaml`, created, edited four times, **deleted**; no `_r8probe` file or `dags/` link remains |
+| runs added | 2 (`devman-check`, `devman-test`), both succeeded |
+| the module file | swapped between two variants 6 times for the paired measurement, and left on R-8 |
+
+---
+
+## I-11 — The overnight scheduled runs, after wave 1's re-pins
+
+**Answer: six `maintain` runs and exactly one `plane-report`, all succeeded,
+and stage 6's three-minute silence did not reappear.** The longest gap between
+the scheduled minute and a run starting was **596 ms**. Every one of the seven
+started inside the same second Dagu dispatched it.
+
+**`pyjutsu-maintain` succeeded**, which is what S-5 predicted when `doctor` left
+`maintain`. It had failed 4 of its previous 5 runs.
+
+### The night this measures, and a correction to the plan
+
+**The plan expected this evidence on the night of 23 August. It was not there,
+and the reason is chronology rather than a fault.** Wave 1's re-pins landed
+between 19:30 and 21:07 on 23 August, and `plane-report` was authored at 19:42
+that evening (`ccd91a0`). So:
+
+| | |
+|---|---|
+| 23 Aug 00:05 | six `maintain` runs fired and succeeded — but ~15 h **before** wave 1, under the old two-step `maintain` (`prune` + `doctor`) |
+| 23 Aug 00:20 | **no `plane-report`**, because the workflow did not exist for another 19 hours |
+| **24 Aug 00:05** | six `maintain` runs, prune-only, **after** every re-pin — this entry |
+| **24 Aug 00:20** | one `plane-report` — this entry |
+
+The 23 August runs are recorded here because they were read first and would
+otherwise look like the answer.
+
+### Versions
+
+Dagu **2.15.0** (`MainPID` 2216556, started 23 Aug 20:38:03), devenv **2.1.2**,
+devman **0.3.0** from the machine closure. 6 projects, 25 workflows.
+
+### Command
+
+```bash
+journalctl --user -u dagu --since "2026-08-24 00:00" --until "2026-08-24 00:30" \
+  | grep "Dispatching planned run"
+# then, per project, the report, the metadata.jsonl line and the run record
+```
+
+### Evidence 1 — the dispatch, and the gap per repository
+
+Every line the daemon wrote in that half hour is a dispatch. There are seven.
+
+```
+00:05:00.003  devman-maintain
+00:05:00.003  observantic-maintain
+00:05:00.003  pyjutsu-maintain
+00:05:00.003  nix-paseo-maintain
+00:05:00.004  pydantree-maintain
+00:05:00.010  siteman-maintain
+00:20:00.002  devman-plane-report
+```
+
+The run's own log file names the millisecond it started, so the gap is exact:
+
+| DAG | dispatched | started | gap |
+|---|---|---|---|
+| `nix-paseo-maintain` | 00:05:00.003 | 00:05:00.087 | **84 ms** |
+| `devman-maintain` | 00:05:00.003 | 00:05:00.097 | **94 ms** |
+| `pydantree-maintain` | 00:05:00.004 | 00:05:00.101 | **97 ms** |
+| `pyjutsu-maintain` | 00:05:00.003 | 00:05:00.438 | **435 ms** |
+| `siteman-maintain` | 00:05:00.010 | 00:05:00.489 | **479 ms** |
+| `observantic-maintain` | 00:05:00.003 | 00:05:00.599 | **596 ms** |
+| `devman-plane-report` | 00:20:00.002 | 00:20:00.065 | **63 ms** |
+
+**The spread is six repositories starting inside 512 ms of each other**, which is
+S-1's picture exactly: the scheduler dispatches all of them at once and nothing
+throttles them. Six is far below where that matters.
+
+### Evidence 2 — six reports, six records, all `succeeded`
+
+Every project wrote its `maintain-<run-id>.md` and every `metadata.jsonl` gained
+one line:
+
+```
+devman       034CVHpDuplH9fI001dbCL  succeeded   27 reports before, 27 after — 0 pruned
+siteman      034CVHpE0rWjs1c19XBgWs  succeeded    8 reports before,  8 after — 0 pruned
+nix-paseo    034CVHpDuhR8nVwJUtJCix  succeeded    5 reports before,  5 after — 0 pruned
+pyjutsu      034CVHpE0dO0qHRPCHrfql  succeeded    7 reports before,  7 after — 0 pruned
+pydantree    034CVHpE0kcmrL6OMGREkb  succeeded    5 reports before,  5 after — 0 pruned
+observantic  034CVHpDuY0vj3KrElsHlx  succeeded    6 reports before,  6 after — 0 pruned
+```
+
+Each run record holds **one node**, named `prune`. The 23 August records hold
+two, `prune` and `doctor`. That is R-1 landing, visible in the run data.
+
+**Nothing was pruned anywhere, and that is correct** — `KEEP_DAYS` is 7 and no
+report is older than two days. The prune path is exercised; its effect is zero
+because there is nothing yet to remove.
+
+### Evidence 3 — exactly one plane report
+
+```
+$ find .devman/.runs/reports -name 'plane-*.md' -newermt "2026-08-24 00:00" | wc -l
+1
+```
+
+`plane-034CVeeG6jG8CqPSBwTnnQ.md`, 2.0 s, `doctor exit: 0`, holding the whole of
+`devman doctor` — 6 projects, 25 workflows, nothing to report. **One report for
+the machine, not six**, which is `PROPOSAL.md` §5's whole argument, running.
+
+**And the report proves the handover point about the closure.** Its `doctor`
+output has no `trigger target` line, because the `devman` the DAG ran is the one
+in the machine closure and R-4d is not in it yet. The plane reports on itself
+with the `devman` the machine has, which is the version a `nixos-rebuild switch`
+changes.
+
+### The question this investigation exists for
+
+**`STAGE_6_LOG.md` S3's three-minute silence did not reappear.** Its case was a
+DAG the daemon already knew *without* a schedule that then gained one: three
+scheduled minutes passed with nothing, and a restart cured it.
+
+**Two things happened here that would have shown it, and neither did:**
+
+1. **Five repositories were re-pinned at 21:01–21:07 on 23 August**, after the
+   daemon's last start at 20:38:03. Their `maintain` DAGs were re-projected —
+   new file content, same name, same expression — and every one dispatched on
+   the first scheduled minute after.
+2. **`plane-report` is a new scheduled DAG**, projected at 20:56 on 23 August,
+   also after the last start. It fired at its first scheduled minute, 63 ms late.
+
+```
+$ systemctl --user show dagu -p ActiveEnterTimestamp -p NRestarts
+ActiveEnterTimestamp=Sun 2026-08-23 20:38:03 EDT
+NRestarts=0
+```
+
+**The honest limit on this result.** The 20:38:03 start is the recovery from the
+90-second outage S-1 caused, and `devman`'s own re-pin at 19:30 came *before*
+it. So `devman-maintain` cannot be counted as a re-pin that needed no restart —
+one happened in between, by accident. **The five that can be counted are
+`siteman`, `nix-paseo`, `pyjutsu`, `pydantree` and `observantic`**, and they
+are enough: five re-pins and one new scheduled DAG, no restart, no silence.
+
+**What is still unmeasured is stage 6's exact transition** — a DAG the daemon
+knows without a schedule that gains one. Nothing on the plane underwent it
+tonight, so this entry does not close `OPEN_QUESTIONS` §7. It closes the
+question the plan asked, which is whether a re-pin reproduces it. It does not.
+
+### Rule 7 — what this entry did to the machine
+
+**Nothing.** Every command is a read: `journalctl`, `find`, `sed`, and reads of
+`status.jsonl` and `metadata.jsonl`. No workflow was run, no file projected, no
+service touched.
+
+**One thing another entry did, recorded here because it shows in this evidence.**
+Editing `src/devman/doctor.py` for R-4f and R-4d fired the watcher three times
+at 23:53:38, 23:53:40 and 23:53:41 — three `devman/format` runs, all succeeded.
+They are in the plane report's watcher section above. That is the watcher
+working, and it is why the report names `doctor.py` three times.
+
+### Charter impact
+
+**None.** §8's three arrows are unchanged and criterion 12's narrowing is
+already R-6's. This entry is confirmation, not a new fact about the design.
+
+---
+
+## R-6 — The charter, and the three corrections that belong to the proposal
+
+**Six charter sections change, not five.** `PROPOSAL.md` §9 drafted five. S-1
+forced a sixth — criterion 12 — and that one had no drafted text because the
+measurement that forced it came after §9 was written. **The charter asserted a
+safety property the plane does not have.**
+
+### Versions
+
+The charter is `.scratch/projects/006-automation-plane/CONCEPT.md` at
+`9a0f5f4`. No code and no group file changes in this entry; it is documentation
+against measurements already recorded above.
+
+### The six charter edits
+
+| Section | What changed | Forced by |
+|---|---|---|
+| §7.1 | `check`, `validate`, `full-test` becomes `check` and `test`; the ladder is two rungs and the third is stated to carry no information | `PROPOSAL.md` §9, and §12 rule 4's measurement |
+| §8, the boxed note | "Reactivity is its own group" becomes "a workflow that writes the repository's own files without being asked is its own group" | R-1/S-2 — `maintain` self-fires and must not be exiled |
+| §14, criterion 12 | **narrowed** — queues bind the enqueue path and not `schedule:` | **S-1** |
+| §14, criterion 14 | gains its mechanism — one `devenv tasks run` per workflow declares no order | I-3, and §1.1 |
+| §16 | "Python and Nix, and nothing else yet" becomes "there are no ecosystem groups" | R-3 — the `python` group's content was a namespace prefix |
+| §13 | gains "Stage 7 — the standard set" | the rollout |
+
+### The one that was not drafted, and it is a narrowing of a safety claim
+
+Criterion 12 read **"Queues are real"**, with the caveat that `dagu start`
+bypasses queues. That caveat is true and incomplete. **Dagu's own scheduler
+bypasses queues too**, and the charter never said so, so a reader took
+`max_concurrency` to be a machine-wide bound on everything the plane runs.
+
+The row and the commentary now say which path a queue binds:
+
+```
+$ sed -n '/^| 12 |/p' .scratch/projects/006-automation-plane/CONCEPT.md
+| 12 | Queues bind the enqueue path | two workflows naming the `exclusive` queue
+serialize **when enqueued** — `dagu start` and Dagu's own scheduler both bypass
+queues entirely, so the measurement must use `dagu enqueue`, which is the path
+§8's first two arrows take |
+```
+
+The commentary carries S-1's numbers — 58 enqueued never exceeding 4 and
+draining in 311 s, 58 scheduled all at once with queue depth 0, and two
+`exclusive` DAGs starting in the same second on the installed plane — and ends
+on the rule that replaces the property: **what the plane schedules must be cheap
+by construction.**
+
+### The three corrections that belong to `PROPOSAL.md`
+
+**These are not charter text. They are places the proposal argued from something
+a gate later measured.**
+
+**§1.1 — the stated loss is smaller, and there is a second trade (I-3).** §1.1
+said the failing task's name moves "from a step name to a log line". It reaches
+three places, including Dagu's recorded `error` field, which the UI renders. The
+caveat is the stream split: on devenv 2.1.2 the name appears **0 times** on the
+step's `.out` file, so the instruction to a developer is read `.err` or read the
+`error` field. And §1.1 never named the second trade — under a devenv `after`
+list siblings run **concurrently**, so the one-step shape trades `type: chain`'s
+fail-fast for fan-out.
+
+**§6 — "no automatic run breaks" is bounded (I-5).** True of the schedule, not
+of the watcher. `format` is watcher-fired and does call a repository task. The
+claim survives only because `devman` is the sole taker of `python-format` and
+owns the group files. §6 now states the general rule: a repository may be
+re-pinned ahead of its task rename **only while every automatically triggered
+workflow calls no repository task**.
+
+**§12 gains an eighth rule, and §5 loses its mechanism (S-1).** Rule 8 is
+"anything expensive, on a schedule", with S-1's figures. §5's paragraph "The
+schedule shape at 58 repositories" is corrected in place rather than deleted:
+its conclusion holds, its stated reason does not, and its second-order effect
+was backwards — a developer's `format` at 00:05 does **not** queue behind the
+scheduled burst, because the burst is not in the queue. It competes for CPU
+instead, bounded by nothing.
+
+### Verdict
+
+**R-6 is done for every measurement Gates 0–3 produced.** Two sections stay open
+by design and are named rather than left silent:
+
+- **§5.2's cost budget** — S-5a flagged it as the section to re-check *if* R-8
+  changes the guard. R-8 has not landed at the time of this entry, so §5.2 is
+  untouched here and R-8 owns it.
+- **§15.2's whitelist** — untouched until wave 3 fires it against `fsdantic`.
+
+### Charter impact
+
+**This entry is the charter impact.** Recorded so that the next stage reads one
+list rather than nine.
+
+---
+
+## Where stage 7 stands
+
+**Done:** Gates 0–3 (I-3, I-5, I-6, S-3, S-2, S-6, S-5, S-4, S-1, I-2a), R-1,
+R-2, R-3, R-5, I-2b and I-9, and then **R-6, R-4f, R-4d, R-8, I-11 and I-4**.
+
+**Everything the gates produced is built or decided:**
+
+| | |
+|---|---|
+| R-4a | **refused** on evidence (S-4). Do not reopen without a new measurement |
+| R-4b | **not needed** on evidence (I-2a) |
+| R-4c | **unbuilt.** It is gated on I-10, which is in the tail |
+| R-4d | **built** — `entry.workflow in proj.workflow_names()` |
+| R-4e | **held**, by S-4's decision, until the hazard bites in the wild |
+| R-4f | **built** — 25 files, 2.33 s serial to 0.82 s across 8 workers |
+| R-8 | **built** — an edited override re-projects, at 2.82 ms per shell entry |
+
+**Outstanding:**
+
+| | |
+|---|---|
+| R-7 | waves 2, 3 and 4 — **blocked on a pushed rev on `main`** |
+| the live half of I-4 | pass/fail per repository, with the 19 `enterTest` repositories first |
+| the tail | I-7, I-10, I-12, I-13. They gate nothing |
+
+**Wave 4 is smaller than wave 1 suggested.** I-4 found 54 of 58 repositories
+have a suite and 48 of those have no task naming it, so the per-repository cost
+is one `devenv.nix` line. Wave 1's two failures — `pyjutsu`'s native build and
+`pydantree`'s 256 `ruff` findings — are not the population's shape.
+
+### What blocks wave 2
+
+**Waves 2–4 pin `ref=main&rev=`, and `main` does not carry R-8, R-4d or R-4f.**
+Those repositories consume the module and the CLI, so wave 2 cannot start until
+a rev carrying them is on `main`. The owner's chosen route is a pull request
+from `dagu-devenv-automation-eli5`, and it is open:
+**https://github.com/Bullish-Design/devman/pull/129**, head `008ecb9`.
+
+**Wave 2 starts when that merges**, and its order is `PROPOSAL.md` §8: five
+repositories — `webdantic`, `poddantic`, `parsedantic`, `nix-desktop` and
+`loci.nvim` — of which `nix-desktop` and `loci.nvim` passing is the proof the
+universal contract is not a Python fiction. `nix-desktop` is one of I-4's four
+with no suite, so it is also the first repository that has to decide what
+`base:test` means with nothing to test.
+
+**And the machine's `devman` is the closure's.** R-4d and R-4f are in the source
+tree and not in the installed binary — the plane report of 24 August shows
+`doctor` without the `trigger target` line, which is the proof. A
+`nixos-rebuild switch` is what changes that.
+
+### Wave 1's five re-pins were committed and not pushed, until now
+
+**Found on 24 August while auditing what was published.** R-5's five repository
+commits were made on 23 August at 21:01–21:07, on each repository's own `main`,
+and **none of them reached `origin`**. The plane worked anyway, because a
+projection reads the working tree rather than the remote, so nothing on this
+machine noticed and nothing in this log said so.
+
+They were pushed on 24 August, unchanged, each still pinning `02d00f6` — a rev
+that was already on `origin/main`, so no commit needed rewriting:
+
+| Repository | Commit | pushed |
+|---|---|---|
+| `siteman` | `d249bfa..541cf25` | `main -> main` |
+| `nix-paseo` | `c1dd6ec..65f564c` | `main -> main` |
+| `pyjutsu` | `71a765d..8323e09` | `main -> main` |
+| `pydantree` | `d421a85..be150be` | `main -> main` |
+| `observantic` | `e02d1b8..0f835d4` | `main -> main` |
+
+All five are now clean and 0 ahead / 0 behind. `devman`'s own re-pin is on
+`dagu-devenv-automation-eli5`, not on `main`, and PR #129 is what lands it.
+
+**The lesson for waves 2–4, and it is a checklist item rather than a design
+fact:** a wave's proof — registry count, `doctor`, `check`, `test` — passes
+identically whether or not the repository's commit was pushed. **The push is not
+observable from the plane.** Each wave's proof must include
+`git rev-list --count @{u}..HEAD` per repository, or the next wave will end the
+same way.
+
+### A note on branches
+
+Partway through Gate 2 something in this environment checked out `main` and
+fast-forward merged `spike/007-gate-2` into it, and a routine `git push` sent it
+to `origin`. The owner's decision was to leave `main` where it is. So:
+
+| Branch | Carries |
+|---|---|
+| `origin/main` at `02d00f6` | the stage-7 group content, `plane-report`, `devman`'s own edits, and this log up to Gate 3 — **this is what wave 1 pins** |
+| `dagu-devenv-automation-eli5` | all of the above, plus R-3, R-6, R-4f, R-4d, R-8, I-11 and I-4 |
+| `spike/007-gate-2` | the Gate 2 spike history, now an ancestor of both |

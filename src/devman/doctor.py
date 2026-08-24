@@ -39,6 +39,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -200,16 +201,38 @@ def check_load(rep: Report, reg: Registry, dagu_home: Path) -> None:
     if dagu is None:
         rep.add("validate", "..", ["dagu is not on PATH, so no file was validated"])
         return
-    bad = []
-    for proj, name, path in files:
+
+    # THIS CHECK IS 86% OF `doctor`'S RUNTIME, AND ALL OF IT IS SPAWN COST.
+    #
+    # One `dagu validate` per projected file, and `dagu` is a Go binary that
+    # starts, parses one YAML file and exits. Measured at 174 files — the size
+    # of a 58-project plane — 13.35 s serially against 1.86 s across 8 workers,
+    # because the cost is process startup rather than the daemon
+    # (`STAGE_7_LOG.md`, I-2a). Threads and not processes: a worker only waits
+    # on `subprocess.run`, which releases the GIL for the whole of it.
+    #
+    # `ThreadPoolExecutor.map` returns results IN INPUT ORDER, so the report is
+    # byte-identical to the serial version rather than merely equivalent. This
+    # check does not need that — `bad` is a list nobody sorts — but it is free,
+    # so the output cannot drift with thread scheduling.
+    def _validate(item: tuple) -> str | None:
+        proj, name, path = item
         result = subprocess.run(
             [dagu, "--dagu-home", str(dagu_home), "validate", str(path)],
             capture_output=True,
             text=True,
         )
-        if result.returncode != 0:
-            first = (result.stdout + result.stderr).strip().splitlines()
-            bad.append(f"{proj.name}-{name}: {' '.join(first[:2])}")
+        if result.returncode == 0:
+            return None
+        first = (result.stdout + result.stderr).strip().splitlines()
+        return f"{proj.name}-{name}: {' '.join(first[:2])}"
+
+    bad: list[str] = []
+    if files:
+        # 8 is the measured knee on this machine, capped by `len(files)` so a
+        # small plane never starts more workers than it has work.
+        with ThreadPoolExecutor(max_workers=min(8, len(files))) as pool:
+            bad = [line for line in pool.map(_validate, files) if line]
     if bad:
         rep.add("validate", "!!", bad)
     else:
@@ -575,6 +598,55 @@ def running_watchers(reg: Registry) -> list[tuple[int, int]]:
     return sorted(found)
 
 
+def check_trigger_targets(rep: Report, reg: Registry) -> None:
+    """A trigger must name a workflow the project actually projects (S-3).
+
+    **Nothing checked this, and the failure is silent in the worst direction.**
+    A group that is tombstoned — its workflows deleted, its `triggers.toml`
+    left behind — keeps a `triggers` block in every registry entry that took it.
+    The watcher then fires `devman run <workflow>` on every matching save,
+    `devman run` refuses because the name resolves to nothing, and the developer
+    sees nothing at all: the refusal goes to a watcher log nobody opens. Worse,
+    `check_watcher` below PRINTS the mapping, so `doctor` shows the broken
+    trigger as evidence of health.
+
+    **This is set membership, not a heuristic, so §15.7 does not reach it.**
+    §15.7 forbids `doctor` guessing what a workflow means or whether it is
+    correct. Here both sides come from one registry entry that Nix wrote: the
+    trigger's target name, and the set of workflow names the same entry says
+    this project projects. The question is `in`, and it has exactly one answer.
+    """
+    projects = reg.projects()
+    checked = 0
+    bad = []
+    for entry in watch_map(reg):
+        proj = projects.get(entry.project)
+        if proj is None:
+            continue
+        checked += 1
+        names = proj.workflow_names()
+        if entry.workflow not in names:
+            bad.append(
+                f"{entry.project}: {', '.join(entry.globs)} -> {entry.workflow}"
+                f"  [{entry.group}] — '{entry.workflow}' is not projected."
+            )
+            bad.append(f"  this project projects: {', '.join(names) or '(nothing)'}")
+            bad.append(
+                "  every matching save fires a run devman refuses;"
+                " drop the trigger, or restore the workflow"
+            )
+    if bad:
+        rep.add("trigger target", "!!", bad)
+    elif checked:
+        rep.add(
+            "trigger target",
+            "ok",
+            [f"{checked} triggers each name a workflow their project projects"],
+        )
+    else:
+        rep.add("trigger target", "ok", ["no registered project declares a trigger"])
+
+
 def check_watcher(rep: Report, reg: Registry) -> None:
     """What the watcher is watching, and what it last fired (§8, stage 3).
 
@@ -764,6 +836,7 @@ def main(args, reg: Registry) -> int:
     check_projection(rep, reg)
     check_handlers(rep, reg)
     check_cross_repo(rep, reg)
+    check_trigger_targets(rep, reg)
     check_watcher(rep, reg)
     rep.print()
 

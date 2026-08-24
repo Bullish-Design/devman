@@ -6,7 +6,7 @@
 #   devman = {
 #     enable  = true;
 #     project = "pyjutsu";
-#     groups  = [ "base" "python" ];
+#     groups  = [ "base" ];
 #   };
 #
 #   inputs:
@@ -61,10 +61,24 @@ let
     if !builtins.pathExists (groupsRoot + "/${group}") then
       throw "devman: group '${group}' does not exist. There is no ${toString (groupsRoot + "/${group}")}."
     else if !builtins.pathExists dir then
-    # A group may ship no workflows at all. A triggers-only group is how a
-    # repository opts into reactivity without also inheriting somebody's
-    # workflows, which is what keeps §7.4's "an inherited workflow you never
-    # trigger costs nothing" true — a *triggered* workflow costs plenty (§8).
+    # A group may ship no workflows at all. Two shapes use this branch, and the
+    # second was measured at stage 7.
+    #
+    # A TRIGGERS-ONLY GROUP is how a repository opts into reactivity without
+    # also inheriting somebody's workflows, which is what keeps §7.4's "an
+    # inherited workflow you never trigger costs nothing" true — a *triggered*
+    # workflow costs plenty (§8).
+    #
+    # A TOMBSTONE is a group that has been deleted. The throw above is an
+    # EVALUATION failure, so a repository that re-pins to a rev where its group
+    # is gone cannot enter its shell at all — a flag day rather than a
+    # migration. A directory that ships no `workflows/` evaluates and projects
+    # nothing, so a stale pin keeps working and the repository renames its group
+    # when it is next edited (STAGE_7_LOG.md, I-6 and S-3).
+    #
+    # A tombstone MUST hold at least one file, because git cannot carry an empty
+    # directory, and MUST NOT hold a `triggers.toml`, because the mapping would
+    # keep firing a workflow the repository no longer projects.
       { }
     else
       lib.mapAttrs'
@@ -292,7 +306,10 @@ let
     ${linkLines}
 
     # §7.3's last layer. It shadows every group, and since stage 6 it is copied
-    # rather than linked, so an edit to it reaches Dagu at the next shell entry.
+    # rather than linked. An edit to it reaches Dagu at the next shell entry only
+    # because the guard compares each override's body against the tail of its
+    # projection — between stage 6 and stage 7 it did not, and the run that
+    # followed an edit executed the previous version (`STAGE_7_LOG.md`, S-5a).
     for f in "$root"/.devman/workflows/*.yaml; do
       [ -e "$f" ] || continue
       stem=''${f##*/}; stem=''${stem%.yaml}
@@ -310,8 +327,16 @@ let
   # Two placeholders, both filled by bash parameter expansion rather than by a
   # fork. `@PATH@` is where this checkout sits. `@LOCAL@` is the set of names in
   # `.devman/workflows/`, which is what makes the guard notice a repo adding or
-  # removing an override. It does not need to notice an *edit*: the projection
-  # is a symlink, so an edited file is already what Dagu reads.
+  # removing an override.
+  #
+  # AN EDIT IS NOT VISIBLE HERE, AND IS NOT MADE VISIBLE HERE. A name does not
+  # change when a file changes, and folding a content digest into this field
+  # would cost either a fork per override or a slow bash hash (§5.2). The entry
+  # stays a set of names; the guard tests the edit directly, against the
+  # projection, next to where it builds `local` (S-5a). An earlier version of
+  # this comment said the projection was a symlink, so an edited file was
+  # already what Dagu reads. Stage 6 made the projection a generated copy, and
+  # that stopped being true a whole stage before anything noticed.
   #
   # `plan` is the projection script's store path. It changes when the groups
   # change, when a group file changes, and when the plane's revision changes,
@@ -328,7 +353,7 @@ let
   # version that was. §12.4's measurement asks the same question.
   #
   #   "workflows": {
-  #     "check": {"group":"python","shadows":["base"],"source":"/nix/store/..."}
+  #     "check": {"group":"base","shadows":[],"source":"/nix/store/..."}
   #   }
   #
   # `local` stays, and the two are read together: a name in `local` is the
@@ -372,7 +397,7 @@ in
     groups = mkOption {
       type = types.listOf types.str;
       default = [ "base" ];
-      example = [ "base" "python" ];
+      example = [ "base" "format" ];
       description = "Workflow groups this repository inherits, in precedence order (§7.3). `[ ]` is legal: the repository then has only its own `.devman/workflows/`.";
     };
 
@@ -437,13 +462,65 @@ in
       devman_disk=""
       [ -f "$devman_meta" ] && devman_disk=$(<"$devman_meta")
 
+      # §7.3'S LAST LAYER IS A GENERATED COPY SINCE STAGE 6, SO THE GUARD HAS TO
+      # NOTICE AN EDIT AND NOT ONLY AN ADD OR A REMOVE (S-5a).
+      #
+      # `local` records names, and a name does not change when a file is edited
+      # in place. So an edited `.devman/workflows/*.yaml` did not reach Dagu at
+      # the next shell entry: the entry matched, nothing was re-projected, and
+      # the next run executed the PREVIOUS version, silently, with `doctor`
+      # reporting nothing wrong.
+      #
+      # THE TEST IS EXACT RATHER THAN A DIGEST. A `sha256sum` per override is a
+      # fork, which §5.2 forbids here, and a hash built with parameter expansion
+      # over a few kilobytes of bash is both slow and probabilistic. What is both
+      # forkless and exact is to compare the thing that actually matters: the
+      # projection Dagu reads must END WITH the override's body, byte for byte.
+      # `devman_project` writes a generated header and then the body unchanged,
+      # so tail equality is the whole test.
+      #
+      # THE TAIL IS TAKEN BY SLICE, NOT BY `%`, AND THAT IS A MEASUREMENT.
+      # `''${devman_have%"$devman_body"}` reads as the obvious way to say it and
+      # costs 5.6 ms per firing over devman's five overrides — 11 ms per shell
+      # entry, which breaks criterion 7 on its own. The slice below is the same
+      # test and costs 0.76 ms: bash's pattern removal scans, a slice does not.
+      # The two `$(<file)` reads are 0.37 ms together and do NOT fork, which is
+      # the part §5.2 put in doubt.
+      #
+      #   pre-R-8, names only  0.132 ms per firing   0.26 ms per shell entry
+      #   R-8, tail slice      1.409 ms per firing   2.82 ms per shell entry
+      #
+      # A repository with no override pays the glob and nothing else, which is
+      # every repository until it writes one.
+      #
+      # It is also stronger than a recorded digest, because it compares against
+      # the projection instead of against a number this hook wrote earlier: a
+      # projection edited, truncated or half-written in place is caught too,
+      # which is §9.3's promise.
+      #
+      # An override that is empty — or holds only newlines, which `$(<file)`
+      # strips to the same thing — is not compared. There is no body to match,
+      # and a header alone is its correct projection.
       devman_local=""
       devman_names="${lib.concatStringsSep " " (lib.attrNames resolved)}"
+      devman_stale=""
       for devman_f in "$devman_root"/.devman/workflows/*.yaml; do
         [ -e "$devman_f" ] || continue
         devman_b="''${devman_f##*/}"
         devman_local="$devman_local, \"''${devman_b%.yaml}\""
         devman_names="$devman_names ''${devman_b%.yaml}"
+
+        devman_proj="$devman_reg/projects/${cfg.project}/workflows/$devman_b"
+        if [ -f "$devman_proj" ]; then
+          devman_body=$(<"$devman_f")
+          devman_have=$(<"$devman_proj")
+          if [ -n "$devman_body" ] \
+             && [ "''${devman_have: -''${#devman_body}}" != "$devman_body" ]; then
+            devman_stale=1
+          fi
+        else
+          devman_stale=1
+        fi
       done
       devman_local="''${devman_local#, }"
 
@@ -543,13 +620,14 @@ in
         # deleting the registry and re-entering restores it exactly
         # (criterion 17).
         if [ "$devman_disk" != "$devman_rendered" ] || [ ! -d "$devman_reg/dags" ] \
-           || [ -n "$devman_relink" ]; then
+           || [ -n "$devman_relink" ] || [ -n "$devman_stale" ]; then
           ${projectScript} "$devman_root" "$devman_reg" "$devman_rendered"
         fi
       fi
 
       unset devman_root devman_reg devman_meta devman_bad devman_b devman_f \
             devman_disk devman_local devman_names devman_n devman_relink \
+            devman_stale devman_proj devman_body devman_have \
             devman_tmpl devman_rendered \
             devman_recorded devman_ex devman_gd devman_cd devman_cur
     '';
