@@ -3316,3 +3316,186 @@ to `origin`. The owner's decision was to leave `main` where it is. So:
 | `origin/main` at `02d00f6` | the stage-7 group content, `plane-report`, `devman`'s own edits, and this log up to Gate 3 — **this is what wave 1 pins** |
 | `dagu-devenv-automation-eli5` | all of the above, plus R-3, R-6, R-4f, R-4d, R-8, I-11 and I-4 |
 | `spike/007-gate-2` | the Gate 2 spike history, now an ancestor of both |
+
+## R-7 wave 4, batch 1 — ten adopted, four with the template-default `enterTest`
+
+**Answer: batch 1 is done — ten repositories, all registered, all pushed. The
+live half of §12 rule 4 has its first direct count: 4 of the first 10
+`enterTest` repositories carried the devenv template default.** The work per
+repository stayed one `devenv.nix` task line plus the input line; the costs that
+surfaced were environment facts, not repair passes.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### The pre-checks, per repository (wave 2b's two steps)
+
+`devenv shell -- true` passed in all ten (I-4b's survey re-confirmed, not
+trusted). `command -v <tool>` found the suite runner in six; **four needed the
+`uv run` resolution** because `pytest` lives in `[project.optional-dependencies]
+.dev` (boomtube, browsee, cairn) or the tool lives in the venv the task runner
+cannot see (below).
+
+### Two environment facts the batch bought, neither of which is a repair
+
+**The task runner's PATH is not the interactive shell's PATH.** `fleetman`'s
+venv has `pytest` (requirements `-e .[dev]`) and the interactive shell finds it,
+but `devenv tasks run base:test` failed with `pytest: command not found`. The
+task environment does not put the venv bin on PATH. The task is `uv run pytest
+-q`. **A `command -v` inside the interactive shell is not a proof for the task
+environment** — wave 2b's check needs the same scope for tools that live in a
+devenv-managed venv.
+
+**`forgelab` inverted it.** The interactive shell run failed with 45
+`ModuleNotFoundError: No module named 'pyjutsu'`, and `repoman-sync` did not
+help (toolchain is machine-level). The plane's own run — `devenv tasks run -v
+base:test` under the daemon's environment — passed: **Ran 85 tests, OK**, three
+times. The task environment reaches the machine repoman venv that holds the
+`pyjutsu` wheel; the interactive shell does not. Recorded as the plane's
+environment being the one that matters, and as a reminder that the opposite of
+wave 2b's wrong guess is also a wrong guess: **the shell is not the task
+environment either.**
+
+### The template-default count (the live half of §12 rule 4)
+
+| Repository | `enterTest` | `base:test` |
+|---|---|---|
+| `atuout` | custom (uv sync + ruff + ty + pytest) | `uv run pytest` |
+| `atuout-reconciler-test` | custom (uv sync + ruff + mypy + pytest) | `uv run pytest` |
+| `boomtube` | **template default** | `uv run --extra dev pytest` |
+| `browsee` | **template default** | `uv run --extra dev --extra scrape pytest` |
+| `cairn` | custom (sandbox gate) | `CAIRN_REQUIRE_SANDBOX_TESTS=1 uv run --extra dev pytest -q --cov=cairn --cov-report=term-missing` |
+| `embeddy` | **template default** | `LD_LIBRARY_PATH=…zlib… uv run --group dev pytest` |
+| `fleetman` | custom (`pytest -q`) | `uv run pytest -q` |
+| `forgelab` | custom (unittest) | `PYTHONPATH=src python -m unittest discover -s tests` |
+| `fornix` | custom (`uv run pytest -q`) | session-bus env + `uv run pytest -q` |
+| `grail` | **template default** | `uv run pytest` |
+
+**4 of 10 carried the template default** — the number §12 rule 4 was written
+for, now measured directly. None of the four got `devenv test` as `base:test`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `atuout` | `3ae56d0` | ok — ruff clean | ok — **75 passed**, 1 skipped |
+| `atuout-reconciler-test` | `b9b12a2` | ok — ruff clean | ok — **63 passed** |
+| `boomtube` | `868d208` | ok — ruff clean (`src`) | ok — **225 passed** |
+| `browsee` | `55f5d28` | ok — ruff clean (`src`) | **1 failed, 489 passed** — see below |
+| `cairn` | `b2b4742` | ok — ruff clean | ok — **314 passed**, 8 deselected |
+| `embeddy` | `42cff82` | ok — ruff clean | ok — **535 passed**, 3 skipped |
+| `fleetman` | `98e1947` | ok — compileall | ok — **105 passed** |
+| `forgelab` | `39f17b3` | ok — compileall | ok — **85 tests, OK** |
+| `fornix` | `0e5ca5e` | ok — ruff clean (`src`) | **1 failed, 181 passed** — see below |
+| `grail` | `7aad6f2` | **failed — 83 ruff findings** (recorded) | ok — **192 passed** |
+
+All ten at `@{u}..HEAD = 0` (pushed; wave 1's lesson applied per repository).
+
+**`browsee`'s one failure is a wall-clock time bomb, traced not guessed.** The
+test `test_dispatch_moderate_confidence_uses_fallback` builds a skill whose
+`last_success` is the fixture's hardcoded `2026-05-30T00:00:00Z`. The
+dispatcher's 30-day staleness check compares it to `datetime.now`, so since
+~2026-06-30 the confidence drops 0.6 → 0.4 and the expected mode
+`replay_with_fallback` becomes `explore`. The fixture was added 2026-06-11 when
+it was 12 days old. Not the plane's regression; recorded, not fixed.
+
+**`fornix`'s one failure is a host btrfs quota.** `test_fork_and_remove_subvolume
+_roundtrip` creates a subvolume under pytest's `/tmp` basetemp and deletes it;
+`/tmp` is a btrfs volume with qgroups the user cannot manage, so the delete
+returns EPERM (reproduced outside pytest: `btrfs qgroup show /tmp` →
+`Operation not permitted`). The suite's own guard skips when `tmp_path` is not
+btrfs, and it is. The e2e test that needed the user-session bus now passes —
+the task states `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` defaults,
+mirroring `enterShell`. The btrfs failure is the repository's environment, not
+the plane's; recorded, not fixed.
+
+**`grail`'s `check` failure is the repository's own lint debt.** 83 `ruff`
+findings in the repo's own `src`/`tests` scope (select `E,F,I` per its
+pyproject). `ruff check .` finds 321, most under `.context/monty-main/` —
+vendored. Adoption and repair stay separate; the 83 are recorded. One side
+effect worth naming: grail's suite rewrites tracked `.grail/*/check.json`
+fixtures with the current pytest tmp path — the tree was restored after the
+proof, and the repo's own suite dirties its tree on every run.
+
+### The adoption shape, and where the batch spent its effort
+
+Every repository got the same three pieces: the `devman` input (pinned `f20a9c1`
+with `imports: devman/modules`), the `devman.enable` block with `groups =
+["base"]`, and two task lines. The effort went to naming the honest suite:
+
+- **`embeddy`** is a uv virtual workspace: its dev deps are `[dependency-groups]`
+  (`--group dev`), not extras. Its `qdrant_client`/numpy wheel needs `libz.so.1`
+  on the loader path, which the devenv shell does not provide — the task
+  prepends `${pkgs.zlib}/lib`.
+- **`browsee`**'s suite imports `websockets`, which lives in the `scrape` extra,
+  not `dev` — 26 ImportError failures without it.
+- **`boomtube`/`browsee`/`cairn`** lint is scoped to the repo's own
+  `src = ["src"]` ruff config; full-tree `ruff check .` counts `.scratch/` and
+  vendored trees that are not source.
+- **`fleetman`/`forgelab`** declare no linter at all, so `base:check` is the
+  stdlib compile of `src` (the direct shape, like `nix-desktop`).
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        21   (was 11)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l     70   (was 40)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a fourth point on `doctor`'s curve — five timings at 21 projects:**
+
+```
+5415  5914  5766  5760  5933 ms      mean 5758 ms over 70 workflows = 82.2 ms/file
+```
+
+I-2a 83.6, 87 at six projects, 78.9 at 34 workflows — **82.2 at 70 workflows.
+The serial `check_load` line holds.** R-4f remains merged and uninstalled.
+
+**I-1 pending, not provable from here:** the next 00:05 `maintain` sweep and the
+single `plane-report` are scheduled for the night after this batch. The batch
+recorded its registry and pushed commits instead of waiting.
+
+### Verdict
+
+Batch 1 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 21
+projects. Two recorded test failures and one recorded lint debt are all
+pre-existing and traced to their mechanism. **The template-default count for the
+batch is 4 of 10, and none of them adopted `devenv test`.**
+
+### Charter impact
+
+**None.** §5.2's shell-entry registration and §12 rule 4's warning both held as
+written; the batch supplied the number rule 4 lacked.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `atuout` | `3ae56d0` | committed, **pushed** to `origin/main` |
+| `atuout-reconciler-test` | `b9b12a2` | committed, **pushed** — see note |
+| `boomtube` | `868d208` | committed, **pushed** to `origin/main` |
+| `browsee` | `55f5d28` | committed, **pushed** to `origin/main` |
+| `cairn` | `b2b4742` | committed, **pushed** to `origin/main` |
+| `embeddy` | `42cff82` | committed, **pushed** to `origin/main` |
+| `fleetman` | `98e1947` | committed, **pushed** to `origin/main` |
+| `forgelab` | `39f17b3` | committed, **pushed** to `origin/main` |
+| `fornix` | `0e5ca5e` | committed, **pushed** to `origin/main` |
+| `grail` | `7aad6f2` | committed, **pushed** to `origin/main` |
+
+**`atuout-reconciler-test` is a git worktree of `atuout` on branch
+`reconciler-process-test`, which had no upstream.** Pushing created
+`origin/reconciler-process-test` (set as upstream, `@{u}..HEAD = 0`). Recorded
+here because it is a new remote branch the owner did not ask for; the 
+checkout's in-progress work (`pyproject.toml`, `tests/test_reconciler_process
+.py`) was not committed.
+
+**Pre-existing changes left untouched:** `forgelab/AGENTS.md` (fornix direct-
+workflow note), `atuout`'s untracked `.scratch/projects/002-atuin-ai-client/
+reference/`, and `atuout-reconciler-test`'s in-progress test work. **Restored
+after proof:** `grail/.grail/*/check.json` (rewritten by the suite's own run).
+`devenv.lock` was committed where the repository tracks it; `atuout`,
+`browsee` and `grail` ignore it, and the adoption there is the two devenv files
+alone.
