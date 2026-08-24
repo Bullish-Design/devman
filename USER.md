@@ -279,8 +279,14 @@ Agents: the full checklist is `.agents/skills/devman-workflow/SKILL.md`.
 | `light` | 4 | seconds of work, no build |
 | `normal` | 2 | the suite; minutes |
 | `heavy` | 1 | a build that wants the machine |
-| `gpu` | 1 | GPU work. Nothing names it today |
+| `gpu` | 1 | one caller at a time on the GPU |
 | `exclusive` | 1 | this must not overlap with other exclusive work — long, non-deterministic, reads a tree another run may rewrite |
+
+`heavy` says "this costs a lot of machine". `exclusive` says "this must not
+overlap with other exclusive work". `gpu` names a resource. All three are limit 1
+on this machine; say the one that is true, because `exclusive` would serialize a
+GPU run against every other exclusive workflow for a reason that has nothing to
+do with the GPU.
 
 **A queue name is a one-way door.** Dagu accepts a queue that does not exist
 silently and applies no limit at all, so a typo is unobservable at run time.

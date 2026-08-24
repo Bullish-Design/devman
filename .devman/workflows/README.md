@@ -13,7 +13,7 @@ belongs to no project — or to the machine — is simply one of its own files (
 | `stack-validate.yaml` | `normal` | manual | a cross-repository workflow: it triggers other projects' `check` and runs no command itself |
 | `agent-review.yaml` | `exclusive` | manual | an agent reviews a commit and leaves the answer in `.runs/reports/` |
 | `bench-entry.yaml` | `exclusive` | manual | a benchmark campaign over a named other project's shell-entry cost |
-| `gitman-commit-message.yaml` | `exclusive` | manual | drafts a commit message from the staged diff, for `gitman save -m "$(cat …)"` |
+| `gitman-commit-message.yaml` | `gpu` | manual | drafts a commit message from the staged diff on the local GPU (`llgym serve` + pydantic-ai), for `gitman save -m "$(cat …)"` |
 
 **None of these is a group, and two of them never can be** (`PROPOSAL.md` §11):
 
@@ -26,11 +26,19 @@ belongs to no project — or to the machine — is simply one of its own files (
   A group file shipping it would run it once per repository — which is exactly
   what stage 7 removed from `base/maintain`.
 - `agent-review` and `gitman-commit-message` are **not yet** groups: one
-  repository carries `claude-code` and `codex-cli` in its packages. Promotion
-  costs nothing when a second one wants the file, because the workflow names a
-  task and the task names the tool (§7.1). It also needs §9.4 — the untested
-  secrets path — to fire once for real, and a group is the wrong place to prove
-  an untested path.
+  repository carries `claude-code` and `codex-cli` in its packages, and one
+  machine holds the GPU the second one calls. Promotion costs nothing when a
+  second repository wants the file, because the workflow names a task and the
+  task names the tool (§7.1). It also needs §9.4 — the untested secrets path —
+  to fire once for real, and a group is the wrong place to prove an untested
+  path.
+
+**The two agent workflows name two different queues, and the difference is the
+point.** `agent-review` says `exclusive`: it is long and non-deterministic and
+reads a tree another run may be rewriting. `gitman-commit-message` says `gpu`:
+its sharper constraint is the resource — a local model server holding weights in
+one GPU's VRAM. Saying `exclusive` there would serialize it against every other
+exclusive workflow for a reason that has nothing to do with the GPU.
 
 ## Triggering
 
@@ -40,7 +48,15 @@ devman run stack-validate            # here — the cross-repo one
 devman run plane-report              # here — the machine-wide one
 devman run agent-review AGENT_REF=HEAD~3
 devman run bench-entry TARGET=pyjutsu RUNS=40
+
+llgym serve --n-gpu-layers 30        # in llgym's own shell, once
+devman run gitman-commit-message     # then read the file it names
 ```
+
+**The plane calls a long-running process; it never supervises one.** That is the
+same rule `processes.dagu`'s note in `devenv.nix` states for Dagu itself. If
+nothing answers on `GPU_LLM_BASE_URL`, the step fails with that reason rather
+than hanging.
 
 `devman run` resolves the project from the current directory, exports
 `DEVMAN_PROJECT_DIR`, passes it as a parameter, and enqueues. For
