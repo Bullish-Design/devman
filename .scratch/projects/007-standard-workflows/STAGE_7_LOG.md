@@ -1804,3 +1804,213 @@ registries under `/tmp` are all deleted. No `_s1` link remains in `dags/`.
    None was in `OPEN_QUESTIONS.md`.
 3. **Two proposed changes were refused on their own evidence** — R-4a and R-4b —
    and three cheaper ones took their place.
+
+---
+
+## R-3 — The module · gated on I-6 and S-3
+
+**Two lines and one decision, and Gate 1 had already settled the decision.**
+
+```diff
+-      example = [ "base" "python" ];
++      example = [ "base" "format" ];
+```
+
+**The throw stays.** `PLAN.md` §6 left this open: if S-3 failed, the throw would
+have to become a warning and the module would skip an unknown group — a real
+loosening. S-3 passed and I-6 showed the refusal is legible, so the two
+mechanisms do not compete. **The throw is correct for a misspelled group; the
+tombstone handles the deletion case.** A module that silently ignored a
+misspelled group would be §15.4's misspelled-queue hazard in a second place.
+
+**The no-workflows branch gained the second shape it now serves.** It was
+documented only as a triggers-only group. Since stage 7 it is also how a deleted
+group keeps every stale pin evaluating, and both constraints S-3 measured are
+now stated beside the code: a tombstone must hold a file, because git cannot
+carry an empty directory, and must not hold a `triggers.toml`.
+
+Two stale group names in the module's own documentation went with it — the
+adoption example at the top and the schema-2 example in the entry comment both
+said `python`.
+
+**Verified:** no group name and no workflow name survives anywhere in `modules/`
+or `src/`, which is what `PLAN.md` §0.1 measured before the stage began. The
+module still evaluates and `devman doctor` is clean.
+
+### A note on where this landed
+
+`origin/main` had already taken the stage-7 content (see the branch note at the
+end of this log). R-3's only non-comment change is the `example` attribute,
+which is Nix option metadata and changes no evaluated result, so **wave 1 pins
+`02d00f6`** — a commit already on `main` carrying the complete group set. R-3
+itself sits on `dagu-devenv-automation-eli5`.
+
+---
+
+## R-5 — Wave 1 · the six registered repositories
+
+**Answer: all six adopted. Thirteen lines, as `PROPOSAL.md` §6 tabled them.
+`devman doctor` is clean at 6 projects, and the plane went from 36 projected
+workflows to 25.**
+
+**Two repositories fail their own contract, and neither failure is caused by the
+migration.** That is I-4's signal arriving three waves early, and it is recorded
+rather than repaired.
+
+### The six, and what each cost
+
+| Repository | Edits | Commit | `check` | `test` |
+|---|---|---|---|---|
+| `devman` | 3 | `0376b9a` (during S-6) | ok | ok |
+| `siteman` | 2 + delete | `541cf25` | **ok** | **ok** |
+| `nix-paseo` | 1 | `65f564c` | **ok** | **ok** |
+| `pyjutsu` | 1 | `8323e09` | **ok** | **fails** |
+| `pydantree` | 3 | `be150be` | **fails** | **ok** |
+| `observantic` | 3 | `0f835d4` | **ok** | **ok** |
+
+Each also bumped `rev=` to `02d00f6` and ran `devenv update devman && devenv
+shell -- true`, which is the ordinary adoption command.
+
+### The two failures, and why neither is a regression
+
+**`pyjutsu-test`.** `base:test` was **not edited** — the only change to that
+repository is `base:lint` → `base:check`. The log names the failing task, on
+stderr, exactly as I-3 measured:
+
+```
+✖ Running pyjutsu:build in 49.1ms (failed)
+  💥 maturin failed
+  Caused by: Couldn't find a virtualenv or conda environment…
+✖ Running pyjutsu:test in 120µs (dependency failed)
+✖ Running base:test in 13.6µs (dependency failed)
+```
+
+`pyjutsu:test` declares `.after = [ "pyjutsu:build" ]` — the very dependency
+`PROPOSAL.md` §1.1 cites as proof that criterion 14 was one edit from being
+false. Confirmed independently: `devenv tasks run -v base:test` fails the same
+way outside the plane, and **this repository had never once run the old
+`validate` workflow**, so nothing had ever exercised the path.
+
+**`pydantree-check`.** Pre-existing and already observed: the DAG had **failed
+both times it ran before this change**. `python:lint` and `python:typecheck`
+each exit 1 standalone — 256 ruff findings, almost all under `.scratch/` and
+`examples/`.
+
+**Coverage did not shrink when the `python` group went.** `python/check.yaml`
+ran `python:lint` then `python:typecheck` as two Dagu steps; `base:check` now
+pulls both through the devenv graph. Same two tasks, one invocation, and the
+repository can run them by hand. `observantic` proves it from the other side —
+its `check` passes with the extended alias.
+
+### Wave 1's own proof
+
+**`observantic`'s `release` gate opened on the renamed line** — S-6's third case,
+in a second repository, for real:
+
+```
+observantic-release: succeeded
+
+## gate
+- clean tree: yes
+- last test: succeeded — `{"dag":"observantic-test","run_id":"034CQrpQUmu1pe6FnK8hxf",…,"status":"succeeded",…}`
+```
+
+**The cross-repo workflow survives untouched**, which `PLAN.md` §6 said to
+confirm rather than assume. `stack-validate` names `observantic-check` and
+`siteman-check`; neither DAG name changed:
+
+```
+devman-stack-validate  status 4   nodes ['observantic-check', 'siteman-check']
+  sub  siteman-check     status 4   nodes ['check']
+  sub  observantic-check status 4   nodes ['check']
+```
+
+Each child's own record shows a single step named `check` — the one-step shape,
+two projects deep.
+
+**The plane, after the wave:**
+
+```
+$ devman doctor
+devman doctor — 6 projects, 25 workflows
+ok  shadowing      devman/agent-review: invented — no group version to diff
+                   devman/bench-entry: invented — no group version to diff
+                   devman/plane-report: invented — no group version to diff
+                   devman/stack-validate: invented — no group version to diff
+Nothing to report.                                                   exit 0
+```
+
+**36 workflows became 25**, and `siteman/full-test` has left the shadowing check
+because the file it shadowed no longer exists.
+
+### The investigations this wave carried
+
+**I-2b — `devman doctor` at 6 projects, post-change.** The curve's first real
+point after the content shrank:
+
+```
+2.23  2.36  2.25  2.07  1.90 s      mean 2.16 s over 25 workflows = 87 ms/file
+```
+
+**87 ms/file against I-2a's 83.6 ms/file** — the line holds, and the absolute
+cost fell from 3.00 s to 2.16 s purely because the plane projects ten fewer
+files. Deleting four workflows bought back 28% of `doctor`.
+
+**I-9 — `devman` is checked out twice.** Resolved, and it is not a problem:
+
+| | |
+|---|---|
+| registered path | `/home/andrew/.paseo/worktrees/1n48r26y/special-dragon` |
+| the other checkout | `/home/andrew/Documents/Projects/devman`, on `spike/agent-factory-round-trip` |
+| does it carry `.devman/.runs/`? | **no** |
+| runs recorded there | 0 |
+| runs recorded in the registered checkout | 136 |
+
+**Only one checkout is registered, and only that one has a run tree.** The
+second has never entered a shell with `devman.enable` under this registry, so
+`.devman/.runs/` was never created. `doctor`'s check 6 has nothing to say
+because there is nothing ambiguous: one path, one entry, one history.
+
+**I-11 — the first scheduled `maintain` after each re-pin — is still open.** It
+cannot be measured before 00:05, and the evidence to read is six
+`maintain-*.md` reports and **one** plane report. That is the last outstanding
+item of wave 1's proof.
+
+### Charter impact
+
+**None from R-3 or R-5 themselves.** The charter changes are R-6's, and Gate 0
+to Gate 3 set what they are.
+
+---
+
+## Where stage 7 stands
+
+**Done:** Gates 0–3 (I-3, I-5, I-6, S-3, S-2, S-6, S-5, S-4, S-1, I-2a), R-1,
+R-2, R-3, R-5, and I-2b and I-9 from wave 1's carry list.
+
+**Outstanding:**
+
+| | |
+|---|---|
+| I-11 | the first scheduled `maintain` and `plane-report`, after 00:05 tonight |
+| R-6 | the charter — five sections from `PROPOSAL.md` §9, plus criterion 12 (S-1), §1.1 and §6 (Gate 0) |
+| R-4d / R-4e / R-4f / R-8 | the four new items the gates produced |
+| I-4 | the `base:test` sweep across 58, **before** wave 4 — and wave 1 already suggests it will find work |
+| R-7 | waves 2, 3 and 4 |
+
+**Two of six registered repositories fail their own contract after adoption.**
+If that ratio holds across 58, wave 4 is adoption **and** repair, which is the
+sizing question `PLAN.md` §8 says I-4 must answer before wave 4 starts rather
+than during it.
+
+### A note on branches
+
+Partway through Gate 2 something in this environment checked out `main` and
+fast-forward merged `spike/007-gate-2` into it, and a routine `git push` sent it
+to `origin`. The owner's decision was to leave `main` where it is. So:
+
+| Branch | Carries |
+|---|---|
+| `origin/main` at `02d00f6` | the stage-7 group content, `plane-report`, `devman`'s own edits, and this log up to Gate 3 — **this is what wave 1 pins** |
+| `dagu-devenv-automation-eli5` | all of the above, plus R-3 and this entry |
+| `spike/007-gate-2` | the Gate 2 spike history, now an ancestor of both |
