@@ -1983,6 +1983,196 @@ to Gate 3 set what they are.
 
 ---
 
+## R-7 wave 2 — three of five adopted, and two cannot be adopted at all
+
+**Answer: the universal contract is not a Python fiction, and wave 2 proves it.**
+`nix-desktop` (a Home Manager flake) and `loci.nvim` (a Neovim plugin written in
+Lua, whose tests are Nix derivations) both take `base` with no group of their
+own, and both pass `check` and `test`.
+
+**But two of the five could not be adopted, and the reason is not devman.**
+`webdantic` and `parsedantic` **cannot enter their own devenv shell**, before
+any devman change. §5.2 makes shell entry the only registration path, so a
+repository that cannot enter its shell is invisible to the plane.
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+All three adopted repositories pin `main` at
+`70c8e2f59883541f48a39534440f6b17d3dbef9f`, the merge of PR #129.
+
+### Evidence 1 — the blocker, and it was found by measuring rather than by adopting
+
+`webdantic` was edited first. Its shell entry failed:
+
+```
+error: git-hooks or pre-commit-hooks input required
+```
+
+**The control says the failure is not mine.** With `devenv.yaml` and
+`devenv.nix` stashed — no devman input, no devman module — the same entry fails
+the same way:
+
+```
+$ git stash push -- devenv.yaml devenv.nix
+$ devenv shell -- true
+error: git-hooks or pre-commit-hooks input required
+```
+
+So the baseline was taken for the other four before writing another line:
+
+```
+poddantic     shell ok
+parsedantic   SHELL FAILS — git-hooks or pre-commit-hooks input required
+nix-desktop   shell ok
+loci.nvim     shell ok
+```
+
+**The cause correlates perfectly, and it is one line.** The two that fail are
+exactly the two that declare the `shellij` input as a *flake*; the three that
+work declare `flake: false`:
+
+| Repository | `shellij` input | shell |
+|---|---|---|
+| `poddantic` | `flake: false` | ok |
+| `nix-desktop` | `flake: false` | ok |
+| `loci.nvim` | `flake: false` | ok |
+| `webdantic` | *(flake, the default)* | **fails** |
+| `parsedantic` | *(flake, the default)* | **fails** |
+
+`webdantic`'s edits were **reverted** rather than committed, because a
+repository pinned to the plane and never registered is worse than one that is
+not pinned: the pin is config that does nothing, and it goes stale.
+
+**This is a class of blocker `I-4` could not see.** I-4 read `devenv.nix`. It
+never entered a shell. **A repository can have a suite, a task and a clean
+`devenv.nix`, and still be unadoptable**, and nothing before wave 2 would have
+said so. Waves 3 and 4 must run `devenv shell -- true` as their first step, per
+repository, before any file is edited.
+
+### Evidence 2 — the plane after the wave
+
+```
+$ devman doctor
+devman doctor — 9 projects, 34 workflows
+ok  plane / queues / validate / queue names / literal dir / shadowing
+ok  stale entries / run output / projection / handlers / cross-repo / watcher
+Nothing to report.                                                   exit 0
+```
+
+6 projects and 25 workflows became **9 and 34** — three repositories × `check`,
+`test` and `maintain`.
+
+**I-2b, a third point on `doctor`'s curve:**
+
+```
+2740  2756  2544  2669  2701 ms      mean 2682 ms over 34 workflows = 78.9 ms/file
+```
+
+**78.9 ms/file against I-2a's 83.6 and I-2b's 87 at six projects.** The line
+holds. This is still the closure's **serial** `check_load` — R-4f is merged but
+not installed, which is what the `nixos-rebuild` note is about.
+
+### Evidence 3 — `check` and `test`, per repository
+
+| Repository | commit | `check` | `test` |
+|---|---|---|---|
+| `poddantic` | `a295423` | **failed — pre-existing** | ok — 233 passed, 2 skipped |
+| `nix-desktop` | `c775f2f` | ok | ok |
+| `loci.nvim` | `7e6d984` | ok | ok — after an intermittent failure, below |
+
+**`poddantic`'s `check` failure is lint debt, and the control proves it.** 20
+`ruff` findings, mostly `E501` in `tests/`. With the devman changes stashed:
+
+```
+$ devenv shell -- ruff check .
+Found 20 errors.
+```
+
+Identical. **Not a migration regression.** Not repaired here — adoption and
+repair are separate passes, which is the same call wave 1 made for `pydantree`.
+
+### Evidence 4 — `loci.nvim` failed once, and chasing it was worth the time
+
+The first `test` run failed: `34 passed, 1 failed`, on `t21_move_document`. The
+tempting entry was "a pre-existing test failure". **It is not that, and it is not
+a regression either.** Six subsequent executions passed:
+
+| Execution | Result |
+|---|---|
+| control — `nix flake check`, devman changes stashed | all checks passed |
+| `nix flake check` ×2, changes restored | all checks passed *(cache hits — see below)* |
+| `nix build --rebuild` ×4, forced re-execution | rc=0, four times |
+| **the plane again, after `nix store delete` of the output** | **succeeded** |
+
+**The middle two prove nothing on their own and are recorded as such.** Nix
+caches a successful check, so a re-run after a pass is a cache hit. The forced
+rebuilds and the store deletion are what make the last row a real second
+execution *in the plane's own environment* — which is the environment that
+failed.
+
+**Verdict: `t21_move_document` is intermittent.** One failure in seven
+executions. It is the repository's own test and it is recorded here rather than
+filed as an adoption problem.
+
+### Evidence 5 — two things confirmed in passing
+
+**I-3's stream split, live and costly.** `loci.nvim`'s failing run wrote **0
+bytes to `test.*.out`** and 13,300 bytes to `test.*.err`. A reader who opened
+the `.out` file would have seen an empty file and no failure at all. This is
+exactly what I-3 measured on devenv 2.1.2, now hit by accident on a real
+failure rather than on a probe.
+
+**A project name may contain a dot.** `loci.nvim` is the first. devman projects
+`loci.nvim-check.yaml` and records `"dag":"loci.nvim-test"` in
+`metadata.jsonl`, so `release`'s gate — which greps `<project>-test` — still
+matches. **Dagu writes its run directory as `loci_nvim-test`**, substituting the
+dot. Nothing broke, `doctor`'s projection and run-output checks both pass, and
+it is written down because the two names differ and somebody will grep for the
+wrong one.
+
+### Verdict
+
+**Wave 2 passes on what it was built to answer.** `PROPOSAL.md` §8 says
+`nix-desktop` and `loci.nvim` passing is the proof the contract is not a Python
+fiction. Both pass, both took `base` alone, and neither needed a group, a
+language option, or a line of Python.
+
+**Wave 2 fails on coverage: three of five.** The two that are missing are
+blocked on a one-line change to a flake input that has nothing to do with the
+plane, and that change is **not made here**.
+
+### Charter impact
+
+**None, and one sharp edge earns a sentence when the next stage edits §15.**
+§15.1 already says a repository is invisible until you enter its shell once.
+What wave 2 adds is that **a repository whose shell does not enter is invisible
+permanently**, and the plane cannot report it — `doctor` lists what is
+registered, and an unregistrable repository is nowhere. That is a gap in §10's
+coverage, not a bug in it, and it belongs to whoever writes the adoption
+checklist.
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `poddantic` | `a295423` | committed, **pushed** to `origin/main` |
+| `nix-desktop` | `c775f2f` | committed, **pushed** to `origin/main` |
+| `loci.nvim` | `7e6d984` | committed, **pushed** to `origin/main` |
+| `webdantic` | — | edited, then **reverted**; tree clean, nothing committed |
+| `parsedantic` | — | never edited |
+
+**`loci.nvim` was on a detached HEAD** at exactly `main` and `origin/main`, so
+`git checkout main` lost nothing. It was checked before the checkout, not after.
+
+**One store path was deleted on purpose** —
+`/nix/store/bskl00m5x9jins3amhyiqzwjmwr1gbaq-loci-nvim-tests` — to force the
+plane to re-execute a cached check. It has since been rebuilt.
+
+The registry went from 6 projects to 9, and `doctor` is clean.
+
+---
+
 ## I-4 — The `base:test` sweep across 58, static · **run before wave 4, not during**
 
 **Answer: 4 of 58 repositories have nothing to test. The other 54 have a suite
