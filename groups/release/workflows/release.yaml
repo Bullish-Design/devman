@@ -29,7 +29,7 @@
 #
 #   1. the working tree is clean. A release built from uncommitted work cannot
 #      be rebuilt from the tag it claims.
-#   2. the last recorded run of THIS project's `validate` succeeded.
+#   2. the last recorded run of THIS project's `test` succeeded.
 #
 # CONDITION 2 NAMES THE DAG EXACTLY, AND THE FIRST VERSION DID NOT. It matched
 # `"dag":"<anything>-validate"`, which looked safe — `metadata.jsonl` is per
@@ -48,12 +48,24 @@
 # is `release.yaml` in this group; a repository that shadows it under a hyphenated
 # name has to fix this line, which it is editing anyway (§7.3 is whole-file).
 #
+# STAGE 7 RENAMED THE TARGET FROM `validate` TO `test`, AND THE RENAME WAS
+# MEASURED RATHER THAN ASSUMED (STAGE_7_LOG.md, S-6). The reason it needed
+# measuring is that `-test` is a suffix of a workflow name that existed until
+# this stage — `full-test` — so `<project>-full-test` ends in the same three
+# characters the gate now wants. It does not match, and the reason is the
+# anchor: `grep -F` looks for the whole string `"dag":"<project>-test"`, and in
+# `"dag":"<project>-full-test"` the character after `<project>-` is `f`. The
+# same anchor is what stopped `devman-stack-validate` matching before it.
+#
+# The project name is derived from THIS run's own DAG name, so a project whose
+# own name ends in `-test` is also safe: `foo-test-release` strips to `foo-test`
+# and the gate wants `foo-test-test`, which is that project's own test DAG.
+#
 # WHAT THE POLICY CANNOT SAY, stated rather than faked. `metadata.jsonl` records
 # a run's dag, id, status and time, and no commit. So the gate can say "the last
-# validate succeeded" and cannot say "the last validate succeeded on THIS
-# commit". The report prints the run id and the timestamp so a person can judge
-# it; inventing a freshness rule the data cannot support would be §15.7 with
-# extra steps.
+# test succeeded" and cannot say "the last test succeeded on THIS commit". The
+# report prints the run id and the timestamp so a person can judge it; inventing
+# a freshness rule the data cannot support would be §15.7 with extra steps.
 #
 # ---------------------------------------------------------------------------
 # WHERE THE ARTIFACT GOES
@@ -98,19 +110,19 @@ steps:
       fi
 
       me="${context.dag.name}"
-      want="\"dag\":\"${me%-*}-validate\""
+      want="\"dag\":\"${me%-*}-test\""
       last=$(grep -hF "$want" .devman/.runs/metadata.jsonl 2>/dev/null | tail -1)
       if [ -z "$last" ]; then
         refused=1
-        echo "- last validate: **NONE RECORDED** for \`${me%-*}-validate\` — refusing." \
-             "Run \`devman run validate\` first" >> "$report"
+        echo "- last test: **NONE RECORDED** for \`${me%-*}-test\` — refusing." \
+             "Run \`devman run test\` first" >> "$report"
       else
         case "$last" in
           *'"status":"succeeded"'*)
-            echo "- last validate: succeeded — \`$last\`" >> "$report" ;;
+            echo "- last test: succeeded — \`$last\`" >> "$report" ;;
           *)
             refused=1
-            echo "- last validate: **NOT SUCCEEDED** — refusing. \`$last\`" >> "$report" ;;
+            echo "- last test: **NOT SUCCEEDED** — refusing. \`$last\`" >> "$report" ;;
         esac
       fi
 

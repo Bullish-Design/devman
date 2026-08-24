@@ -1,0 +1,26 @@
+# base/test — rung 2, the gate (CONCEPT.md §7.2).
+#
+# Renamed from `validate` at stage 7. Under the one-step rule the workflow name
+# and the task suffix are the same word, so a reader holds one name instead of
+# two (PROPOSAL.md §2).
+#
+# `normal` rather than `light`: the suite is the rung that costs minutes, and
+# the machine's limit of 2 is what keeps two of them from owning the box.
+#
+# A REPOSITORY THAT WANTS `test` TO LINT FIRST WRITES ONE LINE, in its own
+# devenv.nix, where it can also run it by hand:
+#
+#     tasks."base:test".after = [ "base:check" ];
+#
+# That is criterion 14 held by construction rather than by everyone's care: a
+# one-step workflow declares no order, so it cannot re-state one.
+#
+# There is NO third rung. `full-test` was deleted at stage 7 on a measurement —
+# its only content beyond this file was `devenv test`, which exits 0 having
+# tested nothing in 30 of the 58 devenv repositories (PROPOSAL.md §6).
+#
+# `-v` is load-bearing, for the reason base/check.yaml states at length.
+queue: normal
+steps:
+  - name: test
+    run: devenv tasks run -v base:test

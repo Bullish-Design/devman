@@ -1,48 +1,38 @@
-# python — the ecosystem group that proves shadowing
+# `python` — a tombstone, not a group
 
-`pyproject.toml` appears in 52 of 71 surveyed repositories, second only to
-`devenv.nix` (D4). This group exists for the decomposition Python has and `base`
-does not: a type checker that is neither a linter nor a test.
+**This directory ships nothing on purpose.** The group was deleted at stage 7.
 
-## The task names this group calls
-
-| Task | What the repository puts in it |
-|---|---|
-| `python:lint` | `ruff check .` |
-| `python:typecheck` | `basedpyright` |
-| `python:test` | `pytest` |
-
-devenv requires the namespace — an un-namespaced `lint` is an evaluation error —
-and the namespace is the group's own name, so a group's names cannot collide
-with another group's (see `../base/README.md`).
-
-**A Python repository usually takes `[ "python" ]` alone.** Taking
-`[ "base" "python" ]` means defining `base:lint` and `base:test` as well,
-because python shadows `check` and `validate` while base's `full-test` survives
-and still calls its own names. Take both only when you want that `full-test`.
-
-The second set costs two lines rather than two bodies — a devenv task with only
-`after` and no `exec` runs its dependency and fails when that dependency fails
-(`STAGE_2_LOG.md`, S5):
+Its whole content was two workflows that ran a linter and a type checker in
+order. **That order is a task graph, and devenv holds task graphs.** Written as
+a graph it is one line in the repository, where the developer can also run it by
+hand:
 
 ```nix
-tasks."base:lint".after = [ "python:lint" ];
-tasks."base:test".after = [ "python:test" ];
+tasks."base:check".after = [ "python:lint" "python:typecheck" ];
+tasks."base:test".after  = [ "python:test" ];
 ```
 
-## Shadowing
+Written as a workflow it was a second copy of the same fact, in a file the plane
+promises never to parse (`PROPOSAL.md` §1.1).
+
+**A language is not a reason for a group.** A language differs in what a task
+*is*. Once a workflow is one step calling one task, a language group's whole
+content is a namespace prefix — the file is identical in every group — and
+§16's promotion rule ("a group begins when a second repository wants the same
+file") cannot be satisfied by a file that is the same file.
+
+## Why the directory is still here
+
+`modules/devenv.nix` throws on an unknown group, and the throw is an
+**evaluation** failure: a repository that re-pins while still listing `python`
+could not enter its shell. A directory with no `workflows/` evaluates and
+projects nothing, so a stale pin keeps working. It holds this `README.md`
+because git cannot carry an empty directory (`STAGE_7_LOG.md`, S-3).
+
+## When it goes
+
+One full rollout after wave 4. Drop the word:
 
 ```nix
-devman.groups = [ "base" "python" ];
+groups = [ "base" ];   # was [ "base" "python" ]
 ```
-
-resolves to:
-
-| Workflow | Wins from |
-|---|---|
-| `check` | **python** — shadows `base/check` |
-| `validate` | **python** — shadows `base/validate` |
-| `full-test` | base — python defines none |
-
-Shadowing is whole-file, never a field merge (§7.3). The repository's own
-`.devman/workflows/` is the last layer and shadows both.

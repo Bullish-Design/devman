@@ -1,68 +1,35 @@
-# python-format — the group that makes a repository react
+# `python-format` — a tombstone, not a group
 
-`devman.groups = [ "python" "python-format" ]`
+**This directory ships nothing on purpose.** The group was renamed to `format`
+at stage 7 (`PROPOSAL.md` §6): under §3's rule a group exists because of what
+taking it costs — a trigger and a write to your own source — and not because of
+a language.
 
-This is the first group that does something when nobody asked. Taking it means
-that saving a `.py` file in this repository runs `format`, without a person
-typing anything.
+## Why an empty directory is still here
 
-## What it is
+`modules/devenv.nix` throws when a repository names a group that does not
+exist, and the throw is an **evaluation** failure: a repository that re-pins to
+a stage-7 rev while still listing `python-format` could not enter its shell at
+all. A directory that ships no `workflows/` evaluates and projects nothing
+(`modules/devenv.nix:63`), so a stale pin keeps working and the repository
+renames its group when it is next edited rather than when the plane forces it.
 
-| File | What it is |
-|---|---|
-| `triggers.toml` | `"**/*.py" = "format"` — the mapping the watcher reads (§8) |
-| `workflows/format.yaml` | one step, `python-format:fmt`, guarded by a content hash |
+**It holds a `README.md` because git cannot carry an empty directory**, and a
+tombstone that vanishes on `git+https` is not a tombstone (`STAGE_7_LOG.md`,
+S-3).
 
-## The task name this group calls
+## It must never hold a `triggers.toml`, and that is measured
 
-| Task | What the repository puts in it |
-|---|---|
-| `python-format:fmt` | the formatter, writing in place |
+A `triggers.toml` here would keep firing `format` in every stale repository —
+a workflow the repository no longer projects. Measured at stage 7: the registry
+entry carries the mapping, `devman doctor` prints it without objecting, and
+every matching save forks a `devman run` that refuses with exit 1. Waste, plus
+a complaint in a journal nobody reads.
+
+## When it goes
+
+One full rollout after wave 4. Rename your group and delete this line:
 
 ```nix
-tasks."python-format:fmt".exec = "uv run ruff format .";
+groups = [ "base" "format" ];   # was [ "base" "python-format" ]
 ```
-
-The group names a task and never a tool, so `black`, `ruff format`, `blue` or a
-script all fit without the file changing (§7.1).
-
-## Why reactivity is a group of its own
-
-§7.4 says there is no per-workflow Nix option, because an inherited workflow you
-never trigger costs nothing. **A triggered workflow costs plenty** — it rewrites
-your files while you are editing them — so the argument does not carry over, and
-reactivity cannot ride along inside `python`.
-
-So it is its own group, holding one workflow that exists to be triggered. Taking
-it is the opt-in and not taking it is the opt-out, which is §7.4's own answer:
-"to be rid of one, do not take its group". That is free here, because there is
-nothing else in the group to lose.
-
-## The loop, and what stops it
-
-You save `foo.py`. The watcher fires `format`. `format` rewrites `foo.py`. The
-watcher sees that write.
-
-Two different layers stop that, and both are somebody else's mechanism:
-
-1. **The watcher ignores `.devman/.runs/`**, so a run's own logs and this
-   group's hash file are not events. Without that, every run in a repository
-   re-fires every watcher in it, whatever the workflow declares.
-2. **The step's `preconditions:` compare a content hash** of every `.py` file
-   against the hash stored after the last format. The formatter's own write
-   therefore does no work the second time, and the sequence stops.
-
-**A hash, not a timer.** Edit `foo.py` a second after the formatter wrote it and
-the hash differs, so the work runs. A suppression window would swallow that edit
-and would still pass a naive "one save, one run" test (§8, E1).
-
-**What "the sequence stops" costs, measured.** The skip is Dagu's, and Dagu
-skips *after* enqueueing rather than before, so the loop terminates with one run
-that formats and one run that skips. See `STAGE_3_LOG.md` S6 for the counts and
-for what that does to criterion 13's wording.
-
-## What it does not do
-
-It does not commit, and it does not tell you it ran. Read
-`.devman/.runs/metadata.jsonl`, or run `devman doctor`, which reports what the
-watcher last fired.
