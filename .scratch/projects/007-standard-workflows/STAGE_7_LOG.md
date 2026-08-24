@@ -1421,3 +1421,118 @@ projection of `check`, `test`, `maintain`, `format`, `release`, `plane-report`
 plus its own three. That is deliberate — it is R-1 and R-2 and half of R-5,
 proved early — and it is one `git checkout` from reverting. The other five
 registered repositories pin `fb78a99` and were never touched.
+
+---
+
+## I-2a — The `dagu validate` cost curve
+
+**Answer: `doctor` is linear, the proposal's extrapolation was right to within
+half a second, and 58 projects costs 14.3 seconds — measured, not predicted.**
+
+**`PLAN.md` §8's replacement clause does not fire.** `doctor` is not
+superlinear, so §5's one-nightly-plane-report survives and **R-4b is not
+required before wave 4** — the curve does not reach 30 s until about 120
+projects, twice the inventory.
+
+**And the fix, if it is ever needed, is not R-4b.** The fan-out parallelises
+almost perfectly: the same 174 files validated 8 at a time take **1.86 s
+instead of 13.35 s**. A `--project` scope hides the cost; four lines of
+`ThreadPoolExecutor` remove it.
+
+### Versions
+
+Dagu 2.15.0, devman 0.3.0, 8 cores. Synthetic registries under `/tmp/s7-i2a`,
+each project a byte copy of `devman`'s own projection with the path rewritten,
+three workflows each — which is `PROPOSAL.md` §5's own arithmetic, 58 × 3 = 174.
+
+### Command
+
+```bash
+# one file
+dagu --dagu-home ~/.local/share/dagu validate \
+     ~/.local/share/devman/projects/devman/workflows/check.yaml
+
+# the whole of doctor, against a synthetic registry of N projects
+devman --registry /tmp/s7-i2a-run doctor
+```
+
+### Evidence 1 — the two halves, at the real registry
+
+```
+one `dagu validate`   : median  74 ms   (mean 70, range 53–85, 10 samples)
+`devman doctor`       : median 3.00 s   (35 workflows, 5 samples)
+
+  validate fan-out    : 35 × 74 ms = 2.59 s
+  everything else     : 0.41 s   — 14% of the run
+```
+
+**Eighty-six percent of `doctor` is one subprocess per projected file.** The
+other eleven checks cost 0.41 s together.
+
+### Evidence 2 — the curve, six points
+
+| projects | files | `devman doctor` | per file |
+|---:|---:|---:|---:|
+| 6 | 18 | 1.53 s | 85 ms |
+| 10 | 30 | 2.29 s | 76 ms |
+| 20 | 60 | 4.50 s | 75 ms |
+| 30 | 90 | 7.60 s | 84 ms |
+| 40 | 120 | 10.00 s | 83 ms |
+| **58** | **174** | **14.33 s** | 82 ms |
+
+```
+linear fit: doctor = -0.15 s + 83.6 ms x files
+residuals : +0.17  -0.07  -0.37  +0.22  +0.11  -0.07     max |r| = 0.37 s
+predicted at 174 files: 14.4 s      measured: 14.33 s
+```
+
+**The intercept is within noise of zero and the residuals are under 0.4 s across
+a tenfold range.** Nothing in `doctor` grows faster than the file count, which
+was the assumption `PROPOSAL.md` §5 labelled and could not check.
+
+**`PROPOSAL.md` §5's "roughly 14 s" is now a measurement.** It said so honestly
+at the time and it was right.
+
+### Evidence 3 — the fan-out is spawn cost, not daemon cost
+
+```
+174 files, serial (as doctor does it) : 13.35 s
+174 files, 8 workers                  :  1.86 s        7.2x
+```
+
+Eight cores, near-perfect scaling. **The Dagu daemon is not the limit** — each
+`dagu validate` is an independent short-lived process that reads one file, and
+nothing contends.
+
+### What this decides
+
+**R-4b — a `--project` scope for `doctor` — is not needed.**
+
+| Threshold | Files | Projects |
+|---|---:|---:|
+| 30 s, `PLAN.md` R-4b's trigger | 359 | **≈ 120** |
+| 14.3 s, today's whole inventory | 174 | 58 |
+
+The plane would have to double its inventory before the scope mattered, and
+`plane-report` runs at 00:20 with nobody waiting on it.
+
+**Proposed instead, and it is cheaper than the thing it replaces:**
+
+| | Change | Effect |
+|---|---|---|
+| **R-4f** | run `check_load`'s subprocesses through a `ThreadPoolExecutor` | 14.3 s → ~2.3 s at 58 projects |
+
+`check_load` already collects failures into a list and reports them together, so
+the order of results does not matter and the change is confined to one loop.
+**It is not a heuristic and it changes no output** — the same files are
+validated and the same findings reported.
+
+**I-2b is now cheap.** The curve is `83.6 ms x files`, so each rollout batch
+needs one number to confirm the line rather than to discover it.
+
+### Charter impact
+
+**None.** §5's argument for moving `doctor` out of `maintain` rested on 58 × 14 s
+of duplicated work; the 14 s is now measured and the argument is stronger, not
+weaker. The one number `PROPOSAL.md` §5 should gain is that the cost is linear
+and the per-file constant is 84 ms.
