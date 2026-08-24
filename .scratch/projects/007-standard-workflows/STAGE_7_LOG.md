@@ -3629,3 +3629,124 @@ batch found contradicts a charter sentence.
 which is what made the batch's long pole short on re-run. Nothing was deleted.
 `loci-core` and `argentic` were moved from detached HEAD to their local `main`
 (the adoption branch); both were clean before and after.
+
+## R-7 wave 4, batch 3 — ten adopted, and the batch that hit config-style modules
+
+**Answer: batch 3 is done — ten repositories, all registered, all pushed. One
+recorded lint finding and one recorded test failure (three tests, one traced
+cause). Every other suite passed.**
+
+### Versions
+
+devenv **2.1.2**, Dagu **2.15.0**, devman **0.3.0** from the machine closure.
+Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
+
+### Evidence — per repository
+
+| Repository | Commit | `check` | `test` |
+|---|---|---|---|
+| `eventic` | `9bdecc8` | ok — ruff clean (`src`) | ok — suite green |
+| `flora` | `d90a9fe8` | ok — ruff clean (`src`) | ok — **840 passed**, 18 skipped |
+| `flora-core` | `3ada834` | **failed — 1 I001 finding** (recorded) | ok — **275 passed** |
+| `flora-qc` | `9805484` (+`2eb1a41`) | ok — ruff clean (`src`) | ok — suite green |
+| `foreman` | `c7a21da` | ok — ruff clean (`src`) | **3 failed, 165 passed** — see below |
+| `gitman` | `3c49fa5` | ok — via existing `gitman:lint` | ok — **255 passed** |
+| `image-gen-pipeline` | `dcc9d4f` | ok — ruff clean (`src`) | ok — **246 passed**, 21 skipped |
+| `interplay` | `57ccdb8` | ok — compileall | ok — **13 passed** |
+| `llgym` | `c6bcb19` | ok — ruff clean (`src`) | ok — **210 passed** |
+| `lodestar` | `6fbcac0` | ok — ruff clean (`src`) | ok — **59 passed**, 16 skipped |
+
+All ten at `@{u}..HEAD = 0`.
+
+### What the batch spent its effort on
+
+**`flora` and `flora-qc` are config-style devenv modules** (`options.*` +
+`config = { … }` at the top level). In devenv, a module that declares `config`
+accepts only declared module options, so a top-level `devman = { … }` fails
+evaluation with "unsupported attribute". The block goes **inside `config`**,
+with the tasks, and the shell enters again. This is the same shape the plane's
+own module already requires of its consumers; batch 3 is where the shape bit.
+
+**`eventic`'s suite deps live in a `test` extra**, not `dev` — pytest and ruff
+are under `[project.optional-dependencies].test`, so the flag is
+`--extra test` (wave 2b's rule, one more spelling of "the tool lives where the
+venv does not look").
+
+**`foreman`'s three failures are one traced cause, and it is the checkout's
+state, not the code.** `test_manager_boundary.py` runs the real `gitman status`
+against foreman's own checkout and requires `current_lane` to carry a head.
+This checkout has **0 lanes** (`gitman status`: "No lanes yet") — the owner's
+work is in lanes elsewhere. `revision()` raises `NoLaneError`; the control run
+fails identically. Recorded, not fixed: starting a lane would change the
+checkout's git state, which is the owner's call.
+
+**`gitman` is the second forward-only case.** It owns `gitman:lint`/`gitman:test`
+(./nix/gitman.nix, venv-bin resolved at Nix eval time), so `base:check` and
+`base:test` are `after`-dependencies on those names — no duplicated bodies
+(PROPOSAL.md §6 rule 6).
+
+**`interplay` declares no linter** (its `ruff check .` findings are all in
+vendored `firmware/` board drivers), so it takes the direct shape:
+`base:check` is a stdlib compile of the host-side Python (`sim tests harness`),
+`base:test` is the host suite. Board and sim-UI tests need hardware or the SDL
+sim and are not part of the gate.
+
+**Two side effects recorded honestly.** `flora-qc`'s `uv.lock` carried version
+0.1.0 while pyproject says 0.2.0; the dev-group sync refreshed it, and the
+one-line fix got its own commit (`2eb1a41`). `image-gen-pipeline` carries
+uncommitted in-progress work (`GUIDE.md`, `anime.py`, a new test file) that was
+not touched; the adoption commit is the two devenv files alone.
+
+### Evidence — the batch proof
+
+```
+$ ls ~/.local/share/devman/projects | wc -l        41   (was 31)
+$ ls ~/.local/share/devman/dags/*.yaml | wc -l    130   (was 100)
+$ devman doctor                                     Nothing to report.
+```
+
+**I-2b, a sixth point on `doctor`'s curve — five timings at 41 projects:**
+
+```
+11573  11857  11787  11711  11278 ms      mean 11641 ms over 130 workflows = 89.5 ms/file
+```
+
+83.6 → 87 → 78.9 → 82.2 → 88.2 → **89.5 ms/file. The serial `check_load` line
+holds; it is still 2.5× under the 30 s alert line, so `plane-report` stays
+unpaginated.**
+
+**I-1 pending:** the overnight `maintain` sweep after three batches remains
+scheduled for the coming night.
+
+### Verdict
+
+Batch 3 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 41
+projects and 130 workflows. Two recorded failures, both traced to their
+mechanism and both the repository's own.
+
+### Charter impact
+
+**None.**
+
+### Rule 7 — what this entry did to the machine
+
+| Repository | Commit | State |
+|---|---|---|
+| `eventic` | `9bdecc8` | committed, **pushed** to `origin/main` |
+| `flora` | `d90a9fe8` | committed, **pushed** to `origin/main` |
+| `flora-core` | `3ada834` | committed, **pushed** to `origin/main` |
+| `flora-qc` | `9805484` | committed, **pushed** to `origin/main` |
+| `flora-qc` | `2eb1a41` | `uv.lock` refresh, **pushed** |
+| `foreman` | `c7a21da` | committed, **pushed** to `origin/main` |
+| `gitman` | `3c49fa5` | committed, **pushed** to `origin/main` |
+| `image-gen-pipeline` | `dcc9d4f` | committed, **pushed** to `origin/main` |
+| `interplay` | `57ccdb8` | committed, **pushed** to `origin/main` |
+| `llgym` | `c6bcb19` | committed, **pushed** to `origin/main` |
+| `lodestar` | `6fbcac0` | committed, **pushed** to `origin/main` |
+
+**Left on the machine:** `image-gen-pipeline`'s uncommitted work (untouched),
+`gitman`'s untracked `.scratch/projects/32-loci-core-adoption-issues/`, and the
+warmed Nix caches every shell entry buys. `flora`, `flora-qc`, `foreman`,
+`gitman`, `image-gen-pipeline` and `interplay` were moved from detached HEAD to
+their local `main`; all were clean (or carried only the noted pre-existing
+changes).
