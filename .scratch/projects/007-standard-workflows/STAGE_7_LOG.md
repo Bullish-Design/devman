@@ -2520,22 +2520,44 @@ list rather than nine.
 ## Where stage 7 stands
 
 **Done:** Gates 0–3 (I-3, I-5, I-6, S-3, S-2, S-6, S-5, S-4, S-1, I-2a), R-1,
-R-2, R-3, R-5, and I-2b and I-9 from wave 1's carry list.
+R-2, R-3, R-5, I-2b and I-9, and then **R-6, R-4f, R-4d, R-8, I-11 and I-4**.
+
+**Everything the gates produced is built or decided:**
+
+| | |
+|---|---|
+| R-4a | **refused** on evidence (S-4). Do not reopen without a new measurement |
+| R-4b | **not needed** on evidence (I-2a) |
+| R-4c | **unbuilt.** It is gated on I-10, which is in the tail |
+| R-4d | **built** — `entry.workflow in proj.workflow_names()` |
+| R-4e | **held**, by S-4's decision, until the hazard bites in the wild |
+| R-4f | **built** — 25 files, 2.33 s serial to 0.82 s across 8 workers |
+| R-8 | **built** — an edited override re-projects, at 2.82 ms per shell entry |
 
 **Outstanding:**
 
 | | |
 |---|---|
-| I-11 | the first scheduled `maintain` and `plane-report`, after 00:05 tonight |
-| R-6 | the charter — five sections from `PROPOSAL.md` §9, plus criterion 12 (S-1), §1.1 and §6 (Gate 0) |
-| R-4d / R-4e / R-4f / R-8 | the four new items the gates produced |
-| I-4 | the `base:test` sweep across 58, **before** wave 4 — and wave 1 already suggests it will find work |
-| R-7 | waves 2, 3 and 4 |
+| R-7 | waves 2, 3 and 4 — **blocked on a pushed rev on `main`** |
+| the live half of I-4 | pass/fail per repository, with the 19 `enterTest` repositories first |
+| the tail | I-7, I-10, I-12, I-13. They gate nothing |
 
-**Two of six registered repositories fail their own contract after adoption.**
-If that ratio holds across 58, wave 4 is adoption **and** repair, which is the
-sizing question `PLAN.md` §8 says I-4 must answer before wave 4 starts rather
-than during it.
+**Wave 4 is smaller than wave 1 suggested.** I-4 found 54 of 58 repositories
+have a suite and 48 of those have no task naming it, so the per-repository cost
+is one `devenv.nix` line. Wave 1's two failures — `pyjutsu`'s native build and
+`pydantree`'s 256 `ruff` findings — are not the population's shape.
+
+### What blocks wave 2
+
+**Waves 2–4 pin `ref=main&rev=`, and `main` does not carry R-8, R-4d or R-4f.**
+Those repositories consume the module and the CLI, so wave 2 cannot start until
+a rev carrying them is on `main`. The owner's chosen route is a pull request
+from `dagu-devenv-automation-eli5`.
+
+**And the machine's `devman` is the closure's.** R-4d and R-4f are in the source
+tree and not in the installed binary — the plane report of 24 August shows
+`doctor` without the `trigger target` line, which is the proof. A
+`nixos-rebuild switch` is what changes that.
 
 ### A note on branches
 
@@ -2546,5 +2568,5 @@ to `origin`. The owner's decision was to leave `main` where it is. So:
 | Branch | Carries |
 |---|---|
 | `origin/main` at `02d00f6` | the stage-7 group content, `plane-report`, `devman`'s own edits, and this log up to Gate 3 — **this is what wave 1 pins** |
-| `dagu-devenv-automation-eli5` | all of the above, plus R-3 and this entry |
+| `dagu-devenv-automation-eli5` | all of the above, plus R-3, R-6, R-4f, R-4d, R-8, I-11 and I-4 |
 | `spike/007-gate-2` | the Gate 2 spike history, now an ancestor of both |
