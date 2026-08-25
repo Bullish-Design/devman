@@ -1526,10 +1526,27 @@ plane**, or a shared failure becomes an unexplained one.
 **15.4 Queue names are the one-way door, and a typo is invisible.** Adding a
 queue name is cheap; renaming one is a migration across every workflow that names
 it. Worse, Dagu accepts a queue name that does not exist **silently** — no error,
-no warning, nothing in the logs — and runs the workflow with no concurrency limit
-at all. A misspelled queue is not a migration problem, it is an unobservable one,
-which is why §10 makes `doctor` check every resolved `queue:` against the
-machine's list, and why §7.2 has the machine set a default queue in `base.yaml`.
+no warning, nothing in the logs. A misspelled queue is not a migration problem,
+it is an unobservable one, which is why §10 makes `doctor` check every resolved
+`queue:` against the machine's list, and why §7.2 has the machine set a default
+queue in `base.yaml`.
+
+> **This section said the undeclared name runs "with no concurrency limit at
+> all", and against the pinned Dagu 2.15.0 that is wrong in the direction that
+> matters.** Measured (`STAGE_7_LOG.md`, S-9): the name becomes a real queue at
+> concurrency **1**, shared by every DAG that names it. Two different DAGs both
+> naming `typoqueue` serialised against each other; a DAG naming no queue at all
+> got a queue named after itself, also at 1. So a typo **throttles** — a
+> misspelt `light` runs one at a time instead of four, and drags unrelated
+> workflows into the same serial lane.
+>
+> **Every conclusion above survives, and one gets a second reason.** The failure
+> is still silent, `doctor` must still check every name, and §7.2's default
+> queue is still required — because a per-DAG queue bounds a DAG against itself
+> and the machine against nothing. §5.2's missed-restart note already recorded
+> this number by another route: a scheduler that has not re-read `config.yaml`
+> logs "`max-concurrency=1` for a queue configured with 4". The two entries
+> agree; only this sentence did not.
 
 **15.5 devenv and NixOS do want different nixpkgs, and it is survivable.**
 §12.3 measured it: `devenv.lock` carries both trees as separate nodes, neither

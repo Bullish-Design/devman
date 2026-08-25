@@ -4371,3 +4371,94 @@ that a parent runs directly is equally inert, though it is spelled correctly.
 
 **`nixos-rebuild switch` is needed before check 13 runs on the installed plane**,
 and was not run.
+
+---
+
+## S-9 — An undeclared queue name is not unlimited. It is concurrency 1
+
+**Answer: §15.4 has the direction backwards, and the correction makes the typo
+worse rather than harmless.** A queue name the machine does not declare is
+accepted silently — that part holds — but Dagu does not then run the workflow
+unthrottled. **The name becomes a real queue at concurrency 1**, shared by every
+DAG that names it. A DAG naming no queue at all gets a queue named after itself,
+also at 1.
+
+So a misspelt `light` does not run four wide and does not run free. It runs
+**one at a time**, beside every other file carrying the same misspelling.
+
+### Versions
+
+Dagu **2.15.0**, the pinned tarball, in a throwaway `DAGU_HOME` under `/tmp`,
+removed afterwards. The installed plane was not touched. Date **2026-08-25**.
+
+One queue declared, to give the control a known limit:
+
+```yaml
+queues: {enabled: true, config: [{name: gpu, max_concurrency: 1}]}
+```
+
+Each DAG sleeps 4 s and stamps `date +%s.%N` on entry and exit. Every run goes
+through `dagu enqueue` with the scheduler running, so queue admission is the only
+thing that can serialise anything.
+
+### Evidence — five cases
+
+| Case | Result |
+|---|---|
+| no `queue:`, same DAG enqueued twice | **serial** — 510.5 → 514.5, then 516.5 |
+| no `queue:`, two **different** DAGs | **concurrent** — 579.653 and 579.660, 7 ms apart |
+| `queue: doesnotexist`, same DAG twice | **serial** — 525.5 → 529.5, then 531.5 |
+| `queue: typoqueue`, two **different** DAGs | **serial** — 593.6 → 597.6, then 599.6 |
+| `queue: gpu` (declared, limit 1) | **serial** — the control |
+
+The scheduler names the invented queues and states the limit it applied:
+
+```
+Processing batch of items queue=noqueue      count=1 max-concurrency=1 alive=0
+Processing batch of items queue=doesnotexist count=1 max-concurrency=1 alive=0
+Processing batch of items queue=gpu          count=1 max-concurrency=1 alive=0
+```
+
+Row 4 is the one that matters. Two unrelated DAGs, sharing nothing but a
+misspelling, serialised against each other.
+
+### Verdict
+
+**Every conclusion §15.4 drew survives. Its mechanism does not.**
+
+- The failure is still silent — nothing errors, and the only trace is one `INFO`
+  line naming a queue nobody declared.
+- `doctor` check 2 is still right and still needed, now for a sharper reason: it
+  catches a name that will throttle work nobody meant to throttle.
+- §7.2's default queue in `base.yaml` is still required. A per-DAG queue bounds a
+  DAG **against itself** and the machine **against nothing** — 53 projects would
+  run 53 lanes wide with no stated limit anywhere.
+
+**The plane had already measured this number by another route and did not
+notice.** CONCEPT.md §5.2's missed-restart note records a scheduler still holding
+the old `config.yaml` logging "`max-concurrency=1` for a queue configured with
+4". That is the same fallback seen from the other side. Two entries agreed with
+each other and disagreed with §15.4, and nothing reconciled them until the claim
+was tested against the pin.
+
+**Whether A1 was mismeasured or Dagu changed is not settled here**, and does not
+need to be: the pinned binary is what the plane runs.
+
+### Charter impact
+
+**CONCEPT.md §15.4 gains a correction block, in the same commit, per the law.**
+Eight repetitions of the old claim are corrected with it — `USER.md`,
+`AGENTS_GUIDE.md` twice, `.agents/skills/devman-workflow/SKILL.md`,
+`nix/nixos-module.nix` three times, and `Workflow.queues()`'s docstring. The
+claim had propagated into every layer that documents a queue, which is the real
+lesson of this entry: a wrong sentence in the charter is copied faithfully.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| installed plane | **none** | not enqueued to; not restarted |
+| `/tmp/dq3` | throwaway Dagu home | **removed**, its scheduler killed |
+| nine documentation and comment sites | claim corrected | committed |
+
+No code path changes. `doctor` check 2 already did the right thing.

@@ -231,8 +231,9 @@ systemctl --user status dagu devman-watch
 ### `nix/nixos-module.nix`
 
 - It must never learn a project fact. No project names, no per-project options.
-- A queue rename is a migration across every workflow that names it, and Dagu
-  accepts an undefined queue silently with no limit at all.
+- A queue rename is a migration across every workflow that names it. Dagu accepts
+  an undeclared name silently and gives it concurrency 1, so a missed file
+  serialises rather than runs free.
 
 ### `src/devman/`
 
@@ -249,7 +250,7 @@ systemctl --user status dagu devman-watch
 |---|---|
 | `handler_on:` in a workflow | replaces `base.yaml`'s exit handler whole-field. The run writes **no** `metadata.jsonl` line, with a clean `dagu status` and correct logs |
 | a DAG-level `preconditions:` | an unmet one records `Aborted` — the same status a cancelled run gets. Use a step-level one |
-| a queue name that does not exist | accepted silently, with no limit at all |
+| a queue name that does not exist | accepted silently, at concurrency 1 — shared by every workflow naming it, so a typo serialises rather than frees |
 | `schedule:` on anything expensive | a scheduled run **bypasses the queue**. 58 concurrent `devman doctor` runs measured 139 s each against 14.3 s alone |
 | a bare failing command in a step | Dagu runs a step's script with `set -e` already on (`$-` reports `ehuB`). The rest of the step never runs. Use `|| rc=$?` |
 | a top-level `name:` | `dagu validate` fails: "entrypoint document must not define name" |

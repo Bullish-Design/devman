@@ -11,7 +11,7 @@ itself, item by item, with a reason and a message. Six things it must compute
 itself, because nothing in Dagu reports them, and §10 numbers them:
 
     1  a workflow that fails to load — `dagu ls` lists it with no indication
-    2  a misspelled queue name — accepted silently, with no limit at all
+    2  a misspelled queue name — accepted silently, at a concurrency nobody chose
     3  an unresolved directory variable — a literally-named directory
     4  shadowed files and their drift
     5  a stale registry entry — the only thing that ever notices a deleted repo

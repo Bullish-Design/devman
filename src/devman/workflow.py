@@ -206,8 +206,13 @@ class Workflow:
     def queues(self) -> list[str]:
         """Every queue this file names — the DAG's own, and any a step overrides.
 
-        Dagu accepts a queue name that does not exist silently and applies no
-        limit at all, so a typo is unobservable (§15.4, A1).
+        Dagu accepts a queue name the machine does not declare **silently**, and
+        the throttle it applies is not the one §15.4 recorded: the name becomes a
+        queue of its own at concurrency **1**, shared by every DAG that names it
+        (`STAGE_7_LOG.md`, S-9). So a typo does not free a workflow, it
+        serialises one — a misspelt `light` runs one at a time instead of four,
+        beside anything else carrying the same misspelling. Either way nothing
+        says so at run time, which is why `doctor` checks every name.
         """
         doc = self.doc or {}
         names = []

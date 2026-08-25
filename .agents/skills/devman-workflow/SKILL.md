@@ -196,8 +196,10 @@ so it names `gpu` — `exclusive` would serialize it against every other exclusi
 workflow in the plane for a reason that has nothing to do with the GPU.
 
 **A queue name is a one-way door.** Dagu accepts a queue that does not exist
-silently and applies **no limit at all**, so a typo is unobservable at run time.
-`devman doctor` checks the names.
+silently, and gives that name a queue of its own at **concurrency 1**. A typo
+therefore serialises a workflow rather than freeing it — a misspelt `light` runs
+one at a time instead of four, beside every other file carrying the same
+misspelling. Nothing says so at run time. `devman doctor` checks the names.
 
 **`exclusive` does not give a run the machine.** Dagu's queues are independent, so
 `light`, `normal` and `heavy` runs proceed beside an exclusive one. The plane can
