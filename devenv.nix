@@ -156,6 +156,37 @@ in
         git show --stat --patch "$AGENT_REF"
       } | head -c 60000 | claude -p --output-format text >> "$AGENT_REPORT"
     '';
+
+    # What `.devman/workflows/gitman-commit-message.yaml` runs. Same shape as
+    # `agent:review`: the diff is piped in as the whole prompt, the agent gets
+    # no tools and no repo access, and `head -c` bounds the input.
+    #
+    # `git diff --staged` reads jj's colocated git index, which gitman keeps in
+    # sync on every `save` — so this sees the change a lane is about to record,
+    # not the change it already did.
+    #
+    # $MESSAGE_FILE holds nothing but the message: no report header, no run id,
+    # so `gitman save -m "$(cat "$MESSAGE_FILE")"` can use it unmodified.
+    #
+    # Runs on the local GPU rather than `claude -p` — `scripts/gpu_complete.py`
+    # is a standalone `uv run --script` (PEP 723 inline deps: pydantic-ai +
+    # openai), never installed into this package, so the GPU-only dependency
+    # never reaches `pyproject.toml` or the shipped `devman` CLI (cli.py's own
+    # note: this CLI ships from the NixOS module only). It calls out to
+    # `llgym serve`'s OpenAI-compatible shim over the `inferference` engine —
+    # devman does not start that server, only calls it, and the script fails
+    # plainly if nothing answers on `$GPU_LLM_BASE_URL`.
+    "gitman:commit-message".exec = ''
+      set -euo pipefail
+      prompt='Write a commit message for this diff. One summary line, 50
+      characters or fewer, imperative mood. A blank line, then body lines only
+      if the diff needs one explained. No markdown fences, no "here is a
+      commit message" preamble — output only the message text.'
+      {
+        printf '%s\n\n' "$prompt"
+        git diff --staged
+      } | head -c 60000 | uv run --script scripts/gpu_complete.py > "$MESSAGE_FILE"
+    '';
   };
 
   # https://devenv.sh/tests/

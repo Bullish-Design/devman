@@ -1,0 +1,69 @@
+# devman/gitman-commit-message — draft a commit message from the staged diff,
+# and leave it behind as a file gitman can read.
+#
+# ---------------------------------------------------------------------------
+# WHY IT IS THIS REPOSITORY'S OWN FILE AND NOT A GROUP
+#
+# `agent-review.yaml`'s own reasoning applies unchanged (§16's promotion rule):
+# one repository pairs gitman with an agent CLI today. It becomes a group the
+# day a second repository wants this file, unmodified — the task names the
+# tool and the workflow names the task (§7.1), so promotion costs nothing.
+#
+# ---------------------------------------------------------------------------
+# WHERE THE MESSAGE GOES, AND WHY IT IS NOT `.devman/.runs/reports/`
+#
+# `.runs/reports/` holds run REPORTS — headers, run ids, verdict lines — read
+# by a person after the fact. A commit message is consumed by a command
+# (`gitman save -m "$(cat ...)"`), so it lives in its own subdirectory under
+# `.devman/` and holds nothing but the message: no header, no run id, no
+# timestamp line. Mixing the two would make every message need trimming
+# before use.
+#
+# `.devman/gitman/messages/<run id>.md` — created on first run, git-ignored
+# the same way `.runs/` is (a machine-drafted message is not something a repo
+# commits to tracking).
+#
+# ---------------------------------------------------------------------------
+# THE QUEUE IS `gpu`, NOT `exclusive`
+#
+# `agent-review.yaml`'s `exclusive` reasoning (non-deterministic, reads a
+# working tree another run may be rewriting) still holds, but the sharper
+# constraint here is the resource: `scripts/gpu_complete.py` calls a local
+# llama.cpp server holding a model in one GPU's VRAM. The machine's own
+# `gpu` queue (`~/.local/share/dagu/config.yaml`, `max_concurrency: 1`) is
+# the plane's existing name for "one caller at a time on the GPU" — using
+# `exclusive` instead would serialize this against every OTHER exclusive
+# workflow in the plane for a reason that has nothing to do with the GPU.
+#
+# ---------------------------------------------------------------------------
+# HOW THIS IS MEANT TO BE USED
+#
+#     llgym serve --n-gpu-layers 30       # in llgym's own shell, once
+#     GPU_LLM_MODEL=<name> devman run gitman-commit-message
+#     gitman save -m "$(cat .devman/gitman/messages/<run id>.md)"
+#
+# This workflow never calls `gitman save` itself. It drafts; a person (or a
+# wrapping script) decides whether the draft is right and commits it. An
+# automatic trigger that also auto-saved would be a Dagu run silently writing
+# a commit message nobody read — the exact "successful run that did the wrong
+# thing" §15.7 of CONCEPT.md warns against.
+#
+# devman does not start `llgym serve` — it only calls it (same rule
+# `processes.dagu`'s note in devenv.nix states for Dagu itself: the plane
+# does not supervise long-running processes). If nothing answers on
+# `GPU_LLM_BASE_URL`, `gpu_complete.py` fails the step with that reason
+# rather than hanging.
+params:
+  - DEVMAN_PROJECT_DIR: ""
+
+queue: gpu
+type: chain
+steps:
+  - id: draft
+    name: draft
+    run: |
+      set -u
+      mkdir -p .devman/gitman/messages
+      export MESSAGE_FILE=".devman/gitman/messages/${context.run.id}.md"
+      devenv tasks run -v gitman:commit-message
+      cat "$MESSAGE_FILE"
