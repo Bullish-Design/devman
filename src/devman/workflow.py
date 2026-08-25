@@ -86,14 +86,83 @@ class Workflow:
                     out[k.strip()] = v.strip().strip("\"'")
         return out
 
+    # -- the steps, as Dagu validates them ----------------------------------
+
+    def steps(self) -> list[dict]:
+        """The direct steps, as mappings. A `steps:` that is not a sequence has none.
+
+        **Dagu's loader and Dagu's validator disagree here, and devman follows
+        the validator.** A `steps:` written as a mapping of name to step RUNS —
+        `dagu dry` executed one and reported success — while `dagu validate`
+        refuses the same file: "entrypoint document steps must be a non-empty
+        sequence" (`STAGE_7_LOG.md`, S-8). Reading the mapping form here would
+        make devman more permissive than the validator §10 check 1 already runs
+        over every projected file, so a file Dagu calls invalid stays invalid,
+        and `doctor` is what says so.
+        """
+        raw = (self.doc or {}).get("steps")
+        if not isinstance(raw, list):
+            return []
+        return [s for s in raw if isinstance(s, dict)]
+
     # -- §11's rule, mechanically -------------------------------------------
+
+    def child_runs(self) -> list[dict]:
+        """Every step that runs a child DAG in place (`action: dag.run`)."""
+        return [s for s in self.steps() if s.get("action") == "dag.run"]
 
     def triggers_other_dags(self) -> bool:
         """True when any step uses `action: dag.run` — a cross-repo parent."""
-        return any(
-            isinstance(s, dict) and s.get("action") == "dag.run"
-            for s in (self.doc or {}).get("steps", []) or []
-        )
+        return bool(self.child_runs())
+
+    def unbounded_fanout(self) -> list[str]:
+        """Why this file can start any number of child runs at once — empty when
+        it states a bound, and empty when it starts at most one.
+
+        **A `dag.run` child takes no slot in any queue.** Measured on the pinned
+        Dagu 2.15.0: two children both naming `gpu`, limit 1, started 12 ms apart
+        and ran concurrently under `dag.run`, while the same two through
+        `dag.enqueue` serialised and the scheduler logged the admission
+        (`STAGE_7_LOG.md`, S-8). A child is executed inline by its parent and
+        never reaches the queue that would have admitted it. So a queue name in
+        a child throttles nothing here, and the only bound is one the parent
+        states:
+
+            type: chain              one step at a time
+            max_active_steps: N      N steps at a time
+            parallel.max_concurrent  N children out of one step
+
+        **Dagu's default is none of the three.** A file stating no `type` runs
+        its steps concurrently, and a `parallel:` block with no `max_concurrent`
+        starts every item at once — both measured in the same entry. The
+        machine's `base.yaml` states no `type` either, so nothing supplies one.
+
+        This reports an UNSTATED bound and never a stated one it disagrees with:
+        `max_active_steps: 4` is not a finding, because the author said 4 and
+        §15.7 forbids devman deciding 4 is too many.
+        """
+        doc = self.doc or {}
+        children = self.child_runs()
+        why = []
+        for step in children:
+            par = step.get("parallel")
+            if par is None:
+                continue
+            # A list is `parallel:`'s shorthand for its items, so it carries no
+            # limit either. Only the mapping form can hold one.
+            if not (isinstance(par, dict) and par.get("max_concurrent") is not None):
+                name = step.get("name") or step.get("id") or "?"
+                why.append(f"step '{name}' fans out with no parallel.max_concurrent")
+        if (
+            len(children) > 1
+            and doc.get("type") != "chain"
+            and "max_active_steps" not in doc
+        ):
+            why.append(
+                f"{len(children)} dag.run steps, and neither type: chain nor"
+                " max_active_steps"
+            )
+        return why
 
     def holds_project_dir(self) -> list[str]:
         """Where this file defines `DEVMAN_PROJECT_DIR` **for itself** (§11).
@@ -144,8 +213,8 @@ class Workflow:
         names = []
         if isinstance(doc.get("queue"), str):
             names.append(doc["queue"])
-        for step in doc.get("steps", []) or []:
-            if isinstance(step, dict) and isinstance(step.get("queue"), str):
+        for step in self.steps():
+            if isinstance(step.get("queue"), str):
                 names.append(step["queue"])
         return names
 

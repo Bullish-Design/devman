@@ -808,7 +808,7 @@ file. Two further conditions apply to this one, and both are about secrets.
 
 ## 12. What must never become a workflow (Q7)
 
-Eight rules. This is what a future stage points at when it wants to say no.
+Nine rules. This is what a future stage points at when it wants to say no.
 
 **1. Anything an editor already does synchronously.** LSP diagnostics,
 format-in-buffer, jump-to-definition. The plane's round trip after a content
@@ -855,6 +855,24 @@ cost, with nobody present: 58 concurrent `devman doctor` runs measured 139 s
 each against 14.3 s alone, and 134 CPU-minutes against the 13 this proposal
 estimated. **The scheduled set must be cheap by construction, because nothing
 throttles it.**
+
+**9. Anything expensive, fanned out by a parent.** Rule 8's sibling, measured at
+stage 7, S-8. A child started by `action: dag.run` does not pass through its
+queue either: the parent executes it **in place**, so a `queue:` line in the
+child is as inert as a misspelt one. Two children both naming a queue of limit 1
+started 12 ms apart and ran concurrently; the same two through `dag.enqueue`
+serialised. Dagu's defaults compound it — a file stating no `type` runs its steps
+concurrently, `base.yaml` states none, and a `parallel:` block with no
+`max_concurrent` starts every item at once. **A fan-out is bounded only by what
+its parent states**: `type: chain`, `max_active_steps`, or
+`parallel.max_concurrent`. `devman doctor` check 13 reports a parent that states
+none.
+
+The exchange rate is worse than rule 8's, because a fan-out needs no scheduler
+and no 58 repositories to reach the same load: one parent, one `type: graph`, and
+the machine runs every child at once. `dag.enqueue` is not the escape — it admits
+through the queue and then reports `queued` and returns, so the parent never
+learns the child failed, which is rule 4.
 
 ---
 

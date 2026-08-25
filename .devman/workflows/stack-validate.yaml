@@ -54,8 +54,29 @@ params:
 working_dir: ${DEVMAN_SELF_DIR}
 log_dir: ${DEVMAN_SELF_DIR}/.devman/.runs/logs
 
-# `normal` rather than `light`: this fans out into two child runs, each of which
-# takes a slot in its own queue.
+# `normal` rather than `light`: this file's OWN run takes one slot, and holds it
+# for as long as both children take together.
+#
+# THE CHILDREN TAKE NO SLOT AT ALL, AND THE LINE BELOW IS WHAT SERIALISES THEM.
+#
+# This comment used to say "this fans out into two child runs, each of which
+# takes a slot in its own queue". It does not, and the correction matters more
+# than the queue name. Measured on Dagu 2.15.0: two children both naming a queue
+# of limit 1 started 12 ms apart and ran CONCURRENTLY under `action: dag.run`,
+# while the same two through `dag.enqueue` serialised and the scheduler logged
+# the admission (`STAGE_7_LOG.md`, S-8). A `dag.run` child is executed in place
+# by its parent and never reaches the queue that would have admitted it. This is
+# §12 rule 8's sibling: the queue does not throttle a scheduled run either.
+#
+# So `type: chain` is load-bearing here rather than a matter of taste — it is the
+# only thing bounding this file's fan-out, and Dagu's default is the opposite: a
+# file stating no `type` runs its steps concurrently, and `base.yaml` states
+# none. Keep it. A third repository added under `type: graph` would run all three
+# checks at once against every queue limit on the machine.
+#
+# To bound a fan-out deliberately, state one of the three: `type: chain`,
+# `max_active_steps`, or `parallel.max_concurrent`. `devman doctor`'s fan-out
+# check reports a file that states none.
 queue: normal
 type: chain
 
