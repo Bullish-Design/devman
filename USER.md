@@ -279,8 +279,10 @@ overlap". `gpu` names a resource. All three are limit 1 on this machine; say the
 one that is true.
 
 **A queue name is a one-way door.** Dagu accepts a queue that does not exist
-silently and applies no limit at all, so a typo is unobservable at run time.
-`devman doctor` checks the names for you.
+silently, and gives that name a queue of its own at concurrency 1. So a typo
+does not free a workflow, it serialises one: a misspelt `light` runs one at a
+time instead of four, beside every other file carrying the same misspelling.
+Nothing says so at run time. `devman doctor` checks the names for you.
 
 **`exclusive` does not give a run the machine.** Dagu's queues are independent,
 so `light`, `normal` and `heavy` runs proceed beside an exclusive one.

@@ -11,7 +11,7 @@ itself, item by item, with a reason and a message. Six things it must compute
 itself, because nothing in Dagu reports them, and §10 numbers them:
 
     1  a workflow that fails to load — `dagu ls` lists it with no indication
-    2  a misspelled queue name — accepted silently, with no limit at all
+    2  a misspelled queue name — accepted silently, at a concurrency nobody chose
     3  an unresolved directory variable — a literally-named directory
     4  shadowed files and their drift
     5  a stale registry entry — the only thing that ever notices a deleted repo
@@ -552,6 +552,47 @@ def check_cross_repo(rep: Report, reg: Registry) -> None:
         )
 
 
+def check_fanout(rep: Report, reg: Registry) -> None:
+    """A parent that starts child runs must state how many it starts at once.
+
+    **The queue does not reach a fan-out.** §12 rule 8 says a scheduled run
+    bypasses its queue; S-8 measured the sibling path: a `dag.run` child bypasses
+    it too, because the parent executes the child in place rather than enqueueing
+    it. Two children naming a queue of limit 1 ran concurrently, and the same two
+    through `dag.enqueue` did not. So the machine's limits protect it from a
+    burst of `devman run` and from nothing a parent starts itself.
+
+    Nothing else would say so. The children succeed, the parent succeeds, and the
+    only trace is load — which is §12 rule 4's shape, seen from the machine's
+    side rather than the workflow's.
+
+    This is set membership, not a heuristic, so §15.7 does not reach it: it reads
+    three field names Dagu documents and reports their absence. A stated bound is
+    never a finding, whatever its value.
+    """
+    lines = []
+    parents = 0
+    for proj, name, path in reg.projected_files():
+        wf = Workflow.read(path)
+        if not wf.child_runs():
+            continue
+        parents += 1
+        for why in wf.unbounded_fanout():
+            lines.append(f"{proj.name}-{name}: {why}")
+    if lines:
+        lines.append(
+            "a dag.run child takes no queue slot (S-8) — bound it with type:"
+            " chain, max_active_steps, or parallel.max_concurrent"
+        )
+        rep.add("fan-out", "!!", lines)
+    else:
+        rep.add(
+            "fan-out",
+            "ok",
+            [f"{parents} workflows start child runs, each with a stated bound"],
+        )
+
+
 def running_watchers(reg: Registry) -> list[tuple[int, int]]:
     """Every watchexec aimed at this registry, as `(pid, parent pid)`.
 
@@ -836,6 +877,7 @@ def main(args, reg: Registry) -> int:
     check_projection(rep, reg)
     check_handlers(rep, reg)
     check_cross_repo(rep, reg)
+    check_fanout(rep, reg)
     check_trigger_targets(rep, reg)
     check_watcher(rep, reg)
     rep.print()

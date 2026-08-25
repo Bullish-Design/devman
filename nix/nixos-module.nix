@@ -128,8 +128,12 @@ let
     working_dir = projectDir;
     log_dir = "${projectDir}/.devman/.runs/logs";
 
-    # A DAG naming no queue would otherwise land in a queue named after itself,
-    # with no limit at all (A1, §15.4).
+    # A DAG naming no queue lands in a queue named after itself, at concurrency
+    # 1 (S-9 — not "no limit at all", which is what A1 recorded and §15.4 now
+    # corrects). The default is still needed, for the reason underneath that
+    # number: a per-DAG queue bounds a DAG against ITSELF and bounds the machine
+    # against nothing, so 53 projects would run 53 lanes wide with no stated
+    # limit anywhere.
     queue = cfg.defaultQueue;
 
     # Prunes both halves — Dagu's machine-side history and the per-project log
@@ -345,15 +349,17 @@ in
         Queue names and their concurrency limits (§7.1). The machine states how
         much may run at once, never what runs (§4).
 
-        Renaming a queue is a migration across every workflow that names it, and
-        Dagu accepts an undefined queue silently, with no limit at all (§15.4).
+        Renaming a queue is a migration across every workflow that names it.
+        Dagu accepts an undeclared name silently and gives it concurrency 1,
+        shared by every workflow that names it — so a rename that misses a file
+        serialises that file rather than freeing it (§15.4, S-9).
       '';
     };
 
     defaultQueue = mkOption {
       type = types.str;
       default = "light";
-      description = "The queue a workflow naming none inherits from base.yaml. Without it Dagu invents a queue named after the DAG and applies no limit (A1, E4).";
+      description = "The queue a workflow naming none inherits from base.yaml. Without it Dagu gives each DAG a queue named after itself at concurrency 1, which bounds a DAG against itself and the machine against nothing (S-9, E4).";
     };
 
     histRetentionDays = mkOption {

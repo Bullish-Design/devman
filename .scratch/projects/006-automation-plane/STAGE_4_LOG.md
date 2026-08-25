@@ -1020,6 +1020,12 @@ GPU work, and naming a queue for a resource you do not use misdeclares it —
 §15.4 makes a queue name a one-way door, and Dagu accepts a wrong one silently
 with no limit at all. Adding a name is cheap; naming the wrong one is invisible.
 
+> **"With no limit at all" is wrong against the pinned Dagu 2.15.0**
+> (`STAGE_7_LOG.md`, S-9): an undeclared name becomes a queue at concurrency 1,
+> shared by every DAG that names it. The decision below is unaffected — a wrong
+> name is still invisible, and now it throttles too. Left as written, because
+> this log records what was believed here.
+
 `exclusive` is the honest name for a campaign, because a campaign must not
 overlap with another campaign or with an agent run. **It does not give the
 campaign the machine**, and that is the part worth writing down: Dagu's queues

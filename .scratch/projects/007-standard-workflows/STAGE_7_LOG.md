@@ -4204,3 +4204,261 @@ no `trigger target` line, so R-4d and R-4f remain merged and uninstalled.
 
 **This entry rides PR #131**, which is open on `dagu-devenv-automation-eli5` for
 the wave-4 log.
+
+---
+
+## S-8 — A `dag.run` child does not pass through its queue
+
+**Answer: it does not, and `stack-validate.yaml` said it did.** S-1 measured
+that a run started by Dagu's own scheduler bypasses the queue. This is the same
+hole on the other path: a child started by `action: dag.run` bypasses it too,
+because the parent executes the child **in place** rather than enqueueing it.
+`action: dag.enqueue` is the path that does admit through the queue — and it
+cannot replace `dag.run`, because it never reports the child's result.
+
+**Nothing on the machine was throttling the two `stack-validate` children.**
+`type: chain` was, and the file's comment credited the queue.
+
+### Versions
+
+Dagu **2.15.0**, the pinned tarball at
+`/nix/store/2mjbj2im…-dagu-2.15.0/bin/dagu` — the same binary the plane
+installs. devman **0.3.0**. Date **2026-08-25**.
+
+**Every run below is in a throwaway `DAGU_HOME` under `/tmp`, removed
+afterwards.** The installed plane was never enqueued to; the only command aimed
+at it was `dagu validate`, which reads. Its queues were copied into the
+throwaway config so the limits match:
+
+```yaml
+queues: {enabled: true, config: [{name: gpu, max_concurrency: 1}]}
+```
+
+### The setup — two children on a queue of limit 1
+
+Each child declares `queue: gpu` and sleeps 3–4 s, stamping `date +%s.%N` on
+entry and exit. Serialised, the pair takes ~8 s; concurrent, ~4 s. The parent is
+started with `dagu start`, so the parent's own admission is not in the way.
+
+### Evidence — the two paths, same children
+
+**`action: dag.run`, parent `type: graph`** — the queue is ignored:
+
+```
+START child-a 1787688578.677
+START child-b 1787688578.689     <- 12 ms apart, both on gpu, limit 1
+END   child-a 1787688582.684
+END   child-b 1787688582.696     wall clock 4.2 s
+```
+
+**`action: dag.enqueue`, scheduler running** — the queue admits one at a time:
+
+```
+START child-a 1787688597.331
+END   child-a 1787688601.338
+START child-b 1787688603.345     <- starts only after a ended
+END   child-b 1787688607.352
+
+scheduler: Processing batch of items queue=gpu count=1 max-concurrency=1 alive=0
+```
+
+**`type: chain`, same `dag.run` steps** — the file's own field serialises them:
+
+```
+END   child-a 1787688628.112
+START child-b 1787688628.186
+```
+
+### The finding that closes the obvious fix
+
+`dag.enqueue` is fire-and-forget. The parent returns before the child starts and
+never learns the outcome:
+
+```
+dag.run     + failing child -> parent exit=1
+dag.enqueue + failing child -> parent exit=0
+```
+
+Its captured output is `{name, dagRunId, params, queue, status}` with `status:
+"queued"`. A `dag.run` step's output carries the real answer — `${CHILD.status}`
+returned `succeeded` and `${CHILD.dagRunId}` the child's run id — so the run log
+can report a child's outcome only on the path that already waits for it.
+Swapping `stack-validate` to `dag.enqueue` for throttling would make a
+cross-repository validation report success whatever the children do, which is
+§12 rule 4 exactly.
+
+### What Dagu's defaults actually are
+
+Three measurements, each the opposite of the safe guess:
+
+| Written | Measured |
+|---|---|
+| no `type:` at all, 3 steps, no `depends` | all three ran **concurrently** — the default is not chain |
+| no `type:`, 2 plain shell steps | **concurrent** — it is not a `dag.run` special case |
+| `parallel:` with `items` and no `max_concurrent` | all 3 items started **at once** — the limit is optional and its absence is unbounded |
+
+The machine's `base.yaml` states no `type`, so nothing supplies one. A repository
+that writes two `dag.run` steps and says nothing else gets an unbounded fan-out
+that no queue limit on the machine can see.
+
+### The bound that does both — `parallel.max_concurrent`
+
+The review this entry answers assumed throttling and status were exclusive. They
+are not, for a fan-out out of one step:
+
+```yaml
+- id: fanout
+  action: dag.run
+  with:
+    dag: ${ITEM.dag}
+    params: {TARGET: ${ITEM.dir}}
+  parallel:
+    items:
+      - {dag: worker,  dir: /tmp/observantic}
+      - {dag: worker2, dir: /tmp/siteman}
+    max_concurrent: 1
+  output: RESULTS
+```
+
+Measured: three items at `max_concurrent: 1` ran strictly one at a time, the
+parent waited, and `${RESULTS.summary}` returned
+`{failed:0,succeeded:3,total:3}`. A failing item failed the parent (`exit=1`).
+`${ITEM.dag}` fans out over **different** child DAGs, which is `stack-validate`'s
+shape. Item order is not preserved — the second item ran first.
+
+This bounds concurrency **within one parent**. It is not a machine-wide limit:
+two parents each at `max_concurrent: 1` still make two children. Only the queue
+is machine-wide, and only `dag.enqueue` reaches it.
+
+### Verdict
+
+**Rule 8 gains a sibling, and `type: chain` in `stack-validate.yaml` becomes a
+stated invariant rather than a default nobody chose.** The file is correct today
+and was correct for a reason its comment did not give — the failure mode this
+plane exists to refuse, one level up: a comment that would survive the edit that
+breaks it.
+
+`devman doctor` gains check 13, `fan-out`. It reports a projected workflow that
+starts more than one child run with **no stated bound** — no `type: chain`, no
+`max_active_steps`, no `parallel.max_concurrent`. It never argues with a bound
+that is stated, whatever its value, so §15.7 does not reach it.
+
+`Workflow` gains `child_runs()`, `unbounded_fanout()` and `steps()`. The last one
+records a second measurement: a `steps:` written as a **mapping** is executed by
+`dagu dry` and **refused** by `dagu validate` — "entrypoint document steps must
+be a non-empty sequence", in the entrypoint document and in document 2 of a
+multi-document file. devman follows the validator, so the mapping form stays
+unread and stays a §10 check 1 finding.
+
+### Charter impact
+
+**`PROPOSAL.md` §12 goes from eight rules to nine**, in the same commit, per the
+law. Rule 9 is the fan-out: expensive work started by a parent is unthrottled for
+the same reason expensive work on a schedule is.
+
+§15.4's "Dagu accepts a queue name that does not exist silently and applies no
+limit at all" is unchanged and now has a second edge: a queue name on a child
+that a parent runs directly is equally inert, though it is spelled correctly.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| installed plane | **none** | only `dagu validate` was aimed at it, which reads |
+| `/tmp/dqx`, `/tmp/dq2`, `/tmp/dq.RIRU` | throwaway Dagu homes | **removed**, their schedulers killed |
+| `.devman/workflows/stack-validate.yaml` | comment corrected | committed |
+| `src/devman/workflow.py`, `src/devman/doctor.py` | check 13 | committed |
+
+**`nixos-rebuild switch` is needed before check 13 runs on the installed plane**,
+and was not run.
+
+---
+
+## S-9 — An undeclared queue name is not unlimited. It is concurrency 1
+
+**Answer: §15.4 has the direction backwards, and the correction makes the typo
+worse rather than harmless.** A queue name the machine does not declare is
+accepted silently — that part holds — but Dagu does not then run the workflow
+unthrottled. **The name becomes a real queue at concurrency 1**, shared by every
+DAG that names it. A DAG naming no queue at all gets a queue named after itself,
+also at 1.
+
+So a misspelt `light` does not run four wide and does not run free. It runs
+**one at a time**, beside every other file carrying the same misspelling.
+
+### Versions
+
+Dagu **2.15.0**, the pinned tarball, in a throwaway `DAGU_HOME` under `/tmp`,
+removed afterwards. The installed plane was not touched. Date **2026-08-25**.
+
+One queue declared, to give the control a known limit:
+
+```yaml
+queues: {enabled: true, config: [{name: gpu, max_concurrency: 1}]}
+```
+
+Each DAG sleeps 4 s and stamps `date +%s.%N` on entry and exit. Every run goes
+through `dagu enqueue` with the scheduler running, so queue admission is the only
+thing that can serialise anything.
+
+### Evidence — five cases
+
+| Case | Result |
+|---|---|
+| no `queue:`, same DAG enqueued twice | **serial** — 510.5 → 514.5, then 516.5 |
+| no `queue:`, two **different** DAGs | **concurrent** — 579.653 and 579.660, 7 ms apart |
+| `queue: doesnotexist`, same DAG twice | **serial** — 525.5 → 529.5, then 531.5 |
+| `queue: typoqueue`, two **different** DAGs | **serial** — 593.6 → 597.6, then 599.6 |
+| `queue: gpu` (declared, limit 1) | **serial** — the control |
+
+The scheduler names the invented queues and states the limit it applied:
+
+```
+Processing batch of items queue=noqueue      count=1 max-concurrency=1 alive=0
+Processing batch of items queue=doesnotexist count=1 max-concurrency=1 alive=0
+Processing batch of items queue=gpu          count=1 max-concurrency=1 alive=0
+```
+
+Row 4 is the one that matters. Two unrelated DAGs, sharing nothing but a
+misspelling, serialised against each other.
+
+### Verdict
+
+**Every conclusion §15.4 drew survives. Its mechanism does not.**
+
+- The failure is still silent — nothing errors, and the only trace is one `INFO`
+  line naming a queue nobody declared.
+- `doctor` check 2 is still right and still needed, now for a sharper reason: it
+  catches a name that will throttle work nobody meant to throttle.
+- §7.2's default queue in `base.yaml` is still required. A per-DAG queue bounds a
+  DAG **against itself** and the machine **against nothing** — 53 projects would
+  run 53 lanes wide with no stated limit anywhere.
+
+**The plane had already measured this number by another route and did not
+notice.** CONCEPT.md §5.2's missed-restart note records a scheduler still holding
+the old `config.yaml` logging "`max-concurrency=1` for a queue configured with
+4". That is the same fallback seen from the other side. Two entries agreed with
+each other and disagreed with §15.4, and nothing reconciled them until the claim
+was tested against the pin.
+
+**Whether A1 was mismeasured or Dagu changed is not settled here**, and does not
+need to be: the pinned binary is what the plane runs.
+
+### Charter impact
+
+**CONCEPT.md §15.4 gains a correction block, in the same commit, per the law.**
+Eight repetitions of the old claim are corrected with it — `USER.md`,
+`AGENTS_GUIDE.md` twice, `.agents/skills/devman-workflow/SKILL.md`,
+`nix/nixos-module.nix` three times, and `Workflow.queues()`'s docstring. The
+claim had propagated into every layer that documents a queue, which is the real
+lesson of this entry: a wrong sentence in the charter is copied faithfully.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| installed plane | **none** | not enqueued to; not restarted |
+| `/tmp/dq3` | throwaway Dagu home | **removed**, its scheduler killed |
+| nine documentation and comment sites | claim corrected | committed |
+
+No code path changes. `doctor` check 2 already did the right thing.
