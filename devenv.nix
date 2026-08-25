@@ -85,8 +85,9 @@ in
   #
   # There is no `devman` input in devenv.yaml: this repository IS the plane, so
   # it imports `./modules` directly. Every other repository pins a rev with
-  # `git+https` (§3.2), because `git+file` records neither `rev` nor `narHash`
-  # and silently follows the branch head (B4).
+  # `git+file` (§3.2): it records `rev` and `narHash` in the lock and reads
+  # committed files only. This repository imports its own modules directly so
+  # its active working tree remains visible.
   # `base` for the workflows, `format` for the reactivity (§8).
   #
   # The `python` group was deleted at stage 7: a language's decomposition is a

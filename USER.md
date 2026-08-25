@@ -50,9 +50,9 @@ imports:
   - devman/modules
 ```
 
-**Pin with `git+https` and an explicit `rev`.** That form records `rev` and
-`narHash` in `devenv.lock`. `git+file` records neither and follows the branch
-head silently, so a local checkout is never pinned.
+**Pin local consumers with `git+file:`.** It records `rev` and `narHash` in
+`devenv.lock`, just as `git+https:` does, but reads committed files only. Use
+`path:` only for the repository under active edit.
 
 The import path is `devman/modules`, not `devman/modules/devenv.nix`. devenv
 resolves `<input>/<subdir>` and then looks for `devenv.nix` inside it.

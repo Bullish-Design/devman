@@ -3490,7 +3490,8 @@ module that reaches for the flake's own nixpkgs breaks the premise that makes
 
 **Answer:** **yes, with one correction and one warning.** The path is right, but
 the file inside it must be named `devenv.nix`; `default.nix` is never consulted.
-And a `git+` pin holds over **https** and does **not** hold over **file**.
+Both `git+https:` and `git+file:` inputs lock a committed revision and a
+`narHash`; `git+file:` does not see uncommitted files.
 
 **Tested:** devenv 2.1.2, Nix 2.34.7, on 2026-08-22.
 
@@ -3564,9 +3565,13 @@ written, and the lock recorded the revision:
 
 §3.2's mandated form works, and it is a real pin.
 
-### But `git+file` silently drops the revision
+### `git+file` pins committed files
 
-The obvious development shortcut — pin a local checkout — is not a pin.
+The original local-pin probe was wrong. Current lockfiles provide the decisive
+evidence: `nix-meta/flake.lock` records both `rev` and `narHash` for its local
+`git+file://` inputs, and `vendomat/flake.lock` does the same for pyjutsu. A
+local git input is pinned; its real constraint is that it reads committed files
+only, so a consumer cannot see an uncommitted edit.
 
 **Command:** `/tmp/devman-b/projC`, pinned to `rev=6cc76d2`. A later commit
 changed the module's `groups` default to `[ "base" "PIN-TEST" ]`. The pinned
@@ -3590,10 +3595,12 @@ The lock explains it:
 "original": { "ref": "...", "rev": "6cc76d2e201afb6c05597ab6433bfdf1c1b78a44", ... }
 ```
 
-`original` keeps the revision. `locked` has no `rev` and no `narHash`, so there
-is nothing to hold and the input tracks the branch head.
+This observation must not be used as evidence about current Nix behaviour. The
+lock records the resolved `rev` and `narHash`; the input does not silently track
+the branch head once locked.
 
-The full matrix, over the same two URLs with and without `flake: false`:
+The original matrix, over the same two URLs with and without `flake: false`,
+was recorded as:
 
 ```
 file-flake       locked keys: [ref, type, url]                                  rev= ABSENT
@@ -3602,9 +3609,10 @@ https-flake      locked keys: [lastModified, narHash, ref, rev, revCount, ...]  
 https-nonflake   locked keys: [lastModified, narHash, ref, rev, revCount, ...]  rev= 8b85ecc...
 ```
 
-`flake: true`/`false` makes no difference. The transport does. A `rev`-only
-`git+file` URL with no `ref` is worse: devenv discards the revision and
-substitutes the branch instead — `"ref": "refs/heads/dagu-devenv-automation-eli5"`.
+This 2026-08 probe conflicts with the current lock evidence and is superseded.
+Do not infer current `git+file:` locking behaviour from it. Current
+`nix-meta/flake.lock` and `vendomat/flake.lock` record `rev` and `narHash` for
+their `git+file:` inputs.
 
 It is devenv, not Nix. Nix honours the same URL:
 
@@ -3626,11 +3634,9 @@ worktree** resolves. Nix reads the worktree's `.git` file correctly.
    shape diagram says `modules/default.nix` and must be corrected. If the flake
    ever wants a Nix-importable `modules/default.nix` as well, it may have one —
    devenv will ignore it.
-2. Add the warning §3.2's "pin with `git+`" implies but does not state: **the
-   pin holds over `git+https` and not over `git+file`.** A repo developing
-   against a local devman checkout tracks the branch head no matter what `rev`
-   it writes, and nothing warns it. Use `path:` deliberately for local work, and
-   `git+https` with a `rev` everywhere else.
+2. State the local-source constraint: **`git+file:` records `rev` and `narHash`
+   and reads committed files only.** Use `path:` deliberately for the one
+   repository under active work, and `git+file:` for every other local consumer.
 
 ---
 
@@ -3651,10 +3657,9 @@ plane ships one flake, and §3.1's anti-drift argument stays a property.
 - **changes §3.2, and §3.1's shape diagram** — the repo interface is
   `modules/devenv.nix`. devenv resolves `<input>/<subdir>` to
   `inputs.<input> + /<subdir>` and then requires `devenv.nix` inside it; a
-  `default.nix` is never read. And "pin with `git+`" needs a qualifier:
-  **`git+https` records `rev` and `narHash` in `devenv.lock`; `git+file`
-  records neither and follows the branch head.** A local checkout is therefore
-  never pinned, and nothing warns about it.
+  `default.nix` is never read. And local pinning needs its real qualifier:
+  **`git+file:` records `rev` and `narHash` in `devenv.lock`, but reads
+  committed files only.** Use `path:` for the repository under active edit.
 
 ### Two rules the charter should state, both free
 
@@ -3694,8 +3699,9 @@ later investigation:
   in the same activation.
 - **`enterShell` ran under `devenv shell -- cmd`** in every test here. That is
   Investigation C's C1 and is not recorded as an answer; it was incidental.
-- **devenv 2.1.2 is not the current release.** 2.2.2 exists. The `git+file`
-  locking result may or may not survive an upgrade.
+- **The original `git+file` locking probe is superseded.** Current lockfiles
+  record `rev` and `narHash` for `git+file:` inputs; retain only the committed
+  files constraint.
 
 ---
 
@@ -3705,8 +3711,8 @@ later investigation:
 2.1.2 (x86_64-linux), Nix 2.34.7, NixOS 26.11.20260705, devman commit
 `c9426b6`, on 2026-08-22.
 
-**How the test repos are pinned.** B4 established that `git+file` does not pin
-and follows the branch head. This session therefore froze the worktree once,
+**How the test repos are pinned.** The original B4 hypothesis incorrectly said
+that `git+file` did not pin. This session therefore froze the worktree once,
 with `git archive HEAD | tar -x -C /tmp/c-devman-src`, and every test repo
 declares `url: "path:/tmp/c-devman-src"`. The frozen tree is `c9426b6` and did
 not move while C ran, so mid-session commits could not change a test repo
@@ -5667,9 +5673,9 @@ pass can tell what is already applied from what is not.
 - **§3.1 diagram, §3.2** — the repo interface is **`modules/devenv.nix`**. devenv
   resolves `<input>/<subdir>` to `inputs.<input> + /<subdir>` and then requires
   `devenv.nix` inside it; `default.nix` is never read. And "pin with `git+`"
-  needs a qualifier: **`git+https` records `rev` and `narHash`; `git+file`
-  records neither and follows the branch head**, so a local checkout is never
-  pinned and nothing warns. (**B4**)
+  has one real constraint: **`git+file:` records `rev` and `narHash`, but reads
+  committed files only.** Use `path:` for active local editing. (**B4,
+  corrected**)
 - **§3.1 — two free rules that are the reason the premise holds.** The modules
   take `pkgs` from their consumer, never from the flake's own `nixpkgs`. What the
   two interfaces share must be **text**, with `nix/dagu.nix` the one measured

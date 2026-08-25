@@ -160,12 +160,12 @@ imports:
 > names a file you did not write: `devman/modules/devenv.nix file does not
 > exist`.
 
-Pin with `git+`, and know which `git+`. A `github:` input hits the API rate
-limit on every evaluation. **`git+https` records `rev` and `narHash` in
-`devenv.lock`; `git+file` records neither and silently follows the branch
-head.** A local checkout is therefore never pinned, nothing warns about it, and
-a repo built against one commit picks up the next one. Use `git+file` only for
-throwaway work, and expect it to move.
+Pin with `git+`, and know the local-source constraint. A `github:` input hits
+the API rate limit on every evaluation. **Both `git+https:` and `git+file:`
+record `rev` and `narHash` in `devenv.lock`.** A `git+file:` input reads
+committed files only, so a consumer does not see an uncommitted local edit.
+Use `path:` for the one repository under active edit; use `git+file:` for every
+other local consumer.
 
 **A devenv input is not free.** Declaring and importing the plane costs about
 20 ms on every shell entry, before registration does anything (§14, criterion

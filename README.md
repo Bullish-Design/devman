@@ -72,9 +72,9 @@ devman = {
 | `project` | **required, and stated rather than inferred.** Identity that defaulted to the directory name would break on a rename: the repository would re-register as new and lose its run history |
 | `groups` | which groups this repository inherits, in precedence order. `[ ]` is legal — the repository then has only its own `.devman/workflows/` |
 
-Pin with `git+https` and an explicit `rev`. That form records `rev` and `narHash`
-in `devenv.lock`; `git+file` records neither and follows the branch head
-silently.
+Pin local consumers with `git+file:`. It records `rev` and `narHash` in
+`devenv.lock`, just as `git+https:` does, but reads committed files only. Use a
+`path:` input only for the repository under active edit.
 
 Then enter the shell once. **That is the only registration path there is** —
 there is no `devman register` and there never will be, so nothing can drift from
