@@ -289,7 +289,7 @@ steps:
   carries on.
 - Each target is a parameter whose default is a **project name**, so the file
   holds no absolute path.
-- The child DAG's name is `<project>-<workflow>`.
+- The child DAG's name is `<project>.<workflow>`.
 - **Such a workflow belongs to `devman`** (§11): a workflow spanning several
   projects belongs to none of them. It can never be a group file, because a group
   file naming another project would hold a project fact.
@@ -418,7 +418,7 @@ relatively — `working_dir` is already the project — or through
 
 `${context.run.id}` · `${context.dag.name}` · `${context.attempt.started_at}`
 
-`${context.dag.name}` is `<project>-<workflow>`, which is how a workflow derives
+`${context.dag.name}` is `<project>.<workflow>`, which is how a workflow derives
 its own project name without holding one: strip the last hyphenated component.
 **That derivation assumes the workflow's own file name contains no hyphen.**
 
@@ -462,7 +462,7 @@ devman run <workflow>
 # 5. read what it did
 tail -1 .devman/.runs/metadata.jsonl
 ls -t .devman/.runs/reports/ | head -3
-ls .devman/.runs/logs/<project>-<workflow>/
+ls .devman/.runs/logs/<project>_<workflow>/
 
 # 6. the whole plane still healthy
 devman doctor

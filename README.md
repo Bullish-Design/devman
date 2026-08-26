@@ -173,7 +173,7 @@ that did the wrong thing is the failure it exists to prevent.** `devman run`
 refuses, naming the file and the field, when:
 
 - the resolved file does not load
-- two projects render one flat `<project>-<workflow>` DAG name
+- two projects claim one flat DAG name
 - a cross-repo parent holds `DEVMAN_PROJECT_DIR`, or declares no `DEVMAN_SELF_DIR`
 - the directory variable would be empty, or is not a directory
 - a declared parameter has no value

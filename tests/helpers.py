@@ -21,7 +21,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from devman.registry import Project, Registry
+from devman.registry import (
+    DAG_SEPARATOR,
+    LEGACY_DAG_SEPARATOR,
+    Project,
+    Registry,
+)
 
 
 @dataclass
@@ -51,15 +56,18 @@ class Plane:
         sources: dict[str, str] | None = None,
         triggers: dict | None = None,
         link: bool = True,
+        legacy: bool = False,
         make_dir: bool = True,
     ) -> Project:
         """Register one project, exactly as the devenv module's projection does.
 
         `workflows` maps a workflow name to the YAML text of its projected file.
-        `link` writes the `dags/<project>-<workflow>.yaml` symlink the projection
-        writes; `make_dir` creates the repository the entry points at. `sources`
-        records where a name resolved from, which is what `doctor` check 4 diffs
-        a shadowing file against (schema 2, §7.3).
+        `link` writes the `dags/` symlink the projection writes, under the
+        current codec; `legacy` writes it under the pre-S-12 name instead, which
+        is what a repository that has not been re-entered since looks like.
+        `make_dir` creates the repository the entry points at. `sources` records
+        where a name resolved from, which is what `doctor` check 4 diffs a
+        shadowing file against (schema 2, §7.3).
         """
         workflows = workflows or {}
         sources = sources or {}
@@ -75,6 +83,13 @@ class Plane:
             if link:
                 self.link(
                     name, workflow, f"../projects/{name}/workflows/{workflow}.yaml"
+                )
+            if legacy:
+                self.link(
+                    name,
+                    workflow,
+                    f"../projects/{name}/workflows/{workflow}.yaml",
+                    sep=LEGACY_DAG_SEPARATOR,
                 )
 
         # `metadata.json` is written LAST, which is what makes an interrupted
@@ -102,8 +117,10 @@ class Plane:
         )
         return self.reg.project(name)
 
-    def link(self, project: str, workflow: str, target: str) -> Path:
-        """Write `dags/<project>-<workflow>.yaml -> target`, replacing any link.
+    def link(
+        self, project: str, workflow: str, target: str, sep: str = DAG_SEPARATOR
+    ) -> Path:
+        """Write the `dags/` link for one workflow, replacing any that is there.
 
         The projection is `ln -sfn`, so the second writer of one flat name takes
         the first one's link and says nothing (§9.2). `target` is stated rather
@@ -111,7 +128,7 @@ class Plane:
         """
         dags = self.root / "dags"
         dags.mkdir(parents=True, exist_ok=True)
-        link = dags / f"{project}-{workflow}.yaml"
+        link = dags / f"{project}{sep}{workflow}.yaml"
         if link.is_symlink() or link.exists():
             link.unlink()
         link.symlink_to(target)

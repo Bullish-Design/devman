@@ -865,7 +865,7 @@ Machine-side holds the registry, and nothing else:
 ├── projects/<project>/
 │   ├── metadata.json                    # identity and path
 │   └── workflows/<workflow>.yaml        # the projection
-└── dags/<project>-<workflow>.yaml       # Dagu's flat view of it
+└── dags/<project>.<workflow>.yaml       # Dagu's flat view of it
 ```
 
 **`dags/` is Dagu's view, and `projects/` is devman's.** The second directory
@@ -984,7 +984,7 @@ followed at all, at any setting; only file symlinks are.
 > know which is which.
 >
 > **A DAG name is machine-global, so the projection gives it a machine-global
-> key** — `<project>-<workflow>`, in one flat directory, which `ls`, the
+> key** — `<project>.<workflow>`, in one flat directory, which `ls`, the
 > scheduler and `enqueue` all agree on. Each entry is a file symlink to
 > `projects/<project>/workflows/<workflow>.yaml`, which **since stage 6 is a
 > generated file** rather than a symlink to the group file: four lines of header
@@ -992,6 +992,35 @@ followed at all, at any setting; only file symlinks are.
 > source body unchanged. Dagu follows the link to it. The per-project projection
 > is still what §7.3 resolves and what `doctor` unprojects when it prunes a stale
 > entry (§10).
+>
+> **CORRECTION, S-12 — the key was not injective, and the separator is now a
+> dot.** `<project>-<workflow>` renders one name for two pairs whenever one
+> project name is a prefix of another: `devman-b` + `check` and `devman` +
+> `b-check` collide. The second projection takes the first's link with `ln -sfn`
+> and Dagu runs **one** file under a name two projects believe is theirs —
+> measured in `STAGE_5_LOG.md` S6, where a run executed another project's
+> workflow, in this project's directory, and reported success. That is §12 rule
+> 4's failure exactly, and the plane had a check for it (§10's projection check)
+> rather than a key that could not produce it.
+>
+> The key is now `<project>.<workflow>`, and **a workflow name may not hold a
+> dot** — that refusal is what makes the last dot always the separator, so the
+> pair reads back with no registry lookup. A project name may hold as many dots
+> as it likes; `loci.nvim` is registered on this machine and keeps its spelling.
+>
+> The separator is measured, not chosen. Dagu 2.15.0 allows alphanumerics,
+> dashes, dots and underscores in a DAG name and refuses everything else
+> (`STAGE_7_LOG.md`, S-11), and of those `-` and `_` are both already in use
+> inside project names on this machine while `.` is not used in any workflow
+> name. `dagu ls`, `dagu enqueue` and `dagu status` all resolve the dotted name
+> (S-12).
+>
+> **One thing does not follow the key.** Dagu rewrites `.` as `_` for the log
+> directory, so `<project>.<workflow>` writes into
+> `.devman/.runs/logs/<project>_<workflow>/`. Three distinct DAG names can share
+> one such directory — but never two of one project, because the workflow half
+> holds no dot, and `log_dir` is per project (§7.2). The codec's safety on the
+> log side therefore rests on that, and `tests/conformance/` measures it.
 >
 > **Two consequences, and both are paid deliberately.** `devman show` prints the
 > *source* — the group file or the repository's own override — because that is

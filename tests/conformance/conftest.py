@@ -40,11 +40,7 @@ class Dagu:
             [self.binary, "--dagu-home", str(self.home), "validate", str(path)],
             capture_output=True,
             text=True,
-            env={
-                **os.environ,
-                "HOME": str(self.home.parent),
-                "DAGU_HOME": str(self.home),
-            },
+            env=self._env(),
         )
 
     def ls(self, dags: Path) -> subprocess.CompletedProcess:
@@ -52,13 +48,40 @@ class Dagu:
             [self.binary, "--dagu-home", str(self.home), "ls"],
             capture_output=True,
             text=True,
-            env={
-                **os.environ,
-                "HOME": str(self.home.parent),
-                "DAGU_HOME": str(self.home),
-                "DAGU_DAGS_DIR": str(dags),
-            },
+            env=self._env(dags),
         )
+
+    def enqueue(self, dags: Path, name: str) -> subprocess.CompletedProcess:
+        """Queue one run. **This does not start anything**: no scheduler runs in
+        these tests, so the item sits in the queue directory and is read back
+        from there. `dagu dry` would execute and create `log_dir` (S1)."""
+        return subprocess.run(
+            [self.binary, "--dagu-home", str(self.home), "enqueue", name],
+            capture_output=True,
+            text=True,
+            env=self._env(dags),
+        )
+
+    def status(self, dags: Path, name: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [self.binary, "--dagu-home", str(self.home), "status", name],
+            capture_output=True,
+            text=True,
+            env=self._env(dags),
+        )
+
+    def _env(self, dags: Path | None = None) -> dict:
+        """Never the ambient environment. `HOME` and `DAGU_HOME` are stated
+        because an unset one makes `dagu` build a fresh home and seed five
+        example DAGs (S2)."""
+        env = {
+            **os.environ,
+            "HOME": str(self.home.parent),
+            "DAGU_HOME": str(self.home),
+        }
+        if dags is not None:
+            env["DAGU_DAGS_DIR"] = str(dags)
+        return env
 
 
 @pytest.fixture(scope="session")

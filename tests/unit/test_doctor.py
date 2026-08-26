@@ -244,3 +244,52 @@ def test_only_lines_that_do_something_count_as_executable():
 def test_same_lines_counts_what_survives():
     assert doctor._same_lines(["a", "b", "c"], ["a", "x", "c"]) == (2, 3)
     assert doctor._same_lines([], ["a"]) == (0, 0)
+
+
+# ---------------------------------------------------------------------------
+# the codec (§9.2, S-12)
+
+
+def test_an_unmigrated_projection_is_a_note_and_not_a_fault(plane):
+    """Reporting it `!!` would have made every repository on the machine a fault
+    for as long as the migration took — 53 of them, none of them broken."""
+    plane.add("p", workflows={"check": ORDINARY}, link=False, legacy=True)
+    rep = doctor.Report()
+
+    doctor.check_projection(rep, plane.reg)
+
+    status, lines = rep.sections[0][1], rep.sections[0][2]
+    assert status == "ok"
+    assert "still project under the pre-codec name" in lines[1]
+    assert "migrates itself the next time its shell is entered" in lines[2]
+
+
+def test_a_link_pointing_at_another_project_is_still_a_fault(plane):
+    plane.add("devman", workflows={"b-check": ORDINARY})
+    plane.add("devman-b", workflows={"check": ORDINARY}, link=False)
+    plane.link("devman-b", "check", "../projects/devman/workflows/b-check.yaml")
+    rep = doctor.Report()
+
+    doctor.check_projection(rep, plane.reg)
+
+    assert rep.sections[0][1] == "!!"
+    assert "run the wrong file and report success" in rep.sections[0][2][-1]
+
+
+def test_a_workflow_name_holding_a_dot_is_a_finding(plane):
+    plane.add("p", workflows={"release.tagged": ORDINARY})
+    rep = doctor.Report()
+
+    doctor.check_dag_names(rep, plane.reg)
+
+    assert rep.sections[0][1] == "!!"
+    assert "cannot be a workflow name" in rep.sections[0][2][0]
+
+
+def test_ordinary_workflow_names_pass_the_codec(plane):
+    plane.add("loci.nvim", workflows={"check": ORDINARY, "maintain": ORDINARY})
+    rep = doctor.Report()
+
+    doctor.check_dag_names(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"

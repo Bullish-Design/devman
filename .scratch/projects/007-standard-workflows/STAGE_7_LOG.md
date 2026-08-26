@@ -4767,3 +4767,236 @@ is S-10's shape exactly.
 **No rebuild is needed.** The fix changes no finding on the plane as it stands
 (167 workflows, no file using either spelling), so `nixos-rebuild switch` can wait
 for the next change that does need it.
+
+---
+
+## S-12 — The DAG identity codec: `<project>.<workflow>`, and the rollout has an order
+
+**Answer: the separator is a dot, a workflow name may not hold one, and that is
+the whole codec.** `<project>-<workflow>` was not injective — `devman-b` +
+`check` and `devman` + `b-check` render one name, so the second projection took
+the first's link and Dagu ran **one** file under a name two projects believed was
+theirs (`STAGE_5_LOG.md`, S6). The new key splits from the right, so the pair
+reads back with no registry lookup.
+
+The session also found the rollout has an order, by getting it wrong: **the CLI
+must be rebuilt before any repository is re-projected.**
+
+### Versions
+
+Dagu **2.15.0**, the pinned tarball. devman **0.3.0**. Date **2026-08-26**. Every
+measurement below is in a throwaway `DAGU_HOME` or a throwaway registry under
+`/tmp`, both removed. The installed plane's state at the end of this entry is in
+the rule 7 table.
+
+### The risk was live, not theoretical
+
+53 registered projects, 167 workflows, **no collision today** — and six one
+workflow name away:
+
+| Project | needs only | to take |
+|---|---|---|
+| `flora` | `core-check`, `core-maintain`, `core-test` | `flora-core`'s three |
+| `flora` | `qc-check`, `qc-maintain`, `qc-test` | `flora-qc`'s three |
+
+All three projects ship exactly `check`, `maintain` and `test` today, which is
+the only reason nothing has collided. `doctor`'s projection check would have
+caught it after the fact. A key that cannot produce it is better than a check
+that reports it, which is §12 rule 4's shape applied to the plane itself.
+
+### Why a dot, measured rather than chosen
+
+Dagu 2.15.0 allows alphanumerics, dashes, dots and underscores in a DAG name and
+refuses everything else (S-11). Of those:
+
+| Candidate | Verdict |
+|---|---|
+| `-` doubled inside each half, joined by `-` | injective, no refusal needed — but `flora-core` + `check` reads `flora--core-check`, and nearly every name on the machine changes shape |
+| `_` as separator | `templateer_v2` already holds one |
+| `.` as separator, dot refused in the **workflow** half | injective; **one** project holds a dot (`loci.nvim`) and **no workflow name** holds one |
+
+The survey is the argument: `-` and `_` are both already in use inside project
+names on this machine, and `.` is not used in any workflow name. So the dot costs
+one refusal that refuses nothing that exists, and `loci.nvim` keeps the spelling
+its author chose — because the split reads from the right, a project name may
+hold as many dots as it likes.
+
+The refusal is the injectivity proof, in one sentence: **the last dot is always
+the separator.**
+
+Verified over every live pair: 167 pairs render 167 distinct names.
+
+### The measurement that nearly sank it — Dagu rewrites the log directory
+
+`dagu status` prints the log path, and it is not the DAG name:
+
+| DAG name | log directory |
+|---|---|
+| `a.b.check` | `a_b_check` |
+| `a_b.check` | `a_b_check` |
+| `a.b_check` | `a_b_check` |
+| `a-b.check` | `a-b_check` |
+
+**Dagu maps `.` to `_` and leaves `-` alone.** Three distinct DAG names share one
+log directory. A codec that made the DAG name injective and the log directory not
+would have moved the collision rather than removed it.
+
+It does not, and the reason is §7.2's per-project `log_dir`: a project's runs land
+under its own `.devman/.runs/logs`, so two names can only meet there if they
+belong to one project — and within a project the names differ only in the
+workflow half, which holds no dot. **The codec's safety on the log side rests on
+`log_dir` being per project**, which is why it is measured in
+`tests/conformance/` rather than assumed.
+
+Found by reading `dagu status`'s output while checking something else. Nothing in
+Dagu's error text would ever have said it.
+
+### What Dagu does with the name, end to end
+
+| Command | Dotted name |
+|---|---|
+| `dagu validate` | accepted, every shape the codec renders |
+| `dagu ls` | lists `loci.nvim.check`, `flora-core.check`, `templateer_v2.test` |
+| `dagu enqueue` | queues it; the item lands under `data/queue/<name>/` |
+| `dagu status` | resolves it |
+| the real service, in `nix/tests/dagu-service.nix` | enqueue → scheduler → run → `log_dir` under the project → `base.yaml`'s exit handler writes `"dag":"demo.probe"` |
+
+The last row is the one that matters: the VM test hand-builds a projection, and it
+now builds it in the codec's shape, so the dotted name meets a **running** Dagu
+rather than only its validator.
+
+### The bug in `release`, which the codec both broke and fixed
+
+`groups/release/workflows/release.yaml` derives the project from its own run:
+
+```sh
+me="${context.dag.name}"
+want="\"dag\":\"${me%-*}-test\""     # before
+want="\"dag\":\"${me%.*}.test\""     # after
+```
+
+`${me%-*}` strips the last hyphenated component. Against `devman.release` there is
+no hyphen at all, so it strips nothing and the gate looks for
+`"dag":"devman.release-test"` — a line that can never exist. The gate would refuse
+every release, loudly and for the wrong reason.
+
+**The old form was already fragile and the file said so**: "that derivation
+assumes this workflow's own file name contains no hyphen". A repository shadowing
+`release.yaml` under a hyphenated name would have broken it silently. The codec
+removes the assumption rather than documenting it — the workflow half holds no
+dot, so `${me%.*}` is the project for every workflow name, hyphens included.
+
+The anchor argument survives intact and gets simpler: `grep -F` looks for
+`"dag":"<project>.test"` **with the closing quote**, so `"dag":"<project>.full-test"`
+cannot contain it.
+
+**One refusal is expected, once per repository.** `metadata.jsonl` holds older
+lines under the pre-codec name, so the first `release` after the migration finds
+no `<project>.test` line and says `NONE RECORDED`. `devman run test` clears it.
+That is the same loud refusal a repository that renames `test` already gets.
+
+### The migration migrates itself, and the guard is what does it
+
+The `enterShell` guard tests `[ -L dags/<project>.<workflow>.yaml ]` per projected
+workflow. A repository last projected under the old shape has no link at that
+name, so the guard fires, the projection runs, and the old link is swept by the
+same loop that rebuilds the new one — both shapes, each guarded by "it still
+points at this project's own file".
+
+Measured against a throwaway registry: ten old-shape links seeded, one
+`devenv shell -- true`, ten new-shape links and **zero** old ones left.
+
+Sweeping only the current shape would have left `dags/<project>-<workflow>.yaml`
+behind pointing at a live file — a second DAG name for one workflow, which
+`dagu ls` would show and a stale schedule would still fire.
+
+**Dual-linking was considered and refused.** Writing both shapes would make the
+rollout order-free, and it would also give every workflow carrying a `schedule:`
+two DAG names and therefore two scheduled runs. That is §12 rule 8's hazard
+bought to avoid an ordering constraint, which is the wrong trade.
+
+### The ordering constraint, found by tripping over it
+
+Between the module changing and the CLI being rebuilt, **direnv re-projected this
+repository**. Entering the directory is enough. The installed CLI still computed
+`devman-check`, the links said `devman.check`, and the result was immediate:
+
+```
+!!  projection  devman-agent-review: the DAG of that name points at nothing
+devman: refusing to enqueue 'check' in 'devman'
+```
+
+Ten workflows, every trigger refusing, and the watcher's dispatches recorded as
+`refused`. Restoring the ten old-shape links by hand returned `devman doctor` to
+`Nothing to report`.
+
+**So the rollout has one order, and only one:**
+
+1. land the CLI and rebuild — `nixos-rebuild switch`
+2. then enter each repository's shell, in any order and at any pace
+
+In that direction nothing breaks: a rebuilt CLI reads a repository still on the
+old shape through `unmigrated()`, enqueues the old name, and says so on stderr.
+The reverse direction is what broke, and nothing in the code can fix it, because
+an already-installed binary cannot be taught a new codec. It fails loudly and one
+shell entry repairs it, which is the best available property.
+
+`doctor` reports an unmigrated projection as `ok` with a count, not `!!`. Marking
+it a fault would have made all 53 repositories a finding for as long as the
+migration took, none of them broken.
+
+### What the migration costs
+
+165 log trees, 4.6 MiB of run history, keyed by the pre-codec name. Retention
+prunes a DAG's history when that DAG runs (D5), so they will not age out.
+
+**They are not moved, and that is deliberate.** `doctor` check 6 reads the
+**newest** run per project, so it does not false-fire while the project still
+runs anything. Renaming a project's run history would be the plane writing to the
+canonical side to tidy itself, and a rename underneath an in-flight run is a
+hazard bought for nothing. They are the developer's to delete.
+
+### Verdict
+
+**A DAG name is now a function of its pair, and a pair of its name.** The check
+that caught the collision after the fact stays — the link is what Dagu reads, and
+the codec is only what the projection wrote it with — but it can no longer be the
+first thing that notices.
+
+The test layer earned its keep on the first structural change: the two tests that
+encoded the old non-injective fact failed, and nothing else did. S-11 wrote the
+foreign-link test to assert through `dag_name()` so it would survive the encoding
+change; it did, and the assertion that changed was the one whose subject changed.
+
+### Charter impact
+
+**`CONCEPT.md` §9.2 gains a correction block, in the same commit, per the law.**
+The path shape in the registry diagram becomes `dags/<project>.<workflow>.yaml`,
+and the machine-global key paragraph gains the collision, the refusal, the
+measured character set and the log-directory caveat.
+
+**Rule 3's closed list is unchanged in size.** The `.devman/.runs/` path shape and
+the `dags/` path shape are the same entry, restated; no fifth global name.
+
+Nine documentation sites stated the old shape and are corrected with it —
+`AGENTS_GUIDE.md`, `README.md`, `USER.md`, the three skills,
+`.devman/workflows/README.md`, `nix/nixos-module.nix` and
+`groups/release/README.md`. That count is S-9's lesson arriving on schedule.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| installed plane | **re-projected `devman` by accident, then restored** | 168 links, all pre-codec; `devman doctor` exits 0 |
+| `/tmp/idc`, `/tmp/idc2`, `/tmp/idc-reg` | throwaway Dagu homes and a throwaway registry | **removed** |
+| `src/devman/registry.py` | the codec, `unmigrated()`, both-shape `unproject` | committed |
+| `src/devman/run.py`, `src/devman/doctor.py` | the fallback, its notice, `check_dag_names` | committed |
+| `modules/devenv.nix` | the projection, the guard, both refusals, the sweep | committed |
+| `groups/release/workflows/release.yaml` | `${me%.*}.test` | committed |
+| `nix/tests/dagu-service.nix` | the VM test builds the codec's shape | committed |
+| `tests/` | 236 tests, 25 of them the codec's | committed |
+| `CONCEPT.md` and nine documentation sites | corrected | committed |
+
+**`nixos-rebuild switch` is REQUIRED before any repository is re-projected**, and
+was not run. Until it is, the plane runs the old CLI against old-shape links,
+which is consistent and working.

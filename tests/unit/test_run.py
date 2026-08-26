@@ -333,3 +333,52 @@ def test_the_process_environment_is_not_mutated(monkeypatch, tmp_path):
     monkeypatch.setenv("SHELL", "/bin/zsh")
     run.child_env({PROJECT_DIR: str(tmp_path)}, PROJECT_DIR)
     assert os.environ["SHELL"] == "/bin/zsh"
+
+
+# ---------------------------------------------------------------------------
+# the codec, at the trigger (§9.2, S-12)
+
+
+def test_the_enqueued_name_is_the_codecs(plane):
+    proj = plane.add("p", workflows={"check": ORDINARY})
+    dag, _, _ = run.resolve(plane.reg, proj, "check", {})
+    assert dag == plane.reg.dag_name(proj, "check")
+
+
+def test_the_pair_that_used_to_collide_now_resolves_to_two_names(plane):
+    """S6 measured `devman run check --project devman-b` executing devman's
+    `b-check.yaml`, in devman-b's directory, reporting success. Both sides now
+    resolve, to two different DAGs."""
+    devman = plane.add("devman", workflows={"b-check": ORDINARY})
+    devman_b = plane.add("devman-b", workflows={"check": ORDINARY})
+
+    a, _, _ = run.resolve(plane.reg, devman, "b-check", {})
+    b, _, _ = run.resolve(plane.reg, devman_b, "check", {})
+
+    assert a != b
+
+
+def test_an_unmigrated_project_falls_back_and_says_so(plane, capsys):
+    """The migration path. A repository not entered since the codec landed still
+    triggers — enqueueing the pre-codec name — and the fallback is announced,
+    because a trigger quietly using a name the plane no longer projects is the
+    silent default §12 rule 4 refuses."""
+    proj = plane.add("p", workflows={"check": ORDINARY}, link=False, legacy=True)
+
+    dag, _, _ = run.resolve(plane.reg, proj, "check", {})
+
+    assert dag == plane.reg.legacy_dag_name(proj, "check")
+    notice = capsys.readouterr().err
+    assert "still projects under the pre-codec DAG name" in notice
+    assert plane.reg.dag_name(proj, "check") in notice
+
+
+def test_a_workflow_name_holding_a_dot_is_refused_at_the_trigger(plane):
+    """Such a name has no unambiguous DAG to enqueue, so it is a refusal rather
+    than a fallback. The module refuses it earlier; this catches a projection
+    written before the codec landed."""
+    proj = plane.add("p", workflows={"release.tagged": ORDINARY})
+
+    with pytest.raises(RegistryError) as exc:
+        run.resolve(plane.reg, proj, "release.tagged", {})
+    assert "cannot be a workflow name" in str(exc.value)

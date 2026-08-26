@@ -31,7 +31,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .registry import Project, Registry, RegistryError
+from .registry import Project, Registry, RegistryError, dag_name_fault
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
 
 
@@ -45,6 +45,16 @@ def resolve(
 
     Returns `(dag name, parameters, the name of the directory variable)`.
     """
+    # The codec's one refusal, at the trigger. The module refuses the same name
+    # at evaluation time, so this fires only for a projection written before the
+    # codec landed — and it is still a refusal rather than a fallback, because
+    # such a name has no unambiguous DAG to enqueue (§9.2).
+    name_fault = dag_name_fault(workflow)
+    if name_fault:
+        raise RegistryError(
+            f"refusing to enqueue '{workflow}' in '{project.name}'\n  {name_fault}"
+        )
+
     path = reg.workflow_file(project, workflow)
     wf = Workflow.read(path)
     if wf.error:
@@ -58,21 +68,38 @@ def resolve(
             f"  run `devman doctor` to see every projected file that fails"
         )
 
-    # A DAG name is machine-global and `<project>-<workflow>` is not injective,
-    # so the file this resolved is not necessarily the file Dagu will run: a
-    # second project rendering the same flat name owns the `dags/` link. The run
-    # then executes another project's workflow, in this project's directory, and
-    # reports success (`STAGE_5_LOG.md`, S6). Refusing here is the same rule as
-    # every other refusal in this file — a trigger states its target.
+    # A DAG name is machine-global, so the file this resolved is not necessarily
+    # the file Dagu will run: a second project owning the `dags/` link makes the
+    # run execute another project's workflow, in this project's directory, and
+    # report success (`STAGE_5_LOG.md`, S6). The codec ends that by construction
+    # (§9.2, S-12); this still checks, because the link is what Dagu reads and
+    # the codec is only what the projection wrote it with.
+    dag = reg.dag_name(project, workflow)
     fault = reg.dag_link_fault(project, workflow)
+
+    # The codec landed in S-12 and the projection runs on shell entry, so the
+    # machine holds both name shapes until every repository has been entered
+    # again. Falling back is what stops that being a flag day — but it is said
+    # out loud, because a trigger quietly using a name the plane no longer
+    # projects is exactly the silent-default habit §12 rule 4 refuses.
+    if fault and reg.unmigrated(project, workflow):
+        dag = reg.legacy_dag_name(project, workflow)
+        fault = None
+        print(
+            f"devman run: '{project.name}' still projects under the pre-codec"
+            f" DAG name — enqueueing {dag}.\n"
+            f"  enter its shell once to re-project it as {reg.dag_name(project, workflow)}"
+            " (§9.2)",
+            file=sys.stderr,
+        )
+
     if fault:
         raise RegistryError(
             f"refusing to enqueue '{workflow}' in '{project.name}'\n"
-            f"  the DAG named {reg.dag_name(project, workflow)} points at"
-            f" {fault}\n"
+            f"  the DAG named {dag} points at {fault}\n"
             f"  it resolved to {path}, and that is not what would run\n"
-            "  two projects render one flat DAG name — rename one project or"
-            " one workflow (§9.2), then re-enter both shells"
+            "  enter this repository's shell to re-project it; if it persists,"
+            " two projects render one DAG name (§9.2)"
         )
 
     declared = wf.params()
@@ -141,7 +168,7 @@ def resolve(
             " NAME=VALUE"
         )
 
-    return reg.dag_name(project, workflow), params, dir_var
+    return dag, params, dir_var
 
 
 def command(reg: Registry, dagu: str, dag: str, params: dict[str, str]) -> list[str]:

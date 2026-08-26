@@ -80,13 +80,17 @@
         tester(f"test -d {REG}/projects && test -d {REG}/dags")
 
     with subtest("a projection in the devenv module's shape is discovered"):
+        # The names are the codec's: `<project>.<workflow>` (§9.2, S-12). This
+        # subtest is the only place the dotted name meets a real Dagu service
+        # rather than `dagu validate` — enqueue, the scheduler, `status`,
+        # `log_dir` and base.yaml's exit handler all resolve it below.
         tester(f"mkdir -p {PROJ} {REG}/projects/demo/workflows")
         tester(
             f"ln -sfn {GROUPS}/base/workflows/check.yaml "
             f"{REG}/projects/demo/workflows/check.yaml"
         )
         tester(
-            f"ln -sfn ../projects/demo/workflows/check.yaml {REG}/dags/demo-check.yaml"
+            f"ln -sfn ../projects/demo/workflows/check.yaml {REG}/dags/demo.check.yaml"
         )
         # A probe of our own, because the group file calls `devenv tasks run`
         # and there is no devenv in this VM. Written as root and handed over,
@@ -99,21 +103,21 @@
             f"    run: pwd\\n' > {PROJ}/probe.yaml"
         )
         tester(f"ln -sfn {PROJ}/probe.yaml {REG}/projects/demo/workflows/probe.yaml")
-        tester(f"ln -sfn ../projects/demo/workflows/probe.yaml {REG}/dags/demo-probe.yaml")
+        tester(f"ln -sfn ../projects/demo/workflows/probe.yaml {REG}/dags/demo.probe.yaml")
         listed = tester("dagu ls")
         print(listed)
-        assert "demo-check" in listed, "the chained group symlink was not discovered"
-        assert "demo-probe" in listed
+        assert "demo.check" in listed, "the chained group symlink was not discovered"
+        assert "demo.probe" in listed
         assert "example-" not in listed, "Dagu seeded its examples into the registry"
 
     with subtest("a run lands in the project that triggered it"):
         tester(
-            f"DEVMAN_PROJECT_DIR={PROJ} dagu enqueue demo-probe -- DEVMAN_PROJECT_DIR={PROJ}"
+            f"DEVMAN_PROJECT_DIR={PROJ} dagu enqueue demo.probe -- DEVMAN_PROJECT_DIR={PROJ}"
         )
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}test -f {PROJ}/.devman/.runs/metadata.jsonl'", timeout=90
         )
-        status = tester("dagu status demo-probe")
+        status = tester("dagu status demo.probe")
         print(status)
         assert "Succeeded" in status
         assert f"{PROJ}/.devman/.runs/logs/" in status, "log_dir did not follow the project"
@@ -122,7 +126,7 @@
         line = tester(f"cat {PROJ}/.devman/.runs/metadata.jsonl").strip().splitlines()[-1]
         print(line)
         rec = json.loads(line)
-        assert rec["dag"] == "demo-probe"
+        assert rec["dag"] == "demo.probe"
         assert rec["status"] == "succeeded"
         assert rec["log"].startswith(PROJ + "/.devman/.runs/logs/")
         assert rec["run_id"] and rec["attempt"] and rec["started_at"]
