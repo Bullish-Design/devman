@@ -1,0 +1,7 @@
+# REFUSED. This is the rule that makes the `name` key unambiguous: a list-form
+# parameter simply cannot be called `name` (S-10).
+params:
+  - name: A
+steps:
+  - name: s
+    run: echo hi

@@ -1,0 +1,15 @@
+# BOUNDED, and it keeps the child's status — the review that produced S-8
+# assumed throttling and status were exclusive, and for a fan-out out of one
+# step they are not.
+params:
+  - DEVMAN_SELF_DIR: /tmp
+steps:
+  - name: f
+    action: dag.run
+    with: {dag: "${ITEM.dag}"}
+    parallel:
+      items:
+        - {dag: one}
+        - {dag: two}
+      max_concurrent: 1
+    output: RESULTS

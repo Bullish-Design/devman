@@ -1,0 +1,9 @@
+# The file §11 refuses. It is VALID to Dagu — nothing but devman would say so.
+params:
+  - name: DEVMAN_PROJECT_DIR
+    type: string
+    default: /tmp
+steps:
+  - name: a
+    action: dag.run
+    with: {dag: child}

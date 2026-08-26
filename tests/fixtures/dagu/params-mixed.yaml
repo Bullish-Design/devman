@@ -1,0 +1,9 @@
+# Both spellings in one list. The key's presence decides each item.
+params:
+  - Z: q
+  - name: A
+    type: string
+    default: x
+steps:
+  - name: s
+    run: echo hi

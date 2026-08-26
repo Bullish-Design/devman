@@ -5,6 +5,22 @@ let
   # version, so this repo carries the expression and both interfaces call the
   # same file — this shell now, the NixOS module at stage 1 (§3.1).
   dagu = pkgs.callPackage ./nix/dagu.nix { };
+
+  # WHAT RUNS THE PYTHON TESTS, AND WHY IT IS NOT THE VENV (S-11).
+  #
+  # `languages.python` below gives this shell a venv driven by uv. pytest is
+  # NOT in it, and that is the decision rather than an omission: `flake.nix`'s
+  # `python-tests` check needs pytest from nixpkgs — a Nix check has no network
+  # and cannot resolve a venv — so putting it in the venv as well would build
+  # two pytests over two pyyamls and let the fast loop and CI disagree about
+  # which one found a bug. That is §3.3's `devman 0.2.0` hazard in miniature:
+  # one name, two installs, resolved by order.
+  #
+  # It is an explicit interpreter rather than a `packages` entry for the same
+  # reason. A bare `pytest` on PATH is resolved against the venv's bin directory
+  # first, so the task would run whichever pytest the shell happened to expose.
+  # Naming the store path leaves nothing to resolve.
+  pytestPython = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ]);
 in
 {
   # https://devenv.sh/basics/
@@ -117,6 +133,21 @@ in
   tasks = {
     "base:check".exec = "ruff check .";
     "base:test".exec = "nix flake check";
+
+    # The fast loop (S-11). `base:test` is `nix flake check`, which builds a
+    # NixOS VM and runs a real Dagu service — minutes, and the wrong thing to
+    # ask of somebody who just changed a docstring. This is the same suite in
+    # about a second.
+    #
+    # It is NOT a substitute for `base:test`, which runs the same tests
+    # hermetically through `checks.python-tests`. Two entry points, one suite:
+    # the fast one for the developer, the check for CI and for anything that
+    # rebuilds the plane.
+    #
+    # `dagu` is on this shell's PATH from `packages` above, so the conformance
+    # layer measures the pinned binary here too. Without it that layer skips
+    # itself and says so.
+    "base:unit".exec = "${pytestPython}/bin/pytest";
 
     # What `python-format`'s workflow runs when a `.py` file is saved. The group
     # names a task and never a tool (§7.1), so this line is the whole of what

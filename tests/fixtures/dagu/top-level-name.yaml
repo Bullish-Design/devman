@@ -1,0 +1,6 @@
+# REFUSED. A DAG's name comes from its file's base name (S1) — which is why
+# `<project>-<workflow>` is machine-global and not injective.
+name: nope
+steps:
+  - name: s
+    run: echo hi

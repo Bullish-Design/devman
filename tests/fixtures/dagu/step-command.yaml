@@ -1,0 +1,4 @@
+# Accepted, with a deprecation warning. devman reads the step either way.
+steps:
+  - name: s
+    command: echo hi

@@ -1,0 +1,7 @@
+# REFUSED — "dag.run does not support with.queue". This is S-8's finding stated
+# by the validator itself: a dag.run child is executed in place and never
+# reaches a queue, so it cannot name one.
+steps:
+  - name: s
+    action: dag.run
+    with: {dag: child, queue: heavy}

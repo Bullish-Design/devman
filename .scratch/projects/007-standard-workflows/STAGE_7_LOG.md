@@ -4567,3 +4567,203 @@ count and the rule.
 | installed plane | **none** | read only |
 | `/tmp/dqp`, `/tmp/params-reg` | throwaway Dagu home, registry copy | **removed** |
 | `src/devman/workflow.py` | `params()` reads the fifth form | committed |
+
+---
+
+## S-11 — The measurements become a suite, and the suite found a queue key Dagu does not have
+
+**Answer: 211 tests, and one of them is a bug.** Everything S-8, S-9 and S-10
+verified was checked by hand and thrown away — eight parameter forms, eight
+fan-out shapes, five queue cases, six typed-parameter edges. None of it was
+repeatable. It is now, and writing it down cost one production fix:
+`Workflow.queues()` read a `steps[].queue` that Dagu 2.15.0 **refuses outright**
+and missed the `with.queue` it accepts.
+
+This entry continues S-10 rather than starting its own log, because the test
+layer is not a new subject — it is the same four entries, made repeatable.
+
+### Versions
+
+Dagu **2.15.0**, the pinned tarball. devman **0.3.0**. Python **3.13**, pytest
+**9.0.3** in the shell and **9.1.1** in the Nix check — two versions on purpose,
+and the suite passes under both. Date **2026-08-25**.
+
+### The two decisions §2 of the prompt asked for, and why
+
+**Where the tests run: option B, both.** `base:test` is `nix flake check`, which
+builds a NixOS VM and starts a real Dagu service — minutes, and the wrong thing
+to ask of somebody who just changed a docstring. So there are two entry points
+over one suite:
+
+| | |
+|---|---|
+| `devenv tasks run base:unit` | 2.7 s whole suite, 0.55 s for `-m unit`. The developer's loop. |
+| `checks.python-tests` in `flake.nix` | hermetic, pinned Dagu, inside `nix flake check`. CI and every rebuild. |
+
+Option A alone was rejected on the measurement above: a fast loop that takes
+minutes is a loop nobody runs, and a test layer nobody runs is §12 rule 7.
+
+**The check is what makes "without the installed plane" a guarantee rather than a
+habit.** The Nix sandbox has no `~/.local/share/devman` and no running service.
+Every test builds its own registry under `tmp_path`, and the sandbox is what
+proves none of them cheated.
+
+**pytest is a nixpkgs package in both places, and is not in the venv.** A Nix
+check has no network, so a uv-resolved venv cannot serve it; the check needs
+pytest from nixpkgs either way. Adding it to the venv as well would put two
+pytests over two pyyamls on one machine, resolved by profile order — §3.3's
+`devman 0.2.0` hazard in miniature, with the fast loop and CI able to disagree
+about which one found a bug. `devenv.nix` names the store path
+(`python313.withPackages`) rather than putting `pytest` on `PATH`, because the
+venv's bin directory resolves first and would decide otherwise.
+
+`pyproject.toml` gains `pythonpath = ["src", "tests"]` and `testpaths =
+["tests"]`. Nothing installs this package with pip, so there is no editable
+install to lean on, and `testpaths` is what keeps a bare `pytest` out of
+`.scratch/` — which holds NixOS test bodies whose globals a driver injects.
+
+### The shape
+
+| File | Tests | Protects |
+|---|---|---|
+| `tests/unit/test_workflow.py` | 24 | the bounded Dagu reader |
+| `tests/unit/test_registry.py` | 26 | resolution, the worktree refusal, the DAG link |
+| `tests/unit/test_run.py` | 23 | the enqueue refusal contract and the child env |
+| `tests/unit/test_watch.py` | 29 | event parsing, matching, coalescing |
+| `tests/unit/test_doctor.py` | 16 | the bounded decisions its helpers do not carry |
+| `tests/conformance/test_dagu_yaml.py` | 5 over 32 fixtures | the devman/Dagu semantic boundary |
+
+211 collected, 2138 lines. Most of it is parametrized tables, which is the point:
+the S-8, S-9 and S-10 tables are transcribed as data, and each row's docstring
+names the entry that measured it.
+
+### The evidence that it protects anything — seven mutations
+
+A suite that passes proves nothing. Each mutation below reverts one measured
+mechanism in `src/devman/`, and the count is the tests that noticed.
+
+| Mutation | Caught by |
+|---|---|
+| drop `env.pop("SHELL")` in `child_env()` | **1** |
+| revert `queues()` to the step-level key | **6** |
+| revert `params()` to the pre-S-10 reader | **14** |
+| drop the nested-checkout refusal in `project_for()` | **4** |
+| stop honouring a stated `max_active_steps` | **3** |
+| read a mapping-form `steps:` — become more permissive than the validator | **3** |
+| stop resolving a project-name default to that project's path | **2** |
+
+The tree was restored after each, and 211 pass again. `$SHELL` is caught by
+exactly one test, which is what the prompt asked for and also what it looks
+like: one line that a refactor would read as leftover cleanup.
+
+### The bug the suite found — there is no step-level `queue:`
+
+`Workflow.queues()` said it read "the DAG's own, and any a step overrides". The
+second half is not true against the pin, and writing the conformance fixture is
+what surfaced it. Four files, measured:
+
+| Written | `dagu validate` |
+|---|---|
+| `queue:` at the top level | accepted |
+| `steps[].queue` on a `run:` step | **refused** — "'spec.step' has invalid keys: queue" |
+| `steps[].queue` on a `dag.run` step | **refused** — same message |
+| `dag.enqueue` + `with: {queue: heavy}` | **accepted** |
+| `dag.run` + `with: {queue: heavy}` | **refused** — "dag.run does not support with.queue" |
+
+Two things follow.
+
+**The key `queues()` read cannot appear in a file that runs.** A file spelling it
+that way is refused at validation, so it is §10 check 1's finding and never
+reaches check 2. That half was dead code.
+
+**The key Dagu does accept was invisible.** `with.queue` on `dag.enqueue` reaches
+the same scheduler as any other queue name, so S-9's cost applies to it whole: a
+misspelt name there is not unlimited, it is a real queue at concurrency 1 shared
+with every DAG carrying the same misspelling, and nothing says so at run time.
+`doctor` check 2 exists to catch exactly that, and could not see it.
+
+**The last row is S-8's finding, stated by Dagu itself.** "dag.run does not
+support with.queue" is the validator saying what S-8 measured with two children
+and a stopwatch: a `dag.run` child is executed in place and never reaches a
+queue, so it cannot name one. Two independent routes to one fact, and the second
+was free.
+
+The fix reads `with.queue` and drops `steps[].queue`. The docstring records both
+halves and cites this entry.
+
+**What it changes on the live plane: nothing, today.** 167 projected workflows,
+every queue name declared, no file anywhere in `groups/` or `.devman/workflows/`
+using either spelling — which is expected, because the wrong spelling could never
+have loaded. The fix closes a gap ahead of the file that would fall into it.
+
+### The conformance layer, and why it is separate
+
+32 fixtures under `tests/fixtures/dagu/`. Each states both halves — what `dagu
+validate` does with the file, and what `Workflow.read()` takes out of the same
+bytes — as two parametrized tests over one table, so a failure names which side
+moved.
+
+**A Dagu pin bump must run this layer before it is accepted.** Every unit test
+above asserts a measurement of 2.15.0's behaviour, and nothing else notices when
+the binary underneath those measurements changes.
+
+`dagu validate` only. `dagu dry` creates `log_dir` and reproduces S15's
+literally-named directory (S1), so it is not used. The session home follows
+`groups-validate`: `HOME` and `DAGU_HOME` into a temporary directory, plus
+`skip_examples: true` so the five example DAGs are never seeded at all. That
+spelling is measured too — Dagu 2.15.0 refuses a camelCase config before it looks
+at any DAG: "config file uses legacy camelCase keys; migrate to snake_case:
+skipexamples -> skip_examples".
+
+Two fixtures are for the session after this one. A DAG name may hold
+alphanumerics, dashes, dots and underscores — `dagu ls` resolves
+`a.b_c-d` — and an `@` is refused. Those are the characters the identity codec
+has to choose from.
+
+The foreign-link case is asserted through `dag_name()` and never against the
+string it returns today, for the same reason: the collision is the fact, and
+`<project>-<workflow>` is the encoding that will change.
+
+### What was deliberately not built
+
+No coverage target. No CLI output snapshots. No mocked Dagu HTTP API, no mocked
+systemd, no mocked queue, no second implementation of Dagu's schema, no `git
+init`. `check_plane` and `check_queues` read what a running Dagu reports about
+itself (E5); a stub of that API would test the stub, and
+`nix/tests/dagu-service.nix` already runs a real one. `.git` is written as a
+marker because `_checkout_between()` tests existence and not kind.
+
+### Verdict
+
+**The floor exists.** The next three sessions — the DAG identity codec, trigger
+modules, and what follows — all touch these policy functions, and a refactor that
+undoes a measured refusal now fails in under three seconds.
+
+S-9's lesson was that a wrong sentence in the charter is copied faithfully into
+every layer that documents it, eight places in that case. This entry is the first
+time a claim in this repository was tested against the pin and found wrong by the
+test rather than by an incident. That is the whole argument for the layer, and it
+paid on the first pass.
+
+### Charter impact
+
+**None to `CONCEPT.md` or `PROPOSAL.md`.** §15.4's queue claim is S-9's and stands
+as corrected; §10 check 2 is unchanged in intent and now sees the field it was
+always meant to see. The correction is a reader that did not match the pin, which
+is S-10's shape exactly.
+
+`Workflow.queues()`'s docstring is corrected in place, with the measurement.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| installed plane | **none** | not enqueued to, not restarted; `dagu validate` only, which reads |
+| `/tmp/dvfix`, `/tmp/dvfix2-4`, `/tmp/dvhome`, `/tmp/dvls` | throwaway Dagu homes and fixture drafts | **removed** |
+| `tests/` | the suite, 211 tests over 2138 lines | committed |
+| `src/devman/workflow.py` | `queues()` reads `with.queue`, not `steps[].queue` | committed |
+| `pyproject.toml`, `devenv.nix`, `flake.nix` | `base:unit`, `checks.python-tests`, pytest wiring | committed |
+
+**No rebuild is needed.** The fix changes no finding on the plane as it stands
+(167 workflows, no file using either spelling), so `nixos-rebuild switch` can wait
+for the next change that does need it.

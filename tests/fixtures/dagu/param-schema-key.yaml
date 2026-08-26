@@ -1,0 +1,6 @@
+# REFUSED. `params:` is the ONLY parameter surface — there is no
+# externally-schema'd form for devman to fail to resolve (S-10).
+param_schema: {}
+steps:
+  - name: s
+    run: echo hi
