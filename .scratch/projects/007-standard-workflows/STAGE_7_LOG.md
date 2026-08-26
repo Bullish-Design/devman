@@ -5000,3 +5000,174 @@ Nine documentation sites stated the old shape and are corrected with it —
 **`nixos-rebuild switch` is REQUIRED before any repository is re-projected**, and
 was not run. Until it is, the plane runs the old CLI against old-shape links,
 which is consistent and working.
+
+---
+
+## S-12a — The codec rollout, and the nine repositories it could not migrate
+
+**Answer: 140 of 167, no failures, and the obstacle was not what S-12 planned
+for.** S-12 designed the migration around a repository failing to evaluate or
+enter its shell, in the shape stage 7's R-7 waves were built for. **None did.**
+What stopped nine repositories was a state nothing in the plane had ever had an
+opinion about: a detached `HEAD`.
+
+This continues S-12 rather than opening an entry, because it is that entry's own
+work finishing. **It also corrects S-12's rule 7 table**, which said the plane
+was left pre-codec and a rebuild was required and not run. Both are now done.
+
+### Versions
+
+devman **0.3.0** at `50c4c2e`, installed from `nix-meta` after
+`nixos-rebuild switch`. Dagu **2.15.0**, the pinned tarball. Date **2026-08-26**.
+
+### The order held, and it was worth stating
+
+S-12 said the CLI must be rebuilt before any repository is re-projected. The
+rebuild was verified before switching, by running the built closure's CLI against
+the live pre-codec registry:
+
+```
+ok  projection   10 of 167 DAG names each point at their own project's file
+                 157 still project under the pre-codec name, in 52 repositories
+ok  dag names    167 workflow names render one DAG name each
+Nothing to report.   exit 0
+```
+
+**Zero findings against a registry where 94% of the links were the wrong shape.**
+That is `unmigrated()` and the `ok`-with-a-count decision doing exactly the job
+they were added for. Marking it `!!` would have put 52 repositories in a fault
+state for the length of the rollout, none of them broken.
+
+### The canary, end to end
+
+`testee` — `base` only, three workflows, on the majority pin.
+
+| Step | Result |
+|---|---|
+| `devenv.yaml` rev edit + `devenv update devman` | pin `f20a9c1` → `50c4c2e` |
+| `devenv shell -- true` | 3 links on the codec, **0** old-shape left |
+| `devman run check` | `dag: testee.check`, Succeeded, 2.0 s |
+| `log_dir` | `.devman/.runs/logs/testee_check/` |
+| `metadata.jsonl` | `{"dag":"testee.check", … "status":"succeeded"}` |
+
+The log directory is the sanitised form S-12 measured — `.` rewritten as `_` —
+arriving in production exactly as predicted. The `metadata.jsonl` line is what
+`release`'s gate reads, so the gate's `${me%.*}.test` split now has real data
+under it.
+
+### THE PIN IS IN `devenv.yaml`, NOT ONLY IN THE LOCK
+
+S-12 said the rollout was "enter 53 shells". **It was not**, and the correction
+matters more than the arithmetic.
+
+Every repository pins devman by an explicit `rev=` **inside the URL** in
+`devenv.yaml`:
+
+```yaml
+devman:
+  url: "git+https://github.com/Bullish-Design/devman?ref=main&rev=f20a9c1…"
+```
+
+So `devenv update devman` alone moves nothing — the rev is text, and the bump is
+a text edit. Entering a shell without it re-projects using **that repository's
+own pinned `modules/`**, which is the old codec.
+
+Three revs were live: `f20a9c1` ×42, `70c8e2f` ×5, `02d00f6` ×5. All three
+migrated identically.
+
+**One good consequence.** Only devman itself imports `./modules` directly, so it
+is the only repository that could re-project prematurely — which is precisely
+what direnv did to it in S-12. The other 52 were incapable of it. The window
+S-12 found by tripping over it was one repository wide, not 53.
+
+### The result
+
+| Outcome | Count |
+|---|---|
+| migrated, committed and pushed | **37** |
+| held — detached `HEAD` | **9** |
+| failed to evaluate or enter its shell | **0** |
+
+Plus the canary and the five of wave 1: **140 of 167 DAG names on the codec**,
+27 pre-codec in 9 repositories, `devman doctor` reporting nothing throughout.
+
+**15.7 minutes for 46 repositories**, unattended, about 20 s each. Stage 7's R-7
+needed waves because a group-content change could break a repository; a lock bump
+carrying only a codec cannot, and the measurement says so.
+
+### The nine, and why holding them is right
+
+`argentic`, `flora`, `flora-qc`, `gitman`, `image-gen-pipeline`, `loci-core`,
+`poddantic`, `pyjutsu`, `repoman` — every one on a detached `HEAD`.
+
+The reasoning is a chain, and no link is optional:
+
+1. the `devenv.yaml` edit **must persist**, or the next shell entry uses the old
+   module and re-projects under the old codec, silently undoing the migration;
+2. persisting it means committing it;
+3. a commit on a detached `HEAD` is a dangling commit nothing points at — one
+   `git checkout` from being unreachable.
+
+So the migration cannot be made durable in these repositories without first
+putting them on a branch, which is a judgement about somebody else's working
+state and not this rollout's to make. They keep their old pin, keep working
+through the fallback, and are named. Verified:
+
+```
+devman run: 'gitman' still projects under the pre-codec DAG name — enqueueing gitman-check.
+  enter its shell once to re-project it as gitman.check (§9.2)
+```
+
+**`flora` and `flora-qc` are two of the three names the codec exists to protect**,
+and `flora-core` migrated. The trio is therefore split across both shapes, which
+is harmless — the fallback covers it and `doctor` reports nothing — and it is the
+one place where finishing the job has a reason beyond tidiness.
+
+**This is the finding worth carrying forward.** Nine of 53 repositories, 17%,
+were in a state that blocks any automated fleet change that must commit. Nothing
+before this measured it, because no earlier change had to write to every
+repository. The next one should check for it first rather than discover it at
+repository nineteen.
+
+### What the migration left behind
+
+**159 pre-codec log trees, 4.6 MiB**, across the migrated repositories —
+`logs/<project>-<workflow>/` beside the new `logs/<project>_<workflow>/`.
+
+S-12 predicted 165 and 4.6 MiB and chose not to move them. That holds: `doctor`
+check 6 reads the **newest** run per project, so it does not false-fire while a
+project still runs anything, and renaming a project's run history underneath a
+possible in-flight run buys nothing. They are the developer's to delete.
+
+### Verdict
+
+**The migration path was the part of S-12 that mattered, and it was never
+exercised until now.** A codec is a half-hour change; carrying 53 repositories
+across it without a flag day is the rest. `unmigrated()`, the `ok`-with-a-count
+decision and the guard that re-projects on shell entry are three mechanisms that
+each look like caution and were each load-bearing for the whole rollout.
+
+The rollout script is kept at
+`.scratch/projects/007-standard-workflows/codec-rollout.sh` — it reverts
+`devenv.yaml` on any failure, so a repository it cannot migrate stays on its old
+pin and on the fallback rather than half-changed.
+
+### Charter impact
+
+**None.** §9.2 already carries S-12's correction block. Nothing here contradicts
+it; the rollout is that block arriving on 53 repositories.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| the machine | `nixos-rebuild switch` with devman at `50c4c2e` | **switched**, previous generation intact |
+| `nix-meta` | `flake.lock` bump, PR #4 | merged |
+| 37 repositories | `devenv.yaml` pin bump, one commit each | committed and **pushed to `main`** |
+| the registry | 140 of 167 links re-projected on the codec | 27 pre-codec, in the 9 held |
+| 9 repositories | **untouched** | detached `HEAD`, old pin, on the fallback |
+| migrated repositories' `.runs/logs/` | 159 pre-codec trees, 4.6 MiB | left in place, deliberately |
+
+**This corrects S-12's rule 7 table**, which recorded the plane as left pre-codec
+with the rebuild required and not run. Both are done. The remaining work is nine
+repositories and a `git checkout -b` in each.

@@ -277,14 +277,18 @@ def test_a_codec_name_can_be_enqueued(dagu, fixtures, tmp_path):
     a name. No scheduler runs here, so the item is queued and never started."""
     dags = tmp_path / "dags"
     dags.mkdir()
-    (dags / "loci.nvim.check.yaml").write_text((fixtures / "steps-list.yaml").read_text())
+    (dags / "loci.nvim.check.yaml").write_text(
+        (fixtures / "steps-list.yaml").read_text()
+    )
 
     result = dagu.enqueue(dags, "loci.nvim.check")
 
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_dagu_maps_a_dot_to_an_underscore_in_the_log_directory(dagu, fixtures, tmp_path):
+def test_dagu_maps_a_dot_to_an_underscore_in_the_log_directory(
+    dagu, fixtures, tmp_path
+):
     """**The measurement that constrained the codec, and it is not obvious.**
 
     Dagu does not use the DAG name verbatim for `log_dir`: it rewrites `.` as
