@@ -1,0 +1,12 @@
+# BOUNDED. `type: chain` is the field that serialises stack-validate's children
+# — the queue never did (S-8).
+type: chain
+params:
+  - DEVMAN_SELF_DIR: /tmp
+steps:
+  - name: a
+    action: dag.run
+    with: {dag: child, params: "DEVMAN_PROJECT_DIR=/tmp"}
+  - name: b
+    action: dag.run
+    with: {dag: child, params: "DEVMAN_PROJECT_DIR=/tmp"}

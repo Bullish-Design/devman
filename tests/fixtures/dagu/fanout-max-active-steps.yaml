@@ -1,0 +1,11 @@
+# BOUNDED. The author said 4, and §15.7 forbids devman deciding 4 is too many.
+max_active_steps: 4
+params:
+  - DEVMAN_SELF_DIR: /tmp
+steps:
+  - name: a
+    action: dag.run
+    with: {dag: child}
+  - name: b
+    action: dag.run
+    with: {dag: child}

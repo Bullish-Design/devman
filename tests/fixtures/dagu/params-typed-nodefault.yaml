@@ -1,0 +1,8 @@
+# A definition without a default declares the parameter EMPTY, which
+# run.resolve() refuses to enqueue (§8).
+params:
+  - name: A
+    type: string
+steps:
+  - name: s
+    run: echo hi

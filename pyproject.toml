@@ -42,9 +42,23 @@ ignore = ["E501"] # line length is the formatter's job
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
+# The test layer (`tests/README.md`, `STAGE_7_LOG.md` S-11).
+#
+# `pythonpath` and not an editable install: nothing installs this package with
+# pip (the note at the top of this file), and both places that run the suite —
+# `devenv tasks run base:unit` and `flake.nix`'s `python-tests` check — hand
+# pytest a nixpkgs interpreter that holds pytest and pyyaml and nothing of
+# devman's. `src` is what makes `import devman` resolve; `tests` is what makes
+# `from helpers import ...` resolve without a package.
+#
+# `testpaths` so that a bare `pytest` in this repository collects `tests/` and
+# never `.scratch/`, which holds NixOS test bodies whose globals a driver
+# injects.
 [tool.pytest.ini_options]
 addopts = "-v"
 python_files = ["test_*.py", "*_test.py"]
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]
 markers = [
   "unit: fast, isolated tests",
   "integration: integration or external dependency coverage",

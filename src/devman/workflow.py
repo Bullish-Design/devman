@@ -234,7 +234,7 @@ class Workflow:
         return ["handler_on"] if raw else []
 
     def queues(self) -> list[str]:
-        """Every queue this file names — the DAG's own, and any a step overrides.
+        """Every queue this file names — the DAG's own, and any child it enqueues.
 
         Dagu accepts a queue name the machine does not declare **silently**, and
         the throttle it applies is not the one §15.4 recorded: the name becomes a
@@ -243,14 +243,32 @@ class Workflow:
         serialises one — a misspelt `light` runs one at a time instead of four,
         beside anything else carrying the same misspelling. Either way nothing
         says so at run time, which is why `doctor` checks every name.
+
+        **THERE IS NO STEP-LEVEL `queue:` ON THE PIN, AND THIS READ ONE UNTIL
+        S-11.** Dagu 2.15.0 refuses the key outright — "'spec.step' has invalid
+        keys: queue" — so a file spelling it that way never runs at all, and it
+        is §10 check 1's finding rather than check 2's. The one place a step can
+        name a queue is `with.queue`, and Dagu accepts it on `dag.enqueue`
+        alone:
+
+            dag.enqueue + with.queue   accepted
+            dag.run     + with.queue   refused — "dag.run does not support
+                                       with.queue"
+
+        That refusal is S-8's own finding, stated by the validator: a `dag.run`
+        child is executed in place and never reaches a queue, so it cannot name
+        one. `dag.enqueue` is the path that does admit through the queue, so its
+        name is the one `doctor` check 2 must see — and the name it saw before
+        S-11 was one Dagu would have rejected.
         """
         doc = self.doc or {}
         names = []
         if isinstance(doc.get("queue"), str):
             names.append(doc["queue"])
         for step in self.steps():
-            if isinstance(step.get("queue"), str):
-                names.append(step["queue"])
+            args = step.get("with")
+            if isinstance(args, dict) and isinstance(args.get("queue"), str):
+                names.append(args["queue"])
         return names
 
 

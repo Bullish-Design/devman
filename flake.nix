@@ -72,6 +72,49 @@
             [ "$fail" = 0 ]
             touch $out
           '';
+
+          # The Python test layer (`tests/README.md`, `STAGE_7_LOG.md` S-11).
+          #
+          # WHY A CHECK AND NOT ONLY A DEVENV TASK. `base:test` is `nix flake
+          # check`, so anything that must run before a change lands has to be
+          # here. `devenv tasks run base:unit` runs the same suite in about a
+          # second for the developer; this one runs it hermetically, with the
+          # pinned Dagu, on a machine that has never entered this shell.
+          #
+          # THE SUITE MUST NOT SEE THE INSTALLED PLANE, and the sandbox is what
+          # guarantees it rather than a rule the tests are asked to keep:
+          # `~/.local/share/devman` is not in the closure, and no Dagu service
+          # is running. Every test builds its own registry under `tmp_path`.
+          #
+          # `dagu` on `nativeBuildInputs` is what makes the conformance layer
+          # measure rather than skip — the same shape as `groups-validate`
+          # above, and the same `HOME`/`DAGU_HOME` discipline, because `dagu`
+          # seeds five example DAGs into an unset home on first use (S2).
+          #
+          # The source is copied out of the store because pytest writes
+          # `__pycache__` and `.pytest_cache` beside the files it collects, and
+          # a store path is read-only.
+          python-tests =
+            let
+              python = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ]);
+              source = nixpkgs.lib.fileset.toSource {
+                root = ./.;
+                fileset = nixpkgs.lib.fileset.unions [ ./src ./tests ./pyproject.toml ];
+              };
+            in
+            pkgs.runCommand "devman-python-tests"
+              {
+                nativeBuildInputs = [ python (pkgs.callPackage ./nix/dagu.nix { }) ];
+              } ''
+              export HOME=$TMPDIR
+              export DAGU_HOME=$TMPDIR/dagu
+              mkdir -p "$DAGU_HOME"
+              cp -r ${source} ./suite
+              chmod -R u+w ./suite
+              cd ./suite
+              pytest
+              touch $out
+            '';
         }
         // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           # The machine module, run rather than evaluated (§9, rule 7). One VM,

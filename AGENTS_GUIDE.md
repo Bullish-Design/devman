@@ -40,6 +40,7 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `modules/devenv.nix` | the **repo** interface — three options, the `enterShell` guard, §7.3 resolution at evaluation time, and the projection script |
 | `groups/` | workflow **content**, one directory per group. `groups/README.md` is the mechanism and the index; each group's own README says what taking it costs |
 | `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `registry`, `workflow` |
+| `tests/` | the Python test layer. `tests/README.md` says what it protects and what it refuses to test |
 | `.devman/workflows/` | this repository's own workflows. `.devman/workflows/README.md` documents them |
 | `.scratch/projects/006-automation-plane/` | the charter and stage logs 1–6 |
 | `.scratch/projects/007-standard-workflows/` | the standard-set proposal, plan, open questions and stage log 7 |
@@ -167,8 +168,10 @@ itself. They come from the groups it takes; see `devenv.nix` and
 |---|---|
 | lint | `devenv tasks run -v base:check` |
 | the suite | `devenv tasks run -v base:test` |
+| the Python tests, fast | `devenv tasks run -v base:unit` |
 | format | `devenv tasks run -v format:fmt` |
 | validate every shipped workflow | `nix build .#checks.x86_64-linux.groups-validate` |
+| the Python tests, hermetically | `nix build .#checks.x86_64-linux.python-tests` |
 | the machine module, in a VM | `nix build .#checks.x86_64-linux.dagu-service` |
 | the plane's health | `devman doctor` |
 | re-project after editing a group file or an override | `devenv shell -- true` |

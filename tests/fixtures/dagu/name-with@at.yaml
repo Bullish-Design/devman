@@ -1,0 +1,6 @@
+# REFUSED — "name must only contain alphanumeric characters, dashes, dots, and
+# underscores". The other half of the sentence above: `@` is not available to
+# the identity codec.
+steps:
+  - name: s
+    run: echo hi

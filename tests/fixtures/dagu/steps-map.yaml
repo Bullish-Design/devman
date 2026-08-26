@@ -1,0 +1,5 @@
+# REFUSED by `dagu validate`, RUN by `dagu dry` (S-8). devman follows the
+# validator, so Workflow.steps() reads nothing here.
+steps:
+  a:
+    run: echo a
