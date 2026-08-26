@@ -5170,4 +5170,154 @@ it; the rollout is that block arriving on 53 repositories.
 
 **This corrects S-12's rule 7 table**, which recorded the plane as left pre-codec
 with the rebuild required and not run. Both are done. The remaining work is nine
-repositories and a `git checkout -b` in each.
+repositories and a branch in each — **taken up, and mostly finished, in S-12b.**
+The `-b` this sentence originally called for turned out to be unnecessary: the
+branches already existed and already pointed at the held commit.
+
+---
+
+## S-12b — Seven of the nine, and the check that should have preceded the rollout
+
+**Answer: 161 of 167. Seven of the nine held repositories migrated, committed
+and pushed. `gitman` and `pyjutsu` remain, and they are the only two whose hold
+S-12a's reasoning actually covers.**
+
+This finishes S-12a. It also narrows S-12a's own finding, which was stated one
+measurement too early.
+
+### Versions
+
+devman **0.3.0** at `50c4c2e`, the switched closure. Dagu **2.15.0**. Date
+**2026-08-26**. Same `codec-rollout.sh`, unmodified.
+
+### The measurement S-12a did not take
+
+S-12a held nine repositories because a detached `HEAD` cannot carry a durable
+commit, and putting a repository on a branch "is a judgement about somebody
+else's working state and not this rollout's to make."
+
+The first half is correct. The second half was assumed, not measured. **Asking
+`git branch --contains HEAD` in each of the nine answers it:**
+
+| Repository | `HEAD` against its branch | Working tree |
+|---|---|---|
+| `argentic` `flora` `flora-qc` `image-gen-pipeline` `loci-core` `poddantic` `repoman` | **`== main`** | clean |
+| `gitman` | `== main` | **6 dirty files** |
+| `pyjutsu` | **1 commit behind `jj044-refactor`** | **3 dirty files** |
+
+For seven of them the judgement was empty. `main` already pointed at the exact
+commit the worktree held, so `git checkout main` moved no file, resolved no
+merge and lost no work. There was no working state to have an opinion about.
+
+**So the pre-flight check a fleet change needs is not "is `HEAD` detached".** It
+is: *is `HEAD` detached **and** not already at a branch tip.* The first question
+held 17% of the fleet. The second holds 4%, and those two for reasons that are
+visible in one line each.
+
+This is the same shape as I-1's `loci.nvim`, which S-12a had in front of it —
+detached at exactly `main` and `origin/main`, so the checkout lost nothing, and
+checked **before** the checkout, not after. S-12a did not connect the two.
+
+### The script's guard is still right
+
+`codec-rollout.sh`'s `HOLD` branch was left exactly as written. It refuses a
+detached `HEAD` and reports it, and it should: the checkout is the operator's
+call and the comment above it explains why the commit cannot be skipped. The
+correction belongs in front of the script, not inside it. Seven checkouts ran
+first, each guarded on `HEAD == main` **and** a clean tree, then the unmodified
+script ran over the seven.
+
+### Evidence
+
+```
+$ bash codec-rollout.sh flora flora-qc
+OK    flora — f20a9c1 -> 50c4c2e, 3 links, 6 old left, pushed main
+OK    flora-qc — f20a9c1 -> 50c4c2e, 3 links, 0 old left, pushed main
+
+$ bash codec-rollout.sh argentic image-gen-pipeline loci-core poddantic repoman
+OK    argentic — f20a9c1 -> 50c4c2e, 3 links, 0 old left, pushed main
+OK    image-gen-pipeline — f20a9c1 -> 50c4c2e, 3 links, 0 old left, pushed main
+OK    loci-core — f20a9c1 -> 50c4c2e, 3 links, 0 old left, pushed main
+OK    poddantic — 70c8e2f -> 50c4c2e, 3 links, 0 old left, pushed main
+OK    repoman — f20a9c1 -> 50c4c2e, 3 links, 0 old left, pushed main
+```
+
+Counted by reading every link's target and comparing it with the link's own
+name, which is the only count that cannot be fooled by a prefix:
+
+```
+codec-shaped: 161
+pre-codec:      6
+total:        167
+  gitman:  gitman-check.yaml, gitman-maintain.yaml, gitman-test.yaml
+  pyjutsu: pyjutsu-check.yaml, pyjutsu-maintain.yaml, pyjutsu-test.yaml
+```
+
+`devman doctor`, exit 0, **Nothing to report**:
+
+```
+ok  projection   161 of 167 DAG names each point at their own project's file
+                 6 still project under the pre-codec name, in 2 repositories: gitman, pyjutsu
+```
+
+### `flora.check`, live
+
+The name the codec exists to protect, run end to end on a migrated repository:
+
+```
+$ devman run check                     # in ~/Documents/Projects/flora
+Enqueued dag-run dag=flora.check run-id=034DrXHp33tsRJWitnTCVM
+
+$ tail -1 .devman/.runs/metadata.jsonl
+{"dag":"flora.check", … "status":"succeeded",
+ "log":"…/.runs/logs/flora_check/dag-run_20260826_131800Z_034DrXHp…/…log"}
+```
+
+`flora`, `flora-core` and `flora-qc` are now all on the codec, three distinct
+names, no longer split across two shapes.
+
+### THE ROLLOUT SCRIPT COUNTS LINKS WITH THE PRE-CODEC SEPARATOR
+
+`flora` reported "6 old left" and its dry run reported "9 old-shape links". Both
+are wrong, and the way they are wrong is worth the entry.
+
+The script counts with `grep -c "^$proj-"`. For `proj=flora` that matches
+`flora-core.check.yaml` and `flora-qc.check.yaml` — **two other projects,
+already migrated or migrating, whose names extend this one's.** Of the 9 it
+reported, 3 were flora's. Of the 6 "left", 0 were.
+
+**The tool that rolled out the codec measures with the ambiguity the codec
+removes.** It is cosmetic — the counter never gates anything, and `after=0` is
+the only count the script acts on — so the script is left alone and the defect
+is recorded here. It is also the cleanest demonstration in the log of why
+`<project>-<workflow>` had to go: the separator is not injective, and a person
+who knew that wrote this line anyway.
+
+### The two that remain
+
+`gitman` — `HEAD` at `main`, six uncommitted files. The checkout is free; the
+six files are somebody's work in progress and the migration commit would land
+beside them.
+
+`pyjutsu` — on `jj044-refactor`, one commit behind its tip, three uncommitted
+files. A checkout here **changes files in the working tree**. This is the one
+repository of the nine where S-12a's sentence about somebody else's working
+state is literally true.
+
+Both keep their old pin, keep working through `unmigrated()`, and are named by
+`doctor` and by `devman run`. Neither needs a decision from the plane.
+
+### Charter impact
+
+**None.** §9.2 is unchanged.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| 7 repositories | `git checkout main` — a no-op move, guarded on `HEAD == main` and a clean tree | on `main`, no file changed |
+| 7 repositories | `devenv.yaml` pin bump, one commit each | committed and **pushed to `main`** |
+| the registry | 161 of 167 links on the codec | 6 pre-codec, in `gitman` and `pyjutsu` |
+| `flora` | one `check` run under `flora.check` | succeeded, logged to `logs/flora_check/` |
+| 2 repositories | **untouched** | detached `HEAD`, dirty tree, old pin, on the fallback |
+| `codec-rollout.sh` | **unmodified** | its `HOLD` guard is correct as written |
