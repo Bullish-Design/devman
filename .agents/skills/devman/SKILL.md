@@ -102,7 +102,7 @@ rest is what `doctor` reports.
 ```bash
 tail -3 .devman/.runs/metadata.jsonl          # dag, run id, status, log path
 ls -t .devman/.runs/reports/ | head           # what a run left for a person
-ls .devman/.runs/logs/<project>-<workflow>/   # each step's own output
+ls .devman/.runs/logs/<project>_<workflow>/   # each step's own output
 ```
 
 **Read the `.err` file, not the `.out` file, when a run fails.** On devenv 2.1.2
@@ -132,7 +132,7 @@ watcher last fired.
 | `no project named 'X'` | never registered, or renamed | enter that repository's shell once |
 | `is not inside a registered repository` | outside every registered path | enter the shell, or pass `--project` |
 | `refusing to resolve 'X' from this directory` | a worktree or submodule **inside** a registered checkout | give it a distinct `devman.project`, or pass `--project` |
-| `the DAG named X points at …` | two projects render the same flat `<project>-<workflow>` | rename one, re-enter both shells |
+| `the DAG named X points at …` | two projects claim one DAG name | enter the repository's shell to re-project it |
 | `these declared parameters have no value` | an empty default | give it a real default, or pass `NAME=VALUE` |
 | `no such task` from devenv | a group's task name is not defined | define it, or drop the group |
 | `× Invalid task name: check` | devenv requires `namespace:name` | write `<group>:<name>` |

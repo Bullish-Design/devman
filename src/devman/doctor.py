@@ -46,7 +46,7 @@ from pathlib import Path
 import yaml
 
 from . import watch
-from .registry import Registry
+from .registry import Registry, dag_name_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
 
@@ -454,30 +454,84 @@ def check_projection(rep: Report, reg: Registry) -> None:
     takes the first one's link.
 
     It costs one `readlink` per projected workflow and needs no running daemon.
+
+    **Since S-12 it separates two answers that used to look identical.** A
+    missing link is not a collision when the codec has changed underneath the
+    machine: the repository simply has not been entered since, so it still
+    projects under `<project>-<workflow>`. That is a migration note and a fix a
+    developer can run, not a wrong-file hazard — and reporting it as `!!` would
+    have made every repository on the machine a fault for as long as the
+    migration took.
     """
-    lines = []
+    bad, unmigrated = [], []
     for proj, name, _path in reg.projected_files():
         fault = reg.dag_link_fault(proj, name)
-        if fault:
-            lines.append(f"{proj.name}-{name}: the DAG of that name points at {fault}")
-    if lines:
+        if not fault:
+            continue
+        if reg.unmigrated(proj, name):
+            unmigrated.append(f"{proj.name}/{name}")
+        else:
+            dag = reg.dag_name(proj, name)
+            bad.append(f"{dag}: the DAG of that name points at {fault}")
+    if bad:
         rep.add(
             "projection",
             "!!",
-            lines
+            bad
             + [
                 "a trigger enqueues by name, so these run the wrong file and"
-                " report success — rename one project or one workflow (§9.2)"
+                " report success — enter the repository's shell to re-project"
+                " it (§9.2)"
             ],
         )
-    else:
+        return
+    total = len(reg.projected_files())
+    if unmigrated:
+        projects = sorted({line.split("/")[0] for line in unmigrated})
         rep.add(
             "projection",
             "ok",
             [
-                f"{len(reg.projected_files())} DAG names each point at their own"
-                " project's file"
+                f"{total - len(unmigrated)} of {total} DAG names each point at"
+                " their own project's file",
+                f"{len(unmigrated)} still project under the pre-codec name, in"
+                f" {len(projects)} repositories: {', '.join(projects)}",
+                "each migrates itself the next time its shell is entered"
+                " (§9.2, S-12) — `devman run` says so and falls back until then",
             ],
+        )
+        return
+    rep.add(
+        "projection",
+        "ok",
+        [f"{total} DAG names each point at their own project's file"],
+    )
+
+
+def check_dag_names(rep: Report, reg: Registry) -> None:
+    """A workflow name the codec cannot render (§9.2, S-12).
+
+    A dot in the workflow half makes the last dot of `<project>.<workflow>`
+    ambiguous, so the name stops being injective — which is the one property the
+    codec exists to provide. The devenv module refuses such a name at evaluation
+    time for a group and at shell entry for a local override, so this catches
+    only a projection written before the codec landed.
+
+    **This is set membership, not a heuristic, so §15.7 does not reach it.** It
+    reads one character in a name the registry already holds.
+    """
+    bad = []
+    for proj, name, _path in reg.projected_files():
+        fault = dag_name_fault(name)
+        if fault:
+            bad.append(f"{proj.name}/{name}: {fault.splitlines()[0]}")
+    if bad:
+        rep.add("dag names", "!!", bad)
+    else:
+        rep.add(
+            "dag names",
+            "ok",
+            [f"{len(reg.projected_files())} workflow names render one DAG name each"],
         )
 
 
@@ -875,6 +929,7 @@ def main(args, reg: Registry) -> int:
     check_stale(rep, reg, args.prune)
     check_ageing(rep, reg, dagu_home)
     check_projection(rep, reg)
+    check_dag_names(rep, reg)
     check_handlers(rep, reg)
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)

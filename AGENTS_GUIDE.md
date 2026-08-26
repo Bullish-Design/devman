@@ -99,11 +99,11 @@ passes 30 s the answer is a `--project` scope, not a heavier queue.
 ├── projects/<project>/metadata.json          # schema 3: identity, path, groups,
 │   │                                         # local, workflows, triggers, plan
 │   └── workflows/<workflow>.yaml             # the GENERATED projection
-└── dags/<project>-<workflow>.yaml -> ../projects/<project>/workflows/<workflow>.yaml
+└── dags/<project>.<workflow>.yaml -> ../projects/<project>/workflows/<workflow>.yaml
 ```
 
 - `dags/` is Dagu's flat view; `projects/` is devman's.
-- A DAG is keyed by its file's base name, so `<project>-<workflow>` is what
+- A DAG is keyed by its file's base name, so `<project>.<workflow>` is what
   `dagu ls`, the scheduler and `dagu enqueue` all agree on.
 - **`<project>-<workflow>` is not injective.** `devman-b` + `check` and `devman`
   + `b-check` render the same name. `registry.dag_link_fault` is what catches it.
@@ -191,7 +191,7 @@ The plane's Dagu home is `~/.local/share/dagu`. `devman run` states
 ```bash
 export DAGU_HOME=~/.local/share/dagu
 dagu ls
-dagu status <project>-<workflow>
+dagu status <project>.<workflow>
 systemctl --user status dagu devman-watch
 ```
 

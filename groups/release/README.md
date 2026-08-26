@@ -81,12 +81,22 @@ different workflow's success as this one's (`STAGE_4_LOG.md`, S5).
 measured** (`STAGE_7_LOG.md`, S-6). It needed measuring because `-test` is a
 suffix of `full-test`, a workflow name that existed until that stage. It does not
 match, and the anchor is the reason: `grep -F` looks for the whole string
-`"dag":"<project>-test"`, and in `"dag":"<project>-full-test"` the character
-after `<project>-` is `f`.
+`"dag":"<project>.test"` with the closing quote, and `"dag":"<project>.full-test"`
+does not contain it — the character after `test` is `-`, not `"`.
 
 A project whose own name ends in `-test` is safe for the same reason:
-`foo-test-release` strips to `foo-test`, and the gate then wants
-`foo-test-test`, which is that project's own test DAG.
+`foo-test.release` strips to `foo-test`, and the gate then wants
+`foo-test.test`, which is that project's own test DAG.
+
+**S-12's codec is what made the split total.** It used to be `${me%-*}` — strip
+the last hyphenated component — which was correct only because `release` holds no
+hyphen, and the file said so. The separator is now a dot and a workflow name may
+not hold one (§9.2), so `${me%.*}` is the project for every workflow name.
+
+**The first release after the codec lands is refused, once.** `metadata.jsonl`
+holds this project's older lines under the pre-codec name, so the gate finds no
+`<project>.test` line and says `NONE RECORDED`. `devman run test` clears it. That
+is the same loud refusal a repository that renames `test` already gets.
 
 **A repository that renames `test` finds no line and is refused**, which is
 correct and loud.

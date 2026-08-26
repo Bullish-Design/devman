@@ -336,7 +336,7 @@ Machine side:
 ```
 ~/.local/share/devman/projects/<project>/metadata.json
 ~/.local/share/devman/projects/<project>/workflows/<workflow>.yaml   (generated)
-~/.local/share/devman/dags/<project>-<workflow>.yaml -> the line above
+~/.local/share/devman/dags/<project>.<workflow>.yaml -> the line above
 ```
 
 **`.devman/` belongs to the repository.** devman reserves `workflows/` and
@@ -361,7 +361,7 @@ makes `devman doctor --prune` safe.
 | `ModuleNotFoundError` for the project's own package | the venv's editable install, or a shadowing `PYTHONPATH` | `env -u PYTHONPATH uv run …`, or fix the venv |
 | the shell entry says nothing at all | **by design.** devenv runs the hook twice, and the firing that performs the write has its output discarded. There is no `devman: registered` line and there cannot be one | `devman show` to confirm |
 | `refusing to resolve 'X' from this directory` | a git worktree or submodule **inside** a registered checkout. It never registers, so a run typed there would target the outer project | give it a distinct `devman.project`, or pass `--project` |
-| two projects claim one DAG name | `<project>-<workflow>` is not injective: `devman-b` + `check` and `devman` + `b-check` collide | rename one project or one workflow, then re-enter both shells |
+| two projects claim one DAG name | was possible before S-12: `<project>-<workflow>` was not injective, and `devman-b` + `check` collided with `devman` + `b-check` | enter the repository's shell to re-project it under `<project>.<workflow>` |
 | a registry entry for a repository that is gone | a deleted checkout. It does not expire on its own | `devman doctor --prune`; it restores itself if the checkout returns |
 
 ---

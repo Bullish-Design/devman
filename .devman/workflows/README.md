@@ -117,7 +117,7 @@ DEVMAN_PROJECT_DIR="$dir" \
   dagu enqueue observantic-check -- DEVMAN_PROJECT_DIR="$dir"
 ```
 
-The DAG's name is `<project>-<workflow>`, which is what `dagu ls`, the scheduler
+The DAG's name is `<project>.<workflow>`, which is what `dagu ls`, the scheduler
 and `enqueue` all agree on (S1).
 
 ### A cross-repository workflow

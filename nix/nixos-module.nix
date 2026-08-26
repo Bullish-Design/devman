@@ -65,7 +65,7 @@ let
     #     `<project>/workflows/<file>` while `dagu ls` prints `<file>`. One DAG
     #     with two names is a trap.
     #
-    # `dags/<project>-<workflow>.yaml` gives one machine-unique name that `ls`,
+    # `dags/<project>.<workflow>.yaml` gives one machine-unique name that `ls`,
     # the scheduler and `enqueue` all agree on. It links to the per-project
     # projection under `projects/`, which stays exactly as §9.2 describes it.
     paths.dags_dir = "${registryToken}/dags";

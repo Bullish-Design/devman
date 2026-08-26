@@ -159,7 +159,7 @@ Every refusal names the file and the field. See §8.
 ```bash
 tail -3 .devman/.runs/metadata.jsonl              # dag, run id, status, log path
 ls -t .devman/.runs/reports/ | head               # what a run left for you
-ls .devman/.runs/logs/<project>-<workflow>/       # each step's own output
+ls .devman/.runs/logs/<project>_<workflow>/       # each step's own output
 ```
 
 **Read the `.err` file, not the `.out` file, when a run fails.** On devenv 2.1.2
@@ -455,7 +455,7 @@ time that repository's shell is entered.
 | `no project named 'X'` | never registered, or renamed | enter that repository's shell once |
 | `is not inside a registered repository` | you are outside every registered path | enter the shell, or pass `--project` |
 | `refusing to resolve 'X' from this directory` | you are in a checkout **inside** a registered one — a linked worktree or a submodule | give it a distinct `devman.project` and enter its shell, or pass `--project` |
-| `the DAG named X points at …` | two projects render the same flat `<project>-<workflow>` name | rename one project or one workflow, then re-enter both shells |
+| `the DAG named X points at …` | two projects claim one DAG name | enter the repository's shell to re-project it (§9.2) |
 | `these declared parameters have no value` | a parameter with an empty default | give it a real default, or pass `NAME=VALUE` |
 | `DEVMAN_PROJECT_DIR would be empty` | the directory variable would not resolve | the registered path is gone — `devman doctor --prune` |
 | `it triggers other workflows and defines DEVMAN_PROJECT_DIR for itself` | §5.4's rule | use `DEVMAN_SELF_DIR` and `with.params` |

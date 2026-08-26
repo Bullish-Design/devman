@@ -8,11 +8,13 @@ pruned entry restores itself the next time that repository's shell is entered.
     ~/.local/share/devman/
     ├── projects/<project>/metadata.json               # identity and path
     │   └── workflows/<workflow>.yaml   -> the winner of §7.3's resolution
-    └── dags/<project>-<workflow>.yaml  -> the line above
+    └── dags/<project>.<workflow>.yaml  -> the line above
 
 `dags/` is Dagu's flat view; `projects/` is devman's. A DAG is keyed by its
-file's base name, so the flat name `<project>-<workflow>` is what `dagu ls`, the
-scheduler and `dagu enqueue` all agree on (`STAGE_1_LOG.md`, S1).
+file's base name, so the flat name is what `dagu ls`, the scheduler and `dagu
+enqueue` all agree on (`STAGE_1_LOG.md`, S1). `dag_name()` below is the codec
+that renders it, and the separator is a dot because `<project>-<workflow>` was
+not injective (S-12).
 
 **Nothing here walks the disk looking for repositories.** §15.1 forbids it.
 Reading devman's own registry is not scanning.
@@ -37,9 +39,72 @@ DEFAULT_REGISTRY = "~/.local/share/devman"
 # module wraps this CLI with `--dagu-home` when a machine moves it.
 DEFAULT_DAGU_HOME = "~/.local/share/dagu"
 
+# THE DAG IDENTITY CODEC (§9.2, S-12).
+#
+# A DAG name is machine-global, and `<project>-<workflow>` did not make it
+# unique: `devman-b` + `check` and `devman` + `b-check` render one name, so the
+# second projection took the first's link and Dagu ran ONE file under a name two
+# projects believed was theirs (`STAGE_5_LOG.md`, S6). Measured on this machine
+# at 53 projects: no collision, and six one workflow name away — `flora` needs
+# only a workflow called `core-check` to take `flora-core`'s DAG.
+#
+# The separator is a dot, and the character set is measured rather than chosen:
+# Dagu 2.15.0 allows alphanumerics, dashes, dots and underscores in a name and
+# refuses everything else (S-11). Of those, `-` and `_` are both already in use
+# INSIDE project names on this machine, and a dot is not — one project,
+# `loci.nvim`, carries a dot, and no workflow name carries one at all.
+#
+# So the codec joins with a dot and REFUSES a dot in the workflow half. That is
+# what makes it injective, in one sentence: the last dot is always the
+# separator, so `rsplit` recovers the pair. A project name may hold as many dots
+# as it likes, which is what keeps `loci.nvim` spelled the way its author
+# spells it.
+DAG_SEPARATOR = "."
+
+# The pre-S-12 shape, kept for one release so that a repository which has not
+# been re-entered since the codec changed still triggers. `doctor` names every
+# one of them, and `run` says so on stderr before it falls back. Delete both
+# when `doctor` reports no unmigrated workflow on any machine that matters.
+LEGACY_DAG_SEPARATOR = "-"
+
 
 class RegistryError(Exception):
     """A refusal the developer must see. The CLI prints it and exits 1."""
+
+
+def dag_name_fault(workflow: str) -> str | None:
+    """Why this workflow name cannot go through the codec, or `None`.
+
+    **The one refusal the codec needs.** A dot in the workflow half would make
+    the last dot ambiguous and the name no longer injective — the whole property
+    the codec exists to provide. A dot in the PROJECT half is fine and stays
+    fine, because the split reads from the right.
+
+    It costs nothing today: no workflow name on this machine holds a dot, and a
+    workflow name is a file's base name in `groups/<g>/workflows/` or
+    `.devman/workflows/`, so a group author learns at evaluation time rather
+    than at run time.
+    """
+    if DAG_SEPARATOR in workflow:
+        return (
+            f"'{workflow}' cannot be a workflow name — it holds a"
+            f" '{DAG_SEPARATOR}'\n"
+            f"  a DAG name is <project>{DAG_SEPARATOR}<workflow>, and the last"
+            f" '{DAG_SEPARATOR}' is the separator (§9.2)\n"
+            "  rename the file; a project name may hold dots, a workflow name"
+            " may not"
+        )
+    return None
+
+
+def split_dag_name(name: str) -> tuple[str, str]:
+    """The `(project, workflow)` a DAG name was built from.
+
+    The inverse of `Registry.dag_name()`, and the reason the codec is worth
+    calling one: reading the pair back needs no registry lookup.
+    """
+    project, _, workflow = name.rpartition(DAG_SEPARATOR)
+    return project, workflow
 
 
 @dataclass
@@ -200,34 +265,64 @@ class Registry:
         return path
 
     def dag_name(self, project: Project, workflow: str) -> str:
-        """The machine-global DAG name. See `STAGE_1_LOG.md` S1."""
-        return f"{project.name}-{workflow}"
+        """The machine-global DAG name (`STAGE_1_LOG.md` S1, S-12's codec).
+
+        **Injective, and that is the whole point.** The last `DAG_SEPARATOR` is
+        always the separator, so no two `(project, workflow)` pairs can render
+        one name — `dag_name_fault()` is what keeps the workflow half free of
+        one, and the module refuses it at evaluation time as well.
+
+        `<project>-<workflow>` was not injective, and the failure it allowed was
+        silent: Dagu ran one file under a name two projects believed was theirs
+        (S6).
+        """
+        return f"{project.name}{DAG_SEPARATOR}{workflow}"
+
+    def legacy_dag_name(self, project: Project, workflow: str) -> str:
+        """The pre-S-12 name. Migration only — see `LEGACY_DAG_SEPARATOR`."""
+        return f"{project.name}{LEGACY_DAG_SEPARATOR}{workflow}"
 
     def dag_link_fault(self, project: Project, workflow: str) -> str | None:
-        """What `dags/<project>-<workflow>.yaml` points at, when it is not this
+        """What `dags/<project>.<workflow>.yaml` points at, when it is not this
         project's own file — and `None` when it is.
 
-        **A DAG name is machine-global and `<project>-<workflow>` is not
-        injective.** `devman-b` + `check` and `devman` + `b-check` render the
-        same flat name, so the second projection overwrites the first's link and
-        Dagu runs **one** file under a name two projects believe is theirs.
-        Measured: `devman run check --project devman-b` executed devman's
-        `b-check.yaml`, in devman-b's directory, and reported success, while
-        `devman show` printed the file that did not run (`STAGE_5_LOG.md`, S6).
+        The link target is the answer: it is what the projection wrote, so
+        comparing against it needs no second source. §9.2 already used the same
+        rule in `unproject`, which refuses to remove a link pointing elsewhere.
 
-        §9.2 half-anticipated this — `unproject` already refuses to remove a
-        link that points somewhere else, because "`<project>-<workflow>` is
-        ambiguous when one project name is a prefix of another, and the link
-        target is not". The link target is the answer here too: it is what the
-        projection wrote, so comparing against it needs no second source.
+        A link that is simply absent because this project has not been
+        re-projected since the codec changed is `unmigrated()`'s business, not a
+        collision.
         """
-        link = self.dags_dir / f"{self.dag_name(project, workflow)}.yaml"
+        return self._link_fault(self.dag_name(project, workflow), project, workflow)
+
+    def _link_fault(self, dag: str, project: Project, workflow: str) -> str | None:
+        link = self.dags_dir / f"{dag}.yaml"
         want = f"../projects/{project.name}/workflows/{workflow}.yaml"
         try:
             got = os.readlink(link)
         except OSError:
             return "nothing — there is no dags/ link, so Dagu cannot run it by name"
         return None if got == want else got
+
+    def unmigrated(self, project: Project, workflow: str) -> bool:
+        """True when this workflow still projects only under the pre-S-12 name.
+
+        **This is what stops the codec being a flag day.** The projection runs
+        on shell entry, one repository at a time, so the machine holds both
+        shapes until every repository has been entered again. Without this the
+        codec would refuse every trigger in 52 of 53 repositories the moment it
+        landed — the new link does not exist yet, and "there is no dags/ link"
+        is indistinguishable from a collision.
+
+        It is deliberately narrow: the new link must be missing AND the old one
+        must point at this project's own file. A link pointing anywhere else is
+        still a fault, because that is the collision the codec exists to end.
+        """
+        if self.dag_link_fault(project, workflow) is None:
+            return False
+        legacy = self.legacy_dag_name(project, workflow)
+        return self._link_fault(legacy, project, workflow) is None
 
     def projected_files(self) -> list[tuple[Project, str, Path]]:
         """Every `(project, workflow, projected file)` in the registry."""
@@ -244,19 +339,25 @@ class Registry:
         """Remove one project's projection. `doctor --prune` only (§10 check 5).
 
         A `dags/` link is removed only when it still points at this project's
-        own file: `<project>-<workflow>` is ambiguous when one project name is a
-        prefix of another, and the link target is not. That is the same rule the
-        devenv module's projection script applies.
+        own file. The codec makes the name injective, so a link under the
+        current shape can only be this project's — but the rule stays, because
+        the **legacy** shape below is exactly the ambiguous one, and a prune that
+        removed another project's DAG would be the silent wrong-tree failure
+        this design refuses everywhere else. That is the same rule the devenv
+        module's projection script applies.
+
+        Both shapes are removed while the machine holds both (S-12).
         """
         removed: list[Path] = []
         entry = project.entry or self.projects_dir / project.name
         wdir = entry / "workflows"
         for f in sorted(wdir.glob("*.yaml")) if wdir.is_dir() else []:
-            link = self.dags_dir / f"{project.name}-{f.stem}.yaml"
             want = f"../projects/{project.name}/workflows/{f.stem}.yaml"
-            if link.is_symlink() and os.readlink(link) == want:
-                link.unlink()
-                removed.append(link)
+            for sep in (DAG_SEPARATOR, LEGACY_DAG_SEPARATOR):
+                link = self.dags_dir / f"{project.name}{sep}{f.stem}.yaml"
+                if link.is_symlink() and os.readlink(link) == want:
+                    link.unlink()
+                    removed.append(link)
             f.unlink()
             removed.append(f)
         _rmdir(wdir)

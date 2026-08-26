@@ -36,30 +36,45 @@
 # working tree, so every line in it is already this project's (§9.2). Running it
 # found the hole immediately: it matched `devman-stack-validate`, the cross-repo
 # workflow (§11), and reported a *different* workflow's success as this one's.
-# A DAG name is `<project>-<workflow>` and a workflow name may itself contain a
-# hyphen, so the name cannot be split from the right in general.
+# A DAG name was `<project>-<workflow>` and a workflow name may itself contain a
+# hyphen, so the name could not be split from the right in general.
 #
 # The fix uses what the run already knows about itself. `${context.dag.name}` is
-# this run's own `<project>-release`, so stripping its last hyphenated component
-# gives the project, and the wanted name is exact. It still holds no project
-# identity and no absolute path, so criterion 10 stays true.
+# this run's own DAG name, so stripping the workflow half gives the project, and
+# the wanted name is exact. It still holds no project identity and no absolute
+# path, so criterion 10 stays true.
 #
-# That derivation assumes this workflow's own file name contains no hyphen. It
-# is `release.yaml` in this group; a repository that shadows it under a hyphenated
-# name has to fix this line, which it is editing anyway (§7.3 is whole-file).
+# S-12'S CODEC IS WHAT MAKES THAT SPLIT TOTAL, AND THIS LINE IS WHY IT MATTERED.
+#
+# The split used to be `${me%-*}` — strip the last hyphenated component — and it
+# was correct only because `release` holds no hyphen. The comment said so: "that
+# derivation assumes this workflow's own file name contains no hyphen", which is
+# an assumption a repository shadowing this file under a hyphenated name would
+# have broken silently.
+#
+# The separator is now a dot and a workflow name may not hold one (§9.2), so
+# `${me%.*}` is the project for EVERY workflow name, hyphens included. The
+# assumption is gone rather than documented.
+#
+# The migration costs one run. `metadata.jsonl` holds this project's older lines
+# under the pre-codec name, so the first `release` after the codec lands finds no
+# `<project>.test` line and refuses with `NONE RECORDED` — which is the same
+# loud refusal a repository that renames `test` already gets, and it clears the
+# moment `devman run test` records one line.
 #
 # STAGE 7 RENAMED THE TARGET FROM `validate` TO `test`, AND THE RENAME WAS
 # MEASURED RATHER THAN ASSUMED (STAGE_7_LOG.md, S-6). The reason it needed
 # measuring is that `-test` is a suffix of a workflow name that existed until
 # this stage — `full-test` — so `<project>-full-test` ends in the same three
 # characters the gate now wants. It does not match, and the reason is the
-# anchor: `grep -F` looks for the whole string `"dag":"<project>-test"`, and in
-# `"dag":"<project>-full-test"` the character after `<project>-` is `f`. The
-# same anchor is what stopped `devman-stack-validate` matching before it.
+# anchor: `grep -F` looks for the whole string `"dag":"<project>.test"`,
+# CLOSING QUOTE INCLUDED, so a longer name cannot contain it — the character
+# after `test` is `-`, not `"`. The same anchor is what stopped
+# `devman-stack-validate` matching before it.
 #
 # The project name is derived from THIS run's own DAG name, so a project whose
-# own name ends in `-test` is also safe: `foo-test-release` strips to `foo-test`
-# and the gate wants `foo-test-test`, which is that project's own test DAG.
+# own name ends in `-test` is also safe: `foo-test.release` strips to `foo-test`
+# and the gate wants `foo-test.test`, which is that project's own test DAG.
 #
 # WHAT THE POLICY CANNOT SAY, stated rather than faked. `metadata.jsonl` records
 # a run's dag, id, status and time, and no commit. So the gate can say "the last
@@ -110,11 +125,11 @@ steps:
       fi
 
       me="${context.dag.name}"
-      want="\"dag\":\"${me%-*}-test\""
+      want="\"dag\":\"${me%.*}.test\""
       last=$(grep -hF "$want" .devman/.runs/metadata.jsonl 2>/dev/null | tail -1)
       if [ -z "$last" ]; then
         refused=1
-        echo "- last test: **NONE RECORDED** for \`${me%-*}-test\` — refusing." \
+        echo "- last test: **NONE RECORDED** for \`${me%.*}.test\` — refusing." \
              "Run \`devman run test\` first" >> "$report"
       else
         case "$last" in

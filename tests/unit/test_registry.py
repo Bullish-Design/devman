@@ -11,7 +11,12 @@ import json
 import pytest
 from helpers import ORDINARY, mark_checkout
 
-from devman.registry import Registry, RegistryError
+from devman.registry import (
+    Registry,
+    RegistryError,
+    dag_name_fault,
+    split_dag_name,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -203,19 +208,80 @@ def test_a_missing_link_says_dagu_cannot_run_it_by_name(plane):
     assert "there is no dags/ link" in fault
 
 
-def test_the_flat_dag_name_is_not_injective(plane):
-    """`devman-b` + `check` and `devman` + `b-check` render one name.
+def test_the_dag_name_is_injective(plane):
+    """The pair that used to collide, and no longer does (S6, S-12).
+
+    `devman-b` + `check` and `devman` + `b-check` rendered ONE name under
+    `<project>-<workflow>`, so the second projection took the first's link and
+    Dagu ran one file under a name two projects believed was theirs.
 
     **Asserted through `dag_name()` and never against the string it returns
-    today.** The identity codec is the next session's, and this test is its
-    regression test: the collision is the fact, and the encoding that produces
-    it is not.
+    today.** This test was written in S-11 to survive the encoding change, and
+    it is the assertion that changed when the encoding did — the collision was
+    the fact, not the spelling.
     """
     devman = plane.add("devman", workflows={"b-check": ORDINARY})
     devman_b = plane.add("devman-b", workflows={"check": ORDINARY})
-    assert plane.reg.dag_name(devman, "b-check") == plane.reg.dag_name(
+    assert plane.reg.dag_name(devman, "b-check") != plane.reg.dag_name(
         devman_b, "check"
     )
+
+
+@pytest.mark.parametrize(
+    ("project", "workflow"),
+    [
+        ("devman", "b-check"),
+        ("devman-b", "check"),
+        ("loci.nvim", "check"),
+        ("templateer_v2", "test"),
+        ("flora", "core-check"),
+        ("flora-core", "check"),
+    ],
+)
+def test_a_dag_name_reads_back_as_the_pair_it_came_from(plane, project, workflow):
+    """Injective, demonstrated rather than asserted: the name decodes.
+
+    The last separator is always the separator, so `split_dag_name()` recovers
+    the pair with no registry lookup. `loci.nvim` is the measured case — one of
+    53 registered projects carries a dot, and the codec splits from the right so
+    that it keeps the spelling its author chose.
+    """
+    proj = plane.add(project, workflows={workflow: ORDINARY})
+    assert split_dag_name(plane.reg.dag_name(proj, workflow)) == (project, workflow)
+
+
+def test_no_two_live_pairs_render_one_name(plane):
+    """The property, over the shapes this machine actually holds."""
+    pairs = [
+        ("devman", "b-check"),
+        ("devman-b", "check"),
+        ("flora", "core-check"),
+        ("flora-core", "check"),
+        ("flora-qc", "check"),
+        ("loci.nvim", "check"),
+        ("templateer_v2", "test"),
+    ]
+    names = {
+        plane.reg.dag_name(plane.add(p, workflows={w: ORDINARY}), w) for p, w in pairs
+    }
+    assert len(names) == len(pairs)
+
+
+def test_a_workflow_name_holding_a_dot_is_refused(plane):
+    """The codec's one refusal. A dot in the workflow half would make the last
+    dot ambiguous, and the name no longer injective — the one property the codec
+    exists to provide."""
+    fault = dag_name_fault("release.tagged")
+    assert fault is not None
+    assert "cannot be a workflow name" in fault
+    assert "a project name may hold dots" in fault
+
+
+def test_a_project_name_holding_a_dot_is_fine(plane):
+    """`loci.nvim` is registered on this machine and spells itself that way."""
+    assert dag_name_fault("check") is None
+    proj = plane.add("loci.nvim", workflows={"check": ORDINARY})
+    assert plane.reg.dag_link_fault(proj, "check") is None
 
 
 def test_the_second_projection_takes_the_first_ones_link(plane):
@@ -255,18 +321,77 @@ def test_unproject_removes_this_projects_projection(plane):
 
 
 def test_unproject_leaves_a_link_that_points_somewhere_else(plane):
-    """`<project>-<workflow>` is ambiguous when one project name is a prefix of
-    another, and the link target is not. Removing a link this project does not
-    own would take the other project's DAG away with it."""
-    devman = plane.add("devman", workflows={"b-check": ORDINARY})
+    """The rule outlives the ambiguity it was written for.
+
+    The codec makes the current shape unambiguous, so this can only bite on the
+    **legacy** shape `unproject` still sweeps during the migration — where
+    `<project>-<workflow>` is ambiguous when one project name is a prefix of
+    another, and the link target is not. A prune that removed another project's
+    DAG would be the silent wrong-tree failure this design refuses everywhere.
+    """
+    devman = plane.add("devman", workflows={"b-check": ORDINARY}, legacy=True)
     devman_b = plane.add("devman-b", workflows={"check": ORDINARY})
-    plane.link("devman-b", "check", "../projects/devman/workflows/b-check.yaml")
     shared = plane.root / "dags" / "devman-b-check.yaml"
+    assert shared.is_symlink()
 
     plane.reg.unproject(devman_b)
 
     assert shared.is_symlink()
     assert plane.reg.workflow_file(devman, "b-check").exists()
+
+
+def test_unproject_sweeps_both_name_shapes(plane):
+    """A project mid-migration holds a link under each. Both are this project's
+    own, so both go (S-12)."""
+    proj = plane.add("p", workflows={"check": ORDINARY}, legacy=True)
+
+    plane.reg.unproject(proj)
+
+    assert not (plane.root / "dags" / "p.check.yaml").is_symlink()
+    assert not (plane.root / "dags" / "p-check.yaml").is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# the migration — the machine holds both shapes until every shell is entered
+
+
+def test_a_project_projected_before_the_codec_is_unmigrated_not_broken(plane):
+    """**This is what stops the codec being a flag day.** The projection runs on
+    shell entry, one repository at a time, so 52 of 53 repositories hold only
+    the old link the moment the codec lands. Without this, "there is no dags/
+    link" is indistinguishable from a collision and every trigger in all of them
+    refuses."""
+    proj = plane.add("p", workflows={"check": ORDINARY}, link=False, legacy=True)
+
+    assert plane.reg.dag_link_fault(proj, "check") is not None
+    assert plane.reg.unmigrated(proj, "check") is True
+
+
+def test_a_re_projected_workflow_is_not_unmigrated(plane):
+    proj = plane.add("p", workflows={"check": ORDINARY})
+    assert plane.reg.unmigrated(proj, "check") is False
+
+
+def test_a_workflow_with_no_link_at_all_is_not_unmigrated(plane):
+    """Absent under both shapes is a broken projection, not a migration."""
+    proj = plane.add("p", workflows={"check": ORDINARY}, link=False)
+    assert plane.reg.unmigrated(proj, "check") is False
+
+
+def test_a_legacy_link_pointing_elsewhere_is_not_a_migration(plane):
+    """Deliberately narrow. The legacy shape is the ambiguous one, so a legacy
+    link pointing at another project's file is the collision the codec exists to
+    end — falling back to it would enqueue the wrong file (S6)."""
+    plane.add("devman", workflows={"b-check": ORDINARY})
+    devman_b = plane.add("devman-b", workflows={"check": ORDINARY}, link=False)
+    plane.link(
+        "devman-b",
+        "check",
+        "../projects/devman/workflows/b-check.yaml",
+        sep="-",
+    )
+
+    assert plane.reg.unmigrated(devman_b, "check") is False
 
 
 def test_unproject_removes_metadata_last(plane, monkeypatch):

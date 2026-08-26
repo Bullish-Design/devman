@@ -82,9 +82,21 @@ let
       { }
     else
       lib.mapAttrs'
-        (file: _: lib.nameValuePair
-          (lib.removeSuffix ".yaml" file)
-          (pkgs.writeText "devman-${group}-${file}" (builtins.readFile (dir + "/${file}"))))
+        (file: _:
+          let name = lib.removeSuffix ".yaml" file; in
+          # The codec's one refusal, at evaluation time (§9.2, S-12). A dot in a
+          # workflow name would make the last dot of `<project>.<workflow>`
+          # ambiguous, and the DAG name no longer injective. A group ships to
+          # every repository that takes it, so this is the cheapest place to
+          # find it: the group author sees it, once, instead of every taker.
+          if lib.hasInfix "." name then
+            throw ("devman: group '${group}' ships '${file}', and a workflow name may not hold a '.'. "
+              + "A DAG name is <project>.<workflow>, and the last '.' is the separator (§9.2). "
+              + "A project name may hold dots; a workflow name may not.")
+          else
+            lib.nameValuePair
+              name
+              (pkgs.writeText "devman-${group}-${file}" (builtins.readFile (dir + "/${file}"))))
         (lib.filterAttrs
           (file: kind: kind == "regular" && lib.hasSuffix ".yaml" file)
           (builtins.readDir dir));
@@ -167,13 +179,26 @@ let
   #
   #   <registry>/projects/<project>/metadata.json
   #   <registry>/projects/<project>/workflows/<workflow>.yaml -> the winner
-  #   <registry>/dags/<project>-<workflow>.yaml               -> the line above
+  #   <registry>/dags/<project>.<workflow>.yaml               -> the line above
   #
   # `dags/` is Dagu's flat view of `projects/`. A DAG is keyed by its file's
   # base name, so two projects both projecting `check.yaml` are reported as a
   # duplicate and both vanish from `dagu ls`, from the web UI and from the
-  # scheduler. `<project>-<workflow>` is the machine-unique name. See
-  # nix/nixos-module.nix, which points `dags_dir` at it.
+  # scheduler. See nix/nixos-module.nix, which points `dags_dir` at it.
+  #
+  # THE SEPARATOR IS A DOT, AND THIS IS ONE OF TWO PLACES THAT RENDERS IT.
+  #
+  # The other is `Registry.dag_name()` in `src/devman/registry.py`, which is the
+  # codec's home and carries the measurement. The two must agree byte for byte:
+  # this side writes the link and the CLI side reads it, so a disagreement makes
+  # every trigger in every repository refuse. There is no shared text layer for
+  # a Python function and a shell script, which is why the rule lives in a
+  # comment on both sides rather than in a file neither can import (§3.1).
+  #
+  #   join with `.`;  a dot is REFUSED in the workflow half, never the project
+  #
+  # `<project>-<workflow>` was not injective — `devman-b` + `check` and `devman`
+  # + `b-check` render one name (S6, S-12).
   #
   # STAGE 6: THE PER-PROJECT FILE IS GENERATED, NOT SYMLINKED, AND THE REASON IS
   # THE SCHEDULE.
@@ -256,15 +281,28 @@ let
 
     # The registry is derived (§9.3), so the projection is rebuilt rather than
     # patched. A `dags/` link is removed only when it still points at this
-    # project's own file: `<project>-<workflow>` is ambiguous when one project
-    # name is a prefix of another, and the link target is not.
+    # project's own file, because the LEGACY shape below is ambiguous when one
+    # project name is a prefix of another, and the link target is not.
+    #
+    # BOTH SHAPES ARE SWEPT, AND THE SECOND ONE IS THE MIGRATION.
+    #
+    # The codec changed in S-12 and this script is what performs the change, one
+    # repository at a time, when its shell is entered. Sweeping only the current
+    # shape would leave `dags/<project>-<workflow>.yaml` behind pointing at a
+    # live file — a second DAG name for one workflow, which `dagu ls` would show
+    # and a stale schedule would still fire. Sweeping only the legacy shape
+    # would break re-projection. So: both, each guarded by the same rule.
+    #
+    # Drop `-` from the list when `devman doctor` reports no unmigrated workflow.
     for old in "$pdir"/workflows/*.yaml; do
       [ -L "$old" ] || [ -e "$old" ] || continue
       stem=''${old##*/}; stem=''${stem%.yaml}
-      link="$dags/$proj-$stem.yaml"
-      if [ -L "$link" ] && [ "$(readlink "$link")" = "../projects/$proj/workflows/$stem.yaml" ]; then
-        rm -f "$link"
-      fi
+      for sep in . -; do
+        link="$dags/$proj$sep$stem.yaml"
+        if [ -L "$link" ] && [ "$(readlink "$link")" = "../projects/$proj/workflows/$stem.yaml" ]; then
+          rm -f "$link"
+        fi
+      done
       rm -f "$old"
     done
 
@@ -275,6 +313,20 @@ let
       devman_name="$1"
       devman_src="$2"
       devman_out="$pdir/workflows/$devman_name.yaml"
+
+      # The codec's one refusal (§9.2, S-12). A dot here would make the last dot
+      # of the DAG name ambiguous and the name no longer injective. A group's
+      # workflows are refused at evaluation time, above; this catches a local
+      # override, whose name is a file's base name read at shell entry and so
+      # cannot be seen by Nix.
+      case "$devman_name" in
+        *.*)
+          echo "devman: '$devman_name.yaml' cannot be a workflow name — it holds a '.'" >&2
+          echo "  a DAG name is <project>.<workflow>, and the last '.' is the separator (§9.2)" >&2
+          echo "  rename $devman_src" >&2
+          exit 1
+          ;;
+      esac
 
       # §11: a workflow that triggers other workflows names its own directory
       # `DEVMAN_SELF_DIR` and must not hold `DEVMAN_PROJECT_DIR`, because a
@@ -300,7 +352,7 @@ let
         cat "$devman_src"
       } > "$devman_out"
 
-      ln -sfn "../projects/$proj/workflows/$devman_name.yaml" "$dags/$proj-$devman_name.yaml"
+      ln -sfn "../projects/$proj/workflows/$devman_name.yaml" "$dags/$proj.$devman_name.yaml"
     }
 
     ${linkLines}
@@ -546,9 +598,15 @@ in
       # reading a symlink costs a fork, and a link pointing at ANOTHER project's
       # file is `devman doctor`'s projection check, on a path that is allowed to
       # spend a process.
+      #
+      # IT TESTS THE CURRENT SHAPE, WHICH IS WHAT MAKES THE CODEC MIGRATE ITSELF
+      # (S-12). A repository last projected under `<project>-<workflow>` has no
+      # link at this name, so the guard fires, the projection runs, and it comes
+      # out on the new shape with the old link swept. Entering the shell is the
+      # whole migration; nothing else has to be run anywhere.
       devman_relink=""
       for devman_n in $devman_names; do
-        [ -L "$devman_reg/dags/${cfg.project}-$devman_n.yaml" ] || devman_relink=1
+        [ -L "$devman_reg/dags/${cfg.project}.$devman_n.yaml" ] || devman_relink=1
       done
 
       devman_tmpl=$(<${entryTemplate})

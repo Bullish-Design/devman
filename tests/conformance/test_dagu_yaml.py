@@ -16,6 +16,7 @@ those measurements changes.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -232,3 +233,90 @@ def test_a_dotted_and_underscored_dag_name_resolves(dagu, fixtures, tmp_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "a.b_c-d" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# the DAG identity codec, against the pin (§9.2, S-12)
+
+CODEC_NAMES = [
+    "devman.check",
+    "devman-b.check",
+    "devman.b-check",
+    "flora-core.check",
+    "flora.core-check",
+    "loci.nvim.check",
+    "templateer_v2.test",
+    "devman.gitman-commit-message",
+]
+
+
+def test_dagu_accepts_every_name_the_codec_renders(dagu, fixtures, tmp_path):
+    """The codec joins with a dot, and Dagu has to resolve the result.
+
+    Every name here is one the codec produces from a `(project, workflow)` pair
+    that exists on this machine or collided before S-12. `dagu ls` is the
+    scheduler's own view of `dags/`, so a name it cannot list is a workflow
+    nothing can trigger.
+    """
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    body = (fixtures / "steps-list.yaml").read_text()
+    for name in CODEC_NAMES:
+        (dags / f"{name}.yaml").write_text(body)
+
+    result = dagu.ls(dags)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    listed = set(result.stdout.split())
+    assert set(CODEC_NAMES) <= listed
+
+
+def test_a_codec_name_can_be_enqueued(dagu, fixtures, tmp_path):
+    """`devman run` ends in `dagu enqueue <name>`, so the name has to resolve
+    there too — `ls` reading a directory is not the same as the queue accepting
+    a name. No scheduler runs here, so the item is queued and never started."""
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    (dags / "loci.nvim.check.yaml").write_text((fixtures / "steps-list.yaml").read_text())
+
+    result = dagu.enqueue(dags, "loci.nvim.check")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_dagu_maps_a_dot_to_an_underscore_in_the_log_directory(dagu, fixtures, tmp_path):
+    """**The measurement that constrained the codec, and it is not obvious.**
+
+    Dagu does not use the DAG name verbatim for `log_dir`: it rewrites `.` as
+    `_` and leaves `-` alone. So three distinct DAG names — `a.b.check`,
+    `a_b.check` and `a.b_check` — share one log directory `a_b_check`.
+
+    That does **not** reach the codec, and the reason is §7.2's per-project
+    `log_dir`: a project's runs land under its own `.devman/.runs/logs`, so two
+    names can only collide there if they belong to one project. Within a project
+    the DAG names differ only in the workflow half, and a workflow name may hold
+    no dot — so they cannot sanitise together.
+
+    **The codec's safety on the log side therefore rests on `log_dir` being per
+    project.** A machine that ever shared one would reintroduce the collision,
+    which is why this is measured here rather than assumed.
+    """
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    body = (fixtures / "steps-list.yaml").read_text()
+    names = ["a.b.check", "a_b.check", "a.b_check", "a-b.check"]
+    for name in names:
+        (dags / f"{name}.yaml").write_text(body)
+        assert dagu.enqueue(dags, name).returncode == 0
+
+    seen = {}
+    for name in names:
+        out = dagu.status(dags, name).stdout
+        match = re.search(r"logs/([^/]+)/", out)
+        assert match, out
+        seen[name] = match.group(1)
+
+    assert seen["a.b.check"] == "a_b_check"
+    assert seen["a_b.check"] == "a_b_check"
+    assert seen["a.b_check"] == "a_b_check"
+    assert seen["a-b.check"] == "a-b_check"
