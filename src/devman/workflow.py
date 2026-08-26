@@ -58,12 +58,39 @@ class Workflow:
     def params(self) -> dict[str, str]:
         """The top-level `params:` block, as `name -> default`.
 
-        Dagu accepts four spellings. devman's own files use the first, which is
-        the one the schema documents:
+        Dagu accepts **five** spellings, not the four this said until S-10.
+        devman's own files use the first:
 
             params:                 params:  {A: x, B: y}
               - A: x                params:  "A=x B=y"
               - B: y                params:  [A=x, B=y]
+
+        The fifth is the inline typed definition, and reading it as one of the
+        others is the failure S-10 measured:
+
+            params:
+              - name: A
+                type: string
+                default: x
+
+        **A list item holding a `name` key is a definition of the parameter that
+        key names — never a parameter called `name`.** That is Dagu's own rule,
+        not an inference: `- name: FOO` alone is refused with "parameter "FOO"
+        must define at least one field in addition to name", so a list-form
+        parameter simply cannot be called `name`. Read as a plain mapping the
+        item above yields three parameters — `name`, `type` and `default` — and
+        loses `A` entirely, which made `holds_project_dir()` miss a file that
+        declares `DEVMAN_PROJECT_DIR` and §11's refusal never fire.
+
+        `default` carries the value, and Dagu keeps it a scalar: an `object` or
+        `array` default is refused at validation. A definition without one
+        declares the parameter empty, which `run.resolve()` already refuses to
+        enqueue (§8).
+
+        `params:` is also the only parameter surface. `param_schema`,
+        `param_defs`, `params_json` and `default_params` name Dagu's internal
+        representations and are rejected as top-level keys, so there is no
+        externally-schema'd form for devman to fail to resolve (S-10).
 
         A positional parameter has no name and is not returned: devman fills
         parameters by name, and a positional one is the workflow's own business.
@@ -79,8 +106,11 @@ class Workflow:
         if isinstance(raw, list):
             for item in raw:
                 if isinstance(item, dict):
-                    for k, v in item.items():
-                        out[str(k)] = _scalar(v)
+                    if "name" in item:
+                        out[str(item["name"])] = _scalar(item.get("default"))
+                    else:
+                        for k, v in item.items():
+                            out[str(k)] = _scalar(v)
                 elif isinstance(item, str) and "=" in item:
                     k, _, v = item.partition("=")
                     out[k.strip()] = v.strip().strip("\"'")

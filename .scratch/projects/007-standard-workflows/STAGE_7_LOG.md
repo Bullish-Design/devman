@@ -4462,3 +4462,108 @@ lesson of this entry: a wrong sentence in the charter is copied faithfully.
 | nine documentation and comment sites | claim corrected | committed |
 
 No code path changes. `doctor` check 2 already did the right thing.
+
+---
+
+## S-10 — `params:` has five spellings, and devman read the fifth as three parameters
+
+**Answer: Dagu 2.15.0 accepts an inline typed parameter definition, and
+`Workflow.params()` turned it into three parameters that do not exist.** The
+docstring's "Dagu accepts four spellings" was true when it was written and is not
+true against the pin.
+
+```yaml
+params:
+  - name: TARGET
+    type: string
+    default: observantic
+```
+
+```
+OLD reader -> {'name': 'TARGET', 'type': 'string', 'default': 'observantic'}
+NEW reader -> {'TARGET': 'observantic'}
+```
+
+It does not miss the parameter. It **invents three**, drops the real one, and
+lets the last list item overwrite the first.
+
+### Versions
+
+Dagu **2.15.0**, pinned tarball, throwaway `DAGU_HOME`, removed afterwards. The
+installed plane was read, never enqueued to. Date **2026-08-25**.
+
+### The rule Dagu applies, measured rather than inferred
+
+A list item holding a `name` key is a **definition of the parameter that key
+names**, never a parameter called `name`. Dagu says so itself:
+
+```
+$ dagu validate  # params: [- name: FOO]
+field 'params': parameter "FOO" must define at least one field in addition
+to name (value: map[name:FOO])
+```
+
+So a list-form parameter cannot be called `name`, and the disambiguation needs no
+heuristic — the key's presence decides it.
+
+| Written | Dagu resolves | devman must read |
+|---|---|---|
+| `- name: FOO` alone | **refused** — needs a second field | (never loads) |
+| `- name: FOO` + `type` + `default: bar` | `FOO=bar` | `{FOO: bar}` |
+| `- name: FOO` + `type`, no default | `FOO=` empty | `{FOO: ""}` |
+| `- name: FOO` + `enum` + `default: baz` | `FOO=baz` | `{FOO: baz}` |
+| `- name: FOO` + `required: true`, no default | **DAG fails to load** | `{FOO: ""}` — §8's empty refusal catches it |
+| `default:` an object or array | **refused** at validation | scalar only, so `_scalar()` holds |
+
+`params:` is also the **only** parameter surface. `param_schema`, `param_defs`,
+`params_json` and `default_params` appear in Dagu's error text as internal
+representations and are each rejected as a top-level key: "'spec.dag' has invalid
+keys". **There is no externally-schema'd parameter form**, so §6.6's proposed
+"refuse what cannot be statically resolved" path has nothing to refuse against
+this pin. Everything Dagu accepts, devman can read.
+
+### What the misreading actually cost
+
+Narrower than first stated, and worth stating precisely.
+
+**A cross-repository parent was refused, with the wrong reason.** `held` came
+back empty so §11's first branch missed, but `SELF_DIR not in declared` was true
+for the same reason, so the second branch fired:
+
+```
+!!  cross-repo  devman-typed-parent declares no DEVMAN_SELF_DIR parameter   # old, misleading
+!!  cross-repo  devman-typed-parent holds DEVMAN_PROJECT_DIR in: params     # new, correct
+```
+
+Loud, but pointing at the wrong field — the developer is told to add a parameter
+the file already has.
+
+**An ordinary workflow was enqueued wrong, silently.** This is the real one.
+§8's convention fills a parameter whose default names a registered project with
+that project's path. Read as three parameters, `TARGET` is never seen and keeps
+the literal string `observantic`, while `name`, `type` and `default` are passed
+as parameters the file never declared. The run succeeds in the right directory
+and the child gets a project name where a path was promised.
+
+### The fix
+
+`params()` reads the `name` key as Dagu does. Eight forms verified against the
+reader, including the four that already worked, a typed definition with no
+default, one with `enum`, and a list mixing both spellings. §11's first branch
+now fires on a typed cross-repository parent.
+
+No refusal was added, because the measurement removed the need for one.
+
+### Charter impact
+
+**None.** §8's parameter contract is unchanged; this is a reader that did not
+implement it. The docstring's "four spellings" is corrected in place, with the
+count and the rule.
+
+### Rule 7 — what this entry did to the machine
+
+| Target | Change | State |
+|---|---|---|
+| installed plane | **none** | read only |
+| `/tmp/dqp`, `/tmp/params-reg` | throwaway Dagu home, registry copy | **removed** |
+| `src/devman/workflow.py` | `params()` reads the fifth form | committed |
