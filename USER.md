@@ -152,6 +152,21 @@ and must never grow one.
 **It refuses rather than enqueueing a run that would write to the wrong place.**
 Every refusal names the file and the field. See §8.
 
+### What `NAME=VALUE` may set
+
+`NAME=VALUE` passes a parameter. It does not choose a directory. Three rules:
+
+- **`DEVMAN_PROJECT_DIR` and `DEVMAN_SELF_DIR` accept no override.** A workflow
+  runs in the directory of the project it resolved from. To run it for another
+  repository, name that repository: `devman run <workflow> --project NAME`.
+- **`NAME` must be a parameter the workflow declares.** An undeclared name is a
+  typo, and Dagu would find it later, elsewhere, and unexplained. The refusal
+  lists every declared name.
+- **A parameter whose default is a registered project name stays an identity.**
+  Override it with another registered project's name, never with a path. Only
+  the registry resolves a name to a path, which is what keeps absolute paths out
+  of workflow files.
+
 ---
 
 ## 4. Read what happened
@@ -459,6 +474,9 @@ time that repository's shell is entered.
 | `these declared parameters have no value` | a parameter with an empty default | give it a real default, or pass `NAME=VALUE` |
 | `DEVMAN_PROJECT_DIR would be empty` | the directory variable would not resolve | the registered path is gone — `devman doctor --prune` |
 | `it triggers other workflows and defines DEVMAN_PROJECT_DIR for itself` | §5.4's rule | use `DEVMAN_SELF_DIR` and `with.params` |
+| `these names are the plane's, not the caller's` | you passed `DEVMAN_PROJECT_DIR=` or `DEVMAN_SELF_DIR=` | drop it, and pass `--project NAME` instead (§3) |
+| `these overrides name no declared parameter` | a misspelled parameter name | use a name from the list the refusal prints |
+| `so it names a project` | you gave a path to a parameter that defaults to a project name | pass a registered project's name instead (§3) |
 | `devman: group 'X' does not exist` | a group name that is not in `groups/` | fix the name; a deleted group leaves a tombstone that does **not** throw |
 | `× Invalid task name: check` | devenv requires `namespace:name` | write `<group>:<name>` |
 | `no such task` from devenv | you took a group and did not define its task | define it, or drop the group |

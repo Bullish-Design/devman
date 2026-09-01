@@ -49,7 +49,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
-from .registry import Project, Registry
+from .registry import Project, Registry, deepest
 
 # The watcher's own state, machine-side beside the registry it reads. Derived
 # and reconstructable like everything else under `~/.local/share/devman/`
@@ -481,15 +481,35 @@ def match(reg: Registry, paths: list[str]) -> list[tuple[WatchEntry, str]]:
     run rather than three. That is coalescing at the detector, and it is not the
     loop break: the loop break is the workflow's own content-hash precondition
     (§8, E1). A batch is not a time window and swallows no later edit.
+
+    **Ownership is resolved once per path, by `registry.deepest()` — the same
+    rule `project_for()` uses.** This function used to decide containment for
+    itself and accept every registered root holding the path, so one save inside
+    a nested checkout fired the inner project AND the outer one (009 P1-4). The
+    outer repository's formatter then rewrote source across the repository
+    boundary, and both runs reported success. Coalescing now runs after
+    ownership, rather than instead of it.
     """
     entries = watch_map(reg)
+    roots = {e.project: e.path for e in entries}
+    by_project: dict[str, list[WatchEntry]] = {}
+    for entry in entries:
+        by_project.setdefault(entry.project, []).append(entry)
+
     hits: dict[tuple[str, str], tuple[WatchEntry, str]] = {}
     for raw in paths:
         path = Path(raw)
-        for entry in entries:
+        try:
+            here = path.resolve()
+        except OSError:
+            here = path
+        owner = deepest(roots, here)
+        if owner is None:
+            continue
+        for entry in by_project[owner]:
             try:
-                rel = path.relative_to(entry.path)
-            except ValueError:
+                rel = here.relative_to(entry.path.resolve())
+            except (OSError, ValueError):
                 continue
             if any(PurePath(rel).full_match(g) for g in entry.globs):
                 hits.setdefault((entry.project, entry.workflow), (entry, str(path)))

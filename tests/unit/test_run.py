@@ -9,6 +9,7 @@ would let a refactor delete every one of them and stay green.**
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 from helpers import ORDINARY
@@ -101,15 +102,6 @@ def test_a_default_naming_no_project_is_passed_through(plane):
     assert params["LEVEL"] == "warn"
 
 
-def test_an_override_wins_over_a_default(plane):
-    text = f"params:\n  - LEVEL: warn\n{ORDINARY}"
-    proj = plane.add("p", workflows={"check": text})
-
-    _, params, _ = run.resolve(plane.reg, proj, "check", {"LEVEL": "debug"})
-
-    assert params["LEVEL"] == "debug"
-
-
 # ---------------------------------------------------------------------------
 # the refusals, one test each — and each asserts WHICH branch fired
 
@@ -176,26 +168,18 @@ def test_a_cross_repo_parent_without_a_self_dir_is_refused(plane):
     assert f"declares no {SELF_DIR} parameter" in str(exc.value)
 
 
-def test_an_empty_directory_variable_is_refused(plane):
-    """Dagu would create a directory named literally `${DEVMAN_PROJECT_DIR}` and
-    report success. That has happened in this repository twice, once committed
-    (§9.2, `STAGE_2_LOG.md` S15)."""
-    proj = plane.add("p", workflows={"check": ORDINARY})
+def test_a_directory_variable_that_is_not_a_directory_is_refused(plane):
+    """The second layer, on the only state that still reaches it: a registry
+    entry whose repository has gone. Dagu would otherwise create a directory
+    named literally `${DEVMAN_PROJECT_DIR}` and report success. That has happened
+    in this repository twice, once committed (§9.2, `STAGE_2_LOG.md` S15)."""
+    proj = plane.add("p", workflows={"check": ORDINARY}, make_dir=False)
 
     with pytest.raises(RegistryError) as exc:
-        run.resolve(plane.reg, proj, "check", {PROJECT_DIR: ""})
+        run.resolve(plane.reg, proj, "check", {})
     message = str(exc.value)
-    assert f"{PROJECT_DIR} would be empty" in message
+    assert "which is not a directory" in message
     assert f"${{{PROJECT_DIR}}}" in message
-
-
-def test_a_directory_variable_that_is_not_a_directory_is_refused(plane, tmp_path):
-    proj = plane.add("p", workflows={"check": ORDINARY})
-    not_a_dir = tmp_path / "gone"
-
-    with pytest.raises(RegistryError) as exc:
-        run.resolve(plane.reg, proj, "check", {PROJECT_DIR: str(not_a_dir)})
-    assert "which is not a directory" in str(exc.value)
 
 
 def test_an_empty_declared_parameter_is_refused(plane):
@@ -242,6 +226,131 @@ def test_a_missing_dag_link_is_refused(plane):
     with pytest.raises(RegistryError) as exc:
         run.resolve(plane.reg, proj, "check", {})
     assert "there is no dags/ link" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# what an override may and may not do (009 P1-2 + P2-6)
+#
+# One rule: a reserved name accepts no override; a parameter whose default names
+# a registered project accepts only another registered project's name; every
+# other override must name a declared parameter.
+
+
+def test_a_reserved_project_dir_override_is_refused(plane):
+    """P1-2. `params.update(overrides)` applied caller input AFTER the safety
+    derivation, so one flag ran a project's workflow in another project's tree
+    and reported success."""
+    other = plane.add("other")
+    proj = plane.add("p", workflows={"check": ORDINARY})
+
+    with pytest.raises(RegistryError) as exc:
+        run.resolve(plane.reg, proj, "check", {PROJECT_DIR: str(other.path)})
+    message = str(exc.value)
+    assert PROJECT_DIR in message
+    assert "--project" in message
+
+
+def test_a_reserved_self_dir_override_is_refused(plane):
+    proj = plane.add("p", workflows={"stack": CROSS_REPO})
+
+    with pytest.raises(RegistryError) as exc:
+        run.resolve(plane.reg, proj, "stack", {SELF_DIR: "/anywhere"})
+    assert SELF_DIR in str(exc.value)
+
+
+def test_a_reserved_override_naming_a_symlink_to_the_right_path_is_refused(
+    plane, tmp_path
+):
+    """The check is identity, not equivalence. A symlink resolves to the same
+    tree, and Dagu still bakes the literal string into `log_dir`."""
+    proj = plane.add("p", workflows={"check": ORDINARY})
+    alias = tmp_path / "alias"
+    alias.symlink_to(proj.path)
+
+    with pytest.raises(RegistryError) as exc:
+        run.resolve(plane.reg, proj, "check", {PROJECT_DIR: str(alias)})
+    assert PROJECT_DIR in str(exc.value)
+
+
+def test_a_reserved_override_spelled_relative_is_refused(plane):
+    proj = plane.add("p", workflows={"check": ORDINARY})
+
+    with pytest.raises(RegistryError) as exc:
+        run.resolve(plane.reg, proj, "check", {PROJECT_DIR: "."})
+    assert PROJECT_DIR in str(exc.value)
+
+
+def test_an_override_naming_no_declared_parameter_is_refused(plane):
+    """P2-6. A typo used to reach Dagu, which finds it later, elsewhere, and
+    unexplained (E5)."""
+    text = f"params:\n  - LEVEL: warn\n{ORDINARY}"
+    proj = plane.add("p", workflows={"check": text})
+
+    with pytest.raises(RegistryError) as exc:
+        run.resolve(plane.reg, proj, "check", {"LEVELL": "debug"})
+    message = str(exc.value)
+    assert "LEVELL" in message
+    assert "this workflow declares: LEVEL" in message
+
+
+def test_a_project_defaulted_parameter_takes_another_project_name(plane):
+    """The identity stays an identity, and the registry resolves it (§9.1)."""
+    plane.add("observantic")
+    siteman = plane.add("siteman")
+    text = f"params:\n  - TARGET: observantic\n{ORDINARY}"
+    proj = plane.add("p", workflows={"check": text})
+
+    _, params, _ = run.resolve(plane.reg, proj, "check", {"TARGET": "siteman"})
+
+    assert params["TARGET"] == str(siteman.path)
+
+
+def test_a_project_defaulted_parameter_refuses_an_absolute_path(plane):
+    """The `stack-validate.yaml` path. `OBSERVANTIC_DIR` is not a reserved name,
+    and line 85-96 of that file hands it straight to a child as
+    `DEVMAN_PROJECT_DIR` — so an absolute path here retargets a cross-repository
+    child run, with no literal `working_dir` in the projection to blunt it."""
+    plane.add("observantic")
+    text = f"params:\n  - OBSERVANTIC_DIR: observantic\n{ORDINARY}"
+    proj = plane.add("p", workflows={"check": text})
+
+    with pytest.raises(RegistryError) as exc:
+        run.resolve(plane.reg, proj, "check", {"OBSERVANTIC_DIR": "/anywhere"})
+    message = str(exc.value)
+    assert "'/anywhere' is not one" in message
+    assert "observantic" in message
+
+
+def test_a_plain_parameter_is_still_overridable(plane):
+    text = f"params:\n  - LEVEL: warn\n{ORDINARY}"
+    proj = plane.add("p", workflows={"check": text})
+
+    _, params, _ = run.resolve(plane.reg, proj, "check", {"LEVEL": "debug"})
+
+    assert params["LEVEL"] == "debug"
+
+
+def test_assert_target_fires_when_the_parameters_are_mutated_after_resolve(plane):
+    """The last line before the irreversible boundary. Earlier validation does
+    not survive a later mutation, which is what P1-2 was."""
+    other = plane.add("other")
+    proj = plane.add("p", workflows={"check": ORDINARY})
+
+    _, params, dir_var = run.resolve(plane.reg, proj, "check", {})
+    run.assert_target(proj, params, dir_var)  # holds as resolved
+
+    params[dir_var] = str(other.path)
+    with pytest.raises(RegistryError) as exc:
+        run.assert_target(proj, params, dir_var)
+    assert str(proj.path) in str(exc.value)
+
+
+def test_the_blanket_update_is_gone(plane):
+    """Applying the caller's map over the derived one is what P1-2 was.
+    Consuming each override inside the declared loop leaves nothing to
+    reintroduce, and this asserts the shape rather than one more behaviour."""
+    source = Path(run.__file__).read_text()
+    assert "params.update(" not in source
 
 
 # ---------------------------------------------------------------------------
