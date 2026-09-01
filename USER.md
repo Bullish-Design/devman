@@ -131,6 +131,14 @@ rule exists to keep clean.
 **`.devman/` is yours.** devman reserves two names inside it — `workflows/` and
 `.runs/` — and never reads, writes or inspects anything else there.
 
+**One restriction on where a repository may live.** Its path may not hold a
+double quote, a backslash, a tab or a newline. Spaces, `: `, `#` and every
+non-ASCII character are fine. The reason is the shell-entry guard: it compares
+the recorded path against this one **without forking**, thousands of times a day
+across every repository on the machine, on the critical path of every shell you
+open, and a forkless comparison cannot undo JSON escaping. Registration refuses such a path by name
+rather than mangling it silently.
+
 ---
 
 ## 3. Run a workflow
@@ -223,10 +231,43 @@ copy, not a symlink. The shell-entry guard compares your override's body against
 the tail of its projection, so it notices an edit in place — but only at shell
 entry.
 
+**Every file is validated before it is published.** The projection runs
+`dagu validate` on the bytes it is about to write. A file Dagu cannot load is
+refused at shell entry, by the person who can fix it, and **nothing is
+published** — your previous projection stays exactly as it was until the source
+is correct. Before this, such a file was published and only discovered when
+somebody triggered it.
+
+### 5.2 Writing your own `env:` block
+
+The projection adds a header your workflow needs: the directory variable,
+`working_dir` and `log_dir`. **The header adds; it never overwrites.** A file
+stating its own `working_dir` or `log_dir` keeps it.
+
+`env:` is the one case where you have to meet the plane half way. If your file
+has **no** top-level `env:`, the header writes one for you. If it has one, that
+block is yours and the projection will not edit it — so it must state the
+directory variable itself:
+
+```yaml
+env:
+  - DEVMAN_PROJECT_DIR: /home/you/project    # or DEVMAN_SELF_DIR, for a §5.5 parent
+  - LEVEL: debug
+```
+
+The projection **refuses** — naming the file and the exact line to add — when an
+`env:` block states neither name, states the wrong one of the two, or states one
+with a value that is not this project's path. It refuses rather than merging
+because merging means editing your document, and the plane never rewrites a
+workflow's body.
+
+Before this it silently emitted no header at all for such a file, and the
+workflow ran in a directory named literally `${DEVMAN_PROJECT_DIR}`.
+
 `devman doctor` reports every override and how far it has drifted from the group
 file it shadows. That is a report, not a complaint.
 
-### 5.2 Write a new workflow
+### 5.3 Write a new workflow
 
 Put a Dagu YAML file in `.devman/workflows/<name>.yaml`. It is a plain Dagu file
 with no devman-specific key in it.
@@ -244,7 +285,7 @@ Five rules, each forced by a measurement:
 1. **No top-level `name:`.** `dagu validate` fails — "entrypoint document must
    not define name". A DAG's identity is its file name.
 2. **No `working_dir:` and no `log_dir:`.** The projection writes both, per
-   project. State them only for a cross-repository workflow (§5.4).
+   project. State them only for a cross-repository workflow (§5.5).
 3. **Declare `DEVMAN_PROJECT_DIR: ""` first if you declare any parameter at
    all.** Dagu rejects a parameter a DAG did not declare, and `devman run` always
    passes the directory variable. Declare none, or declare that one first.
@@ -279,7 +320,7 @@ an `after` list run concurrently**, so chain the edges when you want fail-fast.
 
 Agents: the full checklist is `.agents/skills/devman-workflow/SKILL.md`.
 
-### 5.3 Choose a queue
+### 5.4 Choose a queue
 
 | Queue | Limit | Say it when |
 |---|---|---|
@@ -302,7 +343,7 @@ Nothing says so at run time. `devman doctor` checks the names for you.
 **`exclusive` does not give a run the machine.** Dagu's queues are independent,
 so `light`, `normal` and `heavy` runs proceed beside an exclusive one.
 
-### 5.4 A workflow that triggers other repositories' workflows
+### 5.5 A workflow that triggers other repositories' workflows
 
 The parent must **not** hold `DEVMAN_PROJECT_DIR`. A parent exports its
 parameters into every child's environment, and that environment outranks the
@@ -473,7 +514,10 @@ time that repository's shell is entered.
 | `the DAG named X points at …` | two projects claim one DAG name | enter the repository's shell to re-project it (§9.2) |
 | `these declared parameters have no value` | a parameter with an empty default | give it a real default, or pass `NAME=VALUE` |
 | `DEVMAN_PROJECT_DIR would be empty` | the directory variable would not resolve | the registered path is gone — `devman doctor --prune` |
-| `it triggers other workflows and defines DEVMAN_PROJECT_DIR for itself` | §5.4's rule | use `DEVMAN_SELF_DIR` and `with.params` |
+| `it triggers other workflows and defines DEVMAN_PROJECT_DIR for itself` | §5.5's rule | use `DEVMAN_SELF_DIR` and `with.params` |
+| `it has a top-level env: block and states no DEVMAN_PROJECT_DIR` | your `env:` block is yours, so the header cannot add to it | add the line the refusal prints (§5.2) |
+| `dagu refuses the file this renders` | the workflow does not load | fix the source; nothing was published, so the previous projection still runs |
+| `its path holds a double quote` | this checkout's path holds `"`, `\`, a tab or a newline | move or rename the directory (§2.6) |
 | `these names are the plane's, not the caller's` | you passed `DEVMAN_PROJECT_DIR=` or `DEVMAN_SELF_DIR=` | drop it, and pass `--project NAME` instead (§3) |
 | `these overrides name no declared parameter` | a misspelled parameter name | use a name from the list the refusal prints |
 | `so it names a project` | you gave a path to a parameter that defaults to a project name | pass a registered project's name instead (§3) |

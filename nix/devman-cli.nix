@@ -15,6 +15,19 @@
 # machine profile's PATH, so one machine-side install reaches every repository
 # shell on that machine.
 #
+# ONE PART OF THIS SOURCE TREE IS AN EXCEPTION, AND IT AMENDS §3.1.
+#
+# `nix/renderer.nix` builds the same `src/` with a narrower entry point,
+# `devman-project`, and the devenv module builds it under the CONSUMING
+# repository's nixpkgs. It is not offered here and it is not on any PATH.
+#
+# The reason is the shell-entry guard rather than the charter: a `devman` found
+# on PATH is a run-time fact, so its identity cannot enter `planFile`, so the
+# guard cannot observe it — and a machine-side upgrade would then change the
+# rendering rules while every repository kept a projection produced by the old
+# renderer, with nothing re-projecting. CONCEPT.md §3.1 carries the amendment;
+# `nix/renderer.nix` carries the whole argument (009 stage 3).
+#
 # WHAT IS WRAPPED ONTO ITS PATH, AND WHY.
 #
 #   dagu       `devman run` triggers with a local `dagu enqueue`, and only a

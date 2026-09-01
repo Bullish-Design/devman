@@ -45,7 +45,7 @@ from pathlib import Path
 
 import yaml
 
-from . import watch
+from . import project, watch
 from .registry import Registry, dag_name_fault, identity_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
@@ -704,6 +704,41 @@ def running_watchers(reg: Registry) -> list[tuple[int, int]]:
     return sorted(found)
 
 
+def check_schema(rep: Report, reg: Registry) -> None:
+    """A registry entry written by a devman this one does not understand.
+
+    The schema is a version number with soft degradation, and that only works
+    if something says when it degraded. Schema 4 changed what `plan` MEANS
+    rather than adding a field (009 stage 3), which is exactly the shape of
+    change a reader cannot detect by looking at the fields — an older `doctor`
+    reading a schema 4 entry would compare a plan path against a script path
+    and report a mismatch it cannot explain.
+
+    So this reports the number rather than guessing at the content. §15.7 is
+    untouched: it reads one integer the entry states about itself.
+    """
+    known = project.SCHEMA
+    ahead = [
+        f"{proj.name}: schema {proj.schema}, and this devman knows {known}"
+        for proj in reg.projects().values()
+        if proj.schema > known
+    ]
+    if ahead:
+        rep.add(
+            "schema",
+            "!!",
+            ahead
+            + [
+                "a newer devman wrote these entries — the checks above may be"
+                " reading fields that have changed meaning",
+                "upgrade this machine's devman, or re-enter those shells with"
+                " the older plane",
+            ],
+        )
+    else:
+        rep.add("schema", "ok", [f"every entry is schema {known} or older"])
+
+
 def check_daemon_shell(rep: Report, dagu_home: Path) -> None:
     """`SHELL` in the running Dagu's own environment (009 P1-3, S13).
 
@@ -1028,6 +1063,7 @@ def main(args, reg: Registry) -> int:
     check_ageing(rep, reg, dagu_home)
     check_projection(rep, reg)
     check_dag_names(rep, reg)
+    check_schema(rep, reg)
     check_handlers(rep, reg)
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)

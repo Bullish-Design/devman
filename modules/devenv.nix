@@ -277,157 +277,94 @@ let
   #
   # This script forks. It runs only when the rendered entry differs from the one
   # on disk, which the guard in `enterShell` decides without forking at all.
-  linkLines = lib.concatStringsSep "\n  "
-    (lib.mapAttrsToList
-      (name: w: "devman_project ${lib.escapeShellArg name} ${w.file}")
-      resolved);
+  # STAGE 3 OF PROJECT 009 MOVED THE PROJECTION INTO PYTHON, AND THIS IS ALL
+  # THAT IS LEFT OF IT HERE.
+  #
+  # What used to be here decided the directory variable with
+  # `grep -q 'DEVMAN_SELF_DIR'`, decided the `env:` header with
+  # `grep -q '^env:'`, built the entry with `@PATH@` substitution, and validated
+  # no identity at all. Each of those four was a finding — P1-1, P1-1's severe
+  # case, P2-1 and P1-5 — and `src/devman/` already answered every one of them
+  # correctly from a parsed document. The renderer lives there now, and this
+  # file states the plan and runs it.
+  #
+  # `renderer` is built under THIS repository's nixpkgs, exactly as
+  # `installClient` builds `nix/dagu.nix`. The reason is the guard and not the
+  # charter: a `devman` found on PATH is a run-time fact, so its identity could
+  # not enter `planFile`, so the guard could not observe it. See
+  # `nix/renderer.nix`, which carries the amendment to §3.1.
+  # THE RENDERER'S SOURCE IS INVISIBLE TO DEVENV'S EVALUATION CACHE, AND THIS
+  # IS THE SAME MEASUREMENT `groupFiles` ABOVE RECORDS, ONE LAYER DOWN.
+  #
+  # `nix/renderer.nix` builds a `fileset.toSource` over `../src`. Interpolating
+  # a path copies it to the store, and devenv does not notice when the CONTENT
+  # of a copied path changes — so an edited `src/devman/project.py` kept
+  # producing the previous renderer's store path, shell entry after shell entry.
+  #
+  # Measured while writing stage 3, and it looked exactly like a bug in the new
+  # code: the projection refused correctly and then published one workflow
+  # anyway, because the renderer actually running was a build from before that
+  # behaviour was fixed. `planFile` recorded that stale path, so the guard was
+  # satisfied — everything agreed with everything, and all of it was old.
+  #
+  # `builtins.readFile` IS a read the cache tracks, which is why `groupFiles`
+  # uses it. Hashing every source file the renderer is built from puts the same
+  # tracked read on this derivation: change any of them and the hash changes,
+  # the derivation changes, `planFile` changes, and the guard re-projects.
+  #
+  # A repository pinning a `git+https` rev never meets this — a changed source
+  # is a changed rev. devman adopting itself (criterion 16) meets it on every
+  # edit, which is the case this exists for.
+  rendererSource = lib.concatMapStrings
+    (file: builtins.readFile (../src/devman + "/${file}"))
+    (builtins.attrNames
+      (lib.filterAttrs
+        (file: kind: kind == "regular" && lib.hasSuffix ".py" file)
+        (builtins.readDir ../src/devman)));
 
-  projectScript = pkgs.writeShellScript "devman-project-${projectName}" ''
-    set -eu
-    root="$1"
-    reg="$2"
-    rendered="$3"
-    proj=${lib.escapeShellArg projectName}
+  renderer = (pkgs.callPackage ../nix/renderer.nix {
+    dagu = pkgs.callPackage ../nix/dagu.nix { };
+  }).overrideAttrs (_: {
+    devmanSourceHash = builtins.hashString "sha256" rendererSource;
+  });
 
-    pdir="$reg/projects/$proj"
-    dags="$reg/dags"
-    mkdir -p "$pdir/workflows" "$dags"
-
-    # §9.2's run-state layout, repo-side. Dagu creates `log_dir` itself before
-    # the first step runs, so `logs/` would appear anyway; `artifacts/` and
-    # `reports/` have no other owner, and a step that writes a report should not
-    # have to create the tree first.
-    #
-    # A step addresses them through the two names §7.1 already makes global —
-    # `$DEVMAN_PROJECT_DIR` and the `.devman/.runs/` path shape — so this adds
-    # no fourth name to a closed list and no absolute path to any workflow
-    # (criterion 10):
-    #
-    #     run: mytool --out "$DEVMAN_PROJECT_DIR/.devman/.runs/artifacts/x.json"
-    #
-    # The whole tree is git-ignored: registration writes `.devman/.runs/` to
-    # `.git/info/exclude` below, and `.devman/` itself holds nothing else here,
-    # so an adopted repository's tree stays clean.
-    mkdir -p "$root/.devman/.runs/logs" "$root/.devman/.runs/artifacts" \
-             "$root/.devman/.runs/reports"
-
-    # The registry is derived (§9.3), so the projection is rebuilt rather than
-    # patched. A `dags/` link is removed only when it still points at this
-    # project's own file, because the LEGACY shape below is ambiguous when one
-    # project name is a prefix of another, and the link target is not.
-    #
-    # BOTH SHAPES ARE SWEPT, AND THE SECOND ONE IS THE MIGRATION.
-    #
-    # The codec changed in S-12 and this script is what performs the change, one
-    # repository at a time, when its shell is entered. Sweeping only the current
-    # shape would leave `dags/<project>-<workflow>.yaml` behind pointing at a
-    # live file — a second DAG name for one workflow, which `dagu ls` would show
-    # and a stale schedule would still fire. Sweeping only the legacy shape
-    # would break re-projection. So: both, each guarded by the same rule.
-    #
-    # Drop `-` from the list when `devman doctor` reports no unmigrated workflow.
-    for old in "$pdir"/workflows/*.yaml; do
-      [ -L "$old" ] || [ -e "$old" ] || continue
-      stem=''${old##*/}; stem=''${stem%.yaml}
-      for sep in . -; do
-        link="$dags/$proj$sep$stem.yaml"
-        if [ -L "$link" ] && [ "$(readlink "$link")" = "../projects/$proj/workflows/$stem.yaml" ]; then
-          rm -f "$link"
-        fi
-      done
-      rm -f "$old"
-    done
-
-    # One generated file per workflow: the header this project needs, then the
-    # source body unchanged. `dags/` still holds a symlink, because that layer is
-    # only Dagu's flat view of the name.
-    devman_project() {
-      devman_name="$1"
-      devman_src="$2"
-      devman_out="$pdir/workflows/$devman_name.yaml"
-
-      # The codec's one refusal (§9.2, S-12). A dot here would make the last dot
-      # of the DAG name ambiguous and the name no longer injective. A group's
-      # workflows are refused at evaluation time, above; this catches a local
-      # override, whose name is a file's base name read at shell entry and so
-      # cannot be seen by Nix.
-      case "$devman_name" in
-        *.*)
-          echo "devman: '$devman_name.yaml' cannot be a workflow name — it holds a '.'" >&2
-          echo "  a DAG name is <project>.<workflow>, and the last '.' is the separator (§9.2)" >&2
-          echo "  rename $devman_src" >&2
-          exit 1
-          ;;
-      esac
-
-      # §11: a workflow that triggers other workflows names its own directory
-      # `DEVMAN_SELF_DIR` and must not hold `DEVMAN_PROJECT_DIR`, because a
-      # parent's environment outranks every child's own value.
-      devman_var=DEVMAN_PROJECT_DIR
-      if grep -q 'DEVMAN_SELF_DIR' "$devman_src"; then
-        devman_var=DEVMAN_SELF_DIR
-      fi
-
-      {
-        printf '# devman: generated projection — do not edit.\n'
-        printf '# Edit the source and re-enter the shell:\n'
-        printf '#   %s\n' "$devman_src"
-        # A body with its own `env:` states the variable itself. Adding a second
-        # `env:` key would make the file fail to load, which `devman doctor`
-        # reports but nobody should have to read.
-        if ! grep -q '^env:' "$devman_src"; then
-          printf 'env:\n  - %s: %s\n' "$devman_var" "$root"
-        fi
-        grep -q '^working_dir:' "$devman_src" || printf 'working_dir: %s\n' "$root"
-        grep -q '^log_dir:' "$devman_src" || \
-          printf 'log_dir: %s/.devman/.runs/logs\n' "$root"
-        cat "$devman_src"
-      } > "$devman_out"
-
-      ln -sfn "../projects/$proj/workflows/$devman_name.yaml" "$dags/$proj.$devman_name.yaml"
-    }
-
-    ${linkLines}
-
-    # §7.3's last layer. It shadows every group, and since stage 6 it is copied
-    # rather than linked. An edit to it reaches Dagu at the next shell entry only
-    # because the guard compares each override's body against the tail of its
-    # projection — between stage 6 and stage 7 it did not, and the run that
-    # followed an edit executed the previous version (`STAGE_7_LOG.md`, S-5a).
-    for f in "$root"/.devman/workflows/*.yaml; do
-      [ -e "$f" ] || continue
-      stem=''${f##*/}; stem=''${stem%.yaml}
-      devman_project "$stem" "$f"
-    done
-
-    # Last, so that a projection interrupted half way leaves an entry that does
-    # not match and is therefore retried on the next shell entry.
-    printf '%s\n' "$rendered" > "$pdir/metadata.json"
-  '';
+  # ONE FILE HOLDING EVERYTHING NIX DERIVED, AND ITS STORE PATH IS THE GUARD.
+  #
+  # `plan` used to record the projection script's store path. That path changed
+  # when a group file changed, but NOT when `triggers.toml` changed — triggers
+  # reached the entry by a different route — so `plan` equality did not imply
+  # the projection was current, and the guard had to compare the whole rendered
+  # entry instead. Comparing the whole entry is what forced the entry to be
+  # rendered twice, once in bash and once in Python, and that is P2-1.
+  #
+  # Fixed by construction: this is one `writeText` holding the groups, the
+  # resolved workflows, the triggers and the renderer's own store path, so its
+  # path is a hash of all of it. Any change to any derived fact changes the
+  # path. `plan` equality therefore really does imply that every derived field
+  # is unchanged, which leaves the guard two run-time facts to compare — where
+  # this checkout sits, and which overrides exist.
+  #
+  # The next reader will want to delete the `plan` comparison as redundant. It
+  # is not: it is the only thing that notices a changed group file, a changed
+  # trigger map, or a changed renderer.
+  planFile = pkgs.writeText "devman-plan-${projectName}.json" (builtins.toJSON {
+    schema = 4;
+    project = projectName;
+    groups = cfg.groups;
+    # §7.3's OUTCOME, not its inputs. `shadows` is what `doctor` check 4 diffs
+    # an override against, and `source` is the store path that won.
+    workflows = lib.mapAttrs
+      (_: w: { inherit (w) group shadows; source = "${w.file}"; })
+      resolved;
+    inherit triggers;
+    renderer = "${renderer}";
+  });
 
   # ---------------------------------------------------------------------------
-  # The entry the guard compares (§5.2)
+  # THE REGISTRY ENTRY'S SCHEMA — the history, kept because each step has a
+  # reason a later reader will otherwise re-litigate.
   #
-  # Two placeholders, both filled by bash parameter expansion rather than by a
-  # fork. `@PATH@` is where this checkout sits. `@LOCAL@` is the set of names in
-  # `.devman/workflows/`, which is what makes the guard notice a repo adding or
-  # removing an override.
-  #
-  # AN EDIT IS NOT VISIBLE HERE, AND IS NOT MADE VISIBLE HERE. A name does not
-  # change when a file changes, and folding a content digest into this field
-  # would cost either a fork per override or a slow bash hash (§5.2). The entry
-  # stays a set of names; the guard tests the edit directly, against the
-  # projection, next to where it builds `local` (S-5a). An earlier version of
-  # this comment said the projection was a symlink, so an edited file was
-  # already what Dagu reads. Stage 6 made the projection a generated copy, and
-  # that stopped being true a whole stage before anything noticed.
-  #
-  # `plan` is the projection script's store path. It changes when the groups
-  # change, when a group file changes, and when the plane's revision changes,
-  # which is exactly when the projection must be rebuilt.
-  #
-  # ---------------------------------------------------------------------------
-  # SCHEMA 2 adds `workflows`, and it exists for `doctor` (§10) rather than for
+  # SCHEMA 2 added `workflows`, and it exists for `doctor` (§10) rather than for
   # the projection, which never reads it. Schema 1 recorded the inputs to §7.3's
   # resolution — `groups` and `local` — and not its outcome, so nothing on disk
   # said which file won or what it displaced. Four of §10's six checks want the
@@ -444,24 +381,34 @@ let
   # winner, and `workflows.<name>.source` is then what it shadows. Nix knows the
   # group half at evaluation time; which files are in a working tree is a
   # run-time fact, which is why `local` is still filled by the hook.
+  #
   # SCHEMA 3 adds `triggers`, for the same reason schema 2 added `workflows`:
   # the watcher and `doctor` need the OUTCOME of a resolution that only Nix can
   # perform. It is `null` for a repository that takes no group declaring any,
   # which is every repository until one opts in.
-  entryTemplate = pkgs.writeText "devman-metadata-${projectName}.json" ''
-    {
-      "schema": 3,
-      "project": ${builtins.toJSON projectName},
-      "path": "@PATH@",
-      "groups": ${builtins.toJSON cfg.groups},
-      "plan": "${projectScript}",
-      "local": [@LOCAL@],
-      "workflows": ${builtins.toJSON (lib.mapAttrs
-        (_: w: { inherit (w) group shadows; source = "${w.file}"; })
-        resolved)},
-      "triggers": ${builtins.toJSON triggers}
-    }
+  #
+  # SCHEMA 4 changes what `plan` MEANS, and adds no field. It was the projection
+  # script's store path; it is now `planFile`'s. The difference is that the
+  # script's path did not change when `triggers.toml` changed, so `plan`
+  # equality did not imply the projection was current — which is why the guard
+  # compared the whole entry, which is why the entry was rendered twice, which
+  # is P2-1 (009 stage 3). `doctor` reports a schema it does not know rather
+  # than misreading it.
+  #
+  # The entry itself is written by `src/devman/project.py`, in a fixed layout so
+  # that the guard below can slice three fields out of it without forking.
+
+  # A thin wrapper, and rule 8's whole point: Python for the logic, shell for
+  # the exec. `--root` and `--local` are run-time facts and stay arguments;
+  # everything Nix knows is in the plan.
+  projectScript = pkgs.writeShellScript "devman-project-${projectName}" ''
+    exec ${renderer}/bin/devman-project apply \
+      --plan ${planFile} \
+      --registry "$2" \
+      --root "$1" \
+      "''${@:3}"
   '';
+
 in
 {
   options.devman = {
@@ -600,12 +547,14 @@ in
       # strips to the same thing — is not compared. There is no body to match,
       # and a header alone is its correct projection.
       devman_local=""
+      devman_local_args=()
       devman_names="${lib.concatStringsSep " " (lib.attrNames resolved)}"
       devman_stale=""
       for devman_f in "$devman_root"/.devman/workflows/*.yaml; do
         [ -e "$devman_f" ] || continue
         devman_b="''${devman_f##*/}"
         devman_local="$devman_local, \"''${devman_b%.yaml}\""
+        devman_local_args+=(--local "''${devman_b%.yaml}")
         devman_names="$devman_names ''${devman_b%.yaml}"
 
         devman_proj="$devman_reg/projects/${projectName}/workflows/$devman_b"
@@ -649,21 +598,82 @@ in
         [ -L "$devman_reg/dags/${projectName}.$devman_n.yaml" ] || devman_relink=1
       done
 
-      devman_tmpl=$(<${entryTemplate})
-      devman_rendered="''${devman_tmpl//@PATH@/$devman_root}"
-      devman_rendered="''${devman_rendered/@LOCAL@/$devman_local}"
-
-      # The recorded path, sliced out of the entry we wrote ourselves. One
-      # `[ -d ]` on it is the whole of §9.1's test, and it forks nothing.
+      # THE GUARD COMPARES THREE SLICED FIELDS, AND IT USED TO COMPARE THE
+      # WHOLE ENTRY (009 stage 3).
+      #
+      # It could, because bash rendered the entry itself, from a template with
+      # `@PATH@` and `@LOCAL@` placeholders. That is what made a repository path
+      # holding a quote, a backslash or a colon-space corrupt the entry (P2-1),
+      # and it is why the projection could not move to a writer that encodes
+      # JSON properly: proper encoding does not match naive substitution, so the
+      # guard would fire on every shell entry, forever.
+      #
+      # So the guard stopped comparing bytes it renders and started comparing
+      # three fields it slices out of the entry Python wrote:
+      #
+      #     disk "path"   == $DEVENV_ROOT     this repository has not moved
+      #     disk "plan"   == ${planFile}      nothing Nix derived has changed
+      #     disk "local"  == $devman_local    the override set has not changed
+      #
+      # `plan` covers every derived field by construction — see `planFile`. The
+      # two run-time facts are the other two. The whole-entry compare lost
+      # nothing.
+      #
+      # The slices fork nothing; the hook already sliced `path` this way.
+      # `src/devman/project.py` writes the entry in a fixed layout SO THAT these
+      # three anchors are sliceable, and says so.
       devman_recorded=""
+      devman_plan=""
+      devman_locals=""
       case "$devman_disk" in
         *'"path": "'*)
           devman_recorded="''${devman_disk#*'"path": "'}"
           devman_recorded="''${devman_recorded%%'"'*}"
           ;;
       esac
+      case "$devman_disk" in
+        *'"plan": "'*)
+          devman_plan="''${devman_disk#*'"plan": "'}"
+          devman_plan="''${devman_plan%%'"'*}"
+          ;;
+      esac
+      case "$devman_disk" in
+        *'"local": ['*)
+          devman_locals="''${devman_disk#*'"local": ['}"
+          devman_locals="''${devman_locals%%']'*}"
+          ;;
+      esac
 
-      if [ -n "$devman_recorded" ] && [ "$devman_recorded" != "$devman_root" ] \
+      # THE ONE THING A FORKLESS COMPARISON CANNOT DO, STATED RATHER THAN
+      # SILENTLY BROKEN (P2-1, and rule 5).
+      #
+      # Python encodes `path` as JSON. Bash compares the slice against the raw
+      # `$DEVENV_ROOT`. For a path holding `"`, `\` or a control character the
+      # two differ FOREVER: the projection would then run on every shell entry,
+      # idempotent and silently expensive. Spaces, `: `, `#` and every non-ASCII
+      # character keep working — those are P2-1's real cases and the Python
+      # writer handles them. Only these three are out, and the restriction is
+      # now a refusal that explains itself instead of a silence.
+      #
+      # This `case` forks nothing, which is what §5.2 requires of this path.
+      devman_badroot=""
+      case "$devman_root" in
+        *'"'*) devman_badroot='a double quote' ;;
+        *'\'*) devman_badroot='a backslash' ;;
+        *$'\n'*) devman_badroot='a newline' ;;
+        *$'\t'*) devman_badroot='a tab' ;;
+      esac
+
+      if [ -n "$devman_badroot" ]; then
+        echo "devman: refusing to register '${projectName}'" >&2
+        echo "devman:   its path holds $devman_badroot:" >&2
+        echo "devman:   $devman_root" >&2
+        echo "devman:   the shell-entry guard compares that path without forking," >&2
+        echo "devman:   and cannot compare it against its own JSON encoding (§5.2)." >&2
+        echo "devman:   Every other character works, including spaces and ': '." >&2
+        echo "devman:   Move this checkout, or rename the directory." >&2
+
+      elif [ -n "$devman_recorded" ] && [ "$devman_recorded" != "$devman_root" ] \
            && [ -d "$devman_recorded" ]; then
         # §9.1: refuse a duplicate, but only when the recorded path still
         # exists. A recorded path that is gone means the project moved, and the
@@ -717,17 +727,20 @@ in
         # The guard. `[ -d ]` on the Dagu view as well as the entry, so that
         # deleting the registry and re-entering restores it exactly
         # (criterion 17).
-        if [ "$devman_disk" != "$devman_rendered" ] || [ ! -d "$devman_reg/dags" ] \
+        if [ "$devman_recorded" != "$devman_root" ] \
+           || [ "$devman_plan" != "${planFile}" ] \
+           || [ "$devman_locals" != "$devman_local" ] \
+           || [ ! -d "$devman_reg/dags" ] \
            || [ -n "$devman_relink" ] || [ -n "$devman_stale" ]; then
-          ${projectScript} "$devman_root" "$devman_reg" "$devman_rendered"
+          ${projectScript} "$devman_root" "$devman_reg" "''${devman_local_args[@]}"
         fi
       fi
 
       unset devman_root devman_reg devman_meta devman_b devman_f \
-            devman_disk devman_local devman_names devman_n devman_relink \
-            devman_stale devman_proj devman_body devman_have \
-            devman_tmpl devman_rendered \
-            devman_recorded devman_ex devman_gd devman_cd devman_cur
+            devman_disk devman_local devman_local_args devman_names devman_n \
+            devman_relink devman_stale devman_proj devman_body devman_have \
+            devman_recorded devman_plan devman_locals devman_badroot \
+            devman_ex devman_gd devman_cd devman_cur
     '';
   };
 }

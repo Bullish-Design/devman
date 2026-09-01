@@ -420,3 +420,173 @@ lands the unit change and restarts the service. That is the check working.
 No amendment. §8's rule is unchanged. A comment that described the plane's
 behaviour stopped being true when stage 7 added two schedules, and the fix is to
 the comment and to the unit, not to the design.
+
+---
+
+## S-3 — the producer refactor (stage 3, P1-1, P2-1, P2-2, and P2-4 made closable)
+
+Date: 2026-08-31. Branch: `fix/009-stage-3-producer-refactor`.
+
+### What was wrong — one duplication, four findings
+
+`modules/devenv.nix` decided the directory variable with
+`grep -q 'DEVMAN_SELF_DIR'`, decided the `env:` header with `grep -q '^env:'`,
+built the entry with `@PATH@` substitution, and validated no identity at all.
+`src/devman/` already answered every one of those correctly, from a parsed
+document. P1-1, P1-5, P2-1 and P2-2 are four symptoms of that one duplication.
+
+The projection is now `src/devman/project.py`. `modules/devenv.nix` states the
+plan and runs it.
+
+### The measurements
+
+**§3.9, the blast radius of the `env:` refusal.** Zero shipped workflows hold a
+top-level `env:` — `groups/` and `.devman/workflows/` both. The 170 that match
+`^env:` under `~/.local/share/devman/projects/` are the generated header itself,
+which is what the count in the guide would have caught. Nothing on this machine
+breaks.
+
+**§3.5, the cost of validating before publishing.** Measured against this
+repository's ten workflows, on the real plan:
+
+```
+full projection, every file validated       901 ms
+the same, validation stubbed out (--dagu true)   246 ms
+```
+
+So `dagu validate` costs about **71 ms per workflow**. The guide's remedy is
+taken: a file whose rendered bytes are identical to the ones already published
+is republished without a second validation, because it passed when it was
+written.
+
+```
+first projection (everything validated)     901 ms
+re-projection, nothing changed              175-212 ms
+```
+
+**The one thing that invalidates that argument is a new validator**, so the
+recorded `plan` decides. It holds the renderer's store path, and the renderer
+wraps the Dagu that validates — a new Dagu, a new renderer, or any other derived
+change gives a new plan path and every file is validated again. Three unit cases
+pin the skip, including `test_a_new_plan_revalidates_everything`; without them
+the skip is one edit away from "never validate", which rule 5 forbids.
+
+**Shell entry, end to end.** The guarded path is unchanged at about 1.7 s, which
+is devenv's own cost; the hook adds no fork. The projection path is 2.5 s.
+
+### Three things measured while building it, each of which looked like something else
+
+**1. A source path holding a newline made the renderer emit a file it would
+refuse.** The banner comment carries the source path, so its second line landed
+at column 0 and the generated document stopped loading. Found by
+`test_every_supported_path_round_trips_through_the_yaml[newline]`. Every line of
+the path is commented now.
+
+**2. "Publish nothing" has to mean the whole projection.** The first version
+swept the registry and then rendered. Adding an `env:` block to ONE override
+refused correctly — and left this repository with **none** of its ten workflows
+published, because the sweep had already removed them. A typo would have stopped
+the nightly `maintain` until somebody noticed. Nothing is touched now until
+every file has rendered and every changed file has validated; a refusal leaves
+the previous projection exactly as it was. Proved live, and pinned by
+`test_a_refusal_leaves_the_previous_projection_intact`.
+
+**3. THE RENDERER'S SOURCE IS INVISIBLE TO DEVENV'S EVALUATION CACHE, and this
+is `groupFiles`'s measurement one layer down.** `nix/renderer.nix` builds a
+`fileset.toSource` over `../src`. Interpolating a path copies it to the store,
+and devenv does not notice when the CONTENT of a copied path changes — so an
+edited `project.py` kept producing the previous renderer's store path.
+
+It presented as a bug in the new code: the projection refused correctly and then
+published one workflow anyway, because the renderer actually running was a build
+from before that behaviour was fixed. `planFile` recorded that stale path, so
+the guard was satisfied. Everything agreed with everything, and all of it was
+old.
+
+The fix is the one `groupFiles` already uses: `builtins.readFile` is a read the
+cache tracks, so the module hashes every `src/devman/*.py` into an attribute of
+the derivation. A repository pinning a `git+https` rev never meets this — a
+changed source is a changed rev. devman adopting itself (criterion 16) meets it
+on every edit.
+
+**4. `dagu validate` names the DAG after the file's base name.** Validating in a
+temp file called `.validate` refused every workflow with "DAG name is required".
+The staging file keeps the workflow's own base name, inside a dot-directory the
+sweep's glob does not see.
+
+### The guard — schema 4
+
+`plan` used to record the projection script's store path. That path changed when
+a group file changed but **not** when `triggers.toml` changed, so `plan`
+equality did not imply the projection was current, and the guard had to compare
+the whole rendered entry — which forced the entry to be rendered twice, once in
+bash with `@PATH@` substitution and once in Python. That is P2-1's actual cause.
+
+`planFile` is now one `writeText` holding the groups, the resolved workflows,
+the triggers and the renderer's store path, so its path is a hash of all of it.
+The guard compares three sliced fields instead of the whole entry:
+
+```
+disk "path"   == $DEVENV_ROOT     this repository has not moved
+disk "plan"   == ${planFile}      nothing Nix derived has changed
+disk "local"  == $devman_local    the override set has not changed
+```
+
+`devman_relink` and `devman_stale` are unchanged. `entryTemplate` and its
+`@PATH@`/`@LOCAL@` substitution are gone.
+
+**The entry's layout is a requirement, not a style.** `src/devman/project.py`
+writes it in a fixed shape so the three anchors stay sliceable, and every value
+goes through `json.dumps`. `test_the_entry_holds_the_three_anchors_the_guard_slices`
+is what stops a later tidy-up from making the guard fire on every shell entry
+forever.
+
+**The forkless comparison's one limit is stated rather than silently broken.**
+A repository path holding `"`, `\`, a tab or a newline is refused at
+registration, by name, with the reason. Spaces, `: `, `#` and every non-ASCII
+character keep working — those are P2-1's real cases. That is P2-1's actual
+complaint answered: not the restriction, but the silence. It is in `USER.md`
+§2.6 and in the refusal.
+
+**Older CLIs still read a schema 4 entry.** Nothing but `registry.py` reads
+`plan`, and it reads it as a string. The installed `devman` — built before this
+stage — reports `Nothing to report.` against a machine that is now entirely
+schema 4. That is the soft degradation the schema version exists to provide, and
+`doctor` gains a `schema` check that names an entry from a devman it does not
+know rather than misreading it.
+
+### The charter amendment (rule 2)
+
+**This amends §3.1**, and the amendment is in `CONCEPT.md` §3.1, in
+`nix/renderer.nix`'s header, and in `nix/devman-cli.nix`'s header, in this
+commit. The short form: sharing the renderer as a machine-side binary *creates*
+the drift §3.1's second rule exists to prevent, in the one form the shell-entry
+guard cannot see — an unversioned run-time dependency whose identity is not an
+evaluation-time fact. Building it under each consumer's nixpkgs makes it
+observable to the guard.
+
+### Verification
+
+```
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:unit     # 329 passed
+devenv tasks run -v base:test     # nix flake check, VM test included
+devman doctor                     # exit 0, 54 projects, 170 workflows
+```
+
+Live, on this machine, after one shell entry:
+
+- `plane-report.yaml` states `DEVMAN_PROJECT_DIR` — **P1-1's live case, closed.**
+  It shipped `DEVMAN_SELF_DIR` for a whole stage because a comment in it
+  mentions the name.
+- `stack-validate.yaml` states `DEVMAN_SELF_DIR`, decided from its `dag.run`
+  steps rather than from any comment.
+- the guarded path re-projects nothing; an edited override reaches the
+  projection at the next entry (S-5a's regression, still closed).
+- `modules/devenv.nix` holds no `grep` that decides semantics.
+
+### What this stage does not do
+
+The hook's path refusal has no shell-level test yet — §3.8's case 12, which the
+guide assigns to stage 8. `check_schema` has no unit case yet; stage 4 rewrites
+`projects()` and is the natural place for it.

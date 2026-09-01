@@ -139,6 +139,37 @@ same duplication with no such guarantee — the machine and a repo differ by
 hundreds of attributes, and `sed`, `git`, `python3` and `bash` all differ in
 version between them, silently.
 
+> **AMENDMENT — the second exception is `nix/renderer.nix`** (project 009,
+> stage 3, `STAGE_9_LOG.md` S-3). The projection's renderer is a Python program,
+> which this rule says must not be shared; it is built under each consumer's
+> nixpkgs anyway, on the same terms as `nix/dagu.nix` and from the same source
+> tree as `packages.default`.
+>
+> **The deciding argument is the shell-entry guard, not the charter.** The
+> alternative was for the devenv module to call `devman` from the machine's
+> PATH, which works — a devenv shell inherits the machine profile's PATH. It
+> fails for one reason: a PATH lookup is a **run-time** fact, so the devenv
+> module cannot know the renderer's identity at evaluation time, so it cannot
+> put that identity into `planFile`, so **the guard cannot observe it**. Upgrade
+> the machine's `devman` and the rendering rules change while every repository
+> keeps a projection produced by the old renderer — the entry still matches,
+> nothing re-projects, and Dagu keeps reading stale bytes. That is
+> `STAGE_7_LOG.md` S-5a exactly.
+>
+> It would also invent a version-skew axis the plane does not have. The devenv
+> module comes from the repository's pinned rev and the CLI from the machine's;
+> today they share only `metadata.json`, a text schema with a version number and
+> soft degradation. Moving rendering *semantics* across that boundary turns a
+> soft-degrading schema into a hard shell-entry dependency between two
+> independently-pinned components.
+>
+> §3.1's second rule exists to stop silent drift between the two interfaces.
+> Sharing the renderer as a machine-side binary **creates** that drift, in the
+> one form the guard cannot see: an unversioned run-time dependency whose
+> identity is not an evaluation-time fact. Building it under each consumer's
+> nixpkgs makes the renderer's identity observable to the guard. The exception
+> applies §3.1's own reasoning to a case its text did not anticipate.
+
 ### 3.2 A devenv import is a path, not an output
 
 devenv does not consume flake output attributes. An import resolves to a
