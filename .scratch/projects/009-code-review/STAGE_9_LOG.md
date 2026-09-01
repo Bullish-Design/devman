@@ -149,3 +149,68 @@ the outer one firing late would fail it.
 ### Charter
 
 No amendment. §8's rule is unchanged; one of its two implementations was wrong.
+
+---
+
+## S-6 — the machine module's assertions (stage 6, P1-6 and P3-1)
+
+Date: 2026-08-31. Branch: `fix/009-stage-6-nix-assertions`.
+
+### What was wrong
+
+`nix/nixos-module.nix` held no `assertions` attribute at all. Two options stated
+an invariant their type did not enforce.
+
+**P1-6.** `configFile` always writes `auth.mode = "none"`, and the comment above
+it said "Loopback only". That described the default. `host` was
+`types.str`, so `host = "0.0.0.0"` exposed the web UI, the API and the
+coordinator to the network with no gate, and nothing said so.
+
+**P3-1.** `defaultQueue` was any string while `queues` is the declared set. Dagu
+accepts an undeclared queue name silently and gives it concurrency 1 — the
+measurement is in the `queues` description itself, citing S-9 — so a typo here
+serialises the whole machine and says nothing.
+
+### The edit
+
+`isLoopback` accepts `127.0.0.0/8`, `::1`, `[::1]` and `localhost`, and refuses
+everything else including `0.0.0.0` and `::`. Both assertions are evaluation
+time, which is the cheapest place to refuse: the developer learns before the
+service exists.
+
+The boundary is stated in the **option descriptions** as well as in the
+assertion messages. A developer reads the description first.
+
+A network bind is deliberately not built. It is a second option — a Dagu auth
+mode and a token file on §9.4's secrets path — and its own charter
+conversation. Rule 9 notes §9.4 has never fired.
+
+### The test, and one thing it had to learn
+
+`nix flake check` does not evaluate a NixOS configuration that nobody builds, so
+an assertion with no test is unproved. The new `module-assertions` check
+evaluates the module ten ways and reads `config.assertions`, which is lazy — it
+builds no system. Six of the cases are the ones the guide names; four more cover
+`127.0.0.0/8`, `[::1]`, `localhost` and the default.
+
+It asserts the **message**, not only the failure. An assertion that fires for
+the wrong reason is not a test.
+
+**Measured while writing it:** a bare `lib.nixosSystem` fails NixOS's own
+root-filesystem and boot-loader assertions, so `config.assertions` is never
+empty and the first case failed for a reason that had nothing to do with the
+option under test. The check therefore filters to messages holding
+`services.devman-dagu`. Without that filter every case would pass, including the
+ones that must fail — the exact shape of a check that checks nothing (rule 5).
+
+### Verification
+
+```
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:test     # nix flake check — module-assertions built
+devman doctor                     # exit 0
+```
+
+### Charter
+
+No amendment. §4 already says loopback; the module now enforces what §4 says.
