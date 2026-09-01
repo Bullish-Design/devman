@@ -46,7 +46,7 @@ from pathlib import Path
 import yaml
 
 from . import watch
-from .registry import Registry, dag_name_fault
+from .registry import Registry, dag_name_fault, identity_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
 
@@ -509,7 +509,7 @@ def check_projection(rep: Report, reg: Registry) -> None:
 
 
 def check_dag_names(rep: Report, reg: Registry) -> None:
-    """A workflow name the codec cannot render (§9.2, S-12).
+    """A name the codec cannot render, on either half (§9.2, S-12; 009 P1-5).
 
     A dot in the workflow half makes the last dot of `<project>.<workflow>`
     ambiguous, so the name stops being injective — which is the one property the
@@ -517,12 +517,23 @@ def check_dag_names(rep: Report, reg: Registry) -> None:
     time for a group and at shell entry for a local override, so this catches
     only a projection written before the codec landed.
 
+    **The PROJECT half is checked too, and it was not before.** `devman.project`
+    was a bare `types.str` until 009, so a legacy entry can hold a name the
+    grammar now refuses — and after this stage that repository cannot enter its
+    shell. `doctor` naming it is what gives the developer a rename path instead
+    of a broken shell, so it names the metadata file as well as the project.
+
     **This is set membership, not a heuristic, so §15.7 does not reach it.** It
-    reads one character in a name the registry already holds.
+    reads the characters in a name the registry already holds.
     """
     bad = []
+    for proj in reg.projects().values():
+        fault = identity_fault("project", proj.name)
+        if fault:
+            meta = (proj.entry or reg.projects_dir / proj.name) / "metadata.json"
+            bad.append(f"{proj.name}: {fault.splitlines()[0]}\n     {meta}")
     for proj, name, _path in reg.projected_files():
-        fault = dag_name_fault(name)
+        fault = identity_fault("workflow", name) or dag_name_fault(name)
         if fault:
             bad.append(f"{proj.name}/{name}: {fault.splitlines()[0]}")
     if bad:

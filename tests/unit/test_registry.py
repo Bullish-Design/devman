@@ -7,10 +7,12 @@ test here reaches `~/.local/share/devman`, and none runs `git`.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from helpers import ORDINARY, mark_checkout
 
+from devman import registry
 from devman.registry import (
     Registry,
     RegistryError,
@@ -426,3 +428,45 @@ def test_a_pruned_entry_is_reconstructable(plane):
     after = json.loads((plane.root / "projects" / "p" / "metadata.json").read_text())
     assert after == before
     assert plane.reg.dag_link_fault(plane.reg.project("p"), "check") is None
+
+
+# ---------------------------------------------------------------------------
+# the identity grammar (009 P1-5) — one side of the shared table
+#
+# `tests/fixtures/identity.json` is read here, by `tests/conformance/` against
+# the pinned Dagu, and by a `flake.nix` check with `builtins.fromJSON`. §3.1
+# says what the two interfaces share must be TEXT, so the table is what makes
+# duplicating a small grammar at both boundaries safe.
+
+IDENTITY_TABLE = json.loads(
+    (Path(__file__).resolve().parents[1] / "fixtures" / "identity.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", IDENTITY_TABLE["cases"], ids=lambda c: c["why"][:40])
+def test_identity_fault_agrees_with_the_shared_table(case):
+    fault = registry.identity_fault("project", case["name"])
+    if case["valid"]:
+        assert fault is None, f"{case['name']!r}: {case['why']}"
+    else:
+        assert fault is not None, f"{case['name']!r}: {case['why']}"
+
+
+def test_the_python_grammar_is_the_table_s_grammar(plane):
+    """One string, three readers. If this drifts, the Nix side is testing a
+    pattern the CLI no longer uses."""
+    assert IDENTITY_TABLE["grammar"] == registry.IDENTITY_GRAMMAR
+
+
+@pytest.mark.parametrize("value", ["", ".", "..", "a/b", "a\nb", "-flag"])
+def test_a_named_refusal_says_what_is_wrong(value):
+    """ "Does not match a regex" does not tell an author what to do. Each of
+    these carries its own message, even though the pattern excludes them all."""
+    fault = registry.identity_fault("project", value)
+    assert fault
+    assert "cannot" in fault
+
+
+def test_a_workflow_name_says_workflow(plane):
+    assert "workflow name" in registry.identity_fault("workflow", "bad@name")
+    assert "project name" in registry.identity_fault("project", "bad@name")

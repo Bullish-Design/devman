@@ -214,3 +214,115 @@ devman doctor                     # exit 0
 ### Charter
 
 No amendment. §4 already says loopback; the module now enforces what §4 says.
+
+---
+
+## S-5 — the identity grammar (stage 5, P1-5)
+
+Date: 2026-08-31. Branch: `fix/009-stage-5-identity-grammar`.
+
+**Land this before stage 3.** Stage 3 validates identity before it constructs a
+path, so the grammar has to exist first.
+
+### What was wrong
+
+The conformance suite proves Dagu 2.15.0 accepts only alphanumerics, dash, dot
+and underscore in a DAG name (S-11). The codec validated one condition:
+`dag_name_fault()` refuses a dot in the workflow half. `devman.project` was a
+bare `types.str`.
+
+So `bad@project` registered, `run.resolve()` returned `bad@project.check`, and
+the pinned Dagu refuses it. Worse characters reached path construction:
+`projects/$proj`, `dags/$proj.$workflow.yaml`, and the sweep loops in
+`modules/devenv.nix`. A slash, an empty name, or `..` selects a registry
+subpath.
+
+### The measurement — who this breaks
+
+Run before landing, against the installed plane:
+
+```bash
+ls ~/.local/share/devman/projects/          # 54 projects
+ls ~/.local/share/devman/projects/*/workflows/*.yaml | xargs -n1 basename
+```
+
+**Zero of the 54 registered project names fail the grammar, and zero of the 10
+distinct workflow names fail it.** No repository loses its shell to this stage.
+`doctor` names an invalid legacy project anyway, because the measurement is of
+this machine and the plane runs on others.
+
+### The grammar
+
+```
+^[A-Za-z0-9][A-Za-z0-9._-]*$
+```
+
+The character set is Dagu's, measured. The leading character is restricted
+further, so `-flag` and `.hidden` cannot be names. The empty string, `.`, `..`,
+a path separator and a control character are already excluded by the pattern —
+each is refused **with its own message anyway**, because "does not match a
+regex" does not tell an author what to do.
+
+### Two boundaries, one shared table
+
+§3.1 says what the two interfaces share must be **text**, so a shared table is
+charter-compatible where shared code is not.
+`tests/fixtures/identity.json` holds 23 cases as `{name, valid, why}`, and
+**three** readers assert against it:
+
+| Reader | What it proves |
+|---|---|
+| `tests/unit/test_registry.py` | `identity_fault()` agrees with every case, and the Python grammar string **is** the table's |
+| `tests/conformance/test_dagu_yaml.py` | the pinned `dagu ls` lists a DAG for every name marked valid — the grammar is a promise about Dagu, so Dagu proves it |
+| `flake.nix` `identity-grammar` | the Nix-side pattern agrees with every case, read with `builtins.fromJSON` |
+
+That is what makes duplicating a small grammar at both boundaries safe.
+
+### The edits
+
+- `registry.identity_fault(kind, value)`, beside `dag_name_fault()`.
+  `dag_name_fault()` stays: the no-dot rule for the workflow half is
+  **additional**, and it carries the injectivity argument.
+- `run.resolve()` calls it for both halves, before `workflow_file()` — before
+  any path is constructed.
+- `modules/devenv.nix` refuses an invalid `devman.project` at evaluation time,
+  beside the group-name throw. It is a `throw` rather than a
+  `types.strMatching` for the same reason the group throw is one: the type
+  error says the value does not match a pattern, and says nothing about what to
+  write instead.
+- `doctor`'s `check_dag_names` now flags a legacy entry whose **project** half
+  is invalid, and names the `metadata.json` so the developer can find it. That
+  is what gives an affected repository a rename path instead of a broken shell.
+
+### What this stage does not do
+
+`Registry.projects()` still skips rather than faults. Stage 4 owns that, and
+the guide says so — a legacy entry with an invalid project half becomes a
+registry fault there, not here.
+
+The Nix-side `throw` is proved by the shared table's pattern, not by an
+evaluation test of the module itself. The devenv module cannot be evaluated
+inside `nix flake check` — it needs a second nixpkgs — which is the same
+constraint `STAGE_1_LOG.md` S10 records. Stage 8 is where the real projection
+gets a test.
+
+### Verification
+
+```
+devenv tasks run -v base:unit     # 266 passed
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:test     # nix flake check — identity-grammar built,
+                                  # conformance measured against dagu 2.15.0
+devman doctor                     # exit 0, `dag names` still ok on 170 names
+```
+
+**One thing the suite taught:** the first run failed with
+`FileNotFoundError: tests/fixtures/identity.json` inside the sandbox. The
+`python-tests` check builds from a `fileset.toSource` over the flake source, so
+an untracked file is not in the closure. `git add` is part of making a fixture
+real here.
+
+### Charter
+
+No amendment. §9.1 already says identity is stated. This is the first time
+anything checked what may be stated.

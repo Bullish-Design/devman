@@ -31,7 +31,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .registry import Project, Registry, RegistryError, dag_name_fault
+from .registry import (
+    Project,
+    Registry,
+    RegistryError,
+    dag_name_fault,
+    identity_fault,
+)
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
 
 
@@ -45,10 +51,22 @@ def resolve(
 
     Returns `(dag name, parameters, the name of the directory variable)`.
     """
-    # The codec's one refusal, at the trigger. The module refuses the same name
-    # at evaluation time, so this fires only for a projection written before the
-    # codec landed — and it is still a refusal rather than a fallback, because
-    # such a name has no unambiguous DAG to enqueue (§9.2).
+    # The grammar, before any path is constructed (009 P1-5). A name holding a
+    # slash, a `..`, or a character Dagu refuses used to reach `workflow_file()`
+    # and `dag_name()` alike — the first selects a registry subpath, the second
+    # renders a DAG name the pinned Dagu will not load.
+    for kind, value in (("project", project.name), ("workflow", workflow)):
+        fault = identity_fault(kind, value)
+        if fault:
+            raise RegistryError(
+                f"refusing to enqueue '{workflow}' in '{project.name}'\n  {fault}"
+            )
+
+    # The codec's one refusal, at the trigger. It is additional to the grammar
+    # above and carries its own injectivity argument. The module refuses the same
+    # name at evaluation time, so this fires only for a projection written before
+    # the codec landed — and it is still a refusal rather than a fallback,
+    # because such a name has no unambiguous DAG to enqueue (§9.2).
     name_fault = dag_name_fault(workflow)
     if name_fault:
         raise RegistryError(

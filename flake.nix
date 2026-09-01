@@ -73,6 +73,31 @@
             touch $out
           '';
 
+          # THE THIRD READER OF THE SHARED IDENTITY TABLE (009 P1-5).
+          #
+          # The grammar is stated twice — `src/devman/registry.py` for the CLI
+          # and `modules/devenv.nix` for the repo interface — because §3.1 says
+          # what the two interfaces share must be TEXT, and a Python function is
+          # not text. `tests/fixtures/identity.json` is that text.
+          #
+          # This check reads the same file with `fromJSON` and asserts the
+          # Nix-side pattern agrees with every case. The Python side asserts the
+          # same table in `tests/unit/test_registry.py`, and the conformance
+          # suite asserts the pinned Dagu accepts every name marked valid. That
+          # is what makes duplicating a small grammar at both boundaries safe.
+          identity-grammar =
+            let
+              table = builtins.fromJSON (builtins.readFile ./tests/fixtures/identity.json);
+              # The devenv module's own pattern, spelled as it is spelled there.
+              # `builtins.match` anchors, so the module carries no `^` or `$`.
+              grammar = "[A-Za-z0-9][A-Za-z0-9._-]*";
+              agrees = case: (builtins.match grammar case.name != null) == case.valid;
+              disagreeing = builtins.filter (c: !(agrees c)) table.cases;
+            in
+            assert table.grammar == "^${grammar}$";
+            assert disagreeing == [ ];
+            pkgs.runCommand "devman-identity-grammar" { } "touch $out";
+
           # The Python test layer (`tests/README.md`, `STAGE_7_LOG.md` S-11).
           #
           # WHY A CHECK AND NOT ONLY A DEVENV TASK. `base:test` is `nix flake
