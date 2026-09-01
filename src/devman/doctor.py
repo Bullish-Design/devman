@@ -704,6 +704,93 @@ def running_watchers(reg: Registry) -> list[tuple[int, int]]:
     return sorted(found)
 
 
+def check_daemon_shell(rep: Report, dagu_home: Path) -> None:
+    """`SHELL` in the running Dagu's own environment (009 P1-3, S13).
+
+    Dagu resolves a step's shell from `$SHELL` and falls back to the instance's
+    `default_shell` only when `$SHELL` is unset — and it reads that from
+    whichever process enqueues the run. So every enqueue owner has to clear it:
+    `devman run` does, for the CLI, the watcher and the hook; the unit does,
+    with `UnsetEnvironment=SHELL`, for the runs the daemon enqueues itself under
+    a `schedule:`.
+
+    **Clearing per owner is a whack-a-mole invariant.** Two owners today, and the
+    module's comment claimed for a whole stage that there was one. This check is
+    the durable form: it reads what is actually there rather than counting the
+    places that ought to have cleared it.
+
+    The failure it catches is silent until a workflow uses a shell-specific
+    construct. A benchmark campaign reading bash's `$EPOCHREALTIME` is the one
+    that found it, with `parameter not set` (`STAGE_4_LOG.md` S9, S13).
+
+    This reads `/proc`, which is the process table rather than the filesystem
+    (§15.1 says nothing about asking the kernel what is running).
+    """
+    pids = _dagu_pids(dagu_home)
+    if not pids:
+        rep.add("daemon shell", "..", ["no running Dagu found in the process table"])
+        return
+    held = []
+    for pid in pids:
+        try:
+            raw = Path(f"/proc/{pid}/environ").read_bytes()
+        except OSError:
+            continue  # not ours to read, or it ended while we looked
+        for item in raw.split(b"\0"):
+            if item.startswith(b"SHELL="):
+                held.append(f"pid {pid}: {item.decode(errors='replace')}")
+    if held:
+        rep.add(
+            "daemon shell",
+            "!!",
+            held
+            + [
+                "a scheduled run would take this shell instead of the instance's"
+                " default_shell (S13)",
+                'the unit should state serviceConfig.UnsetEnvironment = "SHELL";'
+                " restart it after a rebuild",
+            ],
+        )
+    else:
+        rep.add(
+            "daemon shell",
+            "ok",
+            [f"SHELL is unset in {len(pids)} dagu process(es) — default_shell governs"],
+        )
+
+
+def _dagu_pids(dagu_home: Path) -> list[int]:
+    """Every running Dagu that serves this home, by its command line."""
+    marker = str(dagu_home).encode()
+    found = []
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError:
+        return found
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if not argv or not argv[0]:
+            continue
+        if Path(argv[0].decode(errors="replace")).name != "dagu":
+            continue
+        if b"start-all" not in argv:
+            continue
+        # A machine may run a second Dagu on another home (§4). Match the home
+        # this doctor was pointed at, from the argv or from the environment.
+        try:
+            env = (entry / "environ").read_bytes()
+        except OSError:
+            env = b""
+        if marker in b"\0".join(argv) or b"DAGU_HOME=" + marker in env:
+            found.append(int(entry.name))
+    return sorted(found)
+
+
 def check_trigger_targets(rep: Report, reg: Registry) -> None:
     """A trigger must name a workflow the project actually projects (S-3).
 
@@ -945,6 +1032,7 @@ def main(args, reg: Registry) -> int:
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)
     check_trigger_targets(rep, reg)
+    check_daemon_shell(rep, dagu_home)
     check_watcher(rep, reg)
     rep.print()
 
