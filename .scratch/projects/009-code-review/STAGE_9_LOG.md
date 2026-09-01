@@ -88,3 +88,64 @@ through `make_dir=False` instead — a state that still occurs.
 ### Charter
 
 No amendment. The rule is §7.2 and §11 enforced, not changed.
+
+---
+
+## S-2 — watcher ownership (stage 2, P1-4)
+
+Date: 2026-08-31. Branch: `fix/009-stage-2-watcher-ownership`.
+
+### What was wrong
+
+Two places answered "which project owns this path", and they disagreed.
+
+`registry.project_for()` carried the rule — the deepest registered project wins
+— with the measurement behind it (`STAGE_5_LOG.md`, S3). `watch.match()`
+implemented containment for itself, as `path.relative_to(entry.path)` over every
+entry, and accepted **every** registered root containing the path.
+
+Reproduced in the review: `outer/inner/changed.py`, with `outer` and
+`outer/inner` both registered, returned `['inner', 'outer']`. One save, two
+runs. The outer repository's formatter then rewrote source across the nested
+repository boundary, and both runs reported success — the failure this design
+exists to prevent.
+
+### The edit — extract, do not copy
+
+The report says the watcher "should share it instead of implementing containment
+independently". Taken literally: copying the rule into `watch.py` would recreate
+the same duplication in a new place.
+
+`registry.deepest(roots, here)` is the rule, and it now has exactly two callers.
+`project_for()` calls it and keeps its own nested-checkout refusal, which is a
+separate rule and stays where it is. `match()` resolves ownership **once per
+path**, then matches only that project's globs. The per-project/per-workflow
+coalescing is unchanged; it now runs after ownership rather than instead of it.
+
+One behaviour change inside the rule: depth is compared on `len(resolved.parts)`
+rather than `len(str(root))`. Path length in characters is not depth. The old
+form happened to agree on every path this machine holds.
+
+### Verification
+
+```
+devenv tasks run -v base:unit     # 243 passed
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:test     # nix flake check, VM test included
+devman doctor                     # exit 0
+```
+
+Six new unit cases plus one shape assertion.
+`test_deepest_and_project_for_agree` asserts the two callers agree on a shared
+table of paths — that is what keeps the extraction honest, since they drifted for
+a whole stage before.
+
+New VM subtest, "a save inside a nested checkout fires only the inner project":
+registers a second project inside the first, saves one file in the inner one,
+waits for the fire, then sleeps ten seconds and reads the whole `fired.jsonl`.
+The assertion is that the set of projects that fired is exactly `{"nested"}` —
+the outer one firing late would fail it.
+
+### Charter
+
+No amendment. §8's rule is unchanged; one of its two implementations was wrong.

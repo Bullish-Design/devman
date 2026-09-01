@@ -228,6 +228,49 @@
         assert fired["project"] == "demo" and fired["workflow"] == "probe"
         assert fired["outcome"] == "enqueued", fired
 
+    with subtest("a save inside a nested checkout fires only the inner project (P1-4)"):
+        # 009 P1-4, against the real watcher. `match()` used to accept every
+        # registered root containing the path, so one save enqueued a run in the
+        # inner repository AND in the one it sits inside — and the outer
+        # repository's formatter then rewrote source across the boundary. Both
+        # runs reported success.
+        inner = f"{PROJ}/nested"
+        tester(f"mkdir -p {inner} {REG}/projects/nested/workflows")
+        machine.succeed(f"install -o tester -g users -m 644 /dev/null {inner}/probe.yaml")
+        machine.succeed(
+            f"printf 'queue: light\\nsteps:\\n  - name: where\\n"
+            f"    run: pwd\\n' > {inner}/probe.yaml"
+        )
+        tester(f"ln -sfn {inner}/probe.yaml {REG}/projects/nested/workflows/probe.yaml")
+        tester(
+            f"ln -sfn ../projects/nested/workflows/probe.yaml"
+            f" {REG}/dags/nested.probe.yaml"
+        )
+        nested = json.dumps({
+            "schema": 3, "project": "nested", "path": inner,
+            "groups": ["base"], "plan": "", "local": ["probe"],
+            "workflows": {"probe": {"group": "base", "shadows": [], "source": ""}},
+            "triggers": {"group": "base", "map": {"**/*.py": "probe"}},
+        })
+        machine.succeed(f"echo '{nested}' > {REG}/projects/nested/metadata.json")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"nested\\\"\" {REG}/watch/state.json'",
+            timeout=60,
+        )
+        tester(f"truncate -s 0 {REG}/watch/fired.jsonl")
+
+        tester(f"touch {inner}/changed.py")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}grep -q nested {REG}/watch/fired.jsonl'", timeout=90
+        )
+        # Give the outer project every chance to fire late, then read the whole
+        # file: the assertion is that it fired ONCE, for the inner project.
+        machine.succeed("sleep 10")
+        lines = tester(f"cat {REG}/watch/fired.jsonl").strip().splitlines()
+        print(lines)
+        owners = {json.loads(line)["project"] for line in lines if line}
+        assert owners == {"nested"}, f"the outer project fired too: {owners}"
+
     with subtest("doctor still tells a dead watcher from a watching one"):
         report = tester("devman doctor || true")
         assert "ok  watcher" in report, report
