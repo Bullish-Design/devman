@@ -20,9 +20,17 @@
 # `default.nix` is never consulted, and the error names a file you did not
 # write (B4).
 #
-# `git+https` records `rev` and `narHash` in devenv.lock. `git+file` records
-# neither and silently follows the branch head, so a local checkout is never
-# pinned (B4). Use a fixed `path:` copy for local iteration.
+# `git+https` records `rev` and `narHash` in devenv.lock, and **so does
+# `git+file`** — its real constraint is that it reads COMMITTED files only, so a
+# consumer cannot see an uncommitted edit. Use `path:` for the one repository
+# under active edit, `git+file:` for every other local consumer.
+#
+# This comment said the opposite for six stages (009 P2-5). B4's original probe
+# recorded no `rev` for a `git+file` input; `FINDINGS.md` supersedes it with the
+# decisive evidence — `nix-meta/flake.lock` and `vendomat/flake.lock` both record
+# `rev` and `narHash` for their local inputs — and CONCEPT.md §3.2 has carried
+# the corrected form since. `USER.md` and `README.md` tell a developer to pin
+# with `git+file:`, so this file was contradicting the guide it belongs to.
 #
 # The module takes `pkgs` from the consuming repo's devenv, which pins
 # `devenv-nixpkgs/rolling`. The NixOS module takes `pkgs` from the machine.
@@ -485,9 +493,10 @@ in
       devman_reg="${cfg.registryDir}"
       devman_meta="$devman_reg/projects/${projectName}/metadata.json"
 
-      # §15.2: `.devman/` IS THE REPOSITORY'S. devman reserves two names inside
-      # it — `workflows/` and `.runs/` — and never reads, writes or inspects
-      # anything else there.
+      # §15.2: `.devman/` IS THE REPOSITORY'S. devman reserves three names
+      # inside it — `workflows/`, `.runs/` and `triggers.toml` — and never
+      # reads, writes or inspects anything else there. The third arrived with
+      # 009 P3-3, as §7.3's last layer applied to triggers.
       #
       # There used to be a whitelist here: any other top-level entry made
       # registration refuse and report. It was removed by decision at stage 7,
@@ -570,6 +579,32 @@ in
         fi
       done
       devman_local="''${devman_local#, }"
+
+      # §7.3'S LAST LAYER NOW COVERS TRIGGERS TOO (009 P3-3), AND THE GUARD HAS
+      # TO NOTICE AN EDIT TO IT FOR THE SAME REASON S-5a EXISTS.
+      #
+      # `.devman/triggers.toml` is this repository's own trigger layer. It is
+      # read at RUN time by the renderer, like `.devman/workflows/`, because
+      # which files are in a working tree is a run-time fact — so Nix cannot put
+      # it in `planFile` and `plan` equality cannot cover it.
+      #
+      # The projection keeps a verbatim copy beside the registry entry, and this
+      # compares the two. Two `$(<file)` reads and a string compare: exact,
+      # forkless, and the same shape as the override tail-test above. A
+      # repository that ships no such file pays one `[ -f ]` on each side.
+      devman_trig="$devman_root/.devman/triggers.toml"
+      devman_trig_kept="$devman_reg/projects/${projectName}/triggers.toml"
+      if [ -f "$devman_trig" ]; then
+        if [ ! -f "$devman_trig_kept" ]; then
+          devman_stale=1
+        else
+          devman_trig_now=$(<"$devman_trig")
+          devman_trig_was=$(<"$devman_trig_kept")
+          [ "$devman_trig_now" = "$devman_trig_was" ] || devman_stale=1
+        fi
+      elif [ -f "$devman_trig_kept" ]; then
+        devman_stale=1
+      fi
 
       # §9.3 SAYS THE PROJECTION IS RECONSTRUCTABLE BY ENTERING THE SHELL, AND
       # THE GUARD USED TO CHECK TOO LITTLE FOR THAT TO BE TRUE.
@@ -751,6 +786,7 @@ in
             devman_disk devman_local devman_local_args devman_names devman_n \
             devman_relink devman_stale devman_proj devman_body devman_have \
             devman_recorded devman_plan devman_locals devman_badroot \
+            devman_trig devman_trig_kept devman_trig_now devman_trig_was \
             devman_ex devman_gd devman_cd devman_cur
     '';
   };

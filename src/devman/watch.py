@@ -46,7 +46,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
 from .registry import Project, Registry, deepest
@@ -121,6 +121,10 @@ class WatchEntry:
     globs: list[str]
     workflow: str
     group: str
+    # Globs this repository never fires on, from its own `.devman/triggers.toml`
+    # (009 P3-3). The group owns the trigger glob and the repository owns what
+    # its tasks actually touch; this is where the repository says so.
+    ignore: list[str] = field(default_factory=list)
 
 
 def watch_map(reg: Registry) -> list[WatchEntry]:
@@ -158,8 +162,13 @@ def watch_map(reg: Registry) -> list[WatchEntry]:
         by_workflow: dict[str, list[str]] = {}
         for pattern, workflow in triggers.items():
             by_workflow.setdefault(workflow, []).append(pattern)
+        ignore = (proj.raw_triggers() or {}).get("ignore", []) or []
         for workflow, globs in by_workflow.items():
-            out.append(WatchEntry(proj.name, proj.path, sorted(globs), workflow, group))
+            out.append(
+                WatchEntry(
+                    proj.name, proj.path, sorted(globs), workflow, group, list(ignore)
+                )
+            )
     return out
 
 
@@ -525,6 +534,13 @@ def match(reg: Registry, paths: list[str]) -> list[tuple[WatchEntry, str]]:
             try:
                 rel = here.relative_to(entry.path.resolve())
             except (OSError, ValueError):
+                continue
+            # The repository's own layer, applied before its group's globs. A
+            # path it excludes fires nothing at all — the run it would have
+            # started does the work in a domain the repository's task does not
+            # cover, which is a run that costs a queue slot and changes nothing
+            # (009 P3-3).
+            if any(PurePath(rel).full_match(g) for g in entry.ignore):
                 continue
             if any(PurePath(rel).full_match(g) for g in entry.globs):
                 hits.setdefault((entry.project, entry.workflow), (entry, str(path)))

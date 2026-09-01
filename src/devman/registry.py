@@ -566,8 +566,9 @@ class Registry:
         current shape can only be this project's — but the rule stays, because
         the **legacy** shape below is exactly the ambiguous one, and a prune that
         removed another project's DAG would be the silent wrong-tree failure
-        this design refuses everywhere else. That is the same rule the devenv
-        module's projection script applies.
+        this design refuses everywhere else. That is the same rule the
+        projection applies in `project._sweep()` — one rule, two callers, as with
+        `deepest()`.
 
         Both shapes are removed while the machine holds both (S-12).
         """

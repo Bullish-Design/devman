@@ -9,6 +9,7 @@ would let a refactor delete every one of them and stay green.**
 from __future__ import annotations
 
 import os
+import shlex
 from pathlib import Path
 
 import pytest
@@ -491,3 +492,65 @@ def test_a_workflow_name_holding_a_dot_is_refused_at_the_trigger(plane):
     with pytest.raises(RegistryError) as exc:
         run.resolve(plane.reg, proj, "release.tagged", {})
     assert "cannot be a workflow name" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# --print is replayable (009 P3-2)
+
+
+def test_the_printed_line_reparses_to_the_same_argv(plane, tmp_path, capsys):
+    """**The test is the round trip, not the appearance of quoting.** A plain
+    join printed a command that would run in a different directory for any
+    project path holding a space, and something else entirely for one holding
+    `;` or `$`. Both are inside the supported domain."""
+    hard = tmp_path / "a dir; with $odd 'chars' & globs*"
+    hard.mkdir()
+    proj = plane.add("p", path=hard, workflows={"check": ORDINARY})
+
+    dag, params, dir_var = run.resolve(plane.reg, proj, "check", {})
+    argv = run.command(plane.reg, str(tmp_path / "home"), dag, params)
+
+    class Args:
+        params: list[str] = []
+        project = "p"
+        workflow = "check"
+        dagu_home = str(tmp_path / "home")
+        print_only = True
+
+    assert run.main(Args(), plane.reg) == 0
+    printed = capsys.readouterr().out.strip()
+
+    parsed = shlex.split(printed)
+    assert parsed[0] == f"{dir_var}={hard}"
+    assert parsed[1:] == argv
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "with space",
+        "semi;colon",
+        "dollar$sign",
+        "quote'single",
+        'quote"double',
+        "glob*star",
+        "pipe|bar",
+        "back\\slash",
+    ],
+)
+def test_every_supported_path_survives_the_print(plane, tmp_path, capsys, name):
+    hard = tmp_path / name
+    hard.mkdir()
+    plane.add("p", path=hard, workflows={"check": ORDINARY})
+
+    class Args:
+        params: list[str] = []
+        project = "p"
+        workflow = "check"
+        dagu_home = str(tmp_path / "home")
+        print_only = True
+
+    assert run.main(Args(), plane.reg) == 0
+    parsed = shlex.split(capsys.readouterr().out.strip())
+
+    assert parsed[0] == f"{PROJECT_DIR}={hard}"

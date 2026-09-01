@@ -101,6 +101,33 @@ rule applies to a glob as much as to a file. No Nix or Lua repository has asked
 for format-on-save, and `devman` is the only taker of this group in the whole
 inventory.
 
+## The narrowing rule, and it is yours rather than this group's
+
+> **A repository that excludes a path from its formatter excludes it from this
+> trigger, in its own `.devman/triggers.toml`.**
+
+```toml
+# <your repo>/.devman/triggers.toml
+ignore = [".scratch/**"]
+```
+
+**This group cannot know which files your formatter covers, and it must not
+guess.** `**/*.py` is the honest glob for a group: it fires on every Python
+file, and what happens next is your `format:fmt` task's business. But if your
+Ruff configuration excludes a directory, a save there fires this workflow, the
+precondition hash covers the file so the step does **not** skip, `devenv tasks
+run format:fmt` runs in full, and nothing is formatted.
+
+Measured in `devman` itself before the rule existed: `pyproject.toml` excludes
+`.scratch`, and 16 of 252 `format` fires were saves under it — every one of them
+a queue slot, a log directory and a `metadata.jsonl` line for work that could
+not change a file (009 P3-3).
+
+**The narrowing is a repository fact, so it lives in the repository.** Taking
+this group still costs one task name and nothing else; §7.4 stays true. Before
+project 009 stage 9 a repository could not state this at all, which is why the
+mismatch was documented rather than fixed.
+
 ## What it does not do
 
 It does not commit, and it does not tell you it ran. Read

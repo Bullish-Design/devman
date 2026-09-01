@@ -43,6 +43,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -402,6 +403,17 @@ def apply(
     # projection leaves an entry that does not match and is retried on the next
     # shell entry (§9.3). Since it can no longer be half-written, `projects()`
     # no longer has to treat a parse failure as a normal state — see stage 4.
+    # THE GUARD HAS TO NOTICE AN EDIT TO THE LOCAL TRIGGER FILE, and it notices
+    # it the same way it notices an edited override: by comparing the source
+    # against the copy this projection kept (S-5a). A verbatim copy beside the
+    # entry is what makes that comparison forkless and exact.
+    source = root / ".devman" / LOCAL_TRIGGERS
+    kept = entry / LOCAL_TRIGGERS
+    if source.is_file():
+        kept.write_text(source.read_text())
+    else:
+        kept.unlink(missing_ok=True)
+
     text = entry_text(
         project=plan.project,
         root=root,
@@ -409,11 +421,110 @@ def apply(
         plan=plan.path,
         local=local,
         workflows=plan.workflows,
-        triggers=plan.triggers,
+        triggers=resolve_triggers(plan.triggers, root),
     )
     tmp = entry / ".metadata.json.new"
     tmp.write_text(text)
     os.replace(tmp, entry / "metadata.json")
+
+
+# ---------------------------------------------------------------------------
+# §7.3's last layer, for triggers (009 P3-3)
+#
+# WHY THIS LAYER EXISTS. The group owns the trigger glob and the repository owns
+# the task's file domain, and nothing reconciled them. `groups/format` maps
+# `**/*.py`; this repository's `pyproject.toml` excludes `.scratch` from Ruff.
+# Saving a file under `.scratch` therefore fired `format`, ran the task in full,
+# and formatted nothing — 16 times in 252 fires, measured.
+#
+# The fix could not be "a repository excluding paths from its formatter must
+# exclude them from the trigger", because a repository could not exclude
+# anything: `groupTriggers` reads only `groups/<group>/triggers.toml`, and there
+# was no local layer at all. Workflows resolved group -> group -> local;
+# triggers resolved group -> group. This completes the asymmetry rather than
+# inventing a mechanism.
+#
+# WHY IT IS READ HERE AND NOT IN NIX. Which files are in a working tree is a
+# RUN-TIME fact — the same reason `.devman/workflows/` is applied here rather
+# than at evaluation time. The watcher still reads only the registry entry, so
+# there is still exactly one implementation of §7.3.
+#
+# WHOLE-FILE, PLUS AN IGNORE LIST, AND THE SECOND IS WHY THE FIRST IS NOT
+# ENOUGH. §7.3 shadows whole files and this map does too — a `[map]` table
+# replaces the group's outright. But whole-file replacement cannot express
+# "everything the group says, except this directory", which is the case that
+# forced the layer: to drop `.scratch` a repository would have to restate a map
+# it does not own and then keep it in step. `ignore` says the narrowing
+# directly, and a repository that wants both may state both.
+LOCAL_TRIGGERS = "triggers.toml"
+
+
+def local_triggers(root: Path) -> dict | None:
+    """This repository's own trigger layer, or `None` if it ships none."""
+    path = root / ".devman" / LOCAL_TRIGGERS
+    if not path.is_file():
+        return None
+    try:
+        raw = tomllib.loads(path.read_text())
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            f"  {exc}\n"
+            '  it is TOML: `ignore = ["<glob>"]`, and an optional [map] of'
+            " <glob> = <workflow>"
+        ) from exc
+    unknown = sorted(set(raw) - {"ignore", "map"})
+    if unknown:
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            f"  it states {', '.join(unknown)}, and this file holds two keys\n"
+            "  `ignore`, a list of globs this repository never fires on, and"
+            " `map`, a table of <glob> = <workflow> replacing the group's (§8)"
+        )
+    ignore = raw.get("ignore", [])
+    if not isinstance(ignore, list) or not all(isinstance(g, str) for g in ignore):
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            "  `ignore` is a list of glob strings, matched against a path"
+            " relative to this repository's root"
+        )
+    mapping = raw.get("map")
+    if mapping is not None and not (
+        isinstance(mapping, dict) and all(isinstance(v, str) for v in mapping.values())
+    ):
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            "  `[map]` is a table of <glob> = <workflow>, and a workflow is a"
+            " name this repository projects (§7.3)"
+        )
+    return raw
+
+
+def resolve_triggers(plan_triggers: object, root: Path) -> object:
+    """The group layer, narrowed or replaced by this repository's own.
+
+    The OUTCOME is what reaches the registry entry, exactly as §7.3's workflow
+    resolution records its outcome. `source` says which layer decided, because
+    "why does saving this file do nothing" is a question `doctor` has to be able
+    to answer without reading two files in two places.
+    """
+    local = local_triggers(root)
+    if local is None:
+        return plan_triggers
+
+    group = plan_triggers if isinstance(plan_triggers, dict) else {}
+    mapping = local.get("map") or group.get("map") or {}
+    if not mapping:
+        # An `ignore` list with nothing to narrow fires nothing and hides
+        # nothing. It is a repository preparing for a group it has not taken,
+        # which is legal and worth saying nothing about.
+        return None
+    return {
+        "group": group.get("group", "?") if local.get("map") is None else "(local)",
+        "map": mapping,
+        "ignore": local.get("ignore", []),
+        "source": "local" if local.get("map") is not None else "group+local",
+    }
 
 
 def _published(workflows_dir: Path) -> dict[str, str]:

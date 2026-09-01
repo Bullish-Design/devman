@@ -23,6 +23,18 @@ stage 3 — what the watcher is watching
 and what it last fired, because one watcher writing in six repositories is a
 shared *write* failure rather than only a shared availability one.
 
+Project 009 added four more, and each replaces a claim that was true when it was
+written and stopped being true without anything noticing:
+
+    registry      an entry this cannot read, NAMED rather than skipped (P2-3)
+    schema        an entry written by a devman this one does not know
+    dag names     now both halves of the identity, not the workflow half (P1-5)
+    daemon shell  `SHELL` in the running Dagu's own environment (P1-3)
+
+The last of those is the durable form of a whack-a-mole invariant: clearing
+`SHELL` per enqueue owner is a rule somebody has to keep, and reading the
+running process is a fact.
+
 **Five of the six are file checks over the projection**, so this works with the
 daemon down and says plainly which checks it could not run.
 
@@ -916,9 +928,13 @@ def check_watcher(rep: Report, reg: Registry) -> None:
     if not watching:
         lines.append("no registered project takes a group that declares triggers")
     for entry in watching:
+        # The ignore list is printed beside the globs it narrows, because "why
+        # does saving this file do nothing" is answered by the two together and
+        # by neither alone (009 P3-3).
+        narrowed = f"  except {', '.join(entry.ignore)}" if entry.ignore else ""
         lines.append(
             f"{entry.project}: {', '.join(entry.globs)} -> {entry.workflow}"
-            f"  [{entry.group}]"
+            f"{narrowed}  [{entry.group}]"
         )
     # A stale entry that declares triggers is dropped from the watch set, or
     # watchexec would refuse to start and take reactivity down for every

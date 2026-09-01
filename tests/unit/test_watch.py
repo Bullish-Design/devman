@@ -453,3 +453,66 @@ def test_nothing_to_watch_says_it_is_not_an_error(plane):
     message = watch.nothing_to_watch(watch.POLL_SECONDS)
     assert "This is not an error" in message
     assert "5s" in message
+
+
+# ---------------------------------------------------------------------------
+# the repository's own trigger layer (009 P3-3)
+#
+# The group owns the trigger glob; the repository owns what its tasks actually
+# touch. Nothing reconciled them, and a repository could not even state the
+# difference — triggers resolved group -> group while workflows resolved
+# group -> group -> local. Measured here: `groups/format` maps `**/*.py`,
+# `pyproject.toml` excludes `.scratch` from Ruff, and 16 of 252 `format` fires
+# ran the task in full and formatted nothing.
+
+
+def test_an_ignored_path_fires_nothing(plane):
+    proj = plane.add(
+        "p",
+        workflows={"format": ORDINARY},
+        triggers={
+            "group": "format",
+            "map": {"**/*.py": "format"},
+            "ignore": [".scratch/**"],
+        },
+    )
+
+    assert watch.match(plane.reg, [str(proj.path / ".scratch" / "notes.py")]) == []
+
+
+def test_a_path_outside_the_ignore_still_fires(plane):
+    """The narrowing must not become a silence. This is the other half."""
+    proj = plane.add(
+        "p",
+        workflows={"format": ORDINARY},
+        triggers={
+            "group": "format",
+            "map": {"**/*.py": "format"},
+            "ignore": [".scratch/**"],
+        },
+    )
+
+    hits = watch.match(plane.reg, [str(proj.path / "src" / "a.py")])
+
+    assert [(e.project, e.workflow) for e, _ in hits] == [("p", "format")]
+
+
+def test_an_absent_ignore_list_changes_nothing(plane):
+    proj = plane.add("p", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+    assert watch.match(plane.reg, [str(proj.path / ".scratch" / "a.py")]) != []
+
+
+def test_the_ignore_is_matched_relative_to_the_repository(plane):
+    """Like every glob in this file: relative to the repository's root, so a
+    nested directory of the same name is a different path."""
+    proj = plane.add(
+        "p",
+        workflows={"format": ORDINARY},
+        triggers={
+            "group": "format",
+            "map": {"**/*.py": "format"},
+            "ignore": [".scratch/**"],
+        },
+    )
+
+    assert watch.match(plane.reg, [str(proj.path / "sub" / ".scratch" / "a.py")]) != []

@@ -513,3 +513,99 @@ def test_a_refusal_leaves_the_previous_projection_intact(tmp_path):
     assert projected.joinpath("good.yaml").read_text() == before
     assert projected.joinpath("bad.yaml").exists()
     assert (registry / "dags" / "p.good.yaml").is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# §7.3's last layer, for triggers (009 P3-3)
+
+
+def write_local_triggers(root, text: str):
+    (root / ".devman").mkdir(parents=True, exist_ok=True)
+    (root / ".devman" / "triggers.toml").write_text(text)
+
+
+def test_no_local_file_leaves_the_group_layer_alone(tmp_path):
+    group = {"group": "format", "map": {"**/*.py": "format"}}
+    assert project.resolve_triggers(group, tmp_path) == group
+
+
+def test_an_ignore_list_narrows_the_group_map(tmp_path):
+    """The case that forced the layer. A whole-file override cannot express
+    'everything the group says, except this directory' — the repository would
+    have to restate a map it does not own and keep it in step."""
+    write_local_triggers(tmp_path, 'ignore = [".scratch/**"]\n')
+    group = {"group": "format", "map": {"**/*.py": "format"}}
+
+    out = project.resolve_triggers(group, tmp_path)
+
+    assert out["map"] == {"**/*.py": "format"}
+    assert out["ignore"] == [".scratch/**"]
+    assert out["group"] == "format"
+    assert out["source"] == "group+local"
+
+
+def test_a_local_map_replaces_the_group_map_whole(tmp_path):
+    """§7.3 shadows whole files, and this map does too."""
+    write_local_triggers(tmp_path, '[map]\n"src/**/*.py" = "format"\n')
+    group = {"group": "format", "map": {"**/*.py": "format"}}
+
+    out = project.resolve_triggers(group, tmp_path)
+
+    assert out["map"] == {"src/**/*.py": "format"}
+    assert out["source"] == "local"
+
+
+def test_an_ignore_with_no_group_map_declares_nothing(tmp_path):
+    """A repository preparing for a group it has not taken. It fires nothing
+    and hides nothing, so the entry records no trigger map at all."""
+    write_local_triggers(tmp_path, 'ignore = [".scratch/**"]\n')
+    assert project.resolve_triggers(None, tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        pytest.param("ignore = [", "refusing to project", id="not-toml"),
+        pytest.param('watch = ["x"]\n', "this file holds two keys", id="unknown-key"),
+        pytest.param('ignore = "x"\n', "list of glob strings", id="ignore-not-a-list"),
+        pytest.param("ignore = [1]\n", "list of glob strings", id="ignore-not-strings"),
+        pytest.param('[map]\n"a" = 1\n', "<glob> = <workflow>", id="map-not-strings"),
+    ],
+)
+def test_a_malformed_local_layer_is_refused(tmp_path, text, expect):
+    """It decides what happens when a developer saves, so it is refused loudly
+    rather than half-read."""
+    write_local_triggers(tmp_path, text)
+
+    with pytest.raises(ProjectionError) as exc:
+        project.resolve_triggers({"group": "g", "map": {"**/*.py": "format"}}, tmp_path)
+    assert expect in str(exc.value)
+
+
+def test_the_local_file_is_kept_beside_the_entry_for_the_guard(tmp_path):
+    """The shell-entry guard compares the repository's file against this copy,
+    forklessly — the same shape as the override tail-test (S-5a)."""
+    root = tmp_path / "repo"
+    (root / ".devman" / "workflows").mkdir(parents=True)
+    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    write_local_triggers(root, 'ignore = [".scratch/**"]\n')
+    registry = tmp_path / "registry"
+
+    project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+
+    kept = registry / "projects" / "p" / "triggers.toml"
+    assert kept.read_text() == 'ignore = [".scratch/**"]\n'
+
+
+def test_removing_the_local_file_removes_the_kept_copy(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".devman" / "workflows").mkdir(parents=True)
+    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    write_local_triggers(root, 'ignore = [".scratch/**"]\n')
+    registry = tmp_path / "registry"
+    project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+
+    (root / ".devman" / "triggers.toml").unlink()
+    project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+
+    assert not (registry / "projects" / "p" / "triggers.toml").exists()

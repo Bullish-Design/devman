@@ -76,8 +76,19 @@
 # directory variable, so the daemon needs nothing from a trigger
 # (STAGE_6_LOG.md, S2).
 #
-# 58 SIMULTANEOUS DISPATCHES AT 00:05 ARE FINE, AND THE QUEUE IS WHAT MAKES THEM
-# FINE. `light` has a limit of 4, so 58 enqueued runs proceed four at a time.
+# 58 SIMULTANEOUS DISPATCHES AT 00:05 ARE FINE, AND THE QUEUE IS NOT WHAT MAKES
+# THEM FINE — THIS COMMENT SAID IT WAS, AND IT WAS WRONG (009 P2-5).
+#
+# `light` has a limit of 4, and a queue binds the ENQUEUE path. **Dagu's own
+# scheduler bypasses queues**, which S-1 measured directly: 58 scheduled runs
+# started at once with the queue depth at 0, while 58 enqueued runs never
+# exceeded 4 and drained in 311 s. Criterion 12 was narrowed to say so
+# (`STAGE_7_LOG.md`, the criterion-12 entry).
+#
+# What makes 58 dispatches fine is therefore the rule that replaced the
+# property: **what the plane schedules must be cheap by construction.** This
+# workflow prunes its own report directory and does nothing else, which is why
+# it may carry a schedule at all (§12 rule 8).
 # Nothing carries a stagger and nothing should: a group file is shared, so an
 # offset written here gives all 58 repositories the same offset, and a
 # per-repository offset is a project fact held outside the project — which is

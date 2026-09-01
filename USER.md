@@ -128,8 +128,9 @@ devman doctor        # the plane's own health
 file may be a read-only store symlink, and writing to it would dirty the tree the
 rule exists to keep clean.
 
-**`.devman/` is yours.** devman reserves two names inside it — `workflows/` and
-`.runs/` — and never reads, writes or inspects anything else there.
+**`.devman/` is yours.** devman reserves three names inside it —
+`workflows/`, `.runs/` and `triggers.toml` (§5.6) — and never reads, writes or
+inspects anything else there.
 
 **One restriction on where a repository may live.** Its path may not hold a
 double quote, a backslash, a tab or a newline. Spaces, `: `, `#` and every
@@ -376,6 +377,33 @@ steps:
 `devman run` enforces both halves of this rule and refuses if either is missing.
 A workflow spanning several projects belongs to none of them, so it belongs to
 devman's own `.devman/workflows/`.
+
+---
+
+### 5.6 Narrow what a save fires
+
+A group's `triggers.toml` maps globs to workflows, and a group cannot know which
+files your tasks actually touch. If yours cover less than the glob does, say so
+in your own `.devman/triggers.toml`:
+
+```toml
+ignore = [".scratch/**"]     # globs this repository never fires on
+
+[map]                        # optional — replaces the group's map outright
+"src/**/*.py" = "format"
+```
+
+Both keys are optional. `ignore` narrows the group's map; `[map]` replaces it,
+whole-file, exactly as your `.devman/workflows/` shadows a group's workflow.
+Globs are matched against a path relative to your repository's root.
+
+**Why this exists.** Saving a file the group's glob matches, but your task
+excludes, still fires a run: the workflow's precondition sees a changed file,
+the task runs in full, and it changes nothing. That is a queue slot and a log
+directory for work that could not happen.
+
+**An edit needs one shell entry to reach the watcher**, like every other part of
+the projection. `devman doctor` prints the map the watcher is using.
 
 ---
 
