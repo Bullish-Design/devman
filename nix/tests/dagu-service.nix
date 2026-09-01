@@ -10,7 +10,7 @@
 # would need to evaluate a whole second nixpkgs — so the projection is built by
 # hand, in exactly the shape `modules/devenv.nix` writes it. What that half
 # does is proved by entering shells instead; see STAGE_1_LOG.md, S10.
-{ module, groups }:
+{ module, groups, fixture, plan }:
 
 { lib, ... }:
 
@@ -42,6 +42,13 @@
     import json
 
     GROUPS = "${groups}"
+    FIXTURE = "${fixture}"
+    # The plan `modules/devenv.nix` writes, in its shape. The devenv half cannot
+    # run in a NixOS test — it would need a whole second nixpkgs and a network —
+    # which is the constraint STAGE_1_LOG.md S10 records. What IS real below is
+    # everything downstream of the plan: the renderer, `dagu validate`, the
+    # published bytes, the link, the entry, and a run.
+    PLAN = "${plan}"
     HOME = "/home/tester"
     REG = HOME + "/.local/share/devman"
     PROJ = HOME + "/work/demo"
@@ -278,6 +285,102 @@
         report = tester("devman doctor || true")
         assert "it is NOT running" in report, report
     # ---------------------------------------------------------------------
+    # 009 P2-4 — THE VM EXECUTES THE ACTUAL GENERATED PROJECTION.
+    #
+    # Everything above builds the projection BY HAND, in the shape the module
+    # writes. That was the whole gap: `groups-validate` validates SOURCE group
+    # YAML, the unit suite could not reach a renderer that lived in shell, and
+    # this test supplied `DEVMAN_PROJECT_DIR` itself at enqueue. So nothing
+    # tested the producer's bytes, and P1-1, P1-3 and P2-1 all survived a green
+    # suite.
+    #
+    # Stage 3 made the renderer a program. These subtests run it.
+
+    FIX = HOME + "/work/fixture"
+
+    with subtest("the real renderer projects the fixture repository"):
+        machine.succeed(f"mkdir -p {FIX}/.devman/workflows")
+        machine.succeed(f"cp {FIXTURE}/.devman/workflows/comment-only.yaml {FIX}/.devman/workflows/")
+        machine.succeed(f"chown -R tester:users {HOME}/work/fixture")
+
+        out = tester(
+            f"devman --registry {REG} project apply --plan {PLAN}"
+            f" --root {FIX} --local comment-only"
+        )
+        print(out)
+
+    with subtest("a comment naming DEVMAN_SELF_DIR does not change the variable (P1-1)"):
+        # `comment-only.yaml` is an ordinary workflow whose comment mentions
+        # DEVMAN_SELF_DIR. The shell projection decided the variable with
+        # `grep -q 'DEVMAN_SELF_DIR'` over the whole file, so it emitted the
+        # wrong one — for a whole stage, in this repository's own
+        # `plane-report.yaml`.
+        projected = tester(f"cat {REG}/projects/fixture/workflows/comment-only.yaml")
+        print(projected)
+        assert f"DEVMAN_PROJECT_DIR: {FIX}" in projected
+        assert "DEVMAN_SELF_DIR:" not in projected
+        assert f"working_dir: {FIX}" in projected
+        assert f"log_dir: {FIX}/.devman/.runs/logs" in projected
+        # The body, last and unchanged. The shell-entry guard's tail-equality
+        # test depends on it (STAGE_7_LOG.md S-5a).
+        source = machine.succeed(f"cat {FIXTURE}/.devman/workflows/comment-only.yaml")
+        assert projected.endswith(source), "the projection does not end with its source"
+
+    with subtest("the emitted file is valid to the pinned Dagu, and discovered"):
+        tester(f"dagu validate {REG}/projects/fixture/workflows/comment-only.yaml")
+        listed = tester("dagu ls")
+        assert "fixture.comment-only" in listed, listed
+
+    with subtest("it runs with NO DEVMAN_ variable supplied at enqueue (P2-4)"):
+        # The projection's own `env:` block is the only source of the directory
+        # variable here. Every earlier subtest passed it by hand, which is
+        # exactly what stopped this being a test of the producer.
+        tester("dagu enqueue fixture.comment-only")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test -f {FIX}/.devman/.runs/metadata.jsonl'", timeout=90
+        )
+        status = tester("dagu status fixture.comment-only")
+        print(status)
+        assert "Succeeded" in status, status
+        assert f"{FIX}/.devman/.runs/logs/" in status, "log_dir did not follow the project"
+
+        rec = json.loads(tester(f"cat {FIX}/.devman/.runs/metadata.jsonl").strip().splitlines()[-1])
+        assert rec["dag"] == "fixture.comment-only"
+        assert rec["status"] == "succeeded"
+        assert rec["log"].startswith(FIX + "/.devman/.runs/logs/")
+
+        # The step prints $DEVMAN_PROJECT_DIR. Reading it back proves the value
+        # reached the step's environment, and not merely the file.
+        printed = tester(f"find {FIX}/.devman/.runs/logs -name '*.out' -newer {FIX}/.devman -exec cat {{}} +")
+        assert FIX in printed, printed
+
+    with subtest("an env: block naming neither reserved name is refused (P1-1's severe case)"):
+        # The shell projection emitted NO header for such a file, so it lost its
+        # directory variable silently and ran in a directory named literally
+        # after it. Refusing is the fix; merging would mean editing
+        # the author's document, which breaks §7.2 and the guard's tail test.
+        machine.succeed(f"cp {FIXTURE}/.devman/workflows/env-only.yaml {FIX}/.devman/workflows/")
+        machine.succeed(f"chown -R tester:users {HOME}/work/fixture")
+        refusal = machine.fail(
+            f"su tester -c '{ENV}devman --registry {REG} project apply --plan {PLAN}"
+            f" --root {FIX} --local comment-only --local env-only' 2>&1"
+        )
+        print(refusal)
+        assert "env-only.yaml" in refusal
+        assert "DEVMAN_PROJECT_DIR" in refusal
+
+    with subtest("the refusal published nothing, and the previous projection stands"):
+        # "Publish nothing" means the whole projection. A repository whose author
+        # makes one typo must not lose the workflows that were already correct —
+        # including any that carry a schedule.
+        assert not machine.succeed(
+            f"test -e {REG}/projects/fixture/workflows/env-only.yaml && echo yes || echo no"
+        ).strip() == "yes"
+        still = tester(f"cat {REG}/projects/fixture/workflows/comment-only.yaml")
+        assert f"DEVMAN_PROJECT_DIR: {FIX}" in still
+        assert "fixture.comment-only" in tester("dagu ls")
+
+    # ---------------------------------------------------------------------
     # 009 P1-3 — the daemon's own enqueues take the daemon's own shell.
 
     with subtest("the service process holds no SHELL"):
@@ -292,45 +395,43 @@
         assert "SHELL=" not in environ, "the daemon would hand its own SHELL to a scheduled run"
 
     with subtest("a SCHEDULED run gets the declared default_shell (S9, S13)"):
-        # `$EPOCHREALTIME` is the exact construct that failed in S9: bash sets
-        # it, and the shell a step actually ran under was the enqueueing
-        # process's. Under `default_shell` bash this step passes; under the
-        # user manager's zsh, or any POSIX shell, it does not.
+        # `$EPOCHREALTIME` is set by bash and by nothing else here, so a
+        # succeeded step is `default_shell` governing a run the daemon enqueued
+        # for itself.
         #
-        # No `devenv tasks run` here: the VM has no devenv. Same shape as
-        # `probe.yaml` above.
-        machine.succeed(f"install -o tester -g users -m 644 /dev/null {PROJ}/tick.yaml")
-        # It states its own `working_dir` and `log_dir`, exactly as the
-        # projection writes them for a scheduled workflow. The daemon has one
-        # environment for the whole machine, so a file inheriting base.yaml's
-        # `''${DEVMAN_PROJECT_DIR}` would run in a directory of that literal
-        # name (STAGE_4_LOG.md S2, closed by STAGE_6_LOG.md S2).
-        # The `env:` block is not decoration. base.yaml's exit handler appends to
-        # `$DEVMAN_PROJECT_DIR/.devman/.runs/metadata.jsonl` as a SHELL variable,
-        # and the daemon's environment holds no such name — so without this the
-        # handler writes to `/.devman/...`, fails, and the run reports `failed`
-        # although every step succeeded. Measured while writing this subtest.
-        machine.succeed(
-            f"printf 'env:\\n  - DEVMAN_PROJECT_DIR: {PROJ}\\n"
-            f"working_dir: {PROJ}\\nlog_dir: {PROJ}/.devman/.runs/logs\\n"
-            f"queue: light\\nschedule: \"* * * * *\"\\nsteps:\\n"
-            f"  - name: epochrealtime\\n"
-            f"    run: test -n \"$EPOCHREALTIME\"\\n' > {PROJ}/tick.yaml"
+        # THE FILE IS PROJECTED BY THE REAL RENDERER (009 stage 8). It used to
+        # be hand-built here, and building it taught the measurement that is now
+        # free: a scheduled run needs the projection's `env:` block, not only its
+        # `working_dir`, because base.yaml's exit handler appends to
+        # `$DEVMAN_PROJECT_DIR/...` as a SHELL variable and the daemon's
+        # environment holds no such name. The hand-built version reported
+        # `failed` with every step succeeded until it carried one. The renderer
+        # emits all three, so this asserts the producer and the shell together.
+        #
+        # THIS SUBTEST RUNS LAST, ON PURPOSE. A per-minute schedule keeps
+        # enqueueing while the rest of the script runs, and `doctor` reads one
+        # queued item with nothing running as a wedged queue — correctly.
+        # Removing the file does not empty the queue either: an item already
+        # dispatched outlives its DAG. Ordering is the only clean answer.
+        machine.succeed(f"cp {FIXTURE}/.devman/workflows/tick.yaml {FIX}/.devman/workflows/")
+        machine.succeed(f"chown -R tester:users {HOME}/work/fixture")
+        tester(
+            f"devman --registry {REG} project apply --plan {PLAN}"
+            f" --root {FIX} --local comment-only --local tick"
         )
-        tester(f"ln -sfn {PROJ}/tick.yaml {REG}/projects/demo/workflows/tick.yaml")
-        tester(f"ln -sfn ../projects/demo/workflows/tick.yaml {REG}/dags/demo.tick.yaml")
+        projected = tester(f"cat {REG}/projects/fixture/workflows/tick.yaml")
+        print(projected)
+        assert f"DEVMAN_PROJECT_DIR: {FIX}" in projected, "the exit handler would have no path"
+
         # The scheduler reads the DAG directory itself; restart so it picks the
         # new file up without waiting for a rescan.
         tester("systemctl --user restart dagu")
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}dagu status demo.tick' 2>&1 | grep -q 'epochrealtime'",
+            f"su tester -c '{ENV}dagu status fixture.tick' 2>&1 | grep -q 'epochrealtime'",
             timeout=180,
         )
-        status = tester("dagu status demo.tick")
+        status = tester("dagu status fixture.tick")
         print(status)
-        # The STEP is the assertion. `$EPOCHREALTIME` is set by bash and by
-        # nothing else here, so a succeeded step is `default_shell` governing a
-        # run the daemon enqueued for itself.
         assert "epochrealtime" in status and "[succeeded]" in status, status
         assert "Result: Succeeded" in status, status
 
