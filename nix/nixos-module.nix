@@ -93,11 +93,18 @@ let
     # a benchmark campaign reading bash's `$EPOCHREALTIME` — failed with
     # `parameter not set` (STAGE_4_LOG.md, S9, corrected by S13).
     #
-    # THE FIX IS IN THE TRIGGER, NOT HERE. `devman run` clears `SHELL` from the
-    # environment it hands `dagu enqueue`, beside the two directory names it
-    # already clears, so this setting is what governs (src/devman/run.py). Setting
-    # `SHELL` on this unit was tried and does nothing for any run the plane
-    # makes: the daemon enqueues only under a `schedule:`, which §8 does not use.
+    # THE FIX IS IN THE TRIGGER, AND IN THE UNIT — two enqueue owners, two
+    # clearings. `devman run` clears `SHELL` from the environment it hands `dagu
+    # enqueue`, beside the two directory names it already clears
+    # (`src/devman/run.py`), which covers the CLI, the watcher and the hook. The
+    # unit sets `UnsetEnvironment=SHELL`, which covers the runs the daemon
+    # enqueues itself under a `schedule:`.
+    #
+    # This comment said the daemon enqueues nothing. That was true when it was
+    # written and false from the moment stage 7 shipped two scheduled workflows
+    # (009 P1-3, `STAGE_9_LOG.md` S-7). `doctor`'s `daemon shell` check is the
+    # durable form: clearing per enqueue owner is a whack-a-mole invariant, so
+    # something has to read the running process and say what is actually there.
     default_shell = "${pkgs.bash}/bin/bash";
 
     queues = {
@@ -424,9 +431,23 @@ in
 
       # `SHELL` is DELIBERATELY ABSENT here, and it was present for one commit.
       # Dagu reads `$SHELL` from the process that enqueues a run, so setting it
-      # on this unit governs only the runs the daemon enqueues itself — which,
-      # under §8, is none. The trigger clears it instead, in one place, so that
-      # `default_shell` above governs every path into the plane (S13).
+      # on this unit would govern only the runs the daemon enqueues itself. The
+      # trigger clears it for every other path, in one place, so that
+      # `default_shell` governs (S13, `src/devman/run.py`).
+      #
+      # THE DAEMON DOES ENQUEUE, and the sentence that used to sit here said it
+      # did not: "the daemon enqueues only under a `schedule:`, which §8 does not
+      # use". Two workflows have carried a `schedule:` since stage 7 —
+      # `groups/base/workflows/maintain.yaml` and
+      # `.devman/workflows/plane-report.yaml` — so the claim has been false for a
+      # whole stage, and every scheduled run took the user manager's `SHELL`
+      # rather than `default_shell`. That is S9's failure with nobody at the
+      # prompt to see it. The superseded state is recorded in
+      # `009-code-review/STAGE_9_LOG.md` S-7 (rule 1).
+      #
+      # `UnsetEnvironment` is the form that works. `SHELL` is INHERITED from the
+      # systemd user manager, so `environment.SHELL = null` removes nothing —
+      # there is nothing set on the unit to remove.
       environment.DAGU_HOME = cfg.dagHome;
 
       # Prepended to NixOS's own minimal unit PATH, which the default
@@ -439,6 +460,16 @@ in
         ExecStart = "${lib.getExe cfg.package} start-all";
         Restart = "on-failure";
         RestartSec = 5;
+
+        # The daemon's own half of S13 (009 P1-3). Every other path into the
+        # plane clears `SHELL` in `devman run`; a scheduled run has no such
+        # path, because Dagu enqueues it itself from this process. Unsetting it
+        # here is what makes `default_shell` govern both.
+        #
+        # `UnsetEnvironment`, not `environment.SHELL = null`: the variable is
+        # inherited from the systemd user manager, so there is nothing on the
+        # unit for a null to remove.
+        UnsetEnvironment = "SHELL";
       };
 
       # §4: a port conflict never resolves on its own. Unbounded, the restart

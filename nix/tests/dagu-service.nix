@@ -234,5 +234,67 @@
         tester("systemctl --user stop devman-watch")
         report = tester("devman doctor || true")
         assert "it is NOT running" in report, report
+    # ---------------------------------------------------------------------
+    # 009 P1-3 — the daemon's own enqueues take the daemon's own shell.
+
+    with subtest("the service process holds no SHELL"):
+        # `devman run` clears SHELL for the CLI, the watcher and the hook. A
+        # SCHEDULED run has no such path: Dagu enqueues it from this process, so
+        # the unit has to unset it. `environment.SHELL = null` would remove
+        # nothing — the variable is inherited from the user manager — hence
+        # `serviceConfig.UnsetEnvironment`.
+        pid = tester("systemctl --user show dagu -p MainPID --value").strip()
+        environ = machine.succeed(f"tr '\\0' '\\n' < /proc/{pid}/environ")
+        print(environ)
+        assert "SHELL=" not in environ, "the daemon would hand its own SHELL to a scheduled run"
+
+    with subtest("a SCHEDULED run gets the declared default_shell (S9, S13)"):
+        # `$EPOCHREALTIME` is the exact construct that failed in S9: bash sets
+        # it, and the shell a step actually ran under was the enqueueing
+        # process's. Under `default_shell` bash this step passes; under the
+        # user manager's zsh, or any POSIX shell, it does not.
+        #
+        # No `devenv tasks run` here: the VM has no devenv. Same shape as
+        # `probe.yaml` above.
+        machine.succeed(f"install -o tester -g users -m 644 /dev/null {PROJ}/tick.yaml")
+        # It states its own `working_dir` and `log_dir`, exactly as the
+        # projection writes them for a scheduled workflow. The daemon has one
+        # environment for the whole machine, so a file inheriting base.yaml's
+        # `''${DEVMAN_PROJECT_DIR}` would run in a directory of that literal
+        # name (STAGE_4_LOG.md S2, closed by STAGE_6_LOG.md S2).
+        # The `env:` block is not decoration. base.yaml's exit handler appends to
+        # `$DEVMAN_PROJECT_DIR/.devman/.runs/metadata.jsonl` as a SHELL variable,
+        # and the daemon's environment holds no such name — so without this the
+        # handler writes to `/.devman/...`, fails, and the run reports `failed`
+        # although every step succeeded. Measured while writing this subtest.
+        machine.succeed(
+            f"printf 'env:\\n  - DEVMAN_PROJECT_DIR: {PROJ}\\n"
+            f"working_dir: {PROJ}\\nlog_dir: {PROJ}/.devman/.runs/logs\\n"
+            f"queue: light\\nschedule: \"* * * * *\"\\nsteps:\\n"
+            f"  - name: epochrealtime\\n"
+            f"    run: test -n \"$EPOCHREALTIME\"\\n' > {PROJ}/tick.yaml"
+        )
+        tester(f"ln -sfn {PROJ}/tick.yaml {REG}/projects/demo/workflows/tick.yaml")
+        tester(f"ln -sfn ../projects/demo/workflows/tick.yaml {REG}/dags/demo.tick.yaml")
+        # The scheduler reads the DAG directory itself; restart so it picks the
+        # new file up without waiting for a rescan.
+        tester("systemctl --user restart dagu")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}dagu status demo.tick' 2>&1 | grep -q 'epochrealtime'",
+            timeout=180,
+        )
+        status = tester("dagu status demo.tick")
+        print(status)
+        # The STEP is the assertion. `$EPOCHREALTIME` is set by bash and by
+        # nothing else here, so a succeeded step is `default_shell` governing a
+        # run the daemon enqueued for itself.
+        assert "epochrealtime" in status and "[succeeded]" in status, status
+        assert "Result: Succeeded" in status, status
+
+        # THIS SUBTEST RUNS LAST, ON PURPOSE. A per-minute schedule keeps
+        # enqueueing while the rest of the script runs, and `doctor` reads one
+        # queued item with nothing running as a wedged queue — correctly.
+        # Removing the file does not empty the queue either: an item already
+        # dispatched outlives its DAG. Ordering is the only clean answer.
   '';
 }
