@@ -34,6 +34,38 @@ let
 
   cfg = config.devman;
 
+  # THE IDENTITY GRAMMAR, AT THE REPO BOUNDARY (009 P1-5).
+  #
+  # `devman.project` was a bare `types.str`, so `bad@project` registered — and
+  # then `devman run` rendered `bad@project.check`, which the pinned Dagu
+  # refuses. Worse characters reached path construction: the name becomes
+  # `projects/<project>/`, `dags/<project>.<workflow>.yaml`, and the sweep loops
+  # below. A slash, an empty name or `..` selects a registry subpath.
+  #
+  # The character set is Dagu's own, measured (S-11). The leading character is
+  # restricted further so `-flag` and `.hidden` cannot be names.
+  #
+  # It is duplicated in `src/devman/registry.py`, because §3.1 says what the two
+  # interfaces share must be TEXT and a Python function is not text.
+  # `tests/fixtures/identity.json` is the shared table, and three readers assert
+  # against it — the unit suite, the conformance suite against the pinned Dagu,
+  # and a `flake.nix` check that reads the same file with `fromJSON`.
+  #
+  # This is a `throw` rather than a `types.strMatching`, for the reason the group
+  # throw below gives: "does not match a regex" does not tell an author what to
+  # do. It fires at evaluation time, which is before any path exists.
+  identityGrammar = "[A-Za-z0-9][A-Za-z0-9._-]*";
+
+  projectName =
+    if builtins.match identityGrammar cfg.project != null then
+      cfg.project
+    else
+      throw ("devman: '" + cfg.project + "' cannot be a project name. "
+        + "A name holds letters, digits, '.', '-' and '_', and starts with a letter "
+        + "or a digit. Dagu refuses every other character in a DAG name (S-11), and "
+        + "the name becomes a registry directory and a DAG file name (§9.2). "
+        + "Set devman.project to a name that matches, and enter the shell again.");
+
   # ---------------------------------------------------------------------------
   # §7.3 resolution, at evaluation time
   #
@@ -250,12 +282,12 @@ let
       (name: w: "devman_project ${lib.escapeShellArg name} ${w.file}")
       resolved);
 
-  projectScript = pkgs.writeShellScript "devman-project-${cfg.project}" ''
+  projectScript = pkgs.writeShellScript "devman-project-${projectName}" ''
     set -eu
     root="$1"
     reg="$2"
     rendered="$3"
-    proj=${lib.escapeShellArg cfg.project}
+    proj=${lib.escapeShellArg projectName}
 
     pdir="$reg/projects/$proj"
     dags="$reg/dags"
@@ -416,10 +448,10 @@ let
   # the watcher and `doctor` need the OUTCOME of a resolution that only Nix can
   # perform. It is `null` for a repository that takes no group declaring any,
   # which is every repository until one opts in.
-  entryTemplate = pkgs.writeText "devman-metadata-${cfg.project}.json" ''
+  entryTemplate = pkgs.writeText "devman-metadata-${projectName}.json" ''
     {
       "schema": 3,
-      "project": ${builtins.toJSON cfg.project},
+      "project": ${builtins.toJSON projectName},
       "path": "@PATH@",
       "groups": ${builtins.toJSON cfg.groups},
       "plan": "${projectScript}",
@@ -443,6 +475,14 @@ in
         Required, with no default. Identity that defaults to the directory name
         breaks criterion 11 by construction: rename the directory and the repo
         re-registers as new and loses its run history (C5).
+
+        **A name holds letters, digits, `.`, `-` and `_`, and starts with a
+        letter or a digit.** The character set is Dagu's own, measured (S-11),
+        and the name becomes a registry directory and a DAG file name — so a
+        slash, a `..` or an empty name would select a registry subpath (009
+        P1-5). `src/devman/registry.py` states the same grammar for the CLI, and
+        `tests/fixtures/identity.json` is the shared table that proves the two
+        agree.
       '';
     };
 
@@ -496,7 +536,7 @@ in
     enterShell = ''
       devman_root="$DEVENV_ROOT"
       devman_reg="${cfg.registryDir}"
-      devman_meta="$devman_reg/projects/${cfg.project}/metadata.json"
+      devman_meta="$devman_reg/projects/${projectName}/metadata.json"
 
       # §15.2: `.devman/` IS THE REPOSITORY'S. devman reserves two names inside
       # it — `workflows/` and `.runs/` — and never reads, writes or inspects
@@ -568,7 +608,7 @@ in
         devman_local="$devman_local, \"''${devman_b%.yaml}\""
         devman_names="$devman_names ''${devman_b%.yaml}"
 
-        devman_proj="$devman_reg/projects/${cfg.project}/workflows/$devman_b"
+        devman_proj="$devman_reg/projects/${projectName}/workflows/$devman_b"
         if [ -f "$devman_proj" ]; then
           devman_body=$(<"$devman_f")
           devman_have=$(<"$devman_proj")
@@ -606,7 +646,7 @@ in
       # whole migration; nothing else has to be run anywhere.
       devman_relink=""
       for devman_n in $devman_names; do
-        [ -L "$devman_reg/dags/${cfg.project}.$devman_n.yaml" ] || devman_relink=1
+        [ -L "$devman_reg/dags/${projectName}.$devman_n.yaml" ] || devman_relink=1
       done
 
       devman_tmpl=$(<${entryTemplate})
@@ -628,7 +668,7 @@ in
         # §9.1: refuse a duplicate, but only when the recorded path still
         # exists. A recorded path that is gone means the project moved, and the
         # entry is replaced — which is what keeps criterion 11 working (C5).
-        echo "devman: refusing to register '${cfg.project}'" >&2
+        echo "devman: refusing to register '${projectName}'" >&2
         echo "devman:   already registered at $devman_recorded, which still exists" >&2
         echo "devman:   this repo is        $devman_root" >&2
         echo "devman:   set a different devman.project in one of them" >&2

@@ -16,6 +16,7 @@ those measurements changes.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -324,3 +325,37 @@ def test_dagu_maps_a_dot_to_an_underscore_in_the_log_directory(
     assert seen["a_b.check"] == "a_b_check"
     assert seen["a.b_check"] == "a_b_check"
     assert seen["a-b.check"] == "a-b_check"
+
+
+# ---------------------------------------------------------------------------
+# the identity grammar, against the pinned binary (009 P1-5)
+#
+# `tests/fixtures/identity.json` is the shared table. This is the reader that
+# makes it a MEASUREMENT rather than an agreement between two things devman
+# wrote: every name the grammar accepts must produce a DAG that Dagu lists.
+
+IDENTITY_TABLE = json.loads(
+    (Path(__file__).resolve().parents[1] / "fixtures" / "identity.json").read_text()
+)
+VALID_IDENTITIES = [c["name"] for c in IDENTITY_TABLE["cases"] if c["valid"]]
+
+
+def test_dagu_lists_every_name_the_grammar_accepts(dagu, fixtures, tmp_path):
+    """The grammar is a promise about Dagu, so Dagu is what proves it.
+
+    Each valid name is used as the PROJECT half of a codec name, because that is
+    where a project identity ends up: `dags/<project>.<workflow>.yaml`. A name
+    the grammar accepts and Dagu will not list is a workflow nothing can
+    trigger.
+    """
+    dags = tmp_path / "dags"
+    dags.mkdir()
+    body = (fixtures / "steps-list.yaml").read_text()
+    names = [f"{name}.check" for name in VALID_IDENTITIES]
+    for name in names:
+        (dags / f"{name}.yaml").write_text(body)
+
+    result = dagu.ls(dags)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert set(names) <= set(result.stdout.split())
