@@ -9,11 +9,12 @@ workflow, and how one save's several events become one run.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from helpers import ORDINARY
 
-from devman import watch
+from devman import registry, watch
 
 pytestmark = pytest.mark.unit
 
@@ -161,6 +162,126 @@ def test_a_glob_is_matched_against_the_path_relative_to_the_repository(plane):
     )
     assert watch.match(plane.reg, [str(proj.path / "src" / "a.py")]) != []
     assert watch.match(plane.reg, [str(proj.path / "other" / "a.py")]) == []
+
+
+# ---------------------------------------------------------------------------
+# ownership — one rule, two callers (009 P1-4)
+#
+# `match()` used to decide containment for itself and accept EVERY registered
+# root holding the path. `registry.deepest()` is now the single rule, and
+# `project_for()` is its other caller.
+
+
+def test_a_path_belongs_only_to_its_deepest_project(plane):
+    """Reproduced in the review: `outer/inner/changed.py` with both registered
+    returned `['inner', 'outer']`. One save, two runs, and the outer
+    repository's formatter rewrote source across the nested repository
+    boundary."""
+    outer = plane.add("outer", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+    inner = plane.add(
+        "inner",
+        path=outer.path / "inner",
+        workflows={"format": ORDINARY},
+        triggers=PY_TRIGGERS,
+    )
+
+    hits = watch.match(plane.reg, [str(inner.path / "changed.py")])
+
+    assert [e.project for e, _ in hits] == ["inner"]
+
+
+def test_the_inner_projects_trigger_map_decides(plane):
+    """Ownership first, then that project's globs. The outer project's map does
+    not get a vote on a file the inner project owns."""
+    outer = plane.add(
+        "outer",
+        workflows={"format": ORDINARY},
+        triggers={"group": "format", "map": {"**/*.py": "format"}},
+    )
+    inner = plane.add(
+        "inner",
+        path=outer.path / "inner",
+        workflows={"check": ORDINARY},
+        triggers={"group": "g", "map": {"**/*.py": "check"}},
+    )
+
+    hits = watch.match(plane.reg, [str(inner.path / "a.py")])
+
+    assert [(e.project, e.workflow) for e, _ in hits] == [("inner", "check")]
+
+
+def test_a_file_the_inner_project_does_not_own_still_fires_the_outer(plane):
+    outer = plane.add("outer", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+    plane.add(
+        "inner",
+        path=outer.path / "inner",
+        workflows={"format": ORDINARY},
+        triggers=PY_TRIGGERS,
+    )
+
+    hits = watch.match(plane.reg, [str(outer.path / "src" / "a.py")])
+
+    assert [e.project for e, _ in hits] == ["outer"]
+
+
+def test_three_levels_of_nesting_resolve_to_the_deepest(plane):
+    top = plane.add("top", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+    mid = plane.add(
+        "mid",
+        path=top.path / "mid",
+        workflows={"format": ORDINARY},
+        triggers=PY_TRIGGERS,
+    )
+    low = plane.add(
+        "low",
+        path=mid.path / "low",
+        workflows={"format": ORDINARY},
+        triggers=PY_TRIGGERS,
+    )
+
+    hits = watch.match(plane.reg, [str(low.path / "a.py")])
+
+    assert [e.project for e, _ in hits] == ["low"]
+
+
+def test_sibling_projects_are_unaffected(plane):
+    a = plane.add("a", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+    plane.add("b", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+
+    hits = watch.match(plane.reg, [str(a.path / "x.py")])
+
+    assert [e.project for e, _ in hits] == ["a"]
+
+
+def test_deepest_and_project_for_agree(plane):
+    """**This is what keeps the extraction honest.** The two callers disagreed
+    for a whole stage. Assert the agreement directly, on a shared table, so they
+    cannot drift again."""
+    outer = plane.add("outer")
+    inner = plane.add("inner", path=outer.path / "inner")
+    plane.add("sibling")
+
+    roots = {p.name: p.path for p in plane.reg.projects().values()}
+    table = [
+        outer.path,
+        outer.path / "src",
+        inner.path,
+        inner.path / "deep" / "deeper",
+    ]
+
+    for here in table:
+        assert (
+            registry.deepest(roots, here.resolve()) == plane.reg.project_for(here).name
+        )
+
+
+def test_match_owns_no_containment_test_of_its_own(plane):
+    """The rule lives in `registry.deepest()`. Copying it into `watch.py` would
+    recreate 009 P1-4 in a new place."""
+    source = Path(watch.__file__).read_text()
+    body = source[source.index("def match(") : source.index("def dispatch(")]
+    assert "deepest(roots, here)" in body
+    assert "by_project[owner]" in body
 
 
 # ---------------------------------------------------------------------------
