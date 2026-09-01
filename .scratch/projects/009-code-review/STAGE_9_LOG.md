@@ -590,3 +590,90 @@ Live, on this machine, after one shell entry:
 The hook's path refusal has no shell-level test yet — §3.8's case 12, which the
 guide assigns to stage 8. `check_schema` has no unit case yet; stage 4 rewrites
 `projects()` and is the natural place for it.
+
+---
+
+## S-4 — registry faults (stage 4, P2-3)
+
+Date: 2026-09-01. Branch: `fix/009-stage-4-registry-faults`.
+
+### What was wrong, in two directions at once
+
+`Registry.projects()` skipped an unreadable or invalid entry, then assumed any
+valid JSON was an object.
+
+**The crash.** `raw.get` on a list raises `AttributeError`. One entry
+hand-edited into the wrong shape could take down `run`, `show`, `watch` and
+`doctor` together.
+
+**The silence, which is worse diagnostically.** Invalid JSON was passed over as
+if the project did not exist — while its `dags/` links and its schedules stayed
+**live**. So a scheduled workflow kept firing and every registry reader,
+`doctor` included, was blind to the project it belonged to.
+
+### The premise of the silence is gone, and stage 3 removed it
+
+The comment justified skipping with a half-written entry: the projection writes
+`metadata.json` last, so an interrupted run leaves an entry that does not match
+(§9.3). That is still true, and since S-3 the write is an `os.replace` of a
+fully-written temporary file, so **no reader ever sees a partial one**. There is
+no longer a normal state that produces unreadable JSON. An unreadable entry is
+therefore a fault, and faults are named. The comment says so where it used to
+say the opposite.
+
+### The shape
+
+`Registry.load()` returns `(projects, faults)`. `projects()` keeps its exact
+signature and returns `load()[0]`, deliberately: every reader wants the valid
+projects, and only three want the faults. A wide refactor would have touched
+every reader for no benefit.
+
+Six distinct `why` values: absent metadata (**not** a fault — that is §9.3's
+window), unreadable file, invalid JSON, valid JSON that is not an object, a
+field of the wrong type, and a project name that fails stage 5's grammar.
+
+`_field_fault` checks `project`, `path`, `plan`, `groups`, `local`, `workflows`
+and `schema` once, rather than defending each use. It special-cases `bool`,
+because `bool` is an `int` in Python and a schema of `true` is not a schema.
+
+### Who reports what
+
+| Caller | Behaviour |
+|---|---|
+| `doctor` | a new `registry` check names every fault with its metadata path, and never crashes |
+| `run` / `show` | `project(name)` refuses **only** when the requested project is the corrupt one, and names its entry |
+| `watch` | skips a faulted project and records the skip in `watch/state.json`, so `doctor` reports it under `watcher` too |
+
+The `run`/`show` half fixes a message as much as a behaviour: a corrupt entry
+and an absent one used to give the same "no project named 'x'", which sent the
+developer to register a repository that was already registered while the entry
+that was actually wrong went unmentioned.
+
+The watcher half is reported twice on purpose. "My saves stopped firing" is the
+symptom a developer notices; `registry` is where the cause is.
+
+### Verification
+
+```
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:unit     # 349 passed
+devenv tasks run -v base:test     # nix flake check, VM test included
+devman doctor                     # exit 0
+```
+
+Sixteen new cases. Ten of them are the shapes the guide names — `[]`,
+`"a string"`, `42`, `null`, truncated JSON, an empty file, `path` as a list,
+`groups` as a string, `schema` as a boolean, and a name that fails the grammar —
+each asserting a **named fault and no exception**. `test_no_registry_shape_
+crashes_a_reader` is the stage in one case: five broken entries beside one good
+one, and `projects()` still answers.
+
+The unreadable-file case chmods to 000 and skips as root, which reads it anyway.
+
+Live: this machine's 54 entries all read, and all are schema 4.
+
+### Charter
+
+No amendment. §9.3 already says the registry is derived and reconstructable;
+this makes the unreadable case say so out loud instead of pretending the
+project does not exist.

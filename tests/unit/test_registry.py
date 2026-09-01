@@ -7,6 +7,7 @@ test here reaches `~/.local/share/devman`, and none runs `git`.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -470,3 +471,116 @@ def test_a_named_refusal_says_what_is_wrong(value):
 def test_a_workflow_name_says_workflow(plane):
     assert "workflow name" in registry.identity_fault("workflow", "bad@name")
     assert "project name" in registry.identity_fault("project", "bad@name")
+
+
+# ---------------------------------------------------------------------------
+# registry faults (009 P2-3) — named, never a crash and never a silence
+#
+# The old code skipped an unreadable entry and then assumed any valid JSON was
+# an object. Both halves were wrong in different directions: `raw.get` on a list
+# raises `AttributeError` and could crash `run`, `show`, `watch` and `doctor`
+# together, and a skipped entry left its `dags/` links and its schedules LIVE —
+# so a scheduled workflow kept firing while every reader was blind to it.
+
+
+def corrupt(plane, name: str, text: str):
+    """Write one entry's `metadata.json` by hand, in whatever shape."""
+    entry = plane.root / "projects" / name
+    (entry / "workflows").mkdir(parents=True, exist_ok=True)
+    (entry / "metadata.json").write_text(text)
+    return entry / "metadata.json"
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        pytest.param("[]", "not an object", id="a-list"),
+        pytest.param('"a string"', "not an object", id="a-string"),
+        pytest.param("42", "not an object", id="a-number"),
+        pytest.param("null", "not an object", id="null"),
+        pytest.param('{"project": "p", ', "not valid JSON", id="truncated"),
+        pytest.param("", "not valid JSON", id="empty"),
+        pytest.param('{"path": ["/a"]}', "not a str", id="path-is-a-list"),
+        pytest.param('{"groups": "base"}', "not a list", id="groups-is-a-string"),
+        pytest.param('{"schema": true}', "boolean", id="schema-is-a-boolean"),
+        pytest.param('{"project": "bad@name"}', "cannot be a project", id="bad-name"),
+    ],
+)
+def test_a_broken_entry_is_a_named_fault_and_raises_nothing(plane, text, expect):
+    plane.add("good", workflows={"check": ORDINARY})
+    corrupt(plane, "broken", text)
+
+    projects, faults = plane.reg.load()
+
+    assert sorted(projects) == ["good"]
+    assert [f.name for f in faults] == ["broken"]
+    assert expect in faults[0].why
+    assert faults[0].path.name == "metadata.json"
+
+
+def test_an_unreadable_entry_is_a_named_fault(plane):
+    """chmod 000. Skipped as root, which can read it anyway."""
+    if os.geteuid() == 0:
+        pytest.skip("root reads a mode-000 file")
+    plane.add("good", workflows={"check": ORDINARY})
+    meta = corrupt(plane, "locked", '{"project": "locked"}')
+    meta.chmod(0o000)
+    try:
+        projects, faults = plane.reg.load()
+    finally:
+        meta.chmod(0o644)
+
+    assert sorted(projects) == ["good"]
+    assert "cannot read it" in faults[0].why
+
+
+def test_a_directory_with_no_entry_is_not_a_fault(plane):
+    """The projection creates the directory before it writes the entry, so this
+    is §9.3's window and the next shell entry closes it."""
+    (plane.root / "projects" / "half" / "workflows").mkdir(parents=True)
+
+    projects, faults = plane.reg.load()
+
+    assert projects == {} and faults == []
+
+
+def test_no_registry_shape_crashes_a_reader(plane):
+    """The point of the stage. Every command reads `projects()`."""
+    plane.add("good", workflows={"check": ORDINARY})
+    for i, text in enumerate(["[]", "42", "null", "{", '{"path": 7}']):
+        corrupt(plane, f"broken{i}", text)
+
+    assert sorted(plane.reg.projects()) == ["good"]
+    assert len(plane.reg.faults()) == 5
+
+
+def test_asking_for_the_corrupt_project_names_its_entry(plane):
+    """A corrupt entry and an absent one are different problems, and they used
+    to give one message: "no project named 'x'" sent the developer to register a
+    repository that was already registered."""
+    meta = corrupt(plane, "broken", "[]")
+
+    with pytest.raises(RegistryError) as exc:
+        plane.reg.project("broken")
+    message = str(exc.value)
+    assert "unreadable" in message
+    assert str(meta) in message
+    assert "no project named" not in message
+
+
+def test_asking_for_an_absent_project_still_says_so(plane):
+    plane.add("good", workflows={"check": ORDINARY})
+    corrupt(plane, "broken", "[]")
+
+    with pytest.raises(RegistryError) as exc:
+        plane.reg.project("never-registered")
+    assert "no project named" in str(exc.value)
+
+
+def test_one_corrupt_entry_does_not_refuse_a_healthy_project(plane):
+    """`run` and `show` refuse only when the project they were asked for is the
+    corrupt one. Every other project on the machine keeps working."""
+    good = plane.add("good", workflows={"check": ORDINARY})
+    corrupt(plane, "broken", "[]")
+
+    assert plane.reg.project("good").path == good.path

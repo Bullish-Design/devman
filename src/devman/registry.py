@@ -243,6 +243,53 @@ class Project:
         return sorted({*self.workflows, *self.local})
 
 
+def _field_fault(raw: dict) -> str | None:
+    """Whether an entry's fields have the types the readers assume.
+
+    `raw.get` on a list raises `AttributeError`, and every reader of a Project
+    assumes `path` is a string and `groups` a list. One entry hand-edited into
+    the wrong shape could crash `run`, `show`, `watch` and `doctor` at once, so
+    the shape is checked once, here, rather than defended at each use.
+    """
+    expected = {
+        "project": str,
+        "path": str,
+        "plan": str,
+        "groups": list,
+        "local": list,
+        "workflows": dict,
+        "schema": int,
+    }
+    for field_name, kind in expected.items():
+        if field_name not in raw:
+            continue
+        value = raw[field_name]
+        # `bool` is an `int` in Python, and a schema of `true` is not a schema.
+        if isinstance(value, bool) and kind is not bool:
+            return f"its '{field_name}' is a boolean, not a {kind.__name__}"
+        if not isinstance(value, kind):
+            return (
+                f"its '{field_name}' is a {type(value).__name__}, not a {kind.__name__}"
+            )
+    return None
+
+
+@dataclass
+class RegistryFault:
+    """One entry the registry cannot read, named rather than skipped.
+
+    The registry is derived (§9.3), so every fault here is repaired by entering
+    that repository's shell — or by `devman doctor --prune` when the repository
+    is gone. Naming it is the whole point: an entry that is skipped silently
+    keeps its `dags/` links and its schedules, so its workflows go on running
+    while nothing can see the project they belong to.
+    """
+
+    name: str
+    path: Path
+    why: str
+
+
 class Registry:
     def __init__(self, root: str | os.PathLike[str] = DEFAULT_REGISTRY) -> None:
         self.root = Path(os.path.expanduser(str(root)))
@@ -255,23 +302,73 @@ class Registry:
     def dags_dir(self) -> Path:
         return self.root / "dags"
 
-    def projects(self) -> dict[str, Project]:
+    def load(self) -> tuple[dict[str, Project], list[RegistryFault]]:
+        """Every valid project, and every entry that is not one (009 P2-3).
+
+        **This used to skip silently, and the silence was worse than the crash
+        it avoided.** Invalid JSON was passed over as if the project did not
+        exist — while its `dags/` links and its schedules stayed live. So a
+        scheduled workflow kept firing and every registry reader, `doctor`
+        included, was blind to it. Then the skip was incomplete: valid JSON that
+        was not an object reached `raw.get`, which raises `AttributeError` on a
+        list, and could crash `run`, `show`, `watch` and `doctor` together.
+
+        **The comment that justified the silence is gone, and so is its
+        premise.** It said a half-written entry is retried on the next shell
+        entry, because the projection writes `metadata.json` last. That is still
+        true, but since stage 3 the write is `os.replace` of a fully-written
+        temporary file (`src/devman/project.py`), so a reader never sees a
+        partial one. There is no longer a normal state that produces unreadable
+        JSON — which means an unreadable entry is a fault, and faults are named.
+        """
         out: dict[str, Project] = {}
+        faults: list[RegistryFault] = []
         if not self.projects_dir.is_dir():
-            return out
+            return out, faults
         for entry in sorted(self.projects_dir.iterdir()):
+            if not entry.is_dir():
+                continue
             meta = entry / "metadata.json"
             if not meta.is_file():
+                # Not a fault. The projection creates the directory before it
+                # writes the entry, so this is the window §9.3 describes, and
+                # the next shell entry closes it.
                 continue
             try:
-                raw = json.loads(meta.read_text())
-            except (OSError, json.JSONDecodeError):
-                # A half-written entry is retried on the next shell entry: the
-                # projection writes `metadata.json` last, precisely so that an
-                # interrupted run leaves an entry that does not match (§9.3).
+                text = meta.read_text()
+            except OSError as exc:
+                faults.append(RegistryFault(entry.name, meta, f"cannot read it: {exc}"))
+                continue
+            try:
+                raw = json.loads(text)
+            except json.JSONDecodeError as exc:
+                faults.append(
+                    RegistryFault(entry.name, meta, f"it is not valid JSON: {exc}")
+                )
+                continue
+            if not isinstance(raw, dict):
+                faults.append(
+                    RegistryFault(
+                        entry.name,
+                        meta,
+                        f"it is valid JSON but a {type(raw).__name__}, not an object",
+                    )
+                )
+                continue
+            fault = _field_fault(raw)
+            if fault:
+                faults.append(RegistryFault(entry.name, meta, fault))
+                continue
+            name = raw.get("project", entry.name)
+            # Stage 5's grammar, applied to what a legacy entry recorded. A name
+            # that cannot be one is a fault rather than a working project: it
+            # renders a DAG name the pinned Dagu refuses (§9.2, S-11).
+            fault = identity_fault("project", name)
+            if fault:
+                faults.append(RegistryFault(entry.name, meta, fault.splitlines()[0]))
                 continue
             out[entry.name] = Project(
-                name=raw.get("project", entry.name),
+                name=name,
                 path=Path(raw.get("path", "")),
                 groups=raw.get("groups", []),
                 local=raw.get("local", []),
@@ -281,11 +378,43 @@ class Registry:
                 schema=raw.get("schema", 0),
                 entry=entry,
             )
-        return out
+        return out, faults
+
+    def projects(self) -> dict[str, Project]:
+        """The valid projects. A caller that must report a fault uses `load()`.
+
+        The signature is unchanged on purpose. Every reader wants the valid
+        projects, and three of them — `doctor`, `run`/`show` and `watch` — want
+        the faults as well, each for a different reason (§8.3 of the 009 guide).
+        A wide refactor here would touch every reader for no benefit.
+        """
+        return self.load()[0]
+
+    def faults(self) -> list[RegistryFault]:
+        return self.load()[1]
 
     def project(self, name: str) -> Project:
-        projects = self.projects()
+        """One project by name, or a refusal that says which problem this is.
+
+        **A corrupt entry and an absent one are different problems and used to
+        give one message** (009 P2-3). "no project named 'x'" sent the developer
+        to register a repository that is already registered, while the entry
+        that was actually wrong went unmentioned. `run` and `show` refuse only
+        when the project they were asked for is the corrupt one; every other
+        project on the machine keeps working.
+        """
+        projects, faults = self.load()
         if name not in projects:
+            for fault in faults:
+                if fault.name == name:
+                    raise RegistryError(
+                        f"refusing to use '{name}' — its registry entry is"
+                        " unreadable\n"
+                        f"  {fault.why}\n"
+                        f"  {fault.path}\n"
+                        "  enter that repository's shell to rewrite it, or"
+                        " `devman doctor --prune` if it is gone"
+                    )
             known = ", ".join(sorted(projects)) or "(the registry is empty)"
             raise RegistryError(
                 f"no project named '{name}' in {self.root}\n"

@@ -704,6 +704,34 @@ def running_watchers(reg: Registry) -> list[tuple[int, int]]:
     return sorted(found)
 
 
+def check_faults(rep: Report, reg: Registry) -> None:
+    """Registry entries that cannot be read, named rather than skipped (P2-3).
+
+    **The silence this replaces was worse diagnostically than a crash.** An
+    entry with invalid JSON was passed over as if the project did not exist,
+    while its `dags/` links and its schedules stayed live — so a scheduled
+    workflow kept firing and every reader of the registry, this command
+    included, was blind to the project it belonged to.
+
+    Each fault names its `metadata.json`, because the repair is either one shell
+    entry or `devman doctor --prune`, and the developer has to know which
+    repository to enter.
+    """
+    faults = reg.faults()
+    if not faults:
+        rep.add("registry", "ok", ["every entry under projects/ reads"])
+        return
+    lines = []
+    for fault in faults:
+        lines.append(f"{fault.name}: {fault.why}")
+        lines.append(f"  {fault.path}")
+    lines.append(
+        "enter that repository's shell to rewrite the entry, or"
+        " `devman doctor --prune` if the repository is gone"
+    )
+    rep.add("registry", "!!", lines)
+
+
 def check_schema(rep: Report, reg: Registry) -> None:
     """A registry entry written by a devman this one does not understand.
 
@@ -897,6 +925,14 @@ def check_watcher(rep: Report, reg: Registry) -> None:
     # repository (S2). The stale-entry check above says the path is gone; this
     # says what it costs, because the two facts were reported side by side and
     # unconnected the first time this happened.
+    # A faulted entry has no path to watch, so the watcher skipped it. Reported
+    # here as well as under `registry`, because "my saves stopped firing" is the
+    # symptom a developer actually notices (009 P2-3).
+    for skip in (state or {}).get("skipped", []):
+        lines.append(
+            f"{skip.get('project')}: NOT watched — its registry entry is"
+            f" unreadable ({skip.get('why')})"
+        )
     for proj in watch.unwatchable(reg):
         lines.append(
             f"{proj.name}: NOT watched — {proj.path} is not a directory."
@@ -1055,6 +1091,7 @@ def main(args, reg: Registry) -> int:
     rep = Report()
     if check_plane(rep, base_url):
         check_queues(rep, base_url)
+    check_faults(rep, reg)
     check_load(rep, reg, dagu_home)
     check_queue_names(rep, reg, dagu_home)
     check_literal(rep, reg, dagu_home)
