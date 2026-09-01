@@ -656,13 +656,23 @@ in
       # now a refusal that explains itself instead of a silence.
       #
       # This `case` forks nothing, which is what §5.2 requires of this path.
+      #
+      # ITS SOURCE TEXT IS ALSO ITS RUNNABLE TEXT, AND THAT IS DELIBERATE. The
+      # `flake.nix` check `hook-path-refusal` cuts the block out of THIS FILE
+      # between the two sentinels and runs it against a table of paths, so what
+      # is tested is the bytes the hook uses rather than a copy of them. An
+      # earlier draft matched `*$'\n'*`, which the Nix string layer rewrites, so
+      # the extracted text was not what ran; `[[:cntrl:]]` needs no escape at
+      # either layer and covers every control character rather than two.
+      #
+      # devman-hook: path-refusal begin
       devman_badroot=""
       case "$devman_root" in
         *'"'*) devman_badroot='a double quote' ;;
         *'\'*) devman_badroot='a backslash' ;;
-        *$'\n'*) devman_badroot='a newline' ;;
-        *$'\t'*) devman_badroot='a tab' ;;
+        *[[:cntrl:]]*) devman_badroot='a control character' ;;
       esac
+      # devman-hook: path-refusal end
 
       if [ -n "$devman_badroot" ]; then
         echo "devman: refusing to register '${projectName}'" >&2
@@ -670,7 +680,8 @@ in
         echo "devman:   $devman_root" >&2
         echo "devman:   the shell-entry guard compares that path without forking," >&2
         echo "devman:   and cannot compare it against its own JSON encoding (§5.2)." >&2
-        echo "devman:   Every other character works, including spaces and ': '." >&2
+        echo "devman:   Every other character works, including spaces, ': ' and" >&2
+        echo "devman:   every non-ASCII character." >&2
         echo "devman:   Move this checkout, or rename the directory." >&2
 
       elif [ -n "$devman_recorded" ] && [ "$devman_recorded" != "$devman_root" ] \

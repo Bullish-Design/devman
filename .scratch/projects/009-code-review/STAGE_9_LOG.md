@@ -677,3 +677,103 @@ Live: this machine's 54 entries all read, and all are schema 4.
 No amendment. §9.3 already says the registry is derived and reconstructable;
 this makes the unreadable case say so out loud instead of pretending the
 project does not exist.
+
+---
+
+## S-8 — the VM executes the real projection (stage 8, P2-4)
+
+Date: 2026-09-01. Branch: `fix/009-stage-8-real-projection`.
+
+### The gap, and why a green suite kept it
+
+`tests/README.md` claimed the devenv module's projection was covered by
+"`groups-validate`, and a shell entry". Every part of that was wrong in a
+different way:
+
+- `groups-validate` validates **source** group YAML and never sees the generated
+  header.
+- a shell entry proves the projection ran, not that it was right.
+- the NixOS test built the projection **by hand**, in the module's shape, and
+  supplied `DEVMAN_PROJECT_DIR` itself at enqueue.
+
+So nothing tested the producer's bytes, and three findings survived a green
+suite: P1-1, P1-3 and P2-1. Stage 3 made the renderer a program so it could be
+tested; this stage tests it.
+
+### What is now real
+
+Six new subtests run `devman project apply` — the actual renderer, the actual
+`dagu validate`, the actual publication — over the fixture the review left at
+`.scratch/projects/009-code-review/fixture-project/`:
+
+1. the fixture projects
+2. **`comment-only.yaml` gets `DEVMAN_PROJECT_DIR`** although its comment names
+   `DEVMAN_SELF_DIR` — P1-1, in a VM, against the real producer. The subtest
+   also asserts the projection **ends with its source**, byte for byte, which is
+   what the shell-entry guard's tail test depends on (S-5a).
+3. the emitted file passes the pinned `dagu validate` and `dagu ls` finds it
+4. **it runs with no `DEVMAN_` variable supplied at enqueue.** Every earlier
+   subtest passed one by hand, which is exactly what stopped this being a test
+   of the producer. `working_dir`, `log_dir` and the `metadata.jsonl` line all
+   resolve to the fixture, and the step's own stdout is read back to prove the
+   value reached the step's environment and not merely the file.
+5. **`env-only.yaml` is refused**, naming the file and the variable — P1-1's
+   severe case, which the shell projection used to accept silently.
+6. the refusal **published nothing**, and the previous projection still stands.
+
+**The scheduled proof moved onto the real projection too.** Stage 7's `tick`
+fixture was hand-built here; it is now a third file in the fixture repository,
+projected by the renderer, and the assertion that a scheduled run gets
+`default_shell` is made against those bytes. Building it by hand at stage 7 is
+what taught the measurement that is now free: a scheduled run needs the
+projection's `env:` block, not only its `working_dir`, because base.yaml's exit
+handler appends to `$DEVMAN_PROJECT_DIR/...` as a shell variable and the daemon
+has no such name. The renderer emits all three, so one subtest now asserts the
+producer and the shell together.
+
+### §3.8's case 12 — the hook's own refusal, run rather than read
+
+The path refusal is bash, inside a Nix string, inside a devenv hook. No Python
+test reaches it. `checks.hook-path-refusal` cuts the block out of
+`modules/devenv.nix` between two sentinels and **runs it** against a table of
+paths, so what is tested is the bytes the hook uses rather than a copy of them.
+
+**That forced a small change to the block, and the change is an improvement.**
+The first draft matched `*$'\n'*`, which the Nix string layer rewrites — so the
+extracted text was not what ran, and the test would have measured something else
+while passing. `[[:cntrl:]]` needs no escape at either layer and covers every
+control character rather than two. The block's source text is now also its
+runnable text, and a comment says why that must stay true.
+
+Eight of the thirteen cases are the **accepted** half, which matters more than
+the refused half: P2-1's complaint was that the project-path domain was narrower
+than the contract stated, so a space, `: `, `#`, a single quote, a brace, a
+semicolon and a non-ASCII path all have to keep working.
+
+**Proved to measure rather than to pass.** Deleting the `[[:cntrl:]]` arm from
+the module fails the check:
+
+```
+FAIL: $'has\tnewline' gave '', wanted 'a control character'
+```
+
+### The false claim is corrected, and says it was false
+
+`tests/README.md`'s table now names the real proof for each row, and carries a
+note saying the projection row was false for three stages and which three
+findings that cost. A row in that table is a claim about coverage.
+
+### Verification
+
+```
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:unit     # 349 passed
+devenv tasks run -v base:test     # nix flake check — hook-path-refusal built,
+                                  # six new VM subtests green
+devman doctor                     # exit 0
+```
+
+### Charter
+
+No amendment. §9.2 is unchanged; this is the first time the VM ran what §9.2
+describes rather than a copy of it.

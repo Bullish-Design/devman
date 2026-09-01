@@ -64,8 +64,24 @@ two installs of one name resolved by order is §3.3's `devman 0.2.0` hazard.
 |---|---|
 | Dagu's HTTP API — queues, health | `nix/tests/dagu-service.nix`, against a real service |
 | the watchexec supervisor loop, systemd | the same NixOS test |
-| the devenv module's projection | `groups-validate`, and a shell entry |
+| the projection's own bytes | `tests/unit/test_project.py`, and the "real renderer" subtests in `nix/tests/dagu-service.nix` |
+| the shell-entry guard's path refusal | `checks.hook-path-refusal`, which cuts the block out of `modules/devenv.nix` and runs it |
+| the machine module's assertions | `checks.module-assertions` |
+| the identity grammar, at all three boundaries | here, `tests/conformance/`, and `checks.identity-grammar` — all reading `tests/fixtures/identity.json` |
 | every shipped group file loading | `checks.groups-validate` |
 
 A stub of Dagu's HTTP API would test the stub. A mocked systemd, a mocked queue
 and a second implementation of Dagu's schema are all out for the same reason.
+
+> **This table said something false for three stages, and that is why row three
+> is written so precisely.** It claimed the devenv module's projection was
+> covered by "`groups-validate`, and a shell entry". `groups-validate` validates
+> **source** group YAML and never sees the generated header; a shell entry
+> proves the projection ran, not that it was right; and the NixOS test built the
+> projection **by hand** and supplied `DEVMAN_PROJECT_DIR` itself at enqueue.
+> Nothing tested the producer's actual bytes. Three findings survived a green
+> suite because of it — a comment changed the emitted variable (P1-1), the
+> daemon's scheduled runs took the wrong shell (P1-3), and a path holding a
+> quote corrupted the entry (P2-1). Project 009 stage 3 made the renderer a
+> program so it could be tested, and stage 8 tested it. **A row in this table is
+> a claim about coverage; check it before you trust it.**

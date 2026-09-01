@@ -1,0 +1,16 @@
+# A scheduled workflow, for the one path no trigger reaches (009 stages 7 and 8).
+#
+# Dagu enqueues this one ITSELF, from the daemon, so `devman run` never touches
+# it: not the directory variable it clears, not the SHELL it clears, not the
+# parameters it fills. Everything this run needs has to come from the projected
+# file, which is why it belongs to the fixture the real renderer projects.
+#
+# `$EPOCHREALTIME` is bash's, and the exact construct that failed in S9 when a
+# step took the enqueueing process's shell instead of the instance's
+# `default_shell`. A scheduled run is the only path where that enqueueing
+# process is the daemon.
+schedule: "* * * * *"
+queue: light
+steps:
+  - name: epochrealtime
+    run: test -n "$EPOCHREALTIME"
