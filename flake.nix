@@ -117,6 +117,57 @@
             '';
         }
         // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          # The machine module's ASSERTIONS (009 P1-6, P3-1).
+          #
+          # `nix flake check` does not evaluate a NixOS configuration that
+          # nobody builds, so an assertion with no test is unproved. This
+          # evaluates the module six ways and reads `config.assertions` — which
+          # is lazy, so nothing here builds a system.
+          #
+          # It asserts the MESSAGE as well as the failure. An assertion that
+          # fires for the wrong reason is not a test.
+          module-assertions =
+            let
+              lib = nixpkgs.lib;
+              failures = args:
+                let
+                  system = (lib.nixosSystem {
+                    modules = [
+                      ./nix/nixos-module.nix
+                      {
+                        nixpkgs.hostPlatform = pkgs.stdenv.hostPlatform.system;
+                        system.stateVersion = "25.05";
+                        services.devman-dagu = { enable = true; } // args;
+                      }
+                    ];
+                  }).config;
+                in
+                # Only this module's own. A bare `nixosSystem` also fails
+                # NixOS's root-filesystem and boot-loader assertions, which say
+                # nothing about the option under test.
+                builtins.filter (m: lib.hasInfix "services.devman-dagu" m)
+                  (map (a: a.message)
+                    (builtins.filter (a: !a.assertion) system.assertions));
+
+              evaluates = args: failures args == [ ];
+              refusedBecause = args: text:
+                let msgs = failures args;
+                in msgs != [ ] && lib.any (m: lib.hasInfix text m) msgs;
+            in
+            assert evaluates { };                                    # the default
+            assert evaluates { host = "127.0.0.1"; };                # IPv4 loopback
+            assert evaluates { host = "127.0.0.53"; };               # 127.0.0.0/8
+            assert evaluates { host = "::1"; };                      # IPv6 loopback
+            assert evaluates { host = "localhost"; };
+            assert refusedBecause { host = "0.0.0.0"; } "authentication";
+            assert refusedBecause { host = "::"; } "authentication";
+            assert refusedBecause { host = "192.168.1.10"; } "authentication";
+            assert evaluates { queues = { light = 4; }; defaultQueue = "light"; };
+            assert refusedBecause
+              { queues = { light = 4; }; defaultQueue = "typo"; }
+              "not a key in services.devman-dagu.queues";
+            pkgs.runCommand "devman-module-assertions" { } "touch $out";
+
           # The machine module, run rather than evaluated (§9, rule 7). One VM,
           # one lingering user, one projection built by hand — because the
           # devenv half cannot run inside a NixOS test — and one real run.
