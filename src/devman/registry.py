@@ -139,6 +139,38 @@ def identity_fault(kind: str, value: str) -> str | None:
     return None
 
 
+def deepest(roots: dict[str, Path], here: Path) -> str | None:
+    """The key whose root contains `here` most deeply, or `None`.
+
+    **ONE RULE, TWO CALLERS.** `Registry.project_for()` answers it for a
+    developer's current directory, and `watch.match()` answers it for a changed
+    file. They disagreed until 009 (P1-4): the watcher implemented containment
+    independently and accepted EVERY registered root containing the path. With
+    `outer/` and `outer/inner/` both registered, one save of
+    `outer/inner/changed.py` enqueued a run in each — and the outer repository's
+    formatter then rewrote source across the nested repository boundary. Both
+    runs reported success.
+
+    Depth is compared on the resolved path, so a symlinked checkout resolves to
+    the tree it really is. A root that cannot be resolved is skipped rather than
+    raising: a registry entry whose repository has been moved is an ordinary,
+    self-healing state (`watch.watch_map()`).
+    """
+    best: str | None = None
+    best_depth = -1
+    for key, root in roots.items():
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
+        if here != resolved and resolved not in here.parents:
+            continue
+        depth = len(resolved.parts)
+        if depth > best_depth:
+            best, best_depth = key, depth
+    return best
+
+
 def dag_name_fault(workflow: str) -> str | None:
     """Why this workflow name cannot go through the codec, or `None`.
 
@@ -269,18 +301,13 @@ class Registry:
         resolves to itself. Identity is stated rather than inferred from the
         directory name (§9.1); this infers nothing — it compares against paths
         the repositories recorded themselves.
+
+        The rule itself is `deepest()`. This is one of its two callers.
         """
         here = Path(cwd).resolve()
-        best: Project | None = None
-        for proj in self.projects().values():
-            try:
-                root = proj.path.resolve()
-            except OSError:
-                continue
-            inside = here == root or root in here.parents
-            deeper = best is None or len(str(root)) > len(str(best.path.resolve()))
-            if inside and deeper:
-                best = proj
+        projects = self.projects()
+        owner = deepest({n: p.path for n, p in projects.items()}, here)
+        best = projects[owner] if owner else None
         if best is None:
             raise RegistryError(
                 f"{here} is not inside a registered repository\n"

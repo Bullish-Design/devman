@@ -91,6 +91,132 @@ No amendment. The rule is §7.2 and §11 enforced, not changed.
 
 ---
 
+## S-2 — watcher ownership (stage 2, P1-4)
+
+Date: 2026-08-31. Branch: `fix/009-stage-2-watcher-ownership`.
+
+### What was wrong
+
+Two places answered "which project owns this path", and they disagreed.
+
+`registry.project_for()` carried the rule — the deepest registered project wins
+— with the measurement behind it (`STAGE_5_LOG.md`, S3). `watch.match()`
+implemented containment for itself, as `path.relative_to(entry.path)` over every
+entry, and accepted **every** registered root containing the path.
+
+Reproduced in the review: `outer/inner/changed.py`, with `outer` and
+`outer/inner` both registered, returned `['inner', 'outer']`. One save, two
+runs. The outer repository's formatter then rewrote source across the nested
+repository boundary, and both runs reported success — the failure this design
+exists to prevent.
+
+### The edit — extract, do not copy
+
+The report says the watcher "should share it instead of implementing containment
+independently". Taken literally: copying the rule into `watch.py` would recreate
+the same duplication in a new place.
+
+`registry.deepest(roots, here)` is the rule, and it now has exactly two callers.
+`project_for()` calls it and keeps its own nested-checkout refusal, which is a
+separate rule and stays where it is. `match()` resolves ownership **once per
+path**, then matches only that project's globs. The per-project/per-workflow
+coalescing is unchanged; it now runs after ownership rather than instead of it.
+
+One behaviour change inside the rule: depth is compared on `len(resolved.parts)`
+rather than `len(str(root))`. Path length in characters is not depth. The old
+form happened to agree on every path this machine holds.
+
+### Verification
+
+```
+devenv tasks run -v base:unit     # 243 passed
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:test     # nix flake check, VM test included
+devman doctor                     # exit 0
+```
+
+Six new unit cases plus one shape assertion.
+`test_deepest_and_project_for_agree` asserts the two callers agree on a shared
+table of paths — that is what keeps the extraction honest, since they drifted for
+a whole stage before.
+
+New VM subtest, "a save inside a nested checkout fires only the inner project":
+registers a second project inside the first, saves one file in the inner one,
+waits for the fire, then sleeps ten seconds and reads the whole `fired.jsonl`.
+The assertion is that the set of projects that fired is exactly `{"nested"}` —
+the outer one firing late would fail it.
+
+### Charter
+
+No amendment. §8's rule is unchanged; one of its two implementations was wrong.
+
+---
+
+## S-6 — the machine module's assertions (stage 6, P1-6 and P3-1)
+
+Date: 2026-08-31. Branch: `fix/009-stage-6-nix-assertions`.
+
+### What was wrong
+
+`nix/nixos-module.nix` held no `assertions` attribute at all. Two options stated
+an invariant their type did not enforce.
+
+**P1-6.** `configFile` always writes `auth.mode = "none"`, and the comment above
+it said "Loopback only". That described the default. `host` was
+`types.str`, so `host = "0.0.0.0"` exposed the web UI, the API and the
+coordinator to the network with no gate, and nothing said so.
+
+**P3-1.** `defaultQueue` was any string while `queues` is the declared set. Dagu
+accepts an undeclared queue name silently and gives it concurrency 1 — the
+measurement is in the `queues` description itself, citing S-9 — so a typo here
+serialises the whole machine and says nothing.
+
+### The edit
+
+`isLoopback` accepts `127.0.0.0/8`, `::1`, `[::1]` and `localhost`, and refuses
+everything else including `0.0.0.0` and `::`. Both assertions are evaluation
+time, which is the cheapest place to refuse: the developer learns before the
+service exists.
+
+The boundary is stated in the **option descriptions** as well as in the
+assertion messages. A developer reads the description first.
+
+A network bind is deliberately not built. It is a second option — a Dagu auth
+mode and a token file on §9.4's secrets path — and its own charter
+conversation. Rule 9 notes §9.4 has never fired.
+
+### The test, and one thing it had to learn
+
+`nix flake check` does not evaluate a NixOS configuration that nobody builds, so
+an assertion with no test is unproved. The new `module-assertions` check
+evaluates the module ten ways and reads `config.assertions`, which is lazy — it
+builds no system. Six of the cases are the ones the guide names; four more cover
+`127.0.0.0/8`, `[::1]`, `localhost` and the default.
+
+It asserts the **message**, not only the failure. An assertion that fires for
+the wrong reason is not a test.
+
+**Measured while writing it:** a bare `lib.nixosSystem` fails NixOS's own
+root-filesystem and boot-loader assertions, so `config.assertions` is never
+empty and the first case failed for a reason that had nothing to do with the
+option under test. The check therefore filters to messages holding
+`services.devman-dagu`. Without that filter every case would pass, including the
+ones that must fail — the exact shape of a check that checks nothing (rule 5).
+
+### Verification
+
+```
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:test     # nix flake check — module-assertions built
+devman doctor                     # exit 0
+```
+
+### Charter
+
+No amendment. §4 already says loopback; the module now enforces what §4 says.
+
+---
+
 ## S-5 — the identity grammar (stage 5, P1-5)
 
 Date: 2026-08-31. Branch: `fix/009-stage-5-identity-grammar`.
