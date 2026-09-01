@@ -38,6 +38,23 @@ let
   # the `${` escape stays readable next to the shell quoting that surrounds it.
   ctx = ref: "\${context.${ref}}";
 
+  # THE SECURITY BOUNDARY, AS A PREDICATE (009 P1-6).
+  #
+  # `configFile` below always writes `auth.mode = "none"`, and the comment there
+  # said "Loopback only". That described the DEFAULT, not an invariant: `host`
+  # was an unrestricted string, so `host = "0.0.0.0"` exposed the web UI, the
+  # API and the coordinator to the network with no gate at all, and nothing
+  # said so. The assertion below turns the sentence into a check.
+  #
+  # The accepted set is the whole of IPv4 loopback (127.0.0.0/8), IPv6 loopback,
+  # and the name `localhost`. Everything else is refused, including `0.0.0.0`
+  # and `::` — a wildcard bind is the case this exists for.
+  isLoopback = host:
+    host == "localhost"
+    || host == "::1"
+    || host == "[::1]"
+    || builtins.match "127\\.[0-9]+\\.[0-9]+\\.[0-9]+" host != null;
+
   configFile = yaml.generate "devman-dagu-config.yaml" {
     # Loopback only. This is a per-user service holding one developer's own
     # checkouts, and §8 triggers it with a local `dagu enqueue`.
@@ -325,7 +342,15 @@ in
     host = mkOption {
       type = types.str;
       default = "127.0.0.1";
-      description = "Bind address for the web UI and the coordinator. Loopback, because the plane runs one developer's own checkouts.";
+      description = ''
+        Bind address for the web UI and the coordinator. Loopback, because the
+        plane runs one developer's own checkouts.
+
+        **This is a security boundary, and an assertion enforces it.** The
+        generated config sets `auth.mode = "none"`, so a non-loopback bind would
+        expose the web UI, the API and the coordinator with no authentication.
+        Only 127.0.0.0/8, `::1` and `localhost` evaluate (009 P1-6).
+      '';
     };
 
     # §4: a second Dagu is a port collision, not a state collision, so the
@@ -366,7 +391,15 @@ in
     defaultQueue = mkOption {
       type = types.str;
       default = "light";
-      description = "The queue a workflow naming none inherits from base.yaml. Without it Dagu gives each DAG a queue named after itself at concurrency 1, which bounds a DAG against itself and the machine against nothing (S-9, E4).";
+      description = ''
+        The queue a workflow naming none inherits from base.yaml. Without it
+        Dagu gives each DAG a queue named after itself at concurrency 1, which
+        bounds a DAG against itself and the machine against nothing (S-9, E4).
+
+        **It must name a key of `queues`, and an assertion enforces it.** Dagu
+        accepts an undeclared name silently and gives it concurrency 1, so a
+        typo here serialises the whole machine and says nothing (009 P3-1).
+      '';
     };
 
     histRetentionDays = mkOption {
@@ -412,6 +445,40 @@ in
   };
 
   config = mkIf cfg.enable {
+    # An option whose description states an invariant, and whose type does not
+    # enforce it, states nothing (009 P1-6, P3-1). Both of these are evaluation
+    # time, which is the cheapest place to refuse: the developer learns before
+    # the service exists.
+    assertions = [
+      {
+        assertion = isLoopback cfg.host;
+        message = ''
+          services.devman-dagu.host is "${cfg.host}", and the generated Dagu
+          config sets auth.mode = none (CONCEPT.md §4, project 009 P1-6). A
+          non-loopback bind would expose the web UI, the API and the coordinator
+          to the network with no authentication at all. Keep it on loopback:
+          127.0.0.0/8, ::1, or localhost.
+
+          A network bind is a second option — a Dagu auth mode and a token file
+          on §9.4's secrets path — and its own charter conversation. It is not
+          this option.
+        '';
+      }
+      {
+        assertion = builtins.hasAttr cfg.defaultQueue cfg.queues;
+        message = ''
+          services.devman-dagu.defaultQueue is "${cfg.defaultQueue}", which is
+          not a key in services.devman-dagu.queues (${
+            builtins.concatStringsSep ", " (builtins.attrNames cfg.queues)
+          }).
+
+          Dagu accepts an undeclared queue name silently and gives it
+          concurrency 1 (§15.4, S-9), so every workflow on this machine would
+          serialise against every other one, and nothing would say why.
+        '';
+      }
+    ];
+
     warnings = lib.optional (cfg.lingerUsers == [ ]) ''
       services.devman-dagu.lingerUsers is empty. The Dagu user service then runs
       only while its user has a login session, and a configuration change does

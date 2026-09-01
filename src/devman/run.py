@@ -31,7 +31,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .registry import Project, Registry, RegistryError, dag_name_fault
+from .registry import (
+    Project,
+    Registry,
+    RegistryError,
+    dag_name_fault,
+    identity_fault,
+)
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
 
 
@@ -45,10 +51,22 @@ def resolve(
 
     Returns `(dag name, parameters, the name of the directory variable)`.
     """
-    # The codec's one refusal, at the trigger. The module refuses the same name
-    # at evaluation time, so this fires only for a projection written before the
-    # codec landed — and it is still a refusal rather than a fallback, because
-    # such a name has no unambiguous DAG to enqueue (§9.2).
+    # The grammar, before any path is constructed (009 P1-5). A name holding a
+    # slash, a `..`, or a character Dagu refuses used to reach `workflow_file()`
+    # and `dag_name()` alike — the first selects a registry subpath, the second
+    # renders a DAG name the pinned Dagu will not load.
+    for kind, value in (("project", project.name), ("workflow", workflow)):
+        fault = identity_fault(kind, value)
+        if fault:
+            raise RegistryError(
+                f"refusing to enqueue '{workflow}' in '{project.name}'\n  {fault}"
+            )
+
+    # The codec's one refusal, at the trigger. It is additional to the grammar
+    # above and carries its own injectivity argument. The module refuses the same
+    # name at evaluation time, so this fires only for a projection written before
+    # the codec landed — and it is still a refusal rather than a fallback,
+    # because such a name has no unambiguous DAG to enqueue (§9.2).
     name_fault = dag_name_fault(workflow)
     if name_fault:
         raise RegistryError(
@@ -128,14 +146,50 @@ def resolve(
         )
 
     dir_var = SELF_DIR if SELF_DIR in declared else PROJECT_DIR
-    params: dict[str, str] = {}
+    known = reg.projects()
+
+    # 009 P1-2 and P2-6, which are one defect: caller input used to be applied
+    # to the parameter map AFTER the safety derivation, and no parameter was
+    # constrained at all. `DEVMAN_PROJECT_DIR=/elsewhere` retargeted the run
+    # itself; an ordinary name such as `OBSERVANTIC_DIR` retargeted a child of a
+    # cross-repo parent, where no literal `working_dir` blunts it
+    # (`.devman/workflows/stack-validate.yaml`). One rule closes both halves:
+    #
+    #   a reserved name accepts no override; a parameter whose default names a
+    #   registered project accepts only another registered project's name; every
+    #   other override must name a declared parameter.
+    #
+    # There is deliberately no blanket update of the map from `overrides` below.
+    # Each override is consumed inside the declared loop, so a later refactor has
+    # nothing to reintroduce. `test_the_blanket_update_is_gone` keeps it that way.
+    held_reserved = sorted(k for k in overrides if k in (PROJECT_DIR, SELF_DIR))
+    if held_reserved:
+        raise RegistryError(
+            f"refusing to enqueue '{workflow}' in '{project.name}'\n"
+            f"  these names are the plane's, not the caller's:"
+            f" {', '.join(held_reserved)}\n"
+            f"  the directory a workflow runs in is the directory of the project"
+            f" it resolved from ({project.path})\n"
+            "  to run it elsewhere, name that project: devman run"
+            f" {workflow} --project NAME (§7.2, §11)"
+        )
+
+    unknown = sorted(k for k in overrides if k not in declared)
+    if unknown:
+        # An override that names nothing is a typo, and Dagu finds it later,
+        # elsewhere, and unexplained (E5).
+        declared_names = ", ".join(sorted(declared)) or "none"
+        raise RegistryError(
+            f"refusing to enqueue '{workflow}' in '{project.name}'\n"
+            f"  these overrides name no declared parameter: {', '.join(unknown)}\n"
+            f"  this workflow declares: {declared_names}"
+        )
 
     # The directory variable is passed whether the file declares it or not: an
     # ordinary workflow declares nothing at all and inherits `working_dir` and
     # `log_dir` from the machine's base.yaml, which name it (§7.2, E4).
-    params[dir_var] = str(project.path)
+    params: dict[str, str] = {dir_var: str(project.path)}
 
-    known = reg.projects()
     for name, default in declared.items():
         if name == dir_var:
             continue
@@ -144,10 +198,25 @@ def resolve(
         # writes out by hand, moved into the one place that triggers a workflow —
         # and it keeps criterion 10 (no absolute path in a workflow file), since
         # a project name is an identity and only the registry resolves it (§9.1).
-        params[name] = str(known[default].path) if default in known else default
+        if default in known:
+            # Such a parameter stays an identity when the caller overrides it.
+            # An absolute path here is the wrong-tree run this design refuses.
+            given = overrides.get(name, default)
+            if given not in known:
+                raise RegistryError(
+                    f"refusing to enqueue '{workflow}' in '{project.name}'\n"
+                    f"  {name} defaults to the registered project '{default}',"
+                    f" so it names a project — '{given}' is not one\n"
+                    f"  registered: {', '.join(sorted(known))}\n"
+                    "  only the registry resolves a project name to a path (§9.1)"
+                )
+            params[name] = str(known[given].path)
+        else:
+            params[name] = overrides.get(name, default)
 
-    params.update(overrides)
-
+    # The second layer. These two are no longer reachable from caller input —
+    # they fire on a registry entry whose path has gone, which is the state
+    # `doctor --prune` reconciles.
     value = params.get(dir_var, "")
     if not value or not Path(value).is_dir():
         raise RegistryError(
@@ -169,6 +238,25 @@ def resolve(
         )
 
     return dag, params, dir_var
+
+
+def assert_target(project: Project, params: dict[str, str], dir_var: str) -> None:
+    """The last line before the irreversible boundary.
+
+    Earlier validation does not survive a later mutation, which is exactly what
+    009 P1-2 was: `resolve()` derived the directory safely and then applied the
+    caller's overrides on top of it. The safe invariant is not "the value is a
+    directory". It is "the value is the directory of the project whose workflow
+    was resolved".
+    """
+    target = params.get(dir_var, "")
+    if target != str(project.path):
+        raise RegistryError(
+            f"refusing to enqueue in '{project.name}'\n"
+            f"  {dir_var} would be '{target}', and the project resolved to"
+            f" {project.path}\n"
+            "  something changed the parameters after they were derived (P1-2)"
+        )
 
 
 def command(reg: Registry, dagu: str, dag: str, params: dict[str, str]) -> list[str]:
@@ -245,6 +333,9 @@ def main(args, reg: Registry) -> int:
         )
 
     dag, params, dir_var = resolve(reg, project, args.workflow, overrides)
+    # Before `command()` and before the `--print` branch, so neither path can
+    # skip it.
+    assert_target(project, params, dir_var)
     argv = command(reg, args.dagu_home, dag, params)
 
     if args.print_only:

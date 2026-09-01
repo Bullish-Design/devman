@@ -25,6 +25,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -67,9 +68,107 @@ DAG_SEPARATOR = "."
 # when `doctor` reports no unmigrated workflow on any machine that matters.
 LEGACY_DAG_SEPARATOR = "-"
 
+# THE IDENTITY GRAMMAR (009 P1-5). One definition, from the same measured Dagu
+# character set as the codec above. The leading character is restricted so that
+# `-flag` and `.hidden` cannot be names.
+#
+# It is duplicated at the Nix boundary in `modules/devenv.nix`, because §3.1
+# says what the two interfaces share must be TEXT and a Python function is not
+# text. `tests/fixtures/identity.json` is the shared table that proves the two
+# copies agree; three readers assert against it.
+IDENTITY_GRAMMAR = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+IDENTITY_PATTERN = re.compile(IDENTITY_GRAMMAR)
+
 
 class RegistryError(Exception):
     """A refusal the developer must see. The CLI prints it and exits 1."""
+
+
+def identity_fault(kind: str, value: str) -> str | None:
+    """Why this project or workflow name may not become an identity, or `None`.
+
+    **The grammar, at both boundaries** (009 P1-5). Before this, `devman.project`
+    was a bare `types.str` and the codec validated one condition — a dot in the
+    workflow half. So `bad@project` registered, `run.resolve()` returned
+    `bad@project.check`, and the pinned Dagu refused it. Worse characters reached
+    path construction: `projects/$proj`, `dags/$proj.$workflow.yaml` and the
+    sweep loops in `modules/devenv.nix`. A slash, an empty name, or `..` selects
+    a registry subpath.
+
+    The character set is measured rather than chosen: Dagu 2.15.0 allows
+    alphanumerics, dashes, dots and underscores in a name and refuses everything
+    else (S-11). The leading character is restricted further, so `-flag` and
+    `.hidden` cannot be names.
+
+    The named refusals below are already excluded by the pattern. They are
+    refused **with their own message anyway**, because "does not match a regex"
+    does not tell an author what to do.
+
+    `tests/fixtures/identity.json` is the shared table. §3.1 says what the two
+    interfaces share must be text, so the table is what keeps this function and
+    `modules/devenv.nix`'s assertion in agreement.
+    """
+    where = f"a {kind} name"
+    if value == "":
+        return (
+            f"{where} cannot be empty — it would select the registry directory itself"
+        )
+    if value in (".", ".."):
+        return (
+            f"'{value}' cannot be {where} — it selects a registry path rather"
+            " than naming an entry in it"
+        )
+    if "/" in value or "\\" in value:
+        return (
+            f"'{value}' cannot be {where} — it holds a path separator, and the"
+            " name becomes a registry directory and a DAG file name (§9.2)"
+        )
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+        return (
+            f"{where} cannot hold a control character — every reader of the"
+            " registry is line-oriented (§9.2)"
+        )
+    if not IDENTITY_PATTERN.match(value):
+        return (
+            f"'{value}' cannot be {where}\n"
+            "  a name holds letters, digits, '.', '-' and '_', and starts with a"
+            " letter or a digit\n"
+            "  Dagu 2.15.0 refuses every other character in a DAG name (S-11),"
+            " and the name becomes a path (§9.2)"
+        )
+    return None
+
+
+def deepest(roots: dict[str, Path], here: Path) -> str | None:
+    """The key whose root contains `here` most deeply, or `None`.
+
+    **ONE RULE, TWO CALLERS.** `Registry.project_for()` answers it for a
+    developer's current directory, and `watch.match()` answers it for a changed
+    file. They disagreed until 009 (P1-4): the watcher implemented containment
+    independently and accepted EVERY registered root containing the path. With
+    `outer/` and `outer/inner/` both registered, one save of
+    `outer/inner/changed.py` enqueued a run in each — and the outer repository's
+    formatter then rewrote source across the nested repository boundary. Both
+    runs reported success.
+
+    Depth is compared on the resolved path, so a symlinked checkout resolves to
+    the tree it really is. A root that cannot be resolved is skipped rather than
+    raising: a registry entry whose repository has been moved is an ordinary,
+    self-healing state (`watch.watch_map()`).
+    """
+    best: str | None = None
+    best_depth = -1
+    for key, root in roots.items():
+        try:
+            resolved = root.resolve()
+        except OSError:
+            continue
+        if here != resolved and resolved not in here.parents:
+            continue
+        depth = len(resolved.parts)
+        if depth > best_depth:
+            best, best_depth = key, depth
+    return best
 
 
 def dag_name_fault(workflow: str) -> str | None:
@@ -202,18 +301,13 @@ class Registry:
         resolves to itself. Identity is stated rather than inferred from the
         directory name (§9.1); this infers nothing — it compares against paths
         the repositories recorded themselves.
+
+        The rule itself is `deepest()`. This is one of its two callers.
         """
         here = Path(cwd).resolve()
-        best: Project | None = None
-        for proj in self.projects().values():
-            try:
-                root = proj.path.resolve()
-            except OSError:
-                continue
-            inside = here == root or root in here.parents
-            deeper = best is None or len(str(root)) > len(str(best.path.resolve()))
-            if inside and deeper:
-                best = proj
+        projects = self.projects()
+        owner = deepest({n: p.path for n, p in projects.items()}, here)
+        best = projects[owner] if owner else None
         if best is None:
             raise RegistryError(
                 f"{here} is not inside a registered repository\n"
