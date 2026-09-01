@@ -11,6 +11,8 @@ the stub. They belong to `nix/tests/dagu-service.nix`, which runs a real one.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import yaml
 from helpers import ORDINARY
@@ -293,3 +295,65 @@ def test_ordinary_workflow_names_pass_the_codec(plane):
     doctor.check_dag_names(rep, plane.reg)
 
     assert rep.sections[0][1] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# registry faults, and the schema (009 P2-3, and stage 3's schema 4)
+
+
+def test_a_registry_fault_is_reported_with_its_metadata_path(plane):
+    """The repair is one shell entry or `--prune`, so the developer has to know
+    which repository to enter."""
+    plane.add("good", workflows={"check": ORDINARY})
+    entry = plane.root / "projects" / "broken"
+    (entry / "workflows").mkdir(parents=True)
+    (entry / "metadata.json").write_text("[]")
+
+    rep = doctor.Report()
+    doctor.check_faults(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("registry", "!!")
+    assert "broken" in lines[0]
+    assert str(entry / "metadata.json") in lines[1]
+
+
+def test_the_other_checks_still_run_beside_a_fault(plane):
+    """A fault must cost the entry, never the command. This is the whole point
+    of naming them instead of crashing on them."""
+    plane.add("good", workflows={"check": ORDINARY})
+    entry = plane.root / "projects" / "broken"
+    (entry / "workflows").mkdir(parents=True)
+    (entry / "metadata.json").write_text("42")
+
+    rep = doctor.Report()
+    doctor.check_faults(rep, plane.reg)
+    doctor.check_dag_names(rep, plane.reg)
+    doctor.check_schema(rep, plane.reg)
+
+    assert [status for _, status, _ in rep.sections] == ["!!", "ok", "ok"]
+
+
+def test_a_clean_registry_says_so(plane):
+    plane.add("good", workflows={"check": ORDINARY})
+
+    rep = doctor.Report()
+    doctor.check_faults(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"
+
+
+def test_an_entry_from_a_newer_devman_is_reported(plane):
+    """Schema 4 changed what `plan` MEANS rather than adding a field, which is
+    the shape of change a reader cannot detect by looking at the fields."""
+    entry = plane.add("ahead", workflows={"check": ORDINARY}).entry
+    raw = json.loads((entry / "metadata.json").read_text())
+    raw["schema"] = 99
+    (entry / "metadata.json").write_text(json.dumps(raw))
+
+    rep = doctor.Report()
+    doctor.check_schema(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("schema", "!!")
+    assert "schema 99" in lines[0]

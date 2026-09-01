@@ -193,13 +193,24 @@ class WatchState:
         # last pickup as the watcher's start and hide an old process (S16).
         self.started_at = _now()
 
-    def start(self, entries: list[WatchEntry], argv: list[str]) -> None:
+    def start(
+        self,
+        entries: list[WatchEntry],
+        argv: list[str],
+        skipped: list | None = None,
+    ) -> None:
         """Record what watchexec is watching RIGHT NOW.
 
         The supervisor writes this after it has started the child, never before,
         so `doctor` reads the watch set that exists rather than the one being
         built. A supervisor wedged between the two therefore still shows up as a
         discrepancy, which is the check §10 wants to keep (S16).
+
+        `skipped` is every project the registry could not read (009 P2-3). The
+        watcher cannot watch one — it has no path to give watchexec — so it
+        skips it and RECORDS the skip, because a repository that silently stops
+        being reactive looks exactly like a repository whose globs do not match.
+        `doctor` reads this back.
         """
         self.dir.mkdir(parents=True, exist_ok=True)
         self.state.write_text(
@@ -219,6 +230,10 @@ class WatchState:
                         for e in entries
                     ],
                     "command": argv,
+                    "skipped": [
+                        {"project": f.name, "why": f.why, "entry": str(f.path)}
+                        for f in (skipped or [])
+                    ],
                 },
                 indent=2,
             )
@@ -416,7 +431,7 @@ def supervise(args, reg: Registry) -> int:
                 shape = None
             if watch_shape(entries) != shape:
                 shape = watch_shape(entries)
-                state.start(entries, argv)
+                state.start(entries, argv, reg.faults())
 
             if child is None:
                 time.sleep(args.poll_seconds)
