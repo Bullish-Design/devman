@@ -4,8 +4,9 @@
     devman show <workflow>     print the resolved file, to start an override
     devman doctor              diagnose the plane
     devman watch               the watcher's entry point — systemd runs this
+    devman project apply       the projection — the devenv module runs this
 
-**Three commands and one that is machinery.** §10's list is the developer's
+**Three commands and TWO that are machinery.** §10's list is the developer's
 surface and it is closed: there is no `list`, no `status`, no `register` and no
 `unregister`, because registration is automatic and has no manual path (§5.2),
 and the rest is what `doctor` reports. `watch` is the fourth, and it is not a
@@ -13,6 +14,15 @@ fourth *command* in that sense — it is the watcher service's entry point (§8)
 run by systemd rather than by a person, and it exists here rather than as a
 shell script in the machine module so that exactly one implementation reads the
 registry.
+
+`project` joined it at stage 3 of project 009, in the same frame and for the
+same reason. The projection used to be shell inside `modules/devenv.nix`, which
+duplicated four decisions this package already made correctly from a parsed
+document — and each duplicate was a finding (P1-1, P1-5, P2-1, P2-2). A
+repository's shell entry runs it through `devman-project`, a narrow entry point
+built as its own derivation so the guard can see its store path; `doctor` and
+the unit tests call the same module through this command. No person types
+either.
 
 **The name.** `devman 0.2.0` owned this name and shipped its own `doctor`,
 `init`, `up`, `down`, `switch`, `bootstrap` and `index` (§3.3). It was removed
@@ -33,7 +43,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import doctor, run, show, watch
+from . import doctor, project, run, show, watch
 from .registry import DEFAULT_DAGU_HOME, DEFAULT_REGISTRY, Registry, RegistryError
 
 
@@ -106,6 +116,14 @@ def parser() -> argparse.ArgumentParser:
         help="how often to re-read the registry for a changed watch set (§8, S16)",
     )
 
+    p_project = sub.add_parser(
+        "project", help="the projection — machinery, run by the devenv module (§9.2)"
+    )
+    p_project_sub = p_project.add_subparsers(dest="project_command", required=True)
+    project.add_arguments(
+        p_project_sub.add_parser("apply", help="rebuild this repository's projection")
+    )
+
     return ap
 
 
@@ -117,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         "show": show.main,
         "doctor": doctor.main,
         "watch": watch.main,
+        "project": project.main,
     }
     try:
         return handler[args.command](args, reg)
