@@ -59,12 +59,21 @@
 # THE CLOCK IS `date`, AND THAT COSTS ONE FORK PER SAMPLE
 #
 # The first version read bash's fork-free `$EPOCHREALTIME`, and the run failed:
-# `EPOCHREALTIME: parameter not set`. **A step does not run under the shell the
-# machine's `config.yaml` names.** Dagu prefers `$SHELL`, the daemon inherits it
-# from the systemd user manager, and on this machine that is zsh (S9). So a
-# workflow file may use no bashism until the module states the shell rather than
-# inheriting it — and even then, a group file that runs in anybody's repository
-# should not need a particular one.
+# `EPOCHREALTIME: parameter not set`. A step took the shell of whichever process
+# enqueued it — Dagu prefers `$SHELL`, and on this machine that is zsh (S9).
+#
+# **THAT CAVEAT IS CLOSED, AND THIS COMMENT CLAIMED OTHERWISE FOR TWO STAGES**
+# (009 P1-3, P2-5). Both enqueue owners now clear `SHELL`: `devman run` for the
+# CLI, the watcher and the hook (S13), and the unit's
+# `UnsetEnvironment=SHELL` for the runs the daemon schedules itself. The
+# instance's `default_shell` governs both paths, and
+# `nix/tests/dagu-service.nix` asserts it on a scheduled run using this exact
+# construct.
+#
+# `date` stays anyway, and the reason is the second half of the old comment
+# rather than the first: a group file that runs in anybody's repository should
+# not need a particular shell, and this one is measured against repositories
+# devman does not own.
 #
 # `date +%s%N` is POSIX and works under both. It costs one fork per timestamp,
 # which lands inside the measured interval as a roughly constant bias of about a

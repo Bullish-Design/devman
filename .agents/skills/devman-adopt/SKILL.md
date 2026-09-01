@@ -79,7 +79,7 @@ imports:
 
 | Rule | Why |
 |---|---|
-| **`git+https` with an explicit `rev`** | that form records `rev` **and** `narHash` in `devenv.lock`. `git+file` records neither and silently follows the branch head, so a local checkout is never pinned |
+| **`git+https` with an explicit `rev`** | that form records `rev` **and** `narHash` in `devenv.lock`. So does `git+file:`, whose real constraint is that it reads **committed files only** — an uncommitted edit is invisible to the consumer (`FINDINGS.md`, superseding B4's first probe). Use `path:` only for the repository under active edit |
 | **`devman/modules`, not `devman/modules/devenv.nix`** | devenv resolves `<input>/<subdir>` and then looks for `devenv.nix` inside it. A `default.nix` is never consulted, and the error names a file you did not write |
 | **the rev must be on `main` and pushed** | every consumer resolves the URL from the remote. A commit that exists only locally cannot be pinned |
 

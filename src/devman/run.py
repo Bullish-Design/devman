@@ -26,6 +26,7 @@ place that triggers a workflow, and not in an ignore file.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -339,7 +340,20 @@ def main(args, reg: Registry) -> int:
     argv = command(reg, args.dagu_home, dag, params)
 
     if args.print_only:
-        print(" ".join([f"{dir_var}={params[dir_var]}", *argv]))
+        # QUOTED, BECAUSE THE FLAG PROMISES A LINE YOU CAN PASTE (009 P3-2).
+        #
+        # A plain join was not replayable: a project path holding a space
+        # printed a command that runs in a different directory, and one holding
+        # `;` or `$` printed a command that runs something else entirely. Both
+        # are inside this design's supported domain — the projection encodes
+        # them properly (§9.2) — so the trigger `--print` shows has to survive
+        # the shell that reads it back.
+        #
+        # `shlex.quote` on the assignment and `shlex.join` on argv is exactly
+        # that, and `test_the_printed_line_reparses_to_the_same_argv` asserts
+        # the round trip rather than the appearance of quoting.
+        assignment = f"{dir_var}={shlex.quote(params[dir_var])}"
+        print(f"{assignment} {shlex.join(argv)}")
         return 0
 
     return subprocess.run(argv, env=child_env(params, dir_var), check=False).returncode

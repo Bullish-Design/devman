@@ -777,3 +777,130 @@ devman doctor                     # exit 0
 
 No amendment. §9.2 is unchanged; this is the first time the VM ran what §9.2
 describes rather than a copy of it.
+
+---
+
+## S-9 — comments, docs and the P3s (stage 9, P2-5, P3-2, P3-3)
+
+Date: 2026-09-01. Branch: `fix/009-stage-9-comments-and-triggers`.
+
+Last, as the guide requires: correcting a comment before the behaviour it
+describes is settled writes a second false comment. Stages 1-8 are merged.
+
+### P3-3 — the decision, and one correction to the guide
+
+**Decided by the maintainer: option D, a repository-local triggers layer.**
+
+**The guide's option A is not expressible, and that is why D was needed.** It
+proposed "a rule in `groups/format/README.md` that a repository excluding paths
+from its formatter must exclude them from the trigger". A repository could not.
+`groupTriggers` reads only `groups/<group>/triggers.toml`; workflows resolved
+group → group → local and triggers resolved group → group. There was no local
+layer to write the rule about.
+
+**It is three domains, not the two the report describes.** The third decides
+whether a fire becomes work:
+
+| Domain | Set | Owner |
+|---|---|---|
+| the trigger glob | `**/*.py` | the group |
+| the precondition hash | everything but `.devenv`, `.direnv`, `.git` | the group |
+| the formatter | everything but `.scratch` | the repository |
+
+Because the hash covers `.scratch`, a save there did **not** skip. The
+precondition was true, `devenv tasks run format:fmt` ran in full, Ruff formatted
+nothing, and the hash was rewritten.
+
+**Measured on this machine:** 252 `format` fires in the watcher log, **16 of
+them** `.scratch` paths. `devman` is the only taker of the `format` group.
+
+### What D is
+
+`.devman/triggers.toml`, §7.3's last layer applied to triggers:
+
+```toml
+ignore = [".scratch/**"]     # globs this repository never fires on
+
+[map]                        # optional, and it replaces the group's outright
+"src/**/*.py" = "format"
+```
+
+**`ignore` exists because whole-file shadowing is not enough here.** A `[map]`
+table replaces the group's, as §7.3 shadows whole files. Replacement cannot say
+"everything the group says, except this directory" — to drop one path a
+repository would have to restate a map it does not own and keep it in step,
+which is the drift §7.3 avoids everywhere else.
+
+**Read at run time by the renderer, not at evaluation time by Nix**, for the
+reason `.devman/workflows/` is: which files are in a working tree is a run-time
+fact. The watcher still reads only the registry entry, so §7.3 still has exactly
+one implementation and it is the projection's.
+
+**The guard notices an edit to it the same way S-5a made it notice an edited
+override.** The projection keeps a verbatim copy at
+`projects/<p>/triggers.toml`, and the hook compares the two with two `$(<file)`
+reads and a string compare — exact, forkless, and the same shape as the tail
+test. A repository shipping no such file pays one `[ -f ]` on each side.
+
+### Charter (rule 2)
+
+**Amends §8** — "the mapping is group content" gains §7.3's last layer, with the
+measurement and the argument for `ignore`. **Amends §15.2** — `.devman/` now has
+three reserved names rather than two. Both are in `CONCEPT.md` in this commit,
+and the count is corrected in `README.md`, `USER.md` and `modules/devenv.nix`.
+
+### Live proof
+
+After one shell entry the entry records the resolved outcome:
+
+```json
+"triggers": {"group": "format", "map": {"**/*.py": "format"},
+             "ignore": [".scratch/**"], "source": "group+local"}
+```
+
+`watch.match()` from source returns `[]` for a `.scratch` path and
+`[('devman', 'format')]` for `src/devman/project.py`. **The running watcher
+still fires on `.scratch`**, because it is the machine's installed build: this
+ships with the next rebuild, exactly like stage 7's `daemon shell` check.
+
+### P3-2 — `--print` is replayable
+
+`shlex.quote` on the environment assignment and `shlex.join` on argv. The tests
+assert the **round trip** — that the printed line re-parses to the same argv —
+rather than the appearance of quoting, over a path holding a space, `;`, `$`,
+both quote kinds, `*`, `|` and a backslash. A plain join printed a command that
+would have run in a different directory for any project path holding a space,
+and something else entirely for one holding `;`.
+
+### P2-5 — the comment audit
+
+Nine corrections. The report named four; two were already fixed by stage 7, and
+the sweep found five more.
+
+| Location | The false claim | Why it was false |
+|---|---|---|
+| `groups/base/workflows/maintain.yaml` | "58 simultaneous dispatches are fine, and the queue is what makes them fine" | S-1 measured 58 scheduled runs starting at once with queue depth 0. A queue binds the **enqueue** path; Dagu's scheduler bypasses it. Criterion 12 was narrowed to say so, and this comment was not. |
+| `modules/devenv.nix` | "`git+file` records neither `rev` nor `narHash`… never pinned" | B4's first probe, superseded in `FINDINGS.md` by decisive lock evidence. `USER.md` and `README.md` tell a developer to pin with `git+file:`, so the module contradicted its own guide for six stages. |
+| `.agents/skills/devman-adopt/SKILL.md` | the same claim, in the adoption skill | the same measurement |
+| `.devman/workflows/bench-entry.yaml` | "a step does not run under the shell `config.yaml` names… a workflow file may use no bashism" | closed by stage 7. Both enqueue owners clear `SHELL`, and the VM asserts it on a scheduled run using this exact construct. |
+| `AGENTS_GUIDE.md` ×3 | schema 3; "the projection script"; no `nix/renderer.nix` row | stage 3 |
+| `README.md`, `USER.md`, `modules/devenv.nix` | "`.devman/` reserves two names" | this stage |
+| `src/devman/registry.py` | "the devenv module's projection script applies the same rule" | stage 3 — it is `project._sweep()` now |
+| `src/devman/doctor.py` | the docstring's list of what it computes | four checks added by this project |
+
+Each correction cites the measurement or the stage that superseded it, so the
+next reader can see why the old sentence was reasonable when it was written.
+
+### Verification
+
+```
+devenv tasks run -v base:check    # ruff
+devenv tasks run -v base:unit     # 373 passed
+devenv tasks run -v base:test     # nix flake check, VM test included
+devman doctor                     # exit 0
+```
+
+Nineteen new cases: nine for the local trigger layer's resolution and refusals,
+four for the watcher honouring `ignore` — including
+`test_a_path_outside_the_ignore_still_fires`, because a narrowing that becomes a
+silence is the failure this design refuses — and nine for `--print`.

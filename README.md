@@ -113,9 +113,9 @@ Everything else belongs to the repository: task names, workflow names, and every
 line of every workflow file. **Adding a fifth name is a charter change, not an
 implementation detail.**
 
-**`.devman/` belongs to the repository too.** devman reserves two names inside
-it — `workflows/` and `.runs/` — and never reads, writes or inspects anything
-else there.
+**`.devman/` belongs to the repository too.** devman reserves three names
+inside it — `workflows/`, `.runs/` and `triggers.toml` — and never reads,
+writes or inspects anything else there.
 
 ## Resolution and projection
 

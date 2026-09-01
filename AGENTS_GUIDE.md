@@ -36,10 +36,11 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `nix/nixos-module.nix` | the **machine** interface — one Dagu user service, the queues, `config.yaml`, `base.yaml`, the watcher unit, the CLI on PATH |
 | `nix/dagu.nix` | the Dagu package. nixpkgs ships none; both interfaces call this one file |
 | `nix/devman-cli.nix` | the CLI package. Ships from the NixOS module **only** |
+| `nix/renderer.nix` | the projection renderer, `devman-project`. The same source, built under the **consuming repository's** nixpkgs so the shell-entry guard can see its store path (§3.1's second exception) |
 | `nix/tests/dagu-service.nix` | a NixOS VM test: the unit starts, a projected DAG is discovered, a run lands its logs in the right project |
-| `modules/devenv.nix` | the **repo** interface — three options, the `enterShell` guard, §7.3 resolution at evaluation time, and the projection script |
+| `modules/devenv.nix` | the **repo** interface — three options, the `enterShell` guard, §7.3 resolution at evaluation time, and `planFile`. **The projection itself is `src/devman/project.py`**, not shell: it was shell until project 009 stage 3, and four findings were symptoms of that one duplication |
 | `groups/` | workflow **content**, one directory per group. `groups/README.md` is the mechanism and the index; each group's own README says what taking it costs |
-| `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `registry`, `workflow` |
+| `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `registry`, `workflow`, and `project` — the projection, which the devenv module runs at shell entry |
 | `tests/` | the Python test layer. `tests/README.md` says what it protects and what it refuses to test |
 | `.devman/workflows/` | this repository's own workflows. `.devman/workflows/README.md` documents them |
 | `.scratch/projects/006-automation-plane/` | the charter and stage logs 1–6 |
@@ -96,8 +97,10 @@ passes 30 s the answer is a `--project` scope, not a heavier queue.
 
 ```
 ~/.local/share/devman/
-├── projects/<project>/metadata.json          # schema 3: identity, path, groups,
+├── projects/<project>/metadata.json          # schema 4: identity, path, groups,
 │   │                                         # local, workflows, triggers, plan
+├── projects/<project>/triggers.toml          # a copy of the repo's own layer,
+│   │                                         # so the guard can compare it
 │   └── workflows/<workflow>.yaml             # the GENERATED projection
 └── dags/<project>.<workflow>.yaml -> ../projects/<project>/workflows/<workflow>.yaml
 ```

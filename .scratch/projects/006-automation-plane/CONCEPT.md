@@ -777,6 +777,38 @@ stays intact.
 > fact; and a file the watcher reads at run time may not, because the watcher
 > would then need §7.3's resolution too.
 >
+> **AMENDMENT — §7.3's last layer applies to triggers too** (project 009 stage
+> 9, P3-3, `STAGE_9_LOG.md` S-9). A repository may ship
+> `.devman/triggers.toml`, and it is the last layer exactly as
+> `.devman/workflows/` is:
+>
+> ```toml
+> ignore = [".scratch/**"]     # globs this repository never fires on
+>
+> [map]                        # optional, and it replaces the group's outright
+> "src/**/*.py" = "format"
+> ```
+>
+> **The group owns the trigger glob; the repository owns what its tasks
+> actually touch, and nothing reconciled them.** `groups/format` maps
+> `**/*.py`, which is right — a group cannot know which files a taker's
+> formatter covers. This repository excludes `.scratch` from Ruff. So saving a
+> file there fired `format`, ran the task in full, and formatted nothing: 16 of
+> 252 fires, measured. Telling every taker to hand-patch an over-broad group
+> glob contradicts §7.4's "taking a group costs nothing", and before this a
+> repository could not patch it at all.
+>
+> **`ignore` exists because whole-file shadowing is not enough here.** A `[map]`
+> table replaces the group's, as §7.3 shadows whole files. But replacement
+> cannot say "everything the group says, except this directory" — to drop one
+> path a repository would have to restate a map it does not own and then keep
+> it in step, which is the drift §7.3 avoids everywhere else.
+>
+> **It is read at run time by the renderer, not at evaluation time by Nix**, for
+> the reason `.devman/workflows/` is: which files are in a working tree is a
+> run-time fact. The clause above still holds — the WATCHER reads only the
+> registry entry, so there is still exactly one implementation of §7.3, and it
+> is the projection's.
 > **A workflow that writes the repository's own files without being asked is its
 > own group.** §7.4's "an inherited workflow you never trigger costs nothing"
 > does not carry over — such a workflow rewrites the developer's files while
@@ -1537,16 +1569,21 @@ command. Every ordinary entry path was enumerated and tested against it.
 §5.2 puts it in `enterShell` behind a hash guard. A repo is invisible until you
 enter its shell once. Do not solve this by scanning.
 
-**15.2 `.devman/` belongs to the repository. The plane reserves two names in
+**15.2 `.devman/` belongs to the repository. The plane reserves three names in
 it and ignores everything else.**
 
-> **devman reserves `.devman/workflows/` and `.devman/.runs/`. Every other entry
-> under `.devman/` is the repository's, and the plane never reads, writes or
-> inspects it.**
+> **devman reserves `.devman/workflows/`, `.devman/.runs/` and
+> `.devman/triggers.toml`. Every other entry under `.devman/` is the
+> repository's, and the plane never reads, writes or inspects it.**
+>
+> The third name arrived with project 009 stage 9 (P3-3) — §7.3's last layer,
+> applied to triggers. It is a name and not a directory, and the same argument
+> covers it: the plane names the smallest vocabulary it can and leaves the rest
+> to the repository.
 
 `.devman/` is open for whatever else a repository or an add-on keeps there — a
 vendored store, agent reference material, a future tool nobody has written yet.
-Adopting the plane costs a repository two reserved names, not a directory.
+Adopting the plane costs a repository three reserved names, not a directory.
 
 **This reverses an earlier rule, by decision at stage 7.** Registration used to
 carry a whitelist: any top-level entry under `.devman/` other than `workflows/`
