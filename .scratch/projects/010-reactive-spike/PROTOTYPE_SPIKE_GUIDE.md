@@ -785,15 +785,28 @@ tested, so implement all of them:
 3. Watch `root` with `step=300`, `rust_timeout=1000`, `stop_event`,
    `raise_interrupt=False`, `watch_filter=SpikeFilter()` (§2.5).
 4. On a batch: map changed paths to rules by `PurePath(rel).full_match` against
-   each rule's *expanded* inputs, then call `reconcile(only=[...])`.
-5. **Log one line per batch to `.devman/watch.log`, flushed immediately**, as
-   JSON:
-   - a batch that mapped to at least one rule:
-     `{"kind":"reconcile","at":...,"trigger":[...],"written":[...],"duration_ms":N}`
-   - a batch that mapped to no rule:
-     `{"kind":"skip","at":...,"paths":[...]}`
-   Gates A5 and A10 count these. `flush=True` on every write, or the counts lag
-   and the gates go non-deterministic.
+   each rule's **literal `inputs` globs** — not against the expanded file list.
+
+   This distinction decides two gates, so get it right. Layer 1's exclusion
+   belongs to input *expansion*, which is what the collector receives. It must
+   not narrow this match, because `PurePath("docs/INDEX.md").full_match(
+   "docs/**/*.md")` is `True` and **that is what makes gate A6 possible**: a
+   hand-edited artifact maps back to the rule that owns it, and §3.5's
+   `output_hash` clause repairs it. Match against the expanded list instead and
+   a corrupted artifact maps to nothing, so no implementation can pass A6.
+
+   Then call `reconcile(only=[...])`. If no rule matches, do nothing and log
+   nothing. Never pass `only=[]`.
+5. **Log one line per reconcile call to `.devman/watch.log`, flushed
+   immediately**, as JSON:
+   `{"at":...,"trigger":[...],"written":[...],"duration_ms":N}`
+
+   `written` is empty when nothing was stale. That case is normal and expected:
+   the daemon's own write to `docs/INDEX.md` wakes it, maps back to `doc-index`,
+   finds the recorded `output_hash` unchanged, and does nothing. **Gate A5
+   counts lines with a non-empty `written`, not wake-ups** — the echo is
+   loop prevention working, not a loop. `flush=True` on every write, or the
+   counts lag and the gates go non-deterministic.
 6. `--once-then-exit`: do the startup reconcile, print `ready`, then exit 0
    without entering the watch loop. Stage 4's gate uses it.
 7. On `SIGTERM` and `SIGINT`: set `stop_event`, remove the pid file, exit 0.
@@ -903,15 +916,18 @@ start_watch() {
 
 stop_watch() { cleanup; }
 
-# Count of reconcile batches (kind=reconcile), skipping kind=skip.
+# Every reconcile call the daemon logged, including ones that wrote nothing.
 reconciles() {
-  if [ -f "$LOG" ]; then grep -c '"kind":"reconcile"' "$LOG" || true; else echo 0; fi
+  if [ -f "$LOG" ]; then grep -c '"duration_ms"' "$LOG" || true; else echo 0; fi
 }
-skips() {
-  if [ -f "$LOG" ]; then grep -c '"kind":"skip"' "$LOG" || true; else echo 0; fi
+# Only the reconciles that actually rendered. A5 counts THESE: the daemon waking
+# on its own output write and finding nothing stale is loop prevention working,
+# not a loop, and it must not be scored as one.
+renders() {
+  if [ -f "$LOG" ]; then grep -c '"written":\["' "$LOG" || true; else echo 0; fi
 }
 
-# settle <quiet_s> <max_s> — echo the reconcile count once it stops moving.
+# settle <quiet_s> <max_s> — echo the RENDER count once it stops moving.
 # A plain `wait_for ... test "$(reconciles)" -eq N` does NOT work: the command
 # substitution expands once, before the loop, so the loop retests a constant.
 settle() {
@@ -919,43 +935,99 @@ settle() {
   local deadline=$(( $(date +%s) + max ))
   while :; do
     sleep "$quiet"
-    now=$(reconciles)
+    now=$(renders)
     if [ "$now" = "$last" ]; then echo "$now"; return 0; fi
     last="$now"
     if [ "$(date +%s)" -ge "$deadline" ]; then
-      echo "SETTLE TIMEOUT: count still moving at $now" >&2
+      echo "SETTLE TIMEOUT: render count still moving at $now" >&2
       echo "$now"; return 1
     fi
   done
 }
 ```
 
-**Gate S5** — start the daemon, confirm ready, stop it, confirm the process is
-gone and `.devman/watch.pid` is removed.
+**Gate S5 — the daemon's own shutdown, not `cleanup`'s.** The obvious S5
+("stop it, confirm the process is gone and the pid file is removed") tests
+nothing: `cleanup` escalates to `SIGKILL` and runs `rm -f` on the pid file, so
+both assertions are satisfied by the harness. Measured — a daemon whose only
+deviation is `signal.signal(SIGTERM, SIG_IGN)` passes that S5, after `cleanup`
+spends 5,404 ms killing it.
+
+Signal the daemon directly and assert all three clauses of stage 4 requirement 7,
+before `cleanup` can do any of the work:
+
+```bash
+# scripts/gate_s5.sh
+source scripts/lib.sh
+PIDFILE="$ROOT/.devman/watch.pid"
+dead() { ! kill -0 "$1" 2>/dev/null; }
+gone() { [ ! -f "$PIDFILE" ]; }
+fail() { echo "S5 FAIL — $1"; exit 1; }
+
+cycle() {                       # one full start/stop cycle, per signal
+  local sig="$1" p rc=0
+  rm -f "$PIDFILE"
+  start_watch || fail "the daemon never became ready"
+  p="$WATCH_PID"
+  # Requirement 2 prints `ready` and writes the pid file; the order is not fixed.
+  wait_for 5 "the daemon to write its pid file" test -f "$PIDFILE" \
+    || fail "no pid file 5 s after ready"
+  test "$(cat "$PIDFILE")" = "$p" \
+    || fail "pid file holds $(cat "$PIDFILE"), daemon is $p"
+  kill -"$sig" "$p"
+  wait_for 10 "the daemon to exit on SIG$sig" dead "$p" \
+    || fail "daemon still alive 10 s after SIG$sig"
+  wait "$p" || rc=$?
+  test "$rc" -eq 0 || fail "daemon exited $rc on SIG$sig, want 0"
+  wait_for 5 "the daemon to remove its pid file" gone \
+    || fail "the daemon did not remove its own pid file on SIG$sig"
+  WATCH_PID=""                  # already reaped; keep cleanup out of the result
+}
+
+cycle TERM
+cycle INT
+echo "S5 PASS"
+```
+
+Clearing `WATCH_PID` on the success path stops `cleanup` from doing the gate's
+work. The `EXIT` trap stays as the backstop on every failure path.
+
+Verified in a sandbox against this `lib.sh`: a conformant daemon passes whether
+it writes the pid file before or 300 ms after `ready`; a `SIGTERM`-deaf daemon
+fails with "daemon still alive 10 s after SIGTERM"; a daemon with no handler
+fails with "exited 143 on SIGTERM, want 0"; a daemon that exits 0 but keeps its
+pid file fails with "did not remove its own pid file".
 
 ### Stage 6 — the daemon's gates
 
-**Gate A5 — loop prevention.** Two parts. The second is what makes it real.
+**Gate A5 — loop prevention. One edit, one *render*.** Two parts, and the
+second is what makes it real.
+
+The daemon wakes twice for one edit, and that is correct: once for your write to
+`docs/four.md`, and once for its own write to `docs/INDEX.md`, which maps back
+to `doc-index` (stage 4 requirement 4) and finds nothing stale. Counting
+wake-ups would score that second, healthy wake as a loop. Count renders.
 
 ```bash
 source scripts/lib.sh
 python -m dspike.cli gen
 start_watch
-before_r=$(reconciles); before_s=$(skips)
+before_w=$(renders); before_r=$(reconciles)
 
 echo "# Four" > docs/four.md
 wait_for 20 "artifact update" grep -q 'four' docs/INDEX.md
 
-after_r=$(settle 2 30) \
-  || { echo "A5 FAIL — reconcile count never settled; this is the loop"; exit 1; }
-test "$after_r" -eq "$((before_r + 1))" \
-  || { echo "A5 FAIL — $((after_r - before_r)) reconciles for one edit"; exit 1; }
+after_w=$(settle 2 30) \
+  || { echo "A5 FAIL — render count never settled; this is the loop"; exit 1; }
+test "$after_w" -eq "$((before_w + 1))" \
+  || { echo "A5 FAIL — $((after_w - before_w)) renders for one edit"; exit 1; }
 
-# The daemon MUST have seen its own write to docs/INDEX.md and ignored it.
-# Without this, A5 also passes when the watcher never observed the write at all.
-test "$(skips)" -gt "$before_s" \
+# The daemon MUST have woken on its own write to docs/INDEX.md and rendered
+# nothing. Without this, A5 also passes when the watcher never observed the
+# write at all — layer 3 would be entirely untested.
+test "$(reconciles)" -gt "$after_w" \
   || { echo "A5 FAIL — the output write was never observed; layer 3 untested"; exit 1; }
-echo "A5 PASS"
+echo "A5 PASS — $((after_w - before_w)) render, $(( $(reconciles) - before_r )) wake-ups"
 stop_watch
 rm -f docs/four.md
 ```
@@ -1223,7 +1295,7 @@ Commit: <sha>
 | A1 | reconcile is a fixpoint | 0 writes on run 2 | | |
 | A2 | cold rebuild is byte-identical | diff empty | | |
 | A4 | edit-to-artifact latency | p50 ≤ 400 ms, max ≤ 2 s | | |
-| A5 | one edit → one reconcile, and the write was seen | exactly 1, skips > 0 | | |
+| A5 | one edit → one **render**, and the echo was seen | 1 render, wake-ups > renders | | |
 | A6 | a hand-edited artifact is repaired | ≤ 20 s | | |
 | A7 | kill -9 leaves a recoverable tree | shas equal | | |
 | A8 | daemon vs cold process | ratio ≥ 20 | | |
@@ -1368,4 +1440,7 @@ An adversarial review of v1 found its central gate was not a test.
 | Manifest damage unhandled | A `JSONDecodeError` kills the daemon; `git clean -x` in another terminal is enough | §3.5 treats missing/corrupt/future as empty; **A16** |
 | Torn read handled by hash-collect-rehash | Detects the window rather than removing it, and the collector could still re-read | **read each input's bytes once**; §3.7 |
 | A8 had no threshold | The guide called it "the daemon's actual justification" and then let any number pass | ratio ≥ 20, and a decision branch |
+| **v2 matched batches against *expanded* inputs** | A hand-corrupted `docs/INDEX.md` then mapped to no rule, so **gate A6 was unpassable**. Confirmed: `PurePath("docs/INDEX.md").full_match("docs/**/*.md")` is `True`, so matching literal globs is what makes A6 work | stage 4 req 4 matches literal `inputs` globs; expansion still excludes outputs |
+| **v2's A5 counted wake-ups** | The daemon correctly wakes on its own output write and renders nothing. Counting wake-ups scored that healthy wake as a loop, so a correct implementation failed A5 | `renders()` counts non-empty `written`; A5 also asserts wake-ups > renders, which tests layer 3 |
+| **v2's S5 measured `cleanup`, not the daemon** | `cleanup` escalates to `SIGKILL` and `rm -f`s the pid file, satisfying both assertions itself. Measured: a `SIGTERM`-deaf daemon passed, after `cleanup` spent 5,404 ms killing it | `gate_s5.sh` signals directly and asserts all three clauses of requirement 7 before `cleanup` can act |
 | A9 compared against devman's full 8,358 lines | §1 excludes the registry, `run.py`, `doctor.py` and all Nix — the bulk of that count | fair baseline is `watch.py`'s 574 lines |
