@@ -137,6 +137,30 @@ The import is roughly 9,000 warm renders. **This argues for a long-lived
 process — not necessarily an event-driven one.** A poll loop is also long-lived.
 Gate A10 is what separates the two; gate A13 asks whether either is needed.
 
+**Read that last row as a warning, not a budget.** 0.021 ms is what it costs to
+validate nothing. Templateer's built-in parsers cover `toml`, `json`, `yaml` and
+`python`; a `markdown` output runs no parser and `check_round_trip` returns
+nothing for it. Measured on the fixture pipeline: `validate_artifact` returned
+`([], [])` for a good artifact, for the text "total garbage", **and for the
+empty string**. Any guard your reconciler builds on that return value is dead
+code until you give the template a real check.
+
+Templateer's validator kinds are a closed union — `parse`, `command` and
+`markdown` — with no in-process kind. A `command` validator does run for any
+language, and it is the correct first fix, but measure it before you keep it:
+
+| Check for one markdown artifact | p50 |
+|---|---:|
+| `command` validator, `python -m your_check` | 49.5 ms |
+| `python -c pass` — the part of that which is pure process start | 35.4 ms |
+| the same check called as a function | 0.83 ms |
+
+**Declare the checker in `rules.toml`, next to `collect`, and call it in
+`reconcile`.** A subprocess spends 35 ms starting an interpreter to run 0.8 ms
+of work, and that dominates every live edit. Keep the module's standard-input
+entry point so a Templateer consumer outside your reconciler can still run the
+same check as a `command` validator.
+
 ### 2.2 templateer_v2 template layout
 
 ```yaml
@@ -415,7 +439,14 @@ an edit does not.
 **or** the output's hash on disk differs from `output_hash`. The third clause
 repairs a hand-edited artifact (gate A6).
 
-Write atomically: `manifest.json.tmp` in the same directory, then `os.replace`.
+Write atomically: a temporary in the same directory, then `os.replace`. **Give
+the temporary a per-process name — `manifest.json.<pid>.tmp`, not
+`manifest.json.tmp`.** One shared name is atomic against a *reader* and not
+against a second *writer*. Measured over 24 concurrent `gen` processes against
+a shared name: 21 exited 0, 2 exited 1, and 1 exited 2 with
+`FileNotFoundError: .devman/manifest.json.tmp`, because a peer had already
+renamed the shared temporary away. With per-process names, 48 of 48 exited 0.
+The same rule applies to the output write.
 
 **A missing, unparsable, or unknown-version manifest is not an error.** Treat it
 as empty and rebuild everything, logging one line saying which case fired. A
@@ -780,10 +811,21 @@ Write `watcher.py` and the `watch` subcommand. Requirements — all of them are
 tested, so implement all of them:
 
 1. Reconcile once at startup, before watching. Log the report.
-2. Print exactly `dspike watch: ready` on stdout, **flushed**, and write
-   `.devman/watch.pid`.
+2. Write `.devman/watch.pid`, then print exactly `dspike watch: ready` on
+   stdout, **flushed**.
+
+   **Print it from inside the watch loop's first iteration, not before the
+   loop.** `watchfiles.watch` registers its watches when iteration begins, so
+   an edit that lands between an earlier print and the first iteration reaches
+   no watch and is lost for the rest of the uptime. Measured: two of two runs
+   that edited immediately after `ready` saw no wake-up at all; three of three
+   that waited one second saw the edit. Pass `yield_on_timeout=True` so the
+   first iteration is guaranteed within `rust_timeout` even when nothing
+   changed. **Do not fix this with a confirming reconcile after `ready`** —
+   that adds a periodic wake-up and gate A10 refuses it.
 3. Watch `root` with `step=300`, `rust_timeout=1000`, `stop_event`,
-   `raise_interrupt=False`, `watch_filter=SpikeFilter()` (§2.5).
+   `raise_interrupt=False`, `yield_on_timeout=True`,
+   `watch_filter=SpikeFilter()` (§2.5).
 4. On a batch: map changed paths to rules by `PurePath(rel).full_match` against
    each rule's **literal `inputs` globs** — not against the expanded file list.
 
@@ -794,6 +836,15 @@ tested, so implement all of them:
    hand-edited artifact maps back to the rule that owns it, and §3.5's
    `output_hash` clause repairs it. Match against the expanded list instead and
    a corrupted artifact maps to nothing, so no implementation can pass A6.
+
+   **A rule is also reached by a change to the output it owns.** Match that
+   explicitly — `rule.output in changed_relative_paths` — as a second clause.
+   Do not rely on the glob to cover it. `docs/INDEX.md` matches `docs/**/*.md`
+   only by the accident of that layout, and a rule whose output sits outside its
+   input globs is never selected and never repaired. Measured on a rule set
+   whose outputs live under `generated/`: a hand-edited artifact produced no
+   wake-up for 30 s. Gate A6 passes with one clause on the four-file tree and
+   fails on any tree where outputs and inputs live apart.
 
    Then call `reconcile(only=[...])`. If no rule matches, do nothing and log
    nothing. Never pass `only=[]`.
@@ -1232,6 +1283,35 @@ Report `spike total vs 574`. Report devman's full 3,923 Python / 4,435 Nix as
 Dagu path from scope, and those modules are where most of that count lives. A
 ratio against work the spike never attempted is a number that cannot argue.
 
+### Stage 8b — three questions already answered, so do not re-derive them
+
+A later spike extended this design to eight artifact kinds over typed fixture
+inputs and measured what this guide left open. Take the answers; re-measure only
+if your shape differs.
+
+**Rule fan-out is linear, so one rule per output is enough.** One rule writes
+one output, so N sources by M kinds needs N×M rules. Measured to 1,024 rules:
+cold build ~7.4 ms per rule, a no-op reconcile ~0.20 ms per rule, and **a live
+edit flat at 4.95 ms for 8 rules and 8.30 ms for 1,024**, because
+`reconcile(only=[…])` never touches an unselected rule. Do not design a fan-out
+reconciler. If you need many sources, generate the rules. The counterfactual is
+the argument for `only`: with no rule selection, one keystroke costs 217 ms at
+1,024 rules.
+
+**End-to-end latency is the watcher's, not the reconciler's.** Over 20 samples
+the edit-to-artifact time was p50 271 ms, max 279 ms, against a 5 ms reconcile.
+Making the reconcile 12× faster moved it by nothing. `step` and `debounce` set
+this floor. Optimise the reconciler for the cold path and for correctness, and
+stop expecting latency to follow.
+
+**The obsolete-output policy: report always, remove only when asked.** When a
+rule is deleted its artifact stays on disk. The signal is the manifest, not a
+directory scan — a scan cannot tell an obsolete artifact from a file a person
+put there. Report it on every run. Remove it only under an explicit `--prune`,
+matching devman's own `doctor --prune`, and only when the file's bytes still
+hash to what the manifest recorded; an edited file is somebody's work, so name
+it and stop. **The daemon never prunes.**
+
 ---
 
 ## 5. The demo
@@ -1444,3 +1524,7 @@ An adversarial review of v1 found its central gate was not a test.
 | **v2's A5 counted wake-ups** | The daemon correctly wakes on its own output write and renders nothing. Counting wake-ups scored that healthy wake as a loop, so a correct implementation failed A5 | `renders()` counts non-empty `written`; A5 also asserts wake-ups > renders, which tests layer 3 |
 | **v2's S5 measured `cleanup`, not the daemon** | `cleanup` escalates to `SIGKILL` and `rm -f`s the pid file, satisfying both assertions itself. Measured: a `SIGTERM`-deaf daemon passed, after `cleanup` spent 5,404 ms killing it | `gate_s5.sh` signals directly and asserts all three clauses of requirement 7 before `cleanup` can act |
 | A9 compared against devman's full 8,358 lines | §1 excludes the registry, `run.py`, `doctor.py` and all Nix — the bulk of that count | fair baseline is `watch.py`'s 574 lines |
+| **v2 said `validate_artifact` costs 0.021 ms** | It costs that because it validates nothing. `markdown` has no parser in Templateer, so the call returned `([], [])` for garbage and for the empty string, and every reconciler guard built on it was dead code | §2.1 states the hole, and the checker is declared in `rules.toml` and called in process — 0.83 ms, against 49.5 ms for the same check as a `command` validator |
+| **v2 wrote `manifest.json.tmp`, one shared name** | Atomic against a reader, not against a second writer. Measured over 24 concurrent `gen` processes: 21 exited 0, 2 exited 1, and 1 exited 2 with `FileNotFoundError` on the shared temporary | §3.5 names the temporary per process; 48 of 48 then exited 0 |
+| **v2 printed `ready` before entering the watch loop** | `watchfiles.watch` registers its watches when iteration begins. Measured: two of two runs that edited immediately after `ready` lost the edit for the whole uptime | stage 4 req 2 prints from inside the first iteration, with `yield_on_timeout=True`. **Not** with a confirming reconcile — A10 refuses that |
+| **v2's batch match had one clause, for inputs only** | A rule is never woken by a change to the output it owns unless the output happens to sit inside its own input glob. `docs/INDEX.md` does, so A6 passed by that accident. Measured on outputs under `generated/`: a hand edit went unrepaired for 30 s | stage 4 req 4 adds `rule.output in changed` as a second clause |
