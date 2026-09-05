@@ -966,3 +966,78 @@ is not something this project should decide.
 `git add` requirement bites hardest: it is the repository you are editing, so a
 brand new module file is invisible to its own shell until it is staged. They are
 the first candidates to revert if that trade turns out to be the wrong one.
+
+---
+
+## 15. The rollout's verification was wrong, and what it cost
+
+**§14 verified each converted repository with `devenv tasks list`. That was the
+wrong gate.** `devenv shell` builds a derivation `devenv tasks run` never
+touches, and it is the path that fails.
+
+Decisive, on pyjutsu:
+
+| version | `devenv tasks run` | `devenv shell` |
+|---|---|---|
+| original `path:` | 115.7 ms, rc=0 | **rc=0** |
+| converted `git+file:` | 115.7 ms, rc=0 | **rc=1** |
+
+`Failed to get drvPath from shell derivation`. The plane's own verb kept working
+throughout, which is exactly why the gate missed it — and why §14.3's two
+"unexplained" failures should have been chased instead of time-boxed. They were
+the same signal, arriving early.
+
+### The survey
+
+`devenv shell -- true` (non-interactive, so shellij's `enterShell` hook is
+guarded off by its own `[ -t 0 ]`) across every converted repository:
+
+**46 pass, 3 fail** — `fornix`, `webdantic`, `zelligate`. With `pyjutsu` found
+by hand and §14.3's two, the failing set is **6 of 52**:
+
+```
+fornix  pyjutsu  structured-agents-v2  terminal-state  webdantic  zelligate
+```
+
+All six are restored from backup and re-verified: `devenv shell` rc=0.
+
+### What the cause is, as far as I took it
+
+devenv's lock validation runs in `LockMode::Virtual` and **records no revision
+and no narHash for a local git input**. The locked node is the whole entry:
+
+```json
+{"type": "git", "url": "file:///home/andrew/Documents/Projects/shellij"}
+```
+
+Two hypotheses tested and **both refuted**:
+
+* **Dirtiness.** shellij is dirty in 17 files. A clean clone at
+  `/tmp/014/shellij-clean` (0 dirty, 5 MB) fails identically.
+* **Pinning.** `?rev=f554e19…` is silently dropped — the lock comes back with
+  `ref: master` and still no rev.
+
+So `.devenv/bootstrap/resolve-lock.nix:71` calls
+`builtins.fetchTree {type="git"; url=…}` with nothing to pin, then line 100
+does `import (outPath + "/flake.nix")`. That is fine in 46 repositories and not
+in 6, in the shell-derivation path only.
+
+**I did not establish the discriminator between the 46 and the 6.** Bootstrap
+files are byte-identical across both groups (`md5 198a4f4f95`), and the obvious
+candidates — `flake: false`, `?dir=`, importing `shellij/modules`, using
+`inputs.<x>.packages` — each appear on both sides.
+
+### The state this leaves
+
+| | repositories |
+|---|---|
+| `git+file:`, `devenv shell` verified | **46** |
+| `path:`, restored and verified | 6 |
+| no local input | 2 (`gitman`, `tyo3`) |
+
+The 46 keep the ~12× win. The 6 keep correctness and stay slow — and they still
+get §13's `maintain` sweep, which is worth 42 % and needs no input change.
+
+**The lesson worth keeping: `devenv tasks run` succeeding proves nothing about
+`devenv shell`.** Any future change to an input must be gated on shell entry,
+because that is what a developer and the projection both use.
