@@ -1,3 +1,7 @@
+> **DECIDED — see [`DECISION.md`](DECISION.md).** devman remains the system-wide
+> Dagu control plane; no part of the reconciler spike is adopted. This document
+> is the evidence behind that decision, not a live proposal.
+
 # 011 — RESULT: the system-level plane against a per-repository watcher
 
 Written 2026-09-04, from source read in this session and measurements taken on

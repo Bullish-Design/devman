@@ -1,3 +1,7 @@
+> **ANSWERED and CLOSED.** See [`RESULT.md`](RESULT.md) for the evidence and
+> [`DECISION.md`](DECISION.md) for the decision: devman remains the system-wide
+> Dagu control plane, and no part of the reconciler spike is adopted.
+
 # 011 — system-level Dagu plane against a per-repository watcher
 
 Kickoff. Written 2026-09-04, from measurements taken against the live plane on
