@@ -24,6 +24,36 @@
 # matches, so the work runs. A suppression window would have swallowed that
 # edit, and would still have passed a naive "one save, one run" test (§8).
 #
+# THAT ARGUMENT TESTED THE WRONG WINDOW, AND 013 DEMONSTRATED THE HOLE IT LEFT.
+# It is true of an edit landing AFTER the run and false of one landing DURING
+# it. The hash used to be taken after the formatter finished, so a save that
+# arrived mid-run was hashed BY that run: the receipt then described a tree the
+# formatter had never validated, and the run the save triggered compared equal
+# and skipped. The file was never formatted and both runs reported success —
+# Law 4 exactly, and invisible, because a skipped step is the status a correct
+# loop-break produces (013 RESULT.md §3.4, with the transcript).
+#
+# MUTUAL EXCLUSION DOES NOT FIX IT. 013 ran the second run strictly after the
+# first — a perfect identity lock — and it still skipped. The defect is
+# ORDERING, not concurrency.
+#
+# SO THE FORMATTER RUNS TO A FIXPOINT. Two consecutive formatter runs must
+# produce byte-identical trees before a receipt is written. A tree that moved
+# under the formatter is detected and formatted again. The receipt therefore
+# only ever describes a tree the formatter has seen settle.
+#
+# THE SECOND PASS IS NOT OPTIONAL, AND ITS COST IS DEVENV'S STARTUP, NOT THE
+# WORK. Measured (013): `ruff format .` is 31 ms, and `devenv tasks run` doing
+# NOTHING is ~1550 ms, so 2% of the price is the formatting. Inside a run the
+# eval cache is warm and the whole task takes ~18 ms. Calling `ruff` directly
+# would be faster still, and would put a tool name and an ordering decision in
+# a shared group file instead of in this repository's devenv task graph.
+#
+# THE BOUND IS THREE PASSES, AND EXHAUSTING IT FAILS LOUDLY. A tree that never
+# settles means somebody is saving continuously, or the formatter is not
+# idempotent. Writing a receipt then would be the same silent lie. Refusing is
+# §15.7's rule: prefer a loud refusal to a silent default.
+#
 # STEP-LEVEL, NOT DAG-LEVEL. A DAG-level precondition that is not met records
 # the run as `Aborted`, which is the same status a cancelled run gets; a
 # step-level one gives `Succeeded` with the step marked skipped. A plane built
@@ -51,6 +81,31 @@ steps:
       - condition: |
           test "$(find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 | sort -z | xargs -0r sha256sum | sha256sum)" != "$(cat .devman/.runs/.format.hash 2>/dev/null)"
     run: |
+      set -u
+
+      # The SAME expression the precondition uses. Widening one widens both.
+      tree_hash() {
+        find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 \
+          | sort -z | xargs -0r sha256sum | sha256sum
+      }
+
       devenv tasks run -v format:fmt
-      find . -name '*.py' -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.git/*' -print0 \
-        | sort -z | xargs -0r sha256sum | sha256sum > .devman/.runs/.format.hash
+      settled=$(tree_hash)
+
+      # Each pass re-formats and re-hashes. Two consecutive identical trees mean
+      # nothing moved across a whole formatter run, so the receipt is honest.
+      for pass in 2 3; do
+        devenv tasks run -v format:fmt
+        current=$(tree_hash)
+        if [ "$current" = "$settled" ]; then
+          printf '%s\n' "$current" > .devman/.runs/.format.hash
+          exit 0
+        fi
+        echo "format: the tree moved under the formatter; re-formatting (pass $pass)" >&2
+        settled=$current
+      done
+
+      echo "format: the tree never settled across 3 passes. Refusing to write" \
+           ".devman/.runs/.format.hash, because a receipt now would claim work" \
+           "this run did not do and the next save would be skipped." >&2
+      exit 1

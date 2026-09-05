@@ -43,6 +43,7 @@ It writes nothing unless `--prune` is given (§10 check 5).
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import json
 import os
@@ -866,6 +867,140 @@ def _dagu_pids(dagu_home: Path) -> list[int]:
     return sorted(found)
 
 
+# ---------------------------------------------------------------------------
+# what the plane's only verb pays for (014)
+
+# devenv's shell-script cache. `write_executable_script` (devenv 2.1.2,
+# `devenv/src/devenv/mod.rs:2163`) writes `<dotfile>/shell-<hash>.sh` for every
+# distinct shell environment it ever realises, and NOTHING DELETES THEM.
+# `devenv gc` does not: all 85 lines of `devenv/src/devenv/gc.rs` collect Nix
+# store paths and dangling GC-root symlinks, and never look in the dotfile.
+SHELL_CACHE_GLOB = "shell-*.sh"
+
+# 50 MB of `.devenv` inside a `path:` input. Not a taste — a measurement. 014
+# timed the verb against the same tree at three sizes: 29 MB is 287 ms, 117 MB
+# is 802 ms, 298 MB is 1448 ms. About 4.3 ms per megabyte, on every invocation,
+# in every repository that takes it. 50 MB is therefore ~215 ms, already more
+# than devenv's ENTIRE startup floor of 146 ms measured with no `path:` input.
+PATH_INPUT_DOTFILE_MB = 50
+
+
+def _path_inputs(root: Path) -> list[Path]:
+    """Every local `path:` input `<root>/devenv.yaml` names, resolved.
+
+    Read rather than parsed for meaning: the file is the repository's, and this
+    only needs the targets. Relative forms (`path:./modules`, `path:../vendomat`)
+    resolve against the repository that names them.
+    """
+    try:
+        raw = yaml.safe_load((root / "devenv.yaml").read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    out = []
+    for spec in (raw.get("inputs") or {}).values():
+        url = (spec or {}).get("url") if isinstance(spec, dict) else None
+        if isinstance(url, str) and url.startswith("path:"):
+            out.append(Path(os.path.normpath(root / url[len("path:") :])))
+    return out
+
+
+def _dotfile(target: Path) -> tuple[int, int]:
+    """`(bytes, shell-script count)` of `<target>/.devenv`. Missing is `(0, 0)`.
+
+    The whole dotfile, because the whole dotfile is what Nix copies. The shell
+    scripts are counted separately only to say how much of it is the part that
+    grows without bound.
+    """
+    total = scripts = 0
+    dotfile = target / ".devenv"
+    for parent, _, files in os.walk(dotfile):
+        for name in files:
+            if (
+                parent == str(dotfile)
+                and name.startswith("shell-")
+                and name.endswith(".sh")
+            ):
+                scripts += 1
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(parent, name)).st_size
+    return total, scripts
+
+
+def check_path_inputs(rep: Report, reg: Registry) -> None:
+    """A `path:` input copies everything git ignores, `.devenv` included (014).
+
+    **This is why the plane's only verb costs what it costs.** A warm
+    `devenv tasks run` here was 1562 ms at n=20, of which the span
+    `Validating lock` is 94 %. Nix evaluation is 1.8 ms: the eval cache is not
+    the problem and never was.
+
+    `validate_lock_file` (`devenv-nix-backend/src/lib.rs:363`) re-resolves every
+    input on every invocation. A `path:` node carries no revision and no
+    narHash, so Nix must copy the directory and hash it to learn what it is —
+    **and `path:` does not honour `.gitignore`.** Measured: the same tree with
+    `.git` removed costs the same, and `/nix/store` held copies of a live
+    repository including 2179 of its `shell-*.sh` files.
+
+    **`git+file:` is the fix, and it is one line.** It resolves through
+    `git ls-files`, so the dotfile and `.git` are excluded — and it still uses
+    the WORKING TREE, not `HEAD`: 014 verified the store copy carries
+    uncommitted edits to tracked files and staged-but-uncommitted additions.
+    Measured on the same input, n=20: `path:` 802 ms, `git+file:` **149 ms**,
+    which is devenv's bare floor. The one behaviour it changes is that a brand
+    new file is invisible until `git add` — a loud failure, not a silent one.
+
+    Sweeping `shell-*.sh` is the stopgap and has a floor: a virtualenv lives in
+    the dotfile too, and 014 measured 1562 -> 913 ms from sweeping alone against
+    913 -> 149 ms from changing the input.
+
+    This reports and never deletes. Law 6 says only the projection and
+    `--prune` write.
+
+    Not a heuristic. It reads `url: path:…` out of each repository's own
+    `devenv.yaml` and `stat`s what is there.
+    """
+    takers: dict[Path, set[str]] = {}
+    for name, proj in sorted(reg.projects().items()):
+        for target in _path_inputs(proj.path):
+            takers.setdefault(target, set()).add(name)
+
+    lines = []
+    for target in sorted(takers):
+        size, scripts = _dotfile(target)
+        megabytes = size / 1_000_000
+        if megabytes < PATH_INPUT_DOTFILE_MB:
+            continue
+        who = sorted(takers[target])
+        lines.append(
+            f"{target}: .devenv = {megabytes:.0f} MB ({scripts} {SHELL_CACHE_GLOB}),"
+            f" copied into every run of {len(who)} projects"
+        )
+        remedy = (
+            "url: git+file://<path> excludes it"
+            if (target / ".git").exists()
+            else "not a git worktree — delete shell-*.sh"
+        )
+        lines.append(
+            f"    ~{megabytes * 4.3:.0f} ms on every devenv invocation in"
+            f" {', '.join(who[:6])}{' …' if len(who) > 6 else ''} — {remedy}"
+        )
+    if lines:
+        lines.append(
+            "devenv gc collects none of this; `path:` ignores .gitignore and"
+            " `git+file:` does not (014)"
+        )
+        rep.add("path inputs", "!!", lines)
+    else:
+        rep.add(
+            "path inputs",
+            "ok",
+            [
+                f"{len(takers)} directories are path: inputs, none carrying"
+                f" a .devenv over {PATH_INPUT_DOTFILE_MB} MB"
+            ],
+        )
+
+
 def check_trigger_targets(rep: Report, reg: Registry) -> None:
     """A trigger must name a workflow the project actually projects (S-3).
 
@@ -1121,6 +1256,7 @@ def main(args, reg: Registry) -> int:
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)
     check_trigger_targets(rep, reg)
+    check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)
     check_watcher(rep, reg)
     rep.print()
