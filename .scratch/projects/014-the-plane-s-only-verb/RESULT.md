@@ -615,12 +615,9 @@ they run only when somebody asks.
 
 ## 9. What I did not measure
 
-- **Whether deleting the caches actually recovers the time on the live plane.**
-  I proved it on controlled copies (L3 vs L4, n=20). I did **not** delete
-  `shell-*.sh` from shellij, vendomat or docman, because they are other people's
-  repositories and one `devenv shell` on this machine is 16 hours old and still
-  sourcing one of those files. That is the confirming experiment, and it is the
-  user's to authorise.
+- ~~Whether deleting the caches actually recovers the time on the live plane.~~
+  **Done after the fact — see §11.** It recovers 42 %, not the 80 % the copies
+  predicted, and §11 says why.
 - **Where the remaining 287 ms in L4 goes**, versus L0's 146 ms. A 29 MB path
   input still costs 140 ms. I did not profile inside `Validating lock` — the
   work happens in libnix through FFI and emits no devenv spans, and the two
@@ -670,3 +667,56 @@ removing the fixpoint would only widen the window.
 plus 6 new; `tests/unit/test_run.py` untouched. `devman doctor` exits 1, for the
 pre-existing `daemon shell` finding and for the new `path inputs` finding, both
 of which are true.
+
+---
+
+## 11. The confirming experiment, run
+
+Added after §1-§10. The user deleted the three shell caches; the machine had
+rebooted, ending the 16-hour `devenv shell` that blocked this before. **Zero
+open file descriptors on any `.devenv/shell-*.sh` system-wide** at the time.
+
+| target | `shell-*.sh` | `.devenv` |
+|---|---|---|
+| shellij | 2,227 → **0** | 269 MB → **89 MB** |
+| vendomat | 9,864 → **0** | 837 MB → **89 MB** |
+| docman | 9,740 → **0** | 771 MB → **49 MB** |
+| **total** | **21,831 → 0** | **1877 MB → 227 MB** |
+
+devman's verb, `devenv tasks run -m single base:check`, n=20 each:
+
+| | p50 | min | p90 | max | load1 |
+|---|---|---|---|---|---|
+| **before** | **1562.6 ms** | 1454.8 | 1629.7 | 1702.1 | 1.23–2.03 |
+| **after** | **912.9 ms** | 855.0 | 968.2 | 1279.4 | 2.81–3.91 |
+
+**650 ms recovered per invocation, 42 %.** The `after` figure was taken under
+*higher* load than the `before`, so the true improvement is a little better than
+42 %. `doctor`'s `path inputs` check went green.
+
+The reboot also removed the project-012 `find`, so these are the first figures
+in this project taken on a machine with all eight cores available. The `before`
+row re-measures §1.1's 1537.8 ms as 1562.6 ms under those conditions — **the
+original figure was sound.**
+
+### Why it is 42 % and not the 80 % §1.4 predicted
+
+**Because §1.4 deleted `.devenv` entirely, and reality cannot.** L4 was the
+shellij tree with the whole dotfile removed — 29 MB, 287 ms. Deleting only
+`shell-*.sh` leaves 89 MB behind, and **87 MB of it is
+`.devenv/state/venv`**: the uv virtualenv. That is not a cache, deleting it
+breaks the shell, and §7 counts only `shell-*.sh` for exactly this reason.
+
+So shellij as an input is 298 MB → **117 MB**, not → 29 MB, and the measured
+913 ms sits where §1.4's ~4.3 ms/MB model puts it.
+
+**This is the important consequence, and it changes the recommendation.**
+Collecting the shell cache has a **hard floor of about 900 ms**, because a
+virtualenv will always sit inside the dotfile and the dotfile will always sit
+inside the `path:` input. Sweeping up is worth 42 % and must be repeated
+forever, since nothing upstream collects.
+
+**Only getting `.devenv` out of the input reaches 287 ms, and only that fixes it
+once.** §9 lists "whether a `git+file:` or pinned-rev input avoids the copy" as
+untested, and it is now the highest-value open question in this line of work
+rather than a footnote.
