@@ -1,0 +1,4 @@
+devman CLI cold start   : p50 130 min 110 max 144
+dagu binary cold start  : p50 52 min 43 max 75
+devman run --print      : p50 149 min 123 max 163
+watchexec debounce default: 50 ms (watchexec --help; live argv does not override it)

@@ -1,3 +1,9 @@
+> **CLOSED — do not build from this document.**
+> Project 011 decided that devman remains the system-wide Dagu control plane
+> and that **no part of the reconciler spike is adopted**. See
+> [`../011-plane-vs-watcher/DECISION.md`](../011-plane-vs-watcher/DECISION.md).
+> This file is kept only as the record of how that was measured.
+
 # PROTOTYPE_SPIKE_GUIDE — the reconciler spike
 
 A build guide for an agent. Follow it top to bottom. Every gate passes or fails

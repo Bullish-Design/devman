@@ -1,0 +1,16 @@
+?? .scratch/projects/011-plane-vs-watcher/
+--- go ---
+/tmp/dm011/flood.sh: line 15: bc: command not found
+created 2000 files in s at 2026-09-04T19:54:30-04:00
+elapsed_to_quiet=37s (minus 20s quiet window)
+dispatches_fired=4  runs_recorded=4
+--- fired lines ---
+{"at": "2026-09-04T19:54:31.259-04:00", "project": "devman", "workflow": "format", "path": "/home/andrew/Documents/Projects/devman/zz_flood/f1.py", "outcome": "enqueued"}
+{"at": "2026-09-04T19:54:31.748-04:00", "project": "devman", "workflow": "format", "path": "/home/andrew/Documents/Projects/devman/zz_flood/f1071.py", "outcome": "enqueued"}
+{"at": "2026-09-04T19:54:43.314-04:00", "project": "devman", "workflow": "format", "path": "/home/andrew/Documents/Projects/devman/zz_flood/f189.py", "outcome": "enqueued"}
+{"at": "2026-09-04T19:54:43.785-04:00", "project": "devman", "workflow": "format", "path": "/home/andrew/Documents/Projects/devman/zz_flood/f723.py", "outcome": "enqueued"}
+--- run statuses ---
+      4 "status":"succeeded"
+cleaned up; files remaining: 0
+
+[exited with code 0]
