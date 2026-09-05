@@ -418,3 +418,224 @@ fixing the number leaves the string carrying three meanings.
 **No sizing evidence for any of the five was found anywhere in the
 repository.** The KICKOFF's claim that they appear as values and nowhere as an
 argument is confirmed.
+
+---
+
+## 5. Crash survival and cost
+
+### 5.1 A dead run does not wedge a workflow forever — it wedges it for 90 s
+
+A long `c1` run was started and its supervising process `SIGKILL`ed, leaving
+its heartbeat file under `home/data/proc/c1/c1/*.proc` orphaned. A second `c1`
+run was enqueued immediately.
+
+```
+SIGKILLed run at ...134.119   (proc heartbeat file still present)
+enqueued second run ...134.218
+second run admitted after 90 s
+```
+
+**90 s is exactly `proc.stale_threshold`** (default `'90s'`). The identity lock
+releases on the heartbeat going stale. The KICKOFF's trap — *"a dead run must
+not hold a lock forever"* — is answered: it does not, and the delay is a
+configuration key, not a constant.
+
+**The price is real and must be stated.** A `format` run killed by a machine
+suspend blocks the next `format` for 90 s. Three of today's five queues are
+limit 1, so this exposure already exists; moving to identity locks makes it
+apply per workflow rather than per lane.
+
+**One wart:** the killed run stayed `Running` in `dagu history` with a growing
+duration long after its lock had released. The lock recovers; the *status* does
+not, at least not within the observed window.
+
+### 5.2 Losing the worker defers; it does not drop
+
+| event | result |
+|---|---|
+| worker `SIGKILL`ed mid-run | **the running step is orphaned and keeps running** unsupervised — `sleep 120` survived its supervisor |
+| run enqueued while **no worker exists** | stays queued. Not failed, not dropped. Waited 20 s+ with no error |
+| worker restarted | the queued run started **within 5 s** |
+
+**The machine bound survives worker death by deferring.** The orphaned-step
+behaviour is the one genuinely unpleasant finding: a killed worker leaves work
+running that nothing is supervising.
+
+### 5.3 The worker costs almost nothing, and adds no latency
+
+**Idle cost**, one 60 s window: **9 ticks / 60 s — 0.15% of one core** —
+and **91 MB RSS**.
+
+**Dispatch latency, enqueue to the step's first byte, n=20 each, 4 s apart:**
+
+| path | min | p50 | mean | max |
+|---|---|---|---|---|
+| local (today) | 0.425 s | **1.787 s** | 1.784 s | 3.114 s |
+| distributed via worker | 0.268 s | **1.785 s** | 1.690 s | 2.920 s |
+
+**No regression — the two are indistinguishable.** Both are dominated by the
+3.000 s drain ticker, whose uniform phase gives the mean of ~1.5–1.8 s that 012
+measured. The worker polls the coordinator rather than waiting on the ticker,
+which is why the §2.4 slot handoff was 83 ms while a cold enqueue is ~1.8 s.
+
+**Part D.3 is satisfied:** the design adds no second enqueue and no second poll
+on the latency path.
+
+---
+
+## 6. The design
+
+### 6.1 The primitives
+
+The KICKOFF's working hypothesis survives contact with the measurement. Three
+declarations, not one string:
+
+| primitive | field | default | portable text or machine state? |
+|---|---|---|---|
+| **exclusion key** | `queue:` | **the DAG's own identity** — by omitting the field | content (§7.2) |
+| **class of service** | `worker_selector: {class: …}` | set in the machine's `base.yaml` | content when stated; the default is machine state |
+| **machine capacity** | worker pool `--worker.max-active-runs` | sized from §4.2 | **machine state — never in a workflow file** |
+
+### 6.2 What a group author types, and what they get wrong by typing nothing
+
+**For the overwhelmingly common case they type nothing at all**, and that is
+the argument for this shape. 108 of the 170 projected files have no conflict
+with anything (§3.3) and want exactly one thing: *do not run me while I am
+already running*. Omitting `queue:` gives them that, correctly, for free.
+
+A group author types something in two cases only:
+
+* **A cross-workflow conflict** — two *different* workflows over one file —
+  gets an explicit shared `queue: <name>`. Nothing in this plane needs one
+  today (§3.2).
+* **A workflow that is not the default weight** gets
+  `worker_selector: {class: heavy}`.
+
+**What goes wrong if they type nothing is the part that needs a check.** A
+`worker_selector` naming a class **no worker serves** produces a run that
+queues **forever** and reports nothing — §5.2 showed a run waiting
+indefinitely with no error. That is a new silent failure mode, and it is
+exactly what §10's checks exist for.
+
+### 6.3 Sizing, from §4.2 rather than from nothing
+
+The knee is **4**. Pools must therefore **sum to about 4**, not be 4 each — and
+this is what buys class of service, because a `format` run behind a full
+`heavy` pool still has a `light` slot:
+
+| pool | labels | size | serves |
+|---|---|---|---|
+| light | `class=light` | 3 | `check`, `maintain`, `format` |
+| heavy | `class=heavy` | 1 | `test`, `release` |
+
+**This is a sketch, not a measured recommendation.** §4.2 measured the total
+knee for one workload. It did **not** measure the split, and the split is what
+class of service actually is.
+
+### 6.4 What `doctor` must check
+
+Every primitive that can be declared can be declared wrongly:
+
+1. **Every class named by a projected workflow is served by a configured
+   worker pool.** This is the forever-queued failure of §6.2 and it is the most
+   important new check.
+2. **Pool sizes sum to a stated machine capacity**, and that number cites the
+   measurement that produced it — §4.3's finding is that today's five have no
+   argument anywhere.
+3. **A workflow that states `queue:` explicitly states why**, since doing so
+   *gives up* its identity lock — the exact trade S-9 made silently for all 170
+   files.
+4. The existing projection checks are unaffected: no absolute path and no
+   project fact enters a workflow file, so **criterion 10 still holds**.
+
+### 6.5 The charter changes this would force
+
+Under law 2 these travel in the same commit as the code:
+
+* **Law 3 / §7.1** — the closed list of five queue names is replaced by a set
+  of class names plus an identity default. The list stays closed; its contents
+  and its meaning change.
+* **§15.4 / S-9** — the either/or is disproved by §2.4 and the entry must say
+  so.
+* **`nix/nixos-module.nix`** — the `baseFile` comment quoted in the KICKOFF is
+  the honest statement of a trade that **no longer has to be made**.
+* **`groups/README.md`** — "a `queue:` name" is no longer the portable unit.
+
+---
+
+## 7. What S-9's either/or actually cost
+
+Now that it is priced:
+
+* **170 of 170 projected files lost their identity lock**, because `base.yaml`
+  sets `queue: light` for every DAG (§1.3). The identity queue the module
+  comment describes has never once occurred on this machine.
+* **108 of them gained nothing for it.** They have no sibling conflict (§3.3);
+  they were put in a shared lane only because that lane was the sole way to
+  bound the machine.
+* **It bought a machine bound that is set wrong** — `normal: 2` against a
+  measured knee of 4, leaving ~45% of throughput unused (§4.3).
+* **It cost the `format` workflow nothing.** This is the honest half: the
+  collision S-9's trade exposed `format` to is **benign** (§3.4, scenario 1),
+  and the real `format` bug is an ordering defect that an identity lock **does
+  not fix**.
+
+**So the trade was real, it was unpriced, and its price was mostly paid in the
+wrong currency.** The plane gave up a correct, free primitive across 170 files
+to buy a bound it then set at half the right value — but the concrete harm
+everyone assumed followed from it does not exist.
+
+---
+
+## 8. What I did not measure
+
+Stated plainly, because several of these gate the change.
+
+1. **The real projection.** Every Dagu experiment used synthetic DAGs with
+   `sleep` steps on a throwaway home. **Nothing ran through `devman run`, the
+   real registry, or a real `devenv tasks run`.** Part D asked for the spike on
+   the real projection and this is not that.
+2. **The class split.** §4.2 measured a total knee of 4 for one workload. The
+   light/heavy split in §6.3 is a sketch with no measurement behind it.
+3. **`.devenv/` as a shared path.** Every step in the plane runs
+   `devenv tasks run`, so `check`, `test`, `format` and `release` in one
+   project share devenv state. **This is the largest unexamined conflict in
+   §3.2** and it may be the one real cross-workflow conflict.
+4. **The absolute capacity numbers are not portable.** A cold check here is
+   ~24 s against the 91.9 s cited earlier, because much of the closure was
+   already built. The curve's *shape* is the claim.
+5. **Whether 54 projects × distributed mode behaves like 4 synthetic DAGs.**
+   Coordinator throughput at the real fan-out is unmeasured, and 012's registry
+   scaling work was not repeated here.
+6. **`dispatchAdmissionSlot` and `enqueue_retry`.** Named in the KICKOFF,
+   visible as symbols, no schema surface. `enqueue_retry` was *observed* —
+   the daemon retried a failed dispatch four times and deferred rather than
+   dropped (§2.1) — but its configuration, if any, was not found.
+7. **No source was read.** The Nix package is a prebuilt tarball and no source
+   is in the store. Every schema claim comes from `dagu schema`'s own output.
+8. **The `format` fixpoint fix was proven on a fixture, not in the workflow.**
+
+---
+
+## 9. Recommendation
+
+**The design in §6 wins on the argument and on the measurement, and it is not
+ready to ship.**
+
+What is settled: the primitives are three, not one; Dagu can express all three
+at once; the composition costs 0.15% of a core, 91 MB, and **no latency**; and
+both mechanisms defer rather than drop, including through a `SIGKILL`.
+
+What is not settled is §8.1 — none of it has run against the real projection —
+and §8.3, which could change the conflict set. Switching 54 live repositories
+to distributed execution on the strength of four synthetic DAGs would be the
+KICKOFF's own trap: a design argument without the spike that earns it.
+
+**Two things should ship now, independently of the above:**
+
+1. **The `format` fixpoint fix (§3.4).** It is a Law 5 defect — a file left
+   unformatted while both runs report success — it is demonstrated, its remedy
+   is verified, and it has nothing to do with queues.
+2. **The correction to the record.** 012's asserted `format` corruption race
+   does not exist; S-9's either/or is disproved; and the `baseFile` comment
+   describes a behaviour that never occurs on this machine.
