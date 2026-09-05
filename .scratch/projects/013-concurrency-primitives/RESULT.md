@@ -351,3 +351,70 @@ A DONE  pass=2      after A: unformatted=0      B SKIP      FINAL unformatted: 0
 
 **This is a bug in `format`, not in the concurrency model, and it should be
 fixed on its own merits regardless of what this project decides about queues.**
+
+---
+
+## 4. The numbers nobody had
+
+### 4.1 Method
+
+`nix flake check` **caches**, so repeating it measures nothing: the second run
+of an unchanged flake returns in under a second. Six `git clone --depth 1`
+copies of this repository were made under `/tmp/013/cap/`, and **a fresh unique
+marker was appended to `nix/nixos-module.nix` before every single run**, so
+every measured check is a distinct derivation doing real work.
+`measurements/level.sh` is the harness. Levels were run 1, 2, 4, 6 and the
+whole sequence was run **twice**.
+
+**The machine was not quiet and could not be made quiet.** The sysfs `find` was
+still holding one core. Load average is printed per level below, before and
+after. **Absolute figures are therefore pessimistic; the shape is the finding.**
+
+**This is a lighter check than the one 012 cited.** A cold check here is
+**~24 s**, not the 91.9 s recorded earlier, because much of the closure is
+already built or substitutable on this machine. **The curve's shape is what
+this section claims; the absolute seconds are not portable.**
+
+### 4.2 The curve
+
+| concurrency | pass 1 wall | pass 2 wall | per-run p50 | throughput |
+|---|---|---|---|---|
+| 1 | 25 s | 24 s | 24–25 s | 2.4 runs/min |
+| 2 | 25 s | 26 s | 25 s | 4.6–4.8 runs/min |
+| 4 | 31 s | 28 s | 27–31 s | 7.7–8.6 runs/min |
+| 6 | 42 s | 41 s | 39–41 s | 8.6–8.8 runs/min |
+
+Load average climbed 5.1 → 15.5 across pass 1 and 13.7 → 14.2 across pass 2.
+
+**The findings:**
+
+* **Concurrency 2 is free.** Per-run latency is unchanged from 1, and
+  throughput doubles.
+* **Concurrency 4 is nearly free.** Per-run latency rises 12–24%; throughput
+  reaches **8.6 runs/min**.
+* **Concurrency 6 buys almost nothing.** Throughput improves **2%** over 4
+  (8.6 → 8.8) while per-run latency rises **45%**. The knee is at 4.
+* **"Capacity = cores" is wrong, as the KICKOFF predicted.** 8 cores, and the
+  knee is at **4**. `nix flake check` hands work to `nix-daemon`, which is
+  already claiming the machine; each run asks for the whole machine.
+
+### 4.3 The five limits are backwards
+
+Today: `exclusive 1, gpu 1, heavy 1, light 4, normal 2`.
+
+`normal` holds **all 54 `test` workflows** — the `nix flake check` measured
+above — at **2**. `light` holds `check`, `maintain` and `format` at **4**.
+
+**The heavy workload is capped at half the machine's knee, and the light one at
+exactly the knee.** At `normal: 2` the plane delivers 4.6 runs/min where 8.6
+is available at *no meaningful latency cost*. **`normal: 2` leaves roughly 45%
+of achievable throughput on the floor.**
+
+That is a measured statement about the number. It is **not** a recommendation
+to raise it, and §5 explains why: it is the KICKOFF's "do not tune your way out
+of a design problem" trap. The number is wrong *and* the string is wrong, and
+fixing the number leaves the string carrying three meanings.
+
+**No sizing evidence for any of the five was found anywhere in the
+repository.** The KICKOFF's claim that they appear as values and nowhere as an
+argument is confirmed.
