@@ -720,3 +720,126 @@ forever, since nothing upstream collects.
 once.** §9 lists "whether a `git+file:` or pinned-rev input avoids the copy" as
 untested, and it is now the highest-value open question in this line of work
 rather than a footnote.
+
+---
+
+## 12. `git+file:` is the complete fix, and it costs nothing semantically
+
+§11 left this as "the highest-value open question". It is answered.
+
+Two synthetic projects under `/tmp/014`, identical but for one line, both
+naming the live shellij. n=20 each, quiet machine (load1 2.0–2.5):
+
+| project | input | p50 | min | max |
+|---|---|---|---|---|
+| G0 | `path:/home/…/shellij` | **802.5 ms** | 729.9 | 892.1 |
+| G1 | `git+file:///home/…/shellij` | **149.4 ms** | 112.1 | 188.8 |
+
+**149.4 ms is devenv's bare floor** — §1.4 measured 146.1 ms with no `path:`
+input at all. `git+file:` does not reduce the copy; it removes it.
+
+### What it actually resolves to
+
+The worry was that `git+file:` would silently use `HEAD` instead of the working
+tree. shellij is dirty — 17 files, including `devenv.nix`, `devenv.yaml` and
+`devenv.lock` — so this would have been a law-4 hazard: takers building against
+committed content while the developer edits.
+
+**It does not happen.** `nix flake metadata` reports
+`dirtyRevision: f554e19…-dirty`, and the store copy says:
+
+| | |
+|---|---|
+| size | **2 MB** (worktree is 117 MB) |
+| `.devenv` | **absent** |
+| `.git` | **absent** |
+| `devenv.nix` | **matches the working tree**, differs from `HEAD` |
+| a staged-but-uncommitted file | **present** |
+
+So uncommitted edits to tracked files are visible, and `git add` alone is
+enough — no commit needed.
+
+### The one behaviour that changes
+
+**An untracked file is invisible until `git add`.** Verified in a scratch git
+repository: a tracked-and-modified file arrives with its modification, an
+untracked file does not arrive at all, and a gitignored `.devenv` is excluded.
+
+That is a real cost and it should be stated plainly: adding a *new* file to a
+shared module directory now needs `git add` before takers see it. It fails
+**loudly** — the module is not found — rather than silently, which is the
+direction §15.7 asks for.
+
+### Why this is the fix and sweeping is not
+
+| | verb in devman |
+|---|---|
+| before anything | 1562.6 ms |
+| after sweeping `shell-*.sh` (§11) | 912.9 ms |
+| **`git+file:` (measured on the same input)** | **~149 ms** |
+
+Sweeping recovers 42 % and must be repeated forever. **`git+file:` recovers the
+rest, once, and the cause cannot regrow** — `.devenv` is gitignored, and
+`git+file:` honours `.gitignore` where `path:` does not.
+
+**It is not devman's change to make.** It is one line in each of 52 other
+repositories' `devenv.yaml`, and law 5 says the plane holds no project fact. So
+`doctor` names it and the repositories decide.
+
+---
+
+## 13. What §12 and §11 changed in the shipped code
+
+### `check_path_inputs`, revised
+
+The original check counted `shell-*.sh` against a 50 MB threshold. §11 showed
+that is the wrong measurement: after the sweep shellij had **zero** shell
+scripts and still cost 650 ms, because `.devenv/state/venv` is 87 MB and Nix
+copies the dotfile whole.
+
+So the check now measures **the whole `.devenv`**, which is what Nix actually
+copies, and names the remedy that fits the target — `git+file:` when it is a git
+worktree, sweeping when it is not. On the live plane, at 137 ms:
+
+```
+!!  path inputs  …/fornix:   .devenv = 79 MB (43 shell-*.sh), copied into every run of 1 projects
+                     ~340 ms on every devenv invocation in forgelab — url: git+file://<path> excludes it
+                 …/shellij:  .devenv = 90 MB (0 shell-*.sh), copied into every run of 51 projects
+                     ~385 ms … — url: git+file://<path> excludes it
+                 …/vendomat: .devenv = 89 MB (0 shell-*.sh), copied into every run of 7 projects
+                     ~381 ms … — url: git+file://<path> excludes it
+```
+
+The revision earns its keep twice over: it reports the **real** cost of a
+swept-but-unfixed target (`0 shell-*.sh` and still a finding), and it caught
+`fornix`, which the shell-cache threshold missed.
+
+### `maintain` collects the shell cache
+
+`groups/base/workflows/maintain.yaml` now deletes `.devenv/shell-*.sh` older
+than `KEEP_DAYS`, and reports how many it collected.
+
+**Why here.** Nothing else collects them — not devenv, not `devenv gc`. This is
+the same argument that already keeps retention in this workflow: it is the work
+no other owner has, and `maintain` is the only thing that runs nightly in every
+repository.
+
+**Why it is allowed to delete unattended.** This file's own line is reports
+versus artifacts: regenerable text may be pruned, a build artifact may not. A
+`shell-*.sh` is regenerable **by construction** —
+`write_executable_script` writes only when the file is absent.
+
+**Rule 8, satisfied by measurement rather than assumption.** §12 rule 8 says
+what the plane schedules must be cheap by construction. Measured on this
+machine's largest caches: the scan is **0.03–0.05 s** at 15,786 files, and the
+delete is **0.79 s for 10,198 files, freeing 799 MB**. It does not scale with
+the repository, only with the garbage it removes.
+
+**What it does not touch.** `state/venv`, `nix-eval-cache.db`, `profile`, `run`
+— verified in isolation, along with the missing-`.devenv` case for a repository
+that has never entered its shell.
+
+**The honest cost of taking `base`.** This is the one place `maintain` writes to
+a directory the plane does not own, and `groups/base/README.md` now says so in
+those words. A `devenv shell` left open longer than `KEEP_DAYS` could lose the
+rcfile it would re-source on reload; that fails loudly with a missing path.

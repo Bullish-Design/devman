@@ -363,13 +363,15 @@ def test_an_entry_from_a_newer_devman_is_reported(plane):
 # what the plane's only verb pays for (014)
 
 
-def _cache(root, megabytes: int, *, name: str = "shellij") -> None:
-    """Give `<root>/<name>` a `.devenv` shell cache of about `megabytes`."""
+def _dotfile(root, megabytes: int, *, name: str = "shellij", git: bool = True) -> None:
+    """Give `<root>/<name>` a `.devenv` of about `megabytes`, in shell scripts."""
     dot = root / name / ".devenv"
     dot.mkdir(parents=True, exist_ok=True)
     block = b"x" * 1_000_000
     for i in range(megabytes):
         (dot / f"shell-{i:016x}.sh").write_bytes(block)
+    if git:
+        (root / name / ".git").mkdir(parents=True, exist_ok=True)
 
 
 def _yaml_with_path_input(repo, target) -> None:
@@ -379,11 +381,11 @@ def _yaml_with_path_input(repo, target) -> None:
     )
 
 
-def test_a_path_input_carrying_a_big_shell_cache_is_a_finding(plane, tmp_path):
+def test_a_path_input_carrying_a_big_dotfile_is_a_finding(plane, tmp_path):
     """014: `validate_lock_file` re-hashes the whole `path:` target every run,
     `.gitignore` and all, so the taker pays for the target's own `.devenv`."""
     shared = tmp_path / "shared"
-    _cache(shared, 60)
+    _dotfile(shared, 60)
     taker = plane.add("taker", workflows={"check": ORDINARY}).path
     _yaml_with_path_input(taker, shared / "shellij")
 
@@ -393,13 +395,44 @@ def test_a_path_input_carrying_a_big_shell_cache_is_a_finding(plane, tmp_path):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("path inputs", "!!")
     assert "60 MB" in lines[0]
-    assert "taken by 1 projects" in lines[0]
+    assert "60 shell-*.sh" in lines[0]
+    assert "every run of 1 projects" in lines[0]
 
 
-def test_a_small_shell_cache_is_not_a_finding(plane, tmp_path):
+def test_a_git_worktree_target_is_told_to_use_git_file(plane, tmp_path):
+    """`git+file:` resolves through `git ls-files`, so the dotfile is excluded.
+    Measured 802 ms -> 149 ms on the same input, so the remedy is named."""
+    shared = tmp_path / "shared"
+    _dotfile(shared, 60, git=True)
+    taker = plane.add("taker", workflows={"check": ORDINARY}).path
+    _yaml_with_path_input(taker, shared / "shellij")
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    assert "git+file://" in rep.sections[0][2][1]
+
+
+def test_a_target_that_is_not_a_git_worktree_is_told_to_sweep(plane, tmp_path):
+    """`git+file:` needs a git worktree. Without one the only remedy left is the
+    stopgap, so the check must not name a fix that cannot be applied."""
+    shared = tmp_path / "shared"
+    _dotfile(shared, 60, git=False)
+    taker = plane.add("taker", workflows={"check": ORDINARY}).path
+    _yaml_with_path_input(taker, shared / "shellij")
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    line = rep.sections[0][2][1]
+    assert "git+file://" not in line
+    assert "delete shell-*.sh" in line
+
+
+def test_a_small_dotfile_is_not_a_finding(plane, tmp_path):
     """Below the threshold the copy costs less than devenv's own 146 ms floor."""
     shared = tmp_path / "shared"
-    _cache(shared, 2)
+    _dotfile(shared, 2)
     taker = plane.add("taker", workflows={"check": ORDINARY}).path
     _yaml_with_path_input(taker, shared / "shellij")
 
@@ -415,7 +448,7 @@ def test_every_taker_of_one_target_is_named(plane, tmp_path):
     """One oversized target is one finding, not one per taker: 51 repositories
     take `shellij`, and 51 identical lines would bury the rest of the report."""
     shared = tmp_path / "shared"
-    _cache(shared, 60)
+    _dotfile(shared, 60)
     for who in ("one", "two", "three"):
         repo = plane.add(who, workflows={"check": ORDINARY}).path
         _yaml_with_path_input(repo, shared / "shellij")
@@ -426,7 +459,7 @@ def test_every_taker_of_one_target_is_named(plane, tmp_path):
     _, status, lines = rep.sections[0]
     assert status == "!!"
     assert len([line for line in lines if str(shared / "shellij") in line]) == 1
-    assert "taken by 3 projects" in lines[0]
+    assert "every run of 3 projects" in lines[0]
     assert "one, three, two" in lines[1]
 
 
@@ -434,7 +467,7 @@ def test_a_relative_path_input_resolves_against_the_repository(plane, tmp_path):
     """`path:./modules` and `path:../vendomat` are both live forms in this
     plane, so an unresolved target would silently check nothing."""
     taker = plane.add("taker", workflows={"check": ORDINARY}).path
-    _cache(taker, 60, name="modules")
+    _dotfile(taker, 60, name="modules")
     (taker / "devenv.yaml").write_text(
         yaml.safe_dump({"inputs": {"mods": {"url": "path:./modules"}}})
     )
@@ -458,17 +491,20 @@ def test_a_repository_with_no_devenv_yaml_is_not_an_error(plane):
     assert rep.sections[0][1] == "ok"
 
 
-def test_only_shell_scripts_are_counted(plane, tmp_path):
-    """`.devenv` also holds `profile`, `state/` and the eval-cache database.
-    Those are not the unbounded part and deleting them is not safe."""
+def test_the_whole_dotfile_counts_not_only_the_shell_scripts(plane, tmp_path):
+    """Nix copies the dotfile whole, so the venv and the eval cache are part of
+    the bill even though only `shell-*.sh` is safe to delete. 014 measured the
+    floor this creates: sweeping alone stops at 913 ms."""
     shared = tmp_path / "shared"
     dot = shared / "shellij" / ".devenv"
-    dot.mkdir(parents=True)
-    (dot / "nix-eval-cache.db").write_bytes(b"x" * 60_000_000)
+    (dot / "state" / "venv").mkdir(parents=True)
+    (dot / "state" / "venv" / "big").write_bytes(b"x" * 60_000_000)
     taker = plane.add("taker", workflows={"check": ORDINARY}).path
     _yaml_with_path_input(taker, shared / "shellij")
 
     rep = doctor.Report()
     doctor.check_path_inputs(rep, plane.reg)
 
-    assert rep.sections[0][1] == "ok"
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("path inputs", "!!")
+    assert "0 shell-*.sh" in lines[0]

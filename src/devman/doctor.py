@@ -877,12 +877,12 @@ def _dagu_pids(dagu_home: Path) -> list[int]:
 # store paths and dangling GC-root symlinks, and never look in the dotfile.
 SHELL_CACHE_GLOB = "shell-*.sh"
 
-# 50 MB. Not a taste — a measurement. 014 timed `devenv tasks run` against a
-# `path:` input of 29 MB (287 ms) and the same tree at 298 MB (1448 ms): about
-# 4.3 ms per megabyte, every invocation, in every repository that takes it.
-# 50 MB is therefore ~215 ms, which is already more than devenv's ENTIRE
-# startup floor of 146 ms measured with no `path:` input at all.
-PATH_INPUT_CACHE_MB = 50
+# 50 MB of `.devenv` inside a `path:` input. Not a taste — a measurement. 014
+# timed the verb against the same tree at three sizes: 29 MB is 287 ms, 117 MB
+# is 802 ms, 298 MB is 1448 ms. About 4.3 ms per megabyte, on every invocation,
+# in every repository that takes it. 50 MB is therefore ~215 ms, already more
+# than devenv's ENTIRE startup floor of 146 ms measured with no `path:` input.
+PATH_INPUT_DOTFILE_MB = 50
 
 
 def _path_inputs(root: Path) -> list[Path]:
@@ -904,44 +904,57 @@ def _path_inputs(root: Path) -> list[Path]:
     return out
 
 
-def _shell_cache(target: Path) -> tuple[int, int]:
-    """`(bytes, files)` of `<target>/.devenv/shell-*.sh`. Missing is `(0, 0)`."""
-    total = count = 0
-    try:
-        with os.scandir(target / ".devenv") as entries:
-            for entry in entries:
-                if entry.name.startswith("shell-") and entry.name.endswith(".sh"):
-                    count += 1
-                    with contextlib.suppress(OSError):
-                        total += entry.stat(follow_symlinks=False).st_size
-    except OSError:
-        return 0, 0
-    return total, count
+def _dotfile(target: Path) -> tuple[int, int]:
+    """`(bytes, shell-script count)` of `<target>/.devenv`. Missing is `(0, 0)`.
+
+    The whole dotfile, because the whole dotfile is what Nix copies. The shell
+    scripts are counted separately only to say how much of it is the part that
+    grows without bound.
+    """
+    total = scripts = 0
+    dotfile = target / ".devenv"
+    for parent, _, files in os.walk(dotfile):
+        for name in files:
+            if (
+                parent == str(dotfile)
+                and name.startswith("shell-")
+                and name.endswith(".sh")
+            ):
+                scripts += 1
+            with contextlib.suppress(OSError):
+                total += os.lstat(os.path.join(parent, name)).st_size
+    return total, scripts
 
 
 def check_path_inputs(rep: Report, reg: Registry) -> None:
-    """A `path:` input carries its own `.devenv` into every taker's every run.
+    """A `path:` input copies everything git ignores, `.devenv` included (014).
 
-    **This is why the plane's only verb costs what it costs (014).** A warm
-    `devenv tasks run` in this repository is 1538 ms at n=25, of which the span
-    `Validating lock` is 1640/1590/1660 ms across three traced runs — 94 %.
-    Nix evaluation is 1.8 ms: the eval cache is not the problem and never was.
+    **This is why the plane's only verb costs what it costs.** A warm
+    `devenv tasks run` here was 1562 ms at n=20, of which the span
+    `Validating lock` is 94 %. Nix evaluation is 1.8 ms: the eval cache is not
+    the problem and never was.
 
     `validate_lock_file` (`devenv-nix-backend/src/lib.rs:363`) re-resolves every
     input on every invocation. A `path:` node carries no revision and no
     narHash, so Nix must copy the directory and hash it to learn what it is —
-    **and it does not honour `.gitignore`.** Measured: the same tree with `.git`
-    removed costs the same, and `/nix/store` holds copies of a live repository
-    including 2179 of its `shell-*.sh` files.
+    **and `path:` does not honour `.gitignore`.** Measured: the same tree with
+    `.git` removed costs the same, and `/nix/store` held copies of a live
+    repository including 2179 of its `shell-*.sh` files.
 
-    So devenv is slow because of devenv's own uncollected garbage. On this
-    machine that garbage is 22.9 GB across 54 repositories and a further 18.1 GB
-    duplicated into the Nix store, against 42 GB free.
+    **`git+file:` is the fix, and it is one line.** It resolves through
+    `git ls-files`, so the dotfile and `.git` are excluded — and it still uses
+    the WORKING TREE, not `HEAD`: 014 verified the store copy carries
+    uncommitted edits to tracked files and staged-but-uncommitted additions.
+    Measured on the same input, n=20: `path:` 802 ms, `git+file:` **149 ms**,
+    which is devenv's bare floor. The one behaviour it changes is that a brand
+    new file is invisible until `git add` — a loud failure, not a silent one.
 
-    **Deleting `shell-*.sh` is safe and is the whole fix**: `write_executable_script`
-    rewrites the one it needs. It is not safe while a `devenv shell` still
-    sources one, so this check reports and never deletes — §10 says `doctor`
-    tells the developer, and law 6 says only the projection and `--prune` write.
+    Sweeping `shell-*.sh` is the stopgap and has a floor: a virtualenv lives in
+    the dotfile too, and 014 measured 1562 -> 913 ms from sweeping alone against
+    913 -> 149 ms from changing the input.
+
+    This reports and never deletes. Law 6 says only the projection and
+    `--prune` write.
 
     Not a heuristic. It reads `url: path:…` out of each repository's own
     `devenv.yaml` and `stat`s what is there.
@@ -953,23 +966,28 @@ def check_path_inputs(rep: Report, reg: Registry) -> None:
 
     lines = []
     for target in sorted(takers):
-        size, count = _shell_cache(target)
+        size, scripts = _dotfile(target)
         megabytes = size / 1_000_000
-        if megabytes < PATH_INPUT_CACHE_MB:
+        if megabytes < PATH_INPUT_DOTFILE_MB:
             continue
         who = sorted(takers[target])
         lines.append(
-            f"{target}: {count} {SHELL_CACHE_GLOB} = {megabytes:.0f} MB,"
-            f" taken by {len(who)} projects"
+            f"{target}: .devenv = {megabytes:.0f} MB ({scripts} {SHELL_CACHE_GLOB}),"
+            f" copied into every run of {len(who)} projects"
+        )
+        remedy = (
+            "url: git+file://<path> excludes it"
+            if (target / ".git").exists()
+            else "not a git worktree — delete shell-*.sh"
         )
         lines.append(
-            f"    ~{megabytes * 4.3:.0f} ms added to every devenv invocation in:"
-            f" {', '.join(who[:6])}{' …' if len(who) > 6 else ''}"
+            f"    ~{megabytes * 4.3:.0f} ms on every devenv invocation in"
+            f" {', '.join(who[:6])}{' …' if len(who) > 6 else ''} — {remedy}"
         )
     if lines:
         lines.append(
-            "devenv gc does not collect these; delete shell-*.sh when no devenv"
-            " shell is sourcing one (014)"
+            "devenv gc collects none of this; `path:` ignores .gitignore and"
+            " `git+file:` does not (014)"
         )
         rep.add("path inputs", "!!", lines)
     else:
@@ -978,7 +996,7 @@ def check_path_inputs(rep: Report, reg: Registry) -> None:
             "ok",
             [
                 f"{len(takers)} directories are path: inputs, none carrying"
-                f" a .devenv shell cache over {PATH_INPUT_CACHE_MB} MB"
+                f" a .devenv over {PATH_INPUT_DOTFILE_MB} MB"
             ],
         )
 
