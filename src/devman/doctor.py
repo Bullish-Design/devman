@@ -43,6 +43,7 @@ It writes nothing unless `--prune` is given (§10 check 5).
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import json
 import os
@@ -866,6 +867,122 @@ def _dagu_pids(dagu_home: Path) -> list[int]:
     return sorted(found)
 
 
+# ---------------------------------------------------------------------------
+# what the plane's only verb pays for (014)
+
+# devenv's shell-script cache. `write_executable_script` (devenv 2.1.2,
+# `devenv/src/devenv/mod.rs:2163`) writes `<dotfile>/shell-<hash>.sh` for every
+# distinct shell environment it ever realises, and NOTHING DELETES THEM.
+# `devenv gc` does not: all 85 lines of `devenv/src/devenv/gc.rs` collect Nix
+# store paths and dangling GC-root symlinks, and never look in the dotfile.
+SHELL_CACHE_GLOB = "shell-*.sh"
+
+# 50 MB. Not a taste — a measurement. 014 timed `devenv tasks run` against a
+# `path:` input of 29 MB (287 ms) and the same tree at 298 MB (1448 ms): about
+# 4.3 ms per megabyte, every invocation, in every repository that takes it.
+# 50 MB is therefore ~215 ms, which is already more than devenv's ENTIRE
+# startup floor of 146 ms measured with no `path:` input at all.
+PATH_INPUT_CACHE_MB = 50
+
+
+def _path_inputs(root: Path) -> list[Path]:
+    """Every local `path:` input `<root>/devenv.yaml` names, resolved.
+
+    Read rather than parsed for meaning: the file is the repository's, and this
+    only needs the targets. Relative forms (`path:./modules`, `path:../vendomat`)
+    resolve against the repository that names them.
+    """
+    try:
+        raw = yaml.safe_load((root / "devenv.yaml").read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    out = []
+    for spec in (raw.get("inputs") or {}).values():
+        url = (spec or {}).get("url") if isinstance(spec, dict) else None
+        if isinstance(url, str) and url.startswith("path:"):
+            out.append(Path(os.path.normpath(root / url[len("path:") :])))
+    return out
+
+
+def _shell_cache(target: Path) -> tuple[int, int]:
+    """`(bytes, files)` of `<target>/.devenv/shell-*.sh`. Missing is `(0, 0)`."""
+    total = count = 0
+    try:
+        with os.scandir(target / ".devenv") as entries:
+            for entry in entries:
+                if entry.name.startswith("shell-") and entry.name.endswith(".sh"):
+                    count += 1
+                    with contextlib.suppress(OSError):
+                        total += entry.stat(follow_symlinks=False).st_size
+    except OSError:
+        return 0, 0
+    return total, count
+
+
+def check_path_inputs(rep: Report, reg: Registry) -> None:
+    """A `path:` input carries its own `.devenv` into every taker's every run.
+
+    **This is why the plane's only verb costs what it costs (014).** A warm
+    `devenv tasks run` in this repository is 1538 ms at n=25, of which the span
+    `Validating lock` is 1640/1590/1660 ms across three traced runs — 94 %.
+    Nix evaluation is 1.8 ms: the eval cache is not the problem and never was.
+
+    `validate_lock_file` (`devenv-nix-backend/src/lib.rs:363`) re-resolves every
+    input on every invocation. A `path:` node carries no revision and no
+    narHash, so Nix must copy the directory and hash it to learn what it is —
+    **and it does not honour `.gitignore`.** Measured: the same tree with `.git`
+    removed costs the same, and `/nix/store` holds copies of a live repository
+    including 2179 of its `shell-*.sh` files.
+
+    So devenv is slow because of devenv's own uncollected garbage. On this
+    machine that garbage is 22.9 GB across 54 repositories and a further 18.1 GB
+    duplicated into the Nix store, against 42 GB free.
+
+    **Deleting `shell-*.sh` is safe and is the whole fix**: `write_executable_script`
+    rewrites the one it needs. It is not safe while a `devenv shell` still
+    sources one, so this check reports and never deletes — §10 says `doctor`
+    tells the developer, and law 6 says only the projection and `--prune` write.
+
+    Not a heuristic. It reads `url: path:…` out of each repository's own
+    `devenv.yaml` and `stat`s what is there.
+    """
+    takers: dict[Path, set[str]] = {}
+    for name, proj in sorted(reg.projects().items()):
+        for target in _path_inputs(proj.path):
+            takers.setdefault(target, set()).add(name)
+
+    lines = []
+    for target in sorted(takers):
+        size, count = _shell_cache(target)
+        megabytes = size / 1_000_000
+        if megabytes < PATH_INPUT_CACHE_MB:
+            continue
+        who = sorted(takers[target])
+        lines.append(
+            f"{target}: {count} {SHELL_CACHE_GLOB} = {megabytes:.0f} MB,"
+            f" taken by {len(who)} projects"
+        )
+        lines.append(
+            f"    ~{megabytes * 4.3:.0f} ms added to every devenv invocation in:"
+            f" {', '.join(who[:6])}{' …' if len(who) > 6 else ''}"
+        )
+    if lines:
+        lines.append(
+            "devenv gc does not collect these; delete shell-*.sh when no devenv"
+            " shell is sourcing one (014)"
+        )
+        rep.add("path inputs", "!!", lines)
+    else:
+        rep.add(
+            "path inputs",
+            "ok",
+            [
+                f"{len(takers)} directories are path: inputs, none carrying"
+                f" a .devenv shell cache over {PATH_INPUT_CACHE_MB} MB"
+            ],
+        )
+
+
 def check_trigger_targets(rep: Report, reg: Registry) -> None:
     """A trigger must name a workflow the project actually projects (S-3).
 
@@ -1121,6 +1238,7 @@ def main(args, reg: Registry) -> int:
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)
     check_trigger_targets(rep, reg)
+    check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)
     check_watcher(rep, reg)
     rep.print()
