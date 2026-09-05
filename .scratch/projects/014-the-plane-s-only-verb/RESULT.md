@@ -1041,3 +1041,81 @@ get §13's `maintain` sweep, which is worth 42 % and needs no input change.
 **The lesson worth keeping: `devenv tasks run` succeeding proves nothing about
 `devenv shell`.** Any future change to an input must be gated on shell entry,
 because that is what a developer and the projection both use.
+
+---
+
+## 16. §15 was wrong: five of the six were not incompatible
+
+**§15 reported "6 of 52 repositories fail under `git+file:`" as a finding about
+`git+file:`. It is not one.** The harness had no retry, so a transient failure
+and a real incompatibility looked identical.
+
+Re-tested the six, same conversion, up to three attempts each:
+
+| repository | result |
+|---|---|
+| fornix | **PASS**, first attempt |
+| pyjutsu | **PASS**, first attempt |
+| structured-agents-v2 | **PASS**, first attempt |
+| webdantic | **PASS**, first attempt |
+| zelligate | **PASS**, first attempt |
+| terminal-state | fail ×3 — and not for the reason §15 assumed |
+
+**Five of the six pass on a plain re-run, with no change to anything.** They are
+now on `git+file:` with `devenv shell` verified. §15's conclusion is retracted:
+there is no evidence that any repository is incompatible with `git+file:`.
+
+### What was actually failing
+
+`terminal-state`'s three attempts each ended:
+
+```
+error: creating file "/nix/store/tmp-…/x/pkgs/by-name/pi/picotts/package.nix":
+       No space left on device
+```
+
+while `df` reported **75 GB free**. `/home` is **btrfs**, and `df` does not
+describe it:
+
+```
+Device size:          443.94GiB
+Device allocated:     443.94GiB
+Device unallocated:     1.00MiB     <- nothing left to carve a new chunk from
+Data,     single: total=423.92GiB, used=349.05GiB
+Metadata, DUP:    total= 10.00GiB, used=  9.46GiB
+```
+
+**The whole device is allocated into block groups.** 74.87 GiB is free *inside*
+data chunks, but metadata is 9.46 of 10.00 GiB and there is no unallocated space
+to grow it. Unpacking nixpkgs — hundreds of thousands of small files — is a
+metadata-heavy write, so it fails with ENOSPC on a filesystem that looks 84 %
+full.
+
+This is the classic btrfs allocation failure, and the remedy is
+`btrfs balance start -dusage=…`, which compacts sparse data chunks and returns
+unallocated space to the device.
+
+### What this retroactively explains
+
+* `terminal-state`'s "path `…-source` is not valid" (§14.3, §15): the path was
+  missing because it **could not be created**.
+* `fornix` failing the `git+file:` rollout *and* the tag rollout, then passing
+  both on retry.
+* An ENOSPC hit while merely writing a tool's output file during this session.
+* Very likely §14.3's two original "unexplained" failures.
+
+**So the lesson in §15 was right for the wrong reason.** `devenv tasks list` is
+indeed the wrong gate — that part stands. But the six failures it caught were
+mostly the filesystem, not the input scheme, and I attributed them to
+`git+file:` because the harness could not tell the difference. **A verification
+harness with no retry cannot distinguish a broken change from a busy machine**,
+and one that reports the difference as a finding is worse than one that reports
+nothing.
+
+### Where the fleet actually stands
+
+| | repositories |
+|---|---|
+| `git+file:`, `devenv shell` verified | **51** |
+| `path:` — blocked by btrfs, not by the input scheme | 1 (`terminal-state`) |
+| no local input | 2 (`gitman`, `tyo3`) |
