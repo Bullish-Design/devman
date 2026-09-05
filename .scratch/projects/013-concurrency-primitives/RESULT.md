@@ -238,3 +238,116 @@ plane must therefore give up the identity lock — **is not**.
   cost are unmeasured. Part D.3 requires both.
 * Nothing here used the real projection, the real registry, or a real
   `devenv tasks run`. These are synthetic 6–8 s sleeps.
+
+---
+
+## 3. The conflict set
+
+### 3.1 What the plane actually runs
+
+54 projects, 170 projected files, 10 distinct workflow names. Every project
+takes `base`, and almost nothing else:
+
+| workflow | copies | queue |
+|---|---|---|
+| `check`, `maintain` | 54 each | `light` |
+| `test` | 54 | `normal` |
+| `release` | 2 | `heavy` |
+| `format` | 1 | `light` |
+| `agent-review`, `bench-entry`, `gitman-commit-message`, `plane-report`, `stack-validate` | 1 each | 1 `gpu`, 1 `exclusive`, rest mixed |
+
+Totals by queue: **110 `light`, 55 `normal`, 2 `heavy`, 2 `exclusive`, 1 `gpu`**.
+
+### 3.2 What is written to a fixed path
+
+**Exactly one workflow body writes a fixed path**: `format`, to
+`.devman/.runs/.format.hash`. Every other write is keyed by
+`${context.run.id}` and cannot collide — `maintain` and `release` both write
+`reports/<name>-<run-id>.md`.
+
+**But two shared writes are not in any workflow body, and so appear in no
+audit of the workflows:**
+
+* **`.devman/.runs/metadata.jsonl`.** The exit handler in the machine's
+  `base.yaml` appends one line **for every run of every workflow** in a
+  project. This is a genuine cross-workflow shared path. It is a single
+  `printf` of well under `PIPE_BUF` opened `O_APPEND`, so concurrent appends
+  do not interleave — **safe, but safe by accident**, and nothing states the
+  dependency. `release`'s gate *reads* this file to decide whether to build.
+* **`.devenv/`.** Every workflow step in the plane runs `devenv tasks run`, so
+  `check`, `test`, `format` and `release` in one project share devenv's state
+  directory. **Not measured by this project.** See §7.
+
+### 3.3 The classification
+
+| conflict | example | real? |
+|---|---|---|
+| **self** | `format` vs `format`, one repo | **yes — §3.4** |
+| **sibling** | `format` in repo A vs repo B | **no.** Different `working_dir`, different `.devman/.runs/`. Nothing is shared. The `light` queue binds them anyway. |
+| **cross-workflow** | `check` + `test` + `format`, one repo | **unproven.** Shared `.devenv/`; not measured. |
+| **resource** | 54 × `test` = 54 × `nix flake check` | **yes** — Part E. |
+
+The sibling row is the interesting one. **110 of the 170 files sit in a shared
+`light` lane, and 108 of those have no conflict with each other at all.** They
+are bound together only because the plane had one string with which to bound
+the machine.
+
+### 3.4 The `format` race: 012's claim is wrong, and the real bug is worse
+
+Fixture in `measurements/fmt-race/`: 120 `.py` files, a formatter that rewrites
+each in turn, and the **exact** precondition and hash expression from
+`groups/format/workflows/format.yaml`.
+
+**Scenario 1 — two concurrent runs, the race 012 asserted. It is benign.**
+
+```
+B RUN  ...525.782      A DONE ...531.418 hash=44bad61f815b
+A RUN  ...525.782      B DONE ...531.489 hash=44bad61f815b
+final stored 44bad61f815b   actual tree 44bad61f815b   unformatted 0
+```
+
+Both ran, both wrote the same hash, the tree is consistent and fully
+formatted. **The cost is duplicated work, not corruption.** 012 inferred a
+corruption race from observing four concurrent runs and never demonstrated it.
+**It does not occur.** That row of the KICKOFF table is now disproved, not
+confirmed.
+
+**Scenario 2 — a save that lands *during* a run. This one is real, and it is
+silent.**
+
+```
+A RUN   ...560.310                    (A begins; formats f000 first)
+EDIT    ...561.285  f000.py <- unformatted save
+A DONE  ...564.640  hash=370c5ca6575f (hash computed AFTER the edit landed)
+B SKIP  ...564.730                    (tree hash == stored hash)
+FINAL unformatted: 1   ->   f000.py:x=999
+```
+
+`f000.py` is left unformatted. **Both runs report success.** This is precisely
+Law 5 — a successful run that did the wrong thing — and it is invisible,
+because a skipped step is the same `Succeeded` status a correct loop-break
+produces.
+
+**The workflow's own comment claims this cannot happen.** It argues the hash
+beats a suppression window because *"edit `foo.py` immediately after the
+formatter wrote it and the hash no longer matches, so the work runs."* That is
+true for an edit landing **after** the run and **false** for one landing
+**during** it. The comment tests the wrong window.
+
+**Mutual exclusion does not fix it.** In the transcript above B ran strictly
+after A finished — a perfect identity lock — and still skipped. The defect is
+**ordering**, not concurrency: the hash is computed *after* the work, so it
+records a tree the formatter never validated.
+
+**The fix is a fixpoint, and it is verified** (`measurements/fmt-race/run2.sh`):
+format, hash, format again, hash again; store only when two consecutive passes
+agree, so a tree that moved under the formatter is detected and re-formatted.
+
+```
+A RUN ...591.617    EDIT ...592.609
+A RETRY pass=1 (tree moved under the formatter)
+A DONE  pass=2      after A: unformatted=0      B SKIP      FINAL unformatted: 0
+```
+
+**This is a bug in `format`, not in the concurrency model, and it should be
+fixed on its own merits regardless of what this project decides about queues.**
