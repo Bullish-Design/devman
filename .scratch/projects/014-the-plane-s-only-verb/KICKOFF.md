@@ -7,9 +7,9 @@ here. **Read this whole file before running anything.**
 
 ## The question
 
-`CLAUDE.md` law 4: **one workflow, one step, one `devenv tasks run`.** That is
-the contract between Dagu and devenv, and it is the reason this plane is
-coherent — order belongs to the repository's task graph, never to a Dagu file.
+Every default workflow runs exactly one `devenv tasks run`. That is the
+contract between Dagu and devenv: **Dagu orchestrates, devenv executes**, and
+order lives in the repository's task graph rather than in a Dagu file.
 
 **114 of the 170 projected workflow files on this machine execute it** (`check`
 54, `test` 54, `release` 2, and one each of `format`, `agent-review`,
@@ -59,8 +59,9 @@ single-figure observations, not findings. **Re-derive them.**
 
 **In scope:**
 
-* **How the verb is invoked.** Law 4 says one `devenv tasks run` per step. It
-  does not say the plane may not make that invocation cheaper.
+* **How the verb is invoked.** One `devenv tasks run` per step is the shape
+  today. Nothing says the plane may not make that invocation cheaper, and
+  nothing says the shape itself is fixed.
 * **`base.yaml`'s shell.** The machine's Dagu base config already chooses
   `default_shell`. What a step's shell has already done before the step's first
   byte is machine state, and machine state is amendable.
@@ -69,14 +70,14 @@ single-figure observations, not findings. **Re-derive them.**
 
 **Not in scope:**
 
-* **Law 4 itself.** A workflow naming a tool instead of a task takes ordering
-  away from the repository and puts a project fact in shared group content.
-  **A faster plane that names `ruff` in a workflow file is a worse plane.**
-  Design around it or change it explicitly with the measurement that forced it
-  (law 2) — do not drift past it.
-* **Law 5, in any form.** A warm path that runs a step against a stale
+* **Law 4, in any form.** A warm path that runs a step against a stale
   environment is a successful run that did the wrong thing. **A cache with no
   freshness check is not a candidate**, however fast it is.
+* **Putting a project fact in shared group content.** Law 5. A workflow naming
+  `ruff` hard-codes one repository's tooling into a file every adopting
+  repository inherits. That is the objection to it — not the shape of the step.
+  **Align with what Dagu can express**; where Dagu and devenv both offer a way,
+  measure both and say which is better and why.
 * **Reopening 013's concurrency design.** Its RESULT stands and its
   recommendation stands: it does not ship without a real-projection spike.
   **This project is not that spike.** If findings here change the conflict set,
@@ -132,7 +133,8 @@ single-figure observations, not findings. **Re-derive them.**
 
 **Only if it survives all three of these. State plainly which one kills it.**
 
-* **It goes through the task graph.** Law 4. No tool names in workflow files.
+* **It keeps ordering in the repository.** A step that names tools instead of
+  a task moves one repository's decisions into shared group content (law 5).
 * **It has a freshness check.** What invalidates it, how the check is made, and
   what it costs — because a check that costs 1.5 s has won nothing.
 * **`doctor` can see it.** §10's checks are the plane's honesty. A warm path
@@ -157,7 +159,7 @@ Part C could recover, and what that is worth against the risk it carries.
 
 ## The traps
 
-**A warm cache with no freshness check is Law 5 with better latency.** The
+**A warm cache with no freshness check is Law 4 with better latency.** The
 whole of 013 §3.4 was one silent skip. Do not trade a refusal for milliseconds.
 
 **The plane refuses files it cannot read, and it will refuse yours.** 013's

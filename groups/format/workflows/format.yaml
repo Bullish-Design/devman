@@ -30,7 +30,7 @@
 # arrived mid-run was hashed BY that run: the receipt then described a tree the
 # formatter had never validated, and the run the save triggered compared equal
 # and skipped. The file was never formatted and both runs reported success —
-# Law 5 exactly, and invisible, because a skipped step is the status a correct
+# Law 4 exactly, and invisible, because a skipped step is the status a correct
 # loop-break produces (013 RESULT.md §3.4, with the transcript).
 #
 # MUTUAL EXCLUSION DOES NOT FIX IT. 013 ran the second run strictly after the
@@ -45,9 +45,9 @@
 # THE SECOND PASS IS NOT OPTIONAL, AND ITS COST IS DEVENV'S STARTUP, NOT THE
 # WORK. Measured (013): `ruff format .` is 31 ms, and `devenv tasks run` doing
 # NOTHING is ~1550 ms, so 2% of the price is the formatting. Inside a run the
-# eval cache is warm and the whole task takes ~18 ms. Do not "optimise" this by
-# calling `ruff` directly: that puts a tool name in a workflow and takes order
-# away from the repository's task graph (law 4).
+# eval cache is warm and the whole task takes ~18 ms. Calling `ruff` directly
+# would be faster still, and would put a tool name and an ordering decision in
+# a shared group file instead of in this repository's devenv task graph.
 #
 # THE BOUND IS THREE PASSES, AND EXHAUSTING IT FAILS LOUDLY. A tree that never
 # settles means somebody is saving continuously, or the formatter is not

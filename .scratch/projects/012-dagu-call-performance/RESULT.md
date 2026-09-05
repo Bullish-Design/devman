@@ -280,7 +280,7 @@ current one finishes" — and you have re-derived a queue of depth 1. **The queu
 is not there for throughput. It is there so the last edit is covered.**
 
 **And nothing removes a killed run's id.** The set keeps a stale entry and that
-workflow never runs again, silently, which is the shape law 5 exists to refuse.
+workflow never runs again, silently, which is the shape law 4 exists to refuse.
 Detecting it means a heartbeat and a staleness threshold — the timer above,
 arrived at from the other direction.
 
@@ -633,7 +633,7 @@ is one developer, in one repository, waiting for `ruff`.
 5. **A retention check that looks at Dagu's data, not the repository's.**
    `doctor`'s "run output" check reports OK while 43% of `data/dag-runs` is past
    `hist_retention_days`. That is a check passing without checking the thing its
-   name claims — the shape law 5 refuses. Either it prunes, or it says it
+   name claims — the shape law 4 refuses. Either it prunes, or it says it
    cannot.
 6. **Revisit queue-depth variance above ~1,000 items.** §4.2. Only matters for a
    plane that queues faster than it drains, which this one does not.

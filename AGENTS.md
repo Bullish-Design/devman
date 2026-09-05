@@ -52,21 +52,19 @@ entry.
 3. **The four global names are a closed list**: the five queue names,
    `DEVMAN_PROJECT_DIR`, `DEVMAN_SELF_DIR`, and the `.devman/.runs/` path shape.
    Adding a fifth is a charter change, not an implementation detail.
-4. **One workflow, one step, one `devenv tasks run`.** Order belongs to the
-   repository's devenv task graph, never to a Dagu file.
-5. **A successful run that did the wrong thing is the failure this design
+4. **A successful run that did the wrong thing is the failure this design
    exists to prevent.** Prefer a loud refusal to a silent default. Never make a
    check pass by making it check nothing.
-6. **The plane never learns a project fact.** No absolute path in a workflow
+5. **The plane never learns a project fact.** No absolute path in a workflow
    file, no project name in the machine module, no per-project option in Nix.
-7. **The registry is derived; the repository is canonical.** Read it freely.
+6. **The registry is derived; the repository is canonical.** Read it freely.
    Write to it only through the projection, or through `doctor --prune`.
-8. **Keep scripts minimal and auditable.** Python for core logic; shell stays a
+7. **Keep scripts minimal and auditable.** Python for core logic; shell stays a
    thin wrapper.
-9. **Never commit secrets or tokens.** §9.4 — the secrets path — has never
+8. **Never commit secrets or tokens.** §9.4 — the secrets path — has never
    fired, and nothing in this repository needs it to.
-10. **Write in Simplified Technical English.** Short sentences, active voice,
-    one word for one meaning, no filler. See `.agents/skills/my-ai/SKILL.md`.
+9. **Write in Simplified Technical English.** Short sentences, active voice,
+   one word for one meaning, no filler. See `.agents/skills/my-ai/SKILL.md`.
 
 ## Verify before you save
 

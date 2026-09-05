@@ -98,7 +98,7 @@ known, ranked and un-prototyped. Take it early so it stops distracting from the
 the plane's safety boundary, and every one has a measurement behind it — a
 directory named literally `${DEVMAN_PROJECT_DIR}` committed twice, a run
 executing another project's workflow in this project's directory and reporting
-success, `DEVMAN_PROJECT_DIR=/elsewhere` retargeting a run. **`CLAUDE.md` law 5
+success, `DEVMAN_PROJECT_DIR=/elsewhere` retargeting a run. **`CLAUDE.md` law 4
 is the governing rule: a successful run that did the wrong thing is the failure
 this design exists to prevent. Never make a check pass by making it check
 nothing.** If a refusal is genuinely expensive, move it — do not drop it.

@@ -324,7 +324,7 @@ FINAL unformatted: 1   ->   f000.py:x=999
 ```
 
 `f000.py` is left unformatted. **Both runs report success.** This is precisely
-Law 5 — a successful run that did the wrong thing — and it is invisible,
+Law 4 — a successful run that did the wrong thing — and it is invisible,
 because a skipped step is the same `Succeeded` status a correct loop-break
 produces.
 
@@ -633,7 +633,7 @@ KICKOFF's own trap: a design argument without the spike that earns it.
 
 **Two things should ship now, independently of the above:**
 
-1. **The `format` fixpoint fix (§3.4).** It is a Law 5 defect — a file left
+1. **The `format` fixpoint fix (§3.4).** It is a Law 4 defect — a file left
    unformatted while both runs report success — it is demonstrated, its remedy
    is verified, and it has nothing to do with queues.
 2. **The correction to the record.** 012's asserted `format` corruption race
@@ -668,7 +668,7 @@ against this repository's live receipt before the change was published.
 recording. A patch that introduced mojibake produced
 `not loadable as YAML: unacceptable character #x0080 — fix the source; the
 plane publishes no file it cannot read`, and the projection **kept the old
-file**. Law 5 working as designed: a bad projection was refused rather than
+file**. Law 4 working as designed: a bad projection was refused rather than
 published.
 
 ### 10.2 The finding underneath it: devenv startup is ~98% of a format run
@@ -699,11 +699,12 @@ Sourcing it and running the tool directly:
 | `devenv tasks run format:fmt` | ~1600 ms |
 | `. .devenv/load-exports && ruff format .` | **16 ms** |
 
-**100x, with nothing running in the background.** It is **not** adopted, and
-the reason is law 4: it names the tool in the workflow and takes ordering away
-from the repository's devenv task graph. It also has no staleness check — a
+**100x, with nothing running in the background.** It is **not** adopted here:
+it names the tool in the workflow and moves an ordering decision out of the
+repository's devenv task graph into shared group content. It also has no
+staleness check — a
 `devenv.nix` that changed since the exports were written would run the step in
-a stale environment, silently, which is Law 5 again.
+a stale environment, silently, which is Law 4 again.
 
 **This is a plane-wide cost, not a `format` cost.** Every workflow step in the
 plane runs `devenv tasks run`, so every run of all 170 projected workflows pays

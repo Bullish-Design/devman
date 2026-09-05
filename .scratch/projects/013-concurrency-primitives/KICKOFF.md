@@ -85,7 +85,7 @@ In particular:
 * **Reopening 011.** Dagu stays. A finding that Dagu expresses something badly
   is a reason to design around it or ask upstream, not to relitigate the
   orchestrator. `011-plane-vs-watcher/DECISION.md` names the closed list.
-* **Law 5, in any form.** *A successful run that did the wrong thing is the
+* **Law 4, in any form.** *A successful run that did the wrong thing is the
   failure this design exists to prevent.* A concurrency model that admits a run
   it should have deferred is exactly that failure. **Never make a check pass by
   making it check nothing**, and never trade a refusal for latency.
