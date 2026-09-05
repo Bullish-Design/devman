@@ -33,10 +33,17 @@ to the formatter's own write, and **most of it is one timer**:
 **The ticker has no configuration key in Dagu 2.15.0; the period is compiled
 in.** Do not go looking for one, and do not set anything under `scheduler:` in
 `config.yaml` expecting to move it — `lock_retry_interval` and its neighbours
-are about locks and zombies, not the drain. A wait longer than 3 s means the
-run's queue was at its `max_concurrency`, which is the queue working. Measured
-over n=50 controlled runs and 494 recorded ones:
-`.scratch/projects/012-dagu-call-performance/RESULT.md` §2.
+are about locks and zombies, not the drain.
+
+A wait longer than 3 s means the run's queue was at its `max_concurrency`. That
+is the limit doing what it says. **Whether the limit is the right number is a
+different question, and nobody has measured it** — the five values are a Nix
+option default in `nix/nixos-module.nix`, chosen without a core count, and they
+are the same on every machine. Do not raise one to make a wait go away.
+
+Measured over n=50 controlled runs and 494 recorded ones:
+`.scratch/projects/012-dagu-call-performance/RESULT.md` §2, and §2.4 for which
+part of the delay is structural and which part is Dagu's loop.
 
 | Layer | Owns | Never |
 |---|---|---|

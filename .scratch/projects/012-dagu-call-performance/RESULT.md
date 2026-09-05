@@ -15,6 +15,13 @@ corroborated across 494 recorded runs whose p95 is 3.043 s. It has no
 configuration key in Dagu 2.15.0. It is not lock contention, and the KICKOFF's
 `lock_retry_interval` lead is wrong.
 
+**And most of that wait is not necessary.** The daemon is the parent of every
+run, so a freed slot is already an event; the queue is a directory, so a new
+item can be one too. **The only timer that has to exist is the one that notices
+a run died without saying so** — absence of a heartbeat cannot be delivered as
+an event — and that one is allowed to be slow. Dagu does both jobs in one 3 s
+loop, and the merge, not the timer, is what costs the plane 1.5 s a save (§2.4).
+
 **The dispatch half was halved, and the refusals did not move.** `devman watch
 --dispatch` started two Python interpreters per filesystem event and imported
 the package twice; it now enqueues in-process, and 52 ms of every devman process
@@ -188,7 +195,7 @@ None is the drain period. `QueueConfigDef` has `enabled` and the queue list, and
 nothing else. **The 3 s period is compiled in.** Adding any of the eight above to
 `config.yaml` would be a line that looks like a fix and is not.
 
-### 2.3 The tail IS queue admission, and it is correct
+### 2.3 The tail IS queue admission — whether it is *right* is unmeasured
 
 Nine recorded runs exceeded 4 s. For each, the fraction of its wait during which
 its own queue stood at `max_concurrency`:
@@ -213,7 +220,91 @@ the machine rather than the queue was the constraint.
 **011's 18,476 ms is not a defect.** It is one save's `format` run waiting for a
 slot in the `light` queue while a flood held all four.
 
-### 2.4 The 2,568 ms, added up
+**That is a claim about the mechanism, not about the numbers, and the two were
+conflated in an earlier draft of this section.** What is measured is that the
+tail *is* admission. What is **not** measured is whether `normal: 2` is the
+right limit for this machine. `nix/nixos-module.nix:127` generates Dagu's queue
+list from `cfg.queues`, a Nix option whose defaults are `exclusive 1, gpu 1,
+heavy 1, light 4, normal 2` — and a grep of `CONCEPT.md` and `groups/README.md`
+finds those five integers used as values and never argued for. No core count, no
+memory figure, no sustained-load measurement. **This machine has 8 cores and
+125 GB, and neither number was known when the limits were chosen.** So `talkee-
+test` waited 42.4 s because a hand-picked integer said so, and nobody has
+checked the integer. See §6 item 4.
+
+### 2.4 What the timer is for — and what it is not
+
+**Most of the 3 s is not structural, and an earlier draft of this document
+defended it too readily. The retraction is the point of this section.**
+
+The claim that was wrong: *"a slot freeing is not an event the enqueuer can
+signal, so a periodic pass is needed anyway."* The enqueuer cannot signal it —
+but the enqueuer is not who needs to know. **Dagu forks a child process per run
+and the daemon is its parent**, verified directly: enqueue `devman.format` and
+`pid 3015302, ppid 1204, comm dagu` appears for the life of the run. A parent
+sees its own child exit. **Slot-freeing is edge-triggered and needs no timer.**
+
+Nor does new work. The queue is a directory; `inotify` on `data/queue/` — or a
+socket, or the HTTP server that is already in the same process — would wake the
+drain in under a millisecond. **There is no principled reason for 3 s. It is how
+the loop is written.**
+
+**One timer is structural, and it is a different timer.** Dagu keeps per-queue
+heartbeat files under `data/proc/{exclusive,gpu,heavy,light,normal}/`, read by
+`proc.heartbeat_interval` (5 s), `proc.stale_threshold` (90 s) and
+`scheduler.zombie_detection_interval` (45 s). They exist because **the absence
+of a signal is not a signal.** A run killed with `SIGKILL`, or a machine that
+reboots mid-run, sends nothing. The only way to learn it is to look and find a
+heartbeat that stopped.
+
+Note what that implies about *rate*: a liveness timer only matters when
+something has already failed, so 45 s is fine. **A drain timer is on the hot
+path of every save.** Dagu runs both jobs in one 3 s loop, and that merge — not
+the existence of a timer — is what costs the plane 1.5 s per save.
+
+#### The obvious alternative, and why it is not simpler
+
+*Start the work immediately as it arrives; keep a set of running ids; if your id
+is in the set, do not run.* Two things go wrong, and both are already recorded
+elsewhere in this repository.
+
+**A set membership test drops; a queue defers.** Save `a.py`, a run starts; save
+again 200 ms later, your id is in the set, the second trigger is discarded — and
+**the second edit is never formatted**, because the drop left nothing behind to
+retry. That is precisely the failure
+`groups/format/workflows/format.yaml` was designed against: its own comment says
+a suppression window "would have swallowed that edit, and would still have
+passed a naive 'one save, one run' test". Dedup-by-id *is* a suppression window,
+keyed on identity rather than time. Repair it — "if busy, run once more when the
+current one finishes" — and you have re-derived a queue of depth 1. **The queue
+is not there for throughput. It is there so the last edit is covered.**
+
+**And nothing removes a killed run's id.** The set keeps a stale entry and that
+workflow never runs again, silently, which is the shape law 5 exists to refuse.
+Detecting it means a heartbeat and a staleness threshold — the timer above,
+arrived at from the other direction.
+
+**The wider version of the same idea already has a verdict.** "Fire the work off
+in subprocesses as it arrives, with no central queue" is structurally the 010
+reconciler spike, and 011 closed it — **not on latency**, where it won handily
+at 255 ms edit-to-artifact against the plane's 2,568 ms, but on what it could
+not do: no run identity, no status, no log path, nothing durable across a
+`SIGKILL`, and no lock across processes
+(`011-plane-vs-watcher/DECISION.md`, and §4.3 of its RESULT).
+
+#### What actually needs a timer
+
+| | timer? | why |
+|---|---|---|
+| noticing a newly enqueued item | **no** | `inotify` on the queue directory, or a socket |
+| noticing a slot has freed | **no** | the daemon is the run's parent and sees the exit |
+| deferring work rather than dropping it | **no** | durable storage, not a clock — but it must exist (above) |
+| noticing a run died without saying so | **yes** | absence of a heartbeat cannot be delivered as an event |
+
+**Only the last row is forced, and only it is allowed to be slow.** This changes
+what is worth asking upstream — see §6 item 3.
+
+### 2.5 The 2,568 ms, added up
 
 | term | ms | share |
 |---|---:|---:|
@@ -502,21 +593,49 @@ is one developer, in one repository, waiting for `ruff`.
    `groups/format/README.md` beside the loop-break argument. **The cost of not
    writing it down is that the next investigation re-measures it** — this one
    spent its first hours re-deriving what 011 had already half-seen.
-3. **Ask upstream whether the drain period is settable.** It is a compiled
-   constant in 2.15.0; `dagu-org/dagu` is GPL-3.0 and takes issues. A
-   `scheduler.queue_poll_interval` at 500 ms would take this machine's
-   save-to-effect from ≈2.4 s to ≈1.2 s — **a bigger win than everything in §3
-   combined, for a configuration line.** Nothing in the plane's design depends
-   on 3 s.
+3. **Ask upstream to wake the drain on enqueue — not for a tunable.** §2.4 is
+   why the ask changed. A `scheduler.queue_poll_interval` would help
+   (≈2.4 s → ≈1.2 s at 500 ms), but it asks upstream to make a wrong shape
+   adjustable. **The right ask is to separate the two timers**: edge-trigger the
+   drain on a queue write and on a child's exit, and keep the periodic pass for
+   heartbeats and zombies, where it belongs and where 45 s is already fine.
+   That takes this machine's save-to-effect to **≈0.9 s** — better than the
+   tunable, and a smaller argument to make, because nothing in Dagu's own design
+   wants the delay either. `dagu-org/dagu` is GPL-3.0 and takes issues. **Read
+   `internal/service/scheduler/` at the v2.15.0 tag first** (§7): this project
+   read only the pinned binary's embedded schema, so whether the loop is
+   structured to allow it is unverified.
+4. **Size the queues from the machine.** `nix/nixos-module.nix:127` builds
+   Dagu's queue list from `cfg.queues`, whose defaults — `exclusive 1, gpu 1,
+   heavy 1, light 4, normal 2` — appear nowhere in the design documents as an
+   argument, only as values. **They are therefore identical on an 8-core laptop
+   and a 64-core workstation**, which is a defect on every machine except
+   whichever one they were guessed on. The module already knows the machine, so
+   this is a Nix change needing no upstream.
+
+   **Take the measurement before changing a number.** The obvious rule —
+   "capacity = cores" — is wrong here, because the runs are not single-threaded:
+   `nix flake check` hands its work to `nix-daemon`, which already claims the
+   machine. Admitting `nproc` of those into an `nproc`-sized pool asks for
+   `nproc²`. What is unknown is what this box sustains for 1, 2, 4 concurrent
+   `base:test` — 91.9 s alone is the only figure anyone has. With 125 GB the
+   binding constraint is cores, and raising `normal` could easily make things
+   worse.
+
+   **Keep the five names.** They are not capacity, they are class of service:
+   `format` on `light` does not queue behind `test` on `normal`, which is what
+   keeps a save responsive under load and what §12 rule 1 is about. A single
+   pool sized to the machine would lose that. **The name is the class and the
+   number is the capacity; only the number should be derived.**
 
 ### Worth doing if the plane grows
 
-4. **A retention check that looks at Dagu's data, not the repository's.**
+5. **A retention check that looks at Dagu's data, not the repository's.**
    `doctor`'s "run output" check reports OK while 43% of `data/dag-runs` is past
    `hist_retention_days`. That is a check passing without checking the thing its
    name claims — the shape law 5 refuses. Either it prunes, or it says it
    cannot.
-5. **Revisit queue-depth variance above ~1,000 items.** §4.2. Only matters for a
+6. **Revisit queue-depth variance above ~1,000 items.** §4.2. Only matters for a
    plane that queues faster than it drains, which this one does not.
 
 ### Not worth doing
@@ -527,6 +646,8 @@ is one developer, in one repository, waiting for `ruff`.
 * **Anything else in the dispatch.** It is 10 ms above its floor (§5.1).
 * **Setting any `scheduler.*` duration in `config.yaml`.** None of them is the
   drain period, and a line that looks like a fix is worse than no line (§2.2).
+  The heartbeat and zombie intervals *are* real, and they are the one timer that
+  has to exist (§2.4) — shortening them buys nothing and costs wakeups.
 * **Reopening 011.** Dagu's 3 s tick is a reason to ask upstream for a knob, not
   a reason to re-litigate the orchestrator. The queue is what produces the tail,
   and the tail is the queue working.
@@ -557,6 +678,14 @@ is one developer, in one repository, waiting for `ruff`.
   the segment sum reproduces 011's independently measured 502 ms to within 3 ms.
   But the systemd watcher still runs the old build (item 1 above), so
   `write → fired.jsonl` has not been re-timed end to end through the service.
+* **Whether Dagu's drain loop could be edge-triggered at all.** §2.4 argues it
+  should be, from the outside: the queue is a directory, the daemon is the run's
+  parent, and the HTTP enqueue happens in the drain's own process. **Whether the
+  code is shaped to allow it was not checked** — this project read the pinned
+  binary's embedded config schema and never the source.
+* **What this machine sustains for concurrent `nix flake check`.** §6 item 4.
+  `base:test` was measured once, alone, at 91.9 s. Two, four and six concurrent
+  are unmeasured, so no queue limit here is defended by a number.
 * **Concurrency between dispatches.** watchexec's `--on-busy-update=queue`
   serialises them, so the in-process change cannot introduce overlap — but that
   was reasoned from the flag, not tested with a burst.
