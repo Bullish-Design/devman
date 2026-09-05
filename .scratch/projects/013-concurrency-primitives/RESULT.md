@@ -131,3 +131,110 @@ It is not adopted until Part D runs it.
 * The binary is a prebuilt tarball. **No source was read** — there is no
   `dagu` source in the Nix store to read, and this project has not fetched it.
   Every row in §1.2 comes from the shipped schema and its own descriptions.
+
+---
+
+## 2. The spike: S-9's either/or is disproved
+
+All of §2 ran on a throwaway `DAGU_HOME` at `/tmp/013/home`, ports
+**18080 / 50155**. The live plane kept 8080 / 50055 and was never stopped or
+reconfigured; its three processes (**1204, 1209, 1271**) are the same ones that
+were running when this project started. Load average during §2: **4.5–5.2**,
+with the sysfs `find` still holding one core.
+
+### 2.1 Two operational traps, both recorded because both cost a run
+
+* **`--dagu-home` is not propagated to forked children.** The daemon dispatches
+  a run by forking `dagu start`, and that child does **not** inherit the flag —
+  it resolves its own home and reports `Error: dag-run is not queued`, having
+  looked in the *default* home. **Use the `DAGU_HOME` environment variable, not
+  the flag**, or a throwaway instance is not isolated at all.
+* **The coordinator advertises its hostname by default.** Here that is
+  `server`, which resolves to `127.0.0.2`, and every dispatch failed with
+  `connection refused` while the coordinator was listening on `127.0.0.1`.
+  `coordinator.advertise` must be set explicitly.
+* 012's `pkill -f "dagu --dagu-home $H"` pattern **matched this session's own
+  shell** and killed it. Kill by recorded PID.
+
+### 2.2 The implicit identity queue is real, and it defers
+
+Two DAGs, `a1` and `a2`, neither naming a queue, no `base.yaml`. Three `a1`
+runs and one `a2` run enqueued within 340 ms (`measurements/A.log`):
+
+| run | start | end |
+|---|---|---|
+| a2 #1 | 538.712 | 544.720 |
+| a1 #1 | 538.718 | 544.727 |
+| a1 #2 | 547.697 | 553.708 |
+| a1 #3 | 556.683 | 562.691 |
+
+* **The three `a1` runs never overlap.** The implicit per-DAG queue holds a
+  DAG against itself at concurrency 1. The daemon says so in its own log:
+  `msg="Processing batch of items" queue=a1 count=1 max-concurrency=1`.
+* **`a2` runs concurrently with `a1`.** Different DAG name, different queue.
+* **All four ran. Nothing was dropped.** This is a **defer**, and it is the
+  property `preconditions` and `skip_if_successful` do not have.
+* The gaps — 544.727 → 547.697 and 553.708 → 556.683 — are **2.970 s and
+  2.975 s**. 012's 3.000 s drain ticker, confirmed a third time.
+
+**This settles the KICKOFF's first row. Identity locks are expressible in
+Dagu, they are free, and they defer.** 012's claim was wrong and the module
+comment was right.
+
+### 2.3 A machine bound that is not the queue field
+
+`default_execution_mode: distributed`, one local worker:
+
+```
+dagu worker --worker.coordinators=127.0.0.1:50155 \
+            --worker.max-active-runs=2 --worker.labels=class=light --peer.insecure
+```
+
+**This runs in community mode.** `dagu license check` reports *"Community mode
+(no license)"* and the worker started, matched, and executed. Distributed
+execution is **not** licence-gated at 2.15.0.
+
+Four distinct DAGs (`b1`–`b4`), each carrying `worker_selector: {class: light}`
+and **no `queue:`**, enqueued within 220 ms:
+
+| runs | start | end |
+|---|---|---|
+| b2, b1 | 693.165, 693.171 | 701.176, 701.181 |
+| b4, b3 | 701.265, 701.270 | 709.275, 709.280 |
+
+Exactly two at a time, all four completed. **The worker bound defers.**
+Handoff from a freed slot to the next start was **83 ms**, not a 3 s tick — the
+worker polls the coordinator and does not wait for the queue drain.
+
+### 2.4 The proof: both constraints hold one run at the same time
+
+Six runs — **three of `b1`** plus one each of `b2`, `b3`, `b4` — enqueued
+together against the same worker (`measurements/B.log`):
+
+| run | start | end |
+|---|---|---|
+| b1 #1, b3 | 762.473, 762.475 | 770.484, 770.485 |
+| b4, b2 | 770.828, 770.843 | 778.834, 778.849 |
+| b1 #2 | 778.962 | 786.970 |
+| b1 #3 | 789.236 | 797.247 |
+
+* **Peak observed concurrency: 2.** The machine bound held.
+* **The three `b1` runs never overlap each other** — and at 770.83 the worker
+  had a free slot and gave it to `b4` rather than to a second `b1`. The
+  identity lock held *while* the capacity bound was binding.
+* **Six enqueued, six completed.** Neither mechanism dropped a run.
+
+**S-9's either/or is disproved.** A per-identity limit and a shared machine
+capacity limit can admit the same run, because they are two different fields.
+The module comment's "a per-DAG queue bounds a DAG against ITSELF and bounds
+the machine against nothing" is true, and its implied conclusion — that the
+plane must therefore give up the identity lock — **is not**.
+
+### 2.5 What §2 has not yet shown
+
+* Crash survival. Neither the identity queue nor the worker bound has been
+  `SIGKILL`ed and watched to recover.
+* Cost. The worker is a **fourth machine process** and its latency and idle
+  cost are unmeasured. Part D.3 requires both.
+* Nothing here used the real projection, the real registry, or a real
+  `devenv tasks run`. These are synthetic 6–8 s sleeps.
