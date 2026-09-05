@@ -843,3 +843,126 @@ that has never entered its shell.
 a directory the plane does not own, and `groups/base/README.md` now says so in
 those words. A `devenv shell` left open longer than `KEEP_DAYS` could lose the
 rcfile it would re-source on reload; that fails loudly with a missing path.
+
+---
+
+## 14. The rollout
+
+§12 established `git+file:` as the fix. This is it applied.
+
+### What was converted
+
+**50 of 54 repositories.** `gitman` and `tyo3` have no `path:` input.
+`structured-agents-v2` and `terminal-state` **failed and were restored** — §14.3.
+
+Seven distinct targets, surveyed before any edit. All seven are inside git
+repositories, none is gitignored, none had untracked files inside, and all have
+tracked content:
+
+| target | shape | tracked files | takers |
+|---|---|---|---|
+| shellij | repo root, has `flake.nix` | 151 | 51 |
+| repoman/modules | **subdirectory** | 6 | 21 |
+| vendomat | repo root, has `flake.nix` | 101 | 7 |
+| docman | repo root, no `flake.nix` | 113 | 1 |
+| fornix | repo root, no `flake.nix` | 148 | 1 |
+| vendomat/.scratch/…/consumer-flake-input | **deep subdirectory** | 24 | 1 |
+| zelligate/modules | **subdirectory** | 3 | 1 |
+
+### The four URL shapes, each verified before use
+
+Three of the seven targets are subdirectories, which need `?dir=`. Nothing had
+tested that. n=10 each, in throwaway projects:
+
+| shape | example | p50 |
+|---|---|---|
+| flake at repo root | `git+file:///…/shellij` | 166.0 ms |
+| `flake: false` at root | same, `flake: false` | 141.9 ms |
+| `flake: false` + `?dir=` | `…/repoman?dir=modules` | 169.5 ms |
+| flake + deep `?dir=` | `…/vendomat?dir=.scratch/…` | 196.0 ms |
+
+**Negative control for `?dir=`:** the same input with `?dir=modules` removed
+**fails evaluation**, so `?dir=` is doing real work rather than silently
+resolving to the repository root. repoman's own module header independently
+documents `github:Bullish-Design/repoman?dir=modules` as the intended remote
+form.
+
+### The result
+
+Pure verb cost, `devenv tasks run` with no task, n=10, quiet machine (load1 1.75):
+
+| repository | input | p50 |
+|---|---|---|
+| pyjutsu | `git+file:` | **115.7 ms** |
+| flora | `git+file:` | **132.6 ms** |
+| nix-secrets | `git+file:` | **130.8 ms** |
+| terminal-state | still `path:` | 1612.7 ms |
+| structured-agents-v2 | still `path:` | 1636.0 ms |
+
+**About 12.5×.** The two unconverted repositories are an unplanned but exact
+control group.
+
+devman's own `base:check`, n=20: **1562.6 ms → 261.0 ms**. `base:test`
+(`nix flake check`) fell from 94.2 s to 21.7 s.
+
+`doctor`'s `path inputs` check now reports shellij as copied into
+**2** projects rather than 51, and names them. The check shrank its own finding
+by 96 %.
+
+### 14.3 The two failures, not root-caused
+
+`structured-agents-v2` and `terminal-state` both fail identically after
+conversion:
+
+```
+Failed to check for outPath in attribute: devenv.config.task.config
+  … while evaluating derivation 'tasks.json'
+  … while calling the 'toJSON' builtin
+  … while calling the 'isFunction' builtin
+```
+
+`builtins.toJSON` meeting a function while serialising the task config.
+
+**What I ruled out.** Re-locking moved nothing but shellij — I diffed every
+locked node before and after. Every file shellij's module reads
+(`package.nix`, `assets/yazi`, `modules/*.nix`) is tracked, so `git+file:`
+excludes none of it. 49 other repositories converted the **same** shellij input
+without complaint, and both failures declare it identically to repositories that
+succeeded.
+
+**What I did not establish: why these two.** I stopped rather than keep
+guessing. Both are restored from backup and verified evaluating, and both are
+left on `path:` — slow but correct.
+
+### 14.4 What the rollout did and did not touch
+
+Every `devenv.yaml` and `devenv.lock` was backed up to
+`/tmp/014/convert/backup` first. Each repository was converted, then verified
+with a full `devenv tasks list`, and **any repository that failed was restored
+automatically**. That machinery is what caught §14.3.
+
+Conversion is a line-level substitution, not a YAML round-trip: these files
+carry comments that matter (`# fleet: github:Bullish-Design/repoman?dir=modules`)
+and a round-trip would delete them.
+
+**No tracked file was deleted in any repository** — checked across all 54 after
+the fact. `devenv.files` is not in use anywhere here, so nothing was
+regenerated or cleaned.
+
+**One thing I observed and cannot attribute:** `talkee`'s untracked-file count
+fell from 14 to 1 across the session. No tracked file is missing there, and my
+only operations on it were the `devenv.yaml` edit and a `devenv tasks list`,
+neither of which deletes. Its `.stage/` build tree is gitignored and was in use
+by a llama.cpp build earlier in the session. Recorded rather than explained.
+
+**The changes are left uncommitted in the other 49 repositories.** They are
+separate repositories with their own history, and committing across 49 of them
+is not something this project should decide.
+
+### 14.5 The three self-references
+
+`shellij` names itself (`path:.`), and `repoman` and `zelligate` name their own
+`./modules`. These are converted like the rest, and they are where §12's
+`git add` requirement bites hardest: it is the repository you are editing, so a
+brand new module file is invisible to its own shell until it is staged. They are
+the first candidates to revert if that trade turns out to be the wrong one.
