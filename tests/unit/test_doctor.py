@@ -357,3 +357,118 @@ def test_an_entry_from_a_newer_devman_is_reported(plane):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("schema", "!!")
     assert "schema 99" in lines[0]
+
+
+# ---------------------------------------------------------------------------
+# what the plane's only verb pays for (014)
+
+
+def _cache(root, megabytes: int, *, name: str = "shellij") -> None:
+    """Give `<root>/<name>` a `.devenv` shell cache of about `megabytes`."""
+    dot = root / name / ".devenv"
+    dot.mkdir(parents=True, exist_ok=True)
+    block = b"x" * 1_000_000
+    for i in range(megabytes):
+        (dot / f"shell-{i:016x}.sh").write_bytes(block)
+
+
+def _yaml_with_path_input(repo, target) -> None:
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / "devenv.yaml").write_text(
+        yaml.safe_dump({"inputs": {"shellij": {"url": f"path:{target}"}}})
+    )
+
+
+def test_a_path_input_carrying_a_big_shell_cache_is_a_finding(plane, tmp_path):
+    """014: `validate_lock_file` re-hashes the whole `path:` target every run,
+    `.gitignore` and all, so the taker pays for the target's own `.devenv`."""
+    shared = tmp_path / "shared"
+    _cache(shared, 60)
+    taker = plane.add("taker", workflows={"check": ORDINARY}).path
+    _yaml_with_path_input(taker, shared / "shellij")
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("path inputs", "!!")
+    assert "60 MB" in lines[0]
+    assert "taken by 1 projects" in lines[0]
+
+
+def test_a_small_shell_cache_is_not_a_finding(plane, tmp_path):
+    """Below the threshold the copy costs less than devenv's own 146 ms floor."""
+    shared = tmp_path / "shared"
+    _cache(shared, 2)
+    taker = plane.add("taker", workflows={"check": ORDINARY}).path
+    _yaml_with_path_input(taker, shared / "shellij")
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("path inputs", "ok")
+    assert "1 directories are path: inputs" in lines[0]
+
+
+def test_every_taker_of_one_target_is_named(plane, tmp_path):
+    """One oversized target is one finding, not one per taker: 51 repositories
+    take `shellij`, and 51 identical lines would bury the rest of the report."""
+    shared = tmp_path / "shared"
+    _cache(shared, 60)
+    for who in ("one", "two", "three"):
+        repo = plane.add(who, workflows={"check": ORDINARY}).path
+        _yaml_with_path_input(repo, shared / "shellij")
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    _, status, lines = rep.sections[0]
+    assert status == "!!"
+    assert len([line for line in lines if str(shared / "shellij") in line]) == 1
+    assert "taken by 3 projects" in lines[0]
+    assert "one, three, two" in lines[1]
+
+
+def test_a_relative_path_input_resolves_against_the_repository(plane, tmp_path):
+    """`path:./modules` and `path:../vendomat` are both live forms in this
+    plane, so an unresolved target would silently check nothing."""
+    taker = plane.add("taker", workflows={"check": ORDINARY}).path
+    _cache(taker, 60, name="modules")
+    (taker / "devenv.yaml").write_text(
+        yaml.safe_dump({"inputs": {"mods": {"url": "path:./modules"}}})
+    )
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    _, status, lines = rep.sections[0]
+    assert status == "!!"
+    assert str(taker / "modules") in lines[0]
+
+
+def test_a_repository_with_no_devenv_yaml_is_not_an_error(plane):
+    """The registry entry is the plane's; `devenv.yaml` is the repository's, and
+    a repository may not have one."""
+    plane.add("bare", workflows={"check": ORDINARY})
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"
+
+
+def test_only_shell_scripts_are_counted(plane, tmp_path):
+    """`.devenv` also holds `profile`, `state/` and the eval-cache database.
+    Those are not the unbounded part and deleting them is not safe."""
+    shared = tmp_path / "shared"
+    dot = shared / "shellij" / ".devenv"
+    dot.mkdir(parents=True)
+    (dot / "nix-eval-cache.db").write_bytes(b"x" * 60_000_000)
+    taker = plane.add("taker", workflows={"check": ORDINARY}).path
+    _yaml_with_path_input(taker, shared / "shellij")
+
+    rep = doctor.Report()
+    doctor.check_path_inputs(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"

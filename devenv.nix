@@ -31,6 +31,22 @@ in
     pkgs.git
     pkgs.ruff
     dagu
+
+    # MEASUREMENT TOOLING (project 012). Both are here rather than typed into a
+    # `nix shell` by hand, because a number in `.scratch/projects/012-*/RESULT.md`
+    # has to be reproducible by whoever enters this shell next.
+    #
+    # `hyperfine` is what makes n >= 20 the default instead of an effort:
+    # 012's KICKOFF names "a single sample is worthless here" as the first trap,
+    # and a tool that warms up, repeats and reports a p50 with a spread removes
+    # the reason to take one.
+    #
+    # `watchexec` is the watcher's own child (`src/devman/watch.py`). The machine
+    # module puts it on the SERVICE's PATH, so it was never on this shell's, and
+    # the first segment of the path 012 decomposes — a write to the dispatcher
+    # starting — cannot be measured without running one here.
+    pkgs.hyperfine
+    pkgs.watchexec
     inputs.codex-cli.packages.${pkgs.system}.default
     inputs.claude-code.packages.${pkgs.system}.default
   ];

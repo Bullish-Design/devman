@@ -8,6 +8,7 @@ workflow, and how one save's several events become one run.
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -516,3 +517,132 @@ def test_the_ignore_is_matched_relative_to_the_repository(plane):
     )
 
     assert watch.match(plane.reg, [str(proj.path / "sub" / ".scratch" / "a.py")]) != []
+
+
+# ---------------------------------------------------------------------------
+# dispatch() — one batch, enqueued in this process (012, Part B candidate 1)
+
+
+class DispatchArgs:
+    dispatch = True
+    print_only = False
+
+    def __init__(self, dagu_home: str) -> None:
+        self.dagu_home = dagu_home
+
+
+def fired(plane) -> list[dict]:
+    return watch.WatchState(plane.reg).last_fired(10)
+
+
+def test_dispatch_enqueues_through_run_trigger(plane, tmp_path, monkeypatch):
+    """**The dispatcher's whole job, and the one call it makes to do it.**
+
+    It used to build an argv and run `devman run`. The assertion is therefore on
+    the arguments, not on a return code: `run.trigger` must be given the project
+    the batch resolved, the workflow the registry mapped, NO overrides, and the
+    dagu home the dispatcher was started with. A caller that drops any of those
+    enqueues in the wrong place, which is the failure §9.2 exists for.
+    """
+    proj = plane.add("p", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+    seen = []
+    monkeypatch.setattr(watch.run, "trigger", lambda *a, **k: seen.append((a, k)) or 0)
+    monkeypatch.setattr("sys.stdin", io.StringIO(event(str(proj.path / "a.py"))))
+
+    assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 0
+
+    ((args, _),) = seen
+    reg, project, workflow, overrides, dagu_home = args
+    assert (project.name, workflow, overrides) == ("p", "format", {})
+    assert dagu_home == str(tmp_path / "home")
+    assert [(f["project"], f["workflow"], f["outcome"]) for f in fired(plane)] == [
+        ("p", "format", "enqueued")
+    ]
+
+
+def test_dispatch_starts_no_devman_process(plane, tmp_path, monkeypatch):
+    """The point of the change, asserted rather than described.
+
+    `subprocess.run` inside this module is now watchexec's business alone. If a
+    later edit puts `devman run` back, this fails — and the 283 ms it costs is
+    invisible to every other test in this suite.
+    """
+    proj = plane.add("p", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+
+    def refuse(*a, **k):
+        raise AssertionError(f"dispatch started a process: {a!r}")
+
+    monkeypatch.setattr(watch.subprocess, "run", refuse)
+    monkeypatch.setattr(watch.run, "trigger", lambda *a, **k: 0)
+    monkeypatch.setattr("sys.stdin", io.StringIO(event(str(proj.path / "a.py"))))
+
+    assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 0
+
+
+def test_a_refusal_is_recorded_and_the_rest_of_the_batch_still_fires(
+    plane, tmp_path, monkeypatch, capsys
+):
+    """**What the child process used to give for free.**
+
+    A refused `devman run` was an exit code, so one refusal cost one workflow
+    and the batch went on. In-process it is an exception, and an exception that
+    escapes the loop costs every LATER pair in the same batch — silently, since
+    `fired.jsonl` would simply have no line for them. This is the test that
+    keeps the per-entry `except`.
+    """
+    proj = plane.add(
+        "p",
+        workflows={"format": ORDINARY, "check": ORDINARY},
+        triggers={
+            "group": "format",
+            "map": {"**/*.py": "format", "**/*.md": "check"},
+        },
+    )
+
+    def trigger(reg, project, workflow, overrides, dagu_home, print_only=False):
+        if workflow == "format":
+            raise registry.RegistryError("refusing to enqueue 'format' in 'p'\n  why")
+        return 0
+
+    monkeypatch.setattr(watch.run, "trigger", trigger)
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(event(str(proj.path / "a.py"), str(proj.path / "b.md"))),
+    )
+
+    assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 1
+
+    outcomes = {(f["workflow"], f["outcome"]) for f in fired(plane)}
+    assert outcomes == {("format", "refused (1)"), ("check", "enqueued")}
+    # The refusal is printed the way the CLI prints one, so the journal holds
+    # the same words a person at a prompt would have seen.
+    assert "devman: refusing to enqueue 'format' in 'p'" in capsys.readouterr().err
+
+
+def test_an_unexpected_exception_ends_the_batch_rather_than_being_swallowed(
+    plane, tmp_path, monkeypatch
+):
+    """The half of process isolation that was NOT kept, asserted so that it is a
+    decision rather than a gap. Catching everything here would turn a defect in
+    this package into a `fired.jsonl` line nobody reads (§12 rule 4)."""
+    proj = plane.add("p", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+
+    def boom(*a, **k):
+        raise ZeroDivisionError("a defect, not a refusal")
+
+    monkeypatch.setattr(watch.run, "trigger", boom)
+    monkeypatch.setattr("sys.stdin", io.StringIO(event(str(proj.path / "a.py"))))
+
+    with pytest.raises(ZeroDivisionError):
+        watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg)
+
+
+def test_a_batch_that_matches_nothing_enqueues_nothing(plane, tmp_path, monkeypatch):
+    plane.add("p", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
+    monkeypatch.setattr(
+        watch.run, "trigger", lambda *a, **k: pytest.fail("nothing should fire")
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(event("/elsewhere/a.py")))
+
+    assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 0
+    assert fired(plane) == []

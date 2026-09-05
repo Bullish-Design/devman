@@ -695,6 +695,16 @@ schedule          → Dagu's own scheduler, from the workflow's own `schedule:`
 **The first two arrows reach Dagu through `devman run`. The third does not, and
 it took two stages to get there.**
 
+> **Amended by project 012 (2026-09-05).** The first arrow reaches `run.py` by
+> a function call rather than by a second process. `watch.dispatch()` ran
+> `devman run` as a child, which cost a whole Python interpreter and a second
+> import of the package — 283 ms p50 of a 499 ms path, for 10 ms of work — and
+> it is now `run.trigger()`, called in the dispatcher. **The claim this section
+> makes is unchanged and stronger: there is exactly one place that triggers a
+> workflow, and it is now one function rather than one command.** Every refusal
+> is in it, and `tests/unit/test_run.py` passed unmodified across the change.
+> Measured in `.scratch/projects/012-dagu-call-performance/RESULT.md` §3.1.
+
 A schedule is declared **in the workflow file**, in Dagu's own `schedule:` key,
 and Dagu's own scheduler fires it. That is only possible because the projection
 **states** each project's `working_dir`, `log_dir` and directory variable rather
@@ -1551,11 +1561,19 @@ schedules must be cheap by construction** (`PROPOSAL.md` §12, rule 8). This
 distinction has existed since stage 6 put schedules in workflow files; stage 7 is
 where it was measured.
 
-**Criterion 14 holds by construction since stage 7.** A default workflow runs
-exactly one `devenv tasks run`, so it declares no order and cannot re-state one.
-Before that it held only because almost no repository declared a task
-dependency — and `pyjutsu` already declared one, so the criterion was one
-ordinary `devenv.nix` edit away from being false.
+**Criterion 14 held by construction from stage 7 until 013, and now does not.**
+The construction was the one-step rule: a workflow running exactly one
+`devenv tasks run` declares no order and cannot re-state one. **013 retracted
+that rule** (`PROPOSAL.md` §1.1) because the plane aligns with what Dagu can
+express, and a one-step cap is not something Dagu asks for — `release` has had
+three steps since stage 4.
+
+**So criterion 14 is again a criterion to check rather than a fact.** The
+original exposure returns with it: it holds today only because almost no
+repository declares a task dependency, and `pyjutsu` already declares one
+(`tasks."pyjutsu:test".after = [ "pyjutsu:build" ]`), so it is one ordinary
+`devenv.nix` edit away from being false. **Nothing in the plane checks it**, and
+that gap is now open rather than closed.
 
 **Criterion 17 is the load-bearing one.** It is what lets the registry be
 derived, lets §9.3 promise reconstruction, and lets §5.2 have no manual register

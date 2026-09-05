@@ -43,8 +43,42 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import doctor, project, run, show, watch
-from .registry import DEFAULT_DAGU_HOME, DEFAULT_REGISTRY, Registry, RegistryError
+from . import project, run, show, watch
+from .registry import (
+    DEFAULT_DAGU_HOME,
+    DEFAULT_REGISTRY,
+    Registry,
+    RegistryError,
+    report,
+)
+
+# `doctor` IS DELIBERATELY NOT IMPORTED HERE (012, Part B candidate 2).
+#
+# It is the heaviest module in the package and the only one no automatic caller
+# ever reaches. `doctor` needs `urllib.request` to poll the Dagu server and
+# `concurrent.futures` to validate 171 projected files in parallel; both are
+# right for what it does, and both are paid by every OTHER command as soon as
+# this line imports it.
+#
+# Measured on this machine, hyperfine, 30 runs, `python -c 'import …'` against a
+# 25 ms interpreter floor:
+#
+#   devman.registry     53 ms      devman.watch    66 ms
+#   devman.workflow     68 ms      devman.run      78 ms
+#   devman.project      84 ms      devman.doctor  127 ms
+#   devman.cli (all five)                         133 ms
+#   the same without doctor                        81 ms
+#
+# **52 ms of every devman process was doctor, and the dispatch path starts two
+# of them.** Deferring the other four saves nothing measurable — 82 ms against
+# 81 — because `project` and `run` already pull the registry, the workflow
+# reader and yaml, which the parser needs anyway. So exactly one module moves,
+# and it moves into the one branch that uses it.
+#
+# THE COST, STATED. `devman --help` no longer imports `doctor`, so a broken
+# import in that file reaches a person only when they run `devman doctor`.
+# `tests/unit/test_cli.py::test_every_subcommand_module_imports` is what keeps
+# that from being silent.
 
 
 def parser() -> argparse.ArgumentParser:
@@ -127,24 +161,32 @@ def parser() -> argparse.ArgumentParser:
     return ap
 
 
+def handler(command: str):
+    """The function that runs one subcommand.
+
+    `doctor` is imported HERE rather than at the top of the file, for the reason
+    the import block states. The other four are already imported, so this is a
+    lookup for them and an import for one.
+    """
+    if command == "doctor":
+        from . import doctor
+
+        return doctor.main
+    return {
+        "run": run.main,
+        "show": show.main,
+        "watch": watch.main,
+        "project": project.main,
+    }[command]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     reg = Registry(args.registry)
-    handler = {
-        "run": run.main,
-        "show": show.main,
-        "doctor": doctor.main,
-        "watch": watch.main,
-        "project": project.main,
-    }
     try:
-        return handler[args.command](args, reg)
+        return handler(args.command)(args, reg)
     except RegistryError as exc:
-        for line in str(exc).splitlines():
-            print(
-                f"devman: {line}" if not line.startswith(" ") else f"devman:{line}",
-                file=sys.stderr,
-            )
+        report(exc)
         return 1
     except BrokenPipeError:
         return 0
