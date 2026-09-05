@@ -11,6 +11,8 @@ the scaling run, the live plane running throughout.
 | `curve.out` | the scaling result — RESULT.md section 2 |
 | `flood.sh` | the plane's answer to spike gate A14, scaled 10x down to 2,000 files |
 | `flood.out` | the flood result — RESULT.md section 4.1 |
+| `dispatch.sh` | decomposes the plane's 502 ms dispatch into its four stages, 10 runs each |
+| `dispatch.out` | the dispatch decomposition — RESULT.md section 4.2 |
 
 Reproducing `curve.sh` needs the 25 synthetic trees it reads from
 `/tmp/dm011/repos` (316 directories each); the script does not create them:

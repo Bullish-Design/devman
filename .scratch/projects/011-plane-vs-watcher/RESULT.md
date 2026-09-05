@@ -99,12 +99,12 @@ and section 4 is where it actually bites.
 
 | Capability | Where | Used today? | Cost for the plane to gain it |
 |---|---|---|---|
-| Declarative rule loading with refusals | `rules.py:55-104` — unknown key, missing template dir, duplicate output all refused at load | yes, 8 rules | moderate; devman deliberately never parses a workflow (§7.2) |
+| Declarative rule loading with refusals | `rules.py:55-104` — unknown key, missing template dir, duplicate output all refused at load | yes, 8 rules | **small.** devman already refuses two projects rendering one DAG name (`dag_name_fault`, `dag_link_fault`, `doctor`'s "170 workflow names render one DAG name each"). Duplicate-*output* refusal is the same shape one level down. What blocks it is §7.2 — devman never parses a workflow to understand it — which is devman's own rule, not a Dagu limit |
 | Content-addressed staleness (manifest) | `reconcile.py:259-267` — input hash + output hash | yes | the plane pushes this into each workflow's `preconditions:` — already done for `format` |
-| Purity audit hook | `reconcile.py:126-172` — `sys.addaudithook` catches a collector reading a file no glob covers, and names it | yes (gate P2) | **the plane cannot do this**: it never runs the work in-process |
+| Purity audit hook | `reconcile.py:126-172` — `sys.addaudithook` catches a collector reading a file no glob covers, and names it | yes (gate P2) | **high for the plane, but not because Dagu forbids it** — see §1.3.1. What does not transfer is the *diagnostic*, not the detection |
 | Lazy Templateer registry + fingerprint gate | `registry.py` — skips a 148 ms import when nothing is stale, without losing the refusal | yes | n/a |
-| Unix socket + compiled C client | `server.py`, `client/dspike-gen.c` — 5.9 ms round trip | yes | the plane's equivalent is `devman run` -> `dagu enqueue`, measured at 502 ms p50 dispatch |
-| Obsolete-output report and `--prune` | `reconcile.py:186-225` — reports every run, removes only on request, refuses a file edited since | yes | the plane has `doctor --prune` for registry entries, not for artifacts |
+| Unix socket + compiled C client | `server.py`, `client/dspike-gen.c` — 5.9 ms round trip | yes | the plane's equivalent is 502 ms p50 to dispatch — of which Dagu is 57 ms and devman's own double process start is ~266 ms (§4.2) |
+| Obsolete-output report and `--prune` | `reconcile.py:186-225` — reports every run, removes only on request, refuses a file edited since | yes | **moderate, and nothing is in the way.** Dagu's `artifacts` key is per-run storage under an artifact dir (`{dir, enabled}`), unrelated to files in the working tree — so Dagu neither provides this nor prevents it. It is a layer devman has not built |
 | Output ownership (one output, one rule) | `rules.py:96-103` | yes | the plane has the DAG-name codec for the analogous collision |
 | Two-clause watcher selection | `watcher.py:347-366` — input glob OR the output it owns, which is what repairs a hand edit | yes | the plane's analogue is the content-hash precondition |
 | Single-process reconcile lock | `watcher.py:93`, `server.py:73` | yes | the plane has Dagu's queue, which is stronger |
@@ -118,9 +118,8 @@ This list is shorter than either feature list, and more decisive.
 1. **Run work in-process.** Every unit of work is a `devenv tasks run`
    subprocess under Dagu. The measured floor is 502 ms of dispatch before
    anything starts (§15.2). There is no path to the spike's 2.4 ms warm no-op.
-2. **Audit what the work read.** `sys.addaudithook` needs the work in the
-   same interpreter. The plane's charter (§7.2, "devman never parses a
-   workflow to understand it") forecloses this by design, not by omission.
+2. **Audit what the work read — as designed, though not as a matter of
+   Dagu's capability.** See §1.3.1; this is the weakest entry in this list.
 3. **Refuse a workflow's *content*.** `doctor` checks the projection, the
    names, the queues, the handlers and the fan-out. It cannot check that a
    step does what it says. §12 rule 4 exists precisely because the plane
@@ -129,6 +128,34 @@ This list is shorter than either feature list, and more decisive.
    workflows, no DAG names and no triggers. Reactivity requires the daemon,
    the registry and the projection to all be present and agreeing.
 5. **Amortize a language runtime.** Each run pays process start.
+
+#### 1.3.1 The one entry that does not survive scrutiny
+
+An earlier draft of this document claimed the plane "structurally cannot"
+audit what the work read. That is wrong, and the correction is worth stating
+because it is the spike's most-cited unique capability.
+
+**Dagu 2.15.0 can enforce the same property, and more strongly.**
+`containerConfig.volumes` takes `host_path:container_path:ro`. A step that
+mounts only its declared inputs read-only does not *observe* an undeclared
+read — it makes the read fail. Enforcement beats an audit hook, which only
+reports after the fact.
+
+**But it is incoherent for devman specifically, and that is the real reason.**
+Every devman step is `devenv tasks run …` executed on the host, and the host
+devenv environment is the whole point of the step. Putting that in a container
+breaks the thing the step exists to invoke. So the honest statement is not
+"Dagu cannot" but **"the plane as designed cannot, and the version of Dagu
+that could is one nobody here would build."**
+
+What genuinely does not transfer is the **diagnostic**, not the detection:
+
+    rule 'x': collector read /…/VERSION, which no glob in inputs=[…] covers.
+    A change to it would never be seen.
+
+A read-only mount gives `EACCES`. Naming the rule, the file and the
+consequence requires being in-process with the rule definition. That is a
+quality difference, not a capability difference.
 
 **The spike cannot:**
 
@@ -352,7 +379,52 @@ One honest detail: **deleting the 2,000 files fired a fifth dispatch** at
 19:55:07. A deletion is a change, so the formatter ran again. The
 content-hash precondition is what stops that being a loop, not the detector.
 
-### 4.2 The rest of Part C, side by side
+### 4.2 Where the 502 ms dispatch actually goes — and it is not Dagu
+
+`PIPELINE_RESULT.md` §15.2 reports the plane's dispatch at 502 ms p50 and
+treats it as the orchestrator's overhead. **It is not.** Decomposed on this
+machine, 10 runs of each stage, `date +%s%N` around the process:
+
+| Stage | p50 | min–max |
+|---|---:|---|
+| watchexec debounce — the default; the live command line does not override it | 50 ms | fixed |
+| `devman watch --dispatch` — Python CLI cold start (`devman --help` as the floor) | 119 ms | 108–135 |
+| `devman run …` — **a second full Python start**, registry re-read, workflow YAML re-parsed and validated (`devman run format --print`) | 147 ms | 122–153 |
+| `dagu enqueue` — Go binary cold start (`dagu --help` as the floor) | **57 ms** | 43–66 |
+| **accounted** | **~373 ms** | of the 502 ms measured to the `fired.jsonl` line |
+
+The unaccounted ~130 ms is filesystem event delivery, `match()`'s work over
+the registry, and the `fired.jsonl` append.
+
+Reproduced: a second independent run of the same script gave 130 / 149 / 52 ms
+against the first run's 119 / 147 / 57, so the three stage figures are stable
+within about 10 ms and the conclusion below does not turn on which run is
+used. Script and both outputs are in `measurements/dispatch.sh` and
+`dispatch.out`.
+
+**Dagu is about 57 ms of 502 ms — roughly 11%.** The other ~89% is devman's
+own architecture: `dispatch()` calls
+`subprocess.run([self_binary(), …, "run", …])` (`src/devman/watch.py:558-575`),
+so **the Python CLI starts twice per filesystem event**, and both starts read
+the registry and the second re-parses and re-validates the workflow YAML that
+the first already resolved.
+
+Two consequences, and they matter for section 8:
+
+1. **There is no "Dagu dispatch floor."** The phrase does not survive
+   measurement. Removing Dagu entirely would recover 57 ms of 502.
+2. **~266 ms of the dispatch is avoidable without touching Dagu** — the
+   dispatcher could resolve and enqueue in-process instead of exec'ing
+   `devman run`. That is the cheapest latency work available anywhere in this
+   comparison, it needs no new architecture, and it was invisible while the
+   cost was attributed to the orchestrator.
+
+The `devman run` subprocess is not accidental: it is the one place that
+triggers a workflow (§8, §10), and its refusals are the plane's safety
+boundary. Making the dispatcher call that code in-process rather than as a
+process keeps every refusal and drops the start cost. It is not a redesign.
+
+### 4.3 The rest of Part C, side by side
 
 | Question | The plane | The spike |
 |---|---|---|
@@ -522,18 +594,28 @@ hash and its own group. **This is the worst of both**, and the reason is
 §12 rule 6: a second implementation of a path the repository already has, which
 drifts silently because both keep passing.
 
-**Hybrid C — the spike's socket, inside the plane.** `dspike`'s Unix socket
-answers in 5.9 ms because a live process already holds the interpreter, the
-imports and the registry. The plane has a live process holding a registry:
-`devman watch`, pid 1209. A socket on it would not remove Dagu, but it would
-remove the 502 ms dispatch for the work that does not need a queue. **Not
-costed here; the smallest experiment with the largest measured headroom.**
+**Hybrid C — the spike's socket, inside the plane. Rejected on this
+document's own evidence.** The idea was that `dspike`'s socket answers in
+5.9 ms because a live process already holds the interpreter and the registry,
+and `devman watch` (pid 1209) is such a process. Two things kill it:
+
+* **A socket that runs work bypasses the queue**, and §4.1 is the measurement
+  showing the queue is load-bearing — it turned 2,000 events into 4 bounded
+  runs. This re-opens D4, the gap the plane most clearly wins.
+* **It targets the wrong cost.** §4.2 decomposes the 502 ms: Dagu is 57 ms of
+  it. A socket bypassing Dagu buys 57 ms of a ~2,500 ms edit-to-effect loop.
+  The ~266 ms of devman's own double process start is four times larger, and
+  removing it needs no socket, no new daemon and no queue bypass.
+
+The in-process dispatch change in §8.2 is what this hybrid was reaching for,
+without any of its costs.
 
 ### 7.4 Directions each forecloses
 
 **Choosing the plane forecloses:** a repository that works standalone with no
 machine state; a reconciler used as a library rather than a service; the
-in-process purity audit (§1.3); and the generative path in
+purity *diagnostic* (§1.3.1 — the detection is available to both, the message
+that names the rule and the consequence is not); and the generative path in
 `PIPELINE_RESULT.md` §14, where a model writes an input and a person accepts
 it — because that path needs the work in-process, and the plane's charter
 (§7.2) forbids the plane from understanding the work at all.
@@ -547,40 +629,82 @@ capability that requires a registry, and no per-repo design produces it.
 
 ## 8. The recommendation
 
-**Keep the plane, and treat the spike as an execution strategy to be adopted
-*inside* it rather than an alternative to it.** The decisive evidence is not
-latency: it is that the plane's costs are fixed and the per-repo design's are
-linear (section 2 — memory crosses over at N between 3 and 8, CPU at N ~ 25),
-that the per-repo design has no distribution mechanism and would re-create
-devman's Nix and group layers to get one (section 3), and that the three fair
-gates the spike fails — durable accept, concurrency bound, distribution — have
-no path to being fixed within its shape. What the spike proves is narrower and
-still true: **for a save that fires one deterministic idempotent step, the
-orchestrator is 502 ms of pure overhead and the file watcher underneath it is
-free.** That workload is real, it is bounded by §12 to one glob and a content
-hash, and it is currently the *only* reactive workload on this machine (N = 1).
-The right next move is therefore Hybrid C — a socket on the already-live
-`devman watch` process, for work that needs no queue — and not a rewrite in
-either direction.
+**Keep the plane. There is nothing to integrate from the spike, and the
+latency work worth doing is inside devman, not at the Dagu boundary.**
 
-**The three measurements that would reverse this:**
+### 8.1 Why the second half of the obvious recommendation is empty
+
+The tempting recommendation — keep the plane and adopt the reconciler as an
+execution strategy inside it — does not survive three checks.
+
+**It has no workload.** The plane's five shipped workflows are opaque
+subprocesses (`devenv tasks run base:check`). A reconciler has nothing to do
+with one. It helps only for *derived-artifact generation*: typed inputs to
+deterministic outputs in the tree. **devman ships zero workflows of that
+kind.** `format` is the closest and is not one — it rewrites in place, with no
+separate output to own.
+
+**devman's charter forbids that workload outright.** §12 rule 3, verbatim:
+
+> **3. Anything that writes tracked source without a person present.**
+> Dependency updates, **code generation**, autofix beyond formatting.
+
+Code generation is named. And the spike commits its output — 43 files under
+`generated/` are tracked in git. So the reconciler's entire workload is the
+thing §12 rule 3 exists to refuse. Section 5 counted rule 3 against Dagu's
+surface without noticing it lands on the spike just as hard.
+
+**Nothing it does is foreclosed to the plane by Dagu.** Section 1.2 now
+records this row by row: duplicate-output refusal is a shape devman already
+implements for DAG names and blocks itself from extending with §7.2; orphan
+tracking is a layer neither Dagu nor devman has built, and Dagu does not
+prevent it; the purity audit is available in principle and impractical here
+for reasons of devman's execution model, not Dagu's capability (§1.3.1). One
+thing is genuinely structural — every Dagu step is a process, so Dagu cannot
+hold warm state between triggers, and 2.4 ms warm against a process start is
+not closeable. **And that is out of bounds too**, because §12 rule 1 forbids
+the plane from competing with what the editor already does synchronously,
+which is the only thing that latency would buy.
+
+### 8.2 What to do instead
+
+**Do the in-process dispatch work (§4.2).** ~266 ms of the 502 ms dispatch is
+devman starting its own Python CLI a second time per filesystem event and
+re-resolving what it just resolved. Removing Dagu entirely would recover 57
+ms; removing the second process start recovers about five times that, keeps
+every refusal in `run.py`, and changes no architecture. It was invisible while
+the cost was attributed to the orchestrator.
+
+**Leave the reconciler where it is.** It is a good tool for a job devman does
+not have and currently forbids itself from having. Treat it as a separate
+tool, not a component.
+
+**Recognise that the open question is a charter question, not an
+architectural one.** *Does devman want to own generated artifacts at all?* If
+no, this comparison is closed. If yes, that is an amendment to §12 rule 3 that
+has to carry a review step — and the reconciler's manifest, output ownership
+and audit diagnostic are exactly the machinery such an amendment would need.
+That decision belongs to whoever owns the charter, and no measurement in this
+document makes it.
+
+### 8.3 The three measurements that would reverse this
 
 1. **Reactive N stays at 1 for another quarter.** Every plane advantage in
    section 2 is an advantage at scale, and the machine has none. If nothing
    but `devman` is ever watched, the plane is 41 ticks and 142 MB to serve one
-   repository that a 41.5 MB daemon serves in 2 ticks. *Measure: count
-   registry entries with a non-empty `triggers.map`, monthly.*
-2. **The 502 ms dispatch does not come down, and someone depends on it.** If
-   Hybrid C is built and still cannot get an edit-to-effect p50 under ~400 ms,
-   the plane cannot host the reconciler workload at all and the two must
-   genuinely separate. *Measure: gate A4 against a socket-triggered `devman
-   run`, n >= 20.*
+   repository. *Measure: count registry entries with a non-empty
+   `triggers.map`, monthly.*
+2. **In-process dispatch lands and edit-to-effect stays above ~1 s.** If
+   removing the second process start does not move the number, the cost is
+   somewhere this document did not look, and the latency argument has to be
+   re-opened from scratch. *Measure: gate A4 against the plane after the §4.2
+   change, n >= 20.*
 3. **The queue turns out not to be load-bearing.** §4.1 is the plane's best
    fair win — 2,000 events into 4 bounded runs. If a year of `metadata.jsonl`
-   shows the queue never actually throttled anything (no run ever waited),
-   then D2 and D4 are theoretical and Hybrid A becomes the cheaper shape.
-   *Measure: count runs whose `started_at` trails their enqueue by more than a
-   second.*
+   shows no run ever waited, D2 and D4 are theoretical and dropping Dagu
+   becomes a serious option — worth 57 ms of dispatch, three processes and
+   132 MB. *Measure: count runs whose `started_at` trails their enqueue by
+   more than a second.*
 
 ---
 
@@ -607,16 +731,21 @@ Listed plainly. This document is worth more with an honest gap list.
    unreproduced. I did not attempt it.
 7. **Latency re-measurement.** §15.2's plane numbers (502 ms / 2,568 ms /
    18,476 ms) and the spike's 255 ms are taken from `PIPELINE_RESULT.md`, not
-   re-run here. The kickoff said not to redo them; I leaned on them and did not
-   verify them.
-8. **Hybrid C's actual cost.** Recommended without a line estimate or a
-   prototype. The 5.9 ms socket figure is the spike's, in the spike's process,
-   and does not transfer without measurement.
-9. **Whether `doctor`'s 18 checks can each fail.** The kickoff asked; I read
+   re-run here. §4.2 decomposes the 502 ms but does not re-measure it, so the
+   decomposition is checked against a number I did not independently confirm.
+8. **The in-process dispatch change (§8.2) was not prototyped.** The ~266 ms
+   saving is arithmetic from four cold-start measurements, not from a build.
+   Whether `dispatch()` can call `run.main()`'s resolution in-process while
+   keeping every refusal intact is a source question I did not answer.
+9. **The dispatch decomposition uses cold-start floors as stand-ins.**
+   `devman --help` and `dagu --help` measure process start plus import, not
+   the dispatch's own work. The ~130 ms unaccounted in §4.2's table is exactly
+   the part this method cannot see.
+10. **Whether `doctor`'s 18 checks can each fail.** The kickoff asked; I read
    the check list and the live output, which is clean, and did not induce a
    failure in any check. The claim in §4.2 that `doctor` can be false rests on
    §12 rule 4's worked example, not on a test I ran.
-10. **The 54-repository projection cost.** How long shell entry takes, how
+11. **The 54-repository projection cost.** How long shell entry takes, how
     much the projection writes, and whether `enterShell` is on anyone's
     critical path — all relevant to section 3 and none of it measured.
 
