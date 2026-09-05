@@ -148,7 +148,25 @@ hit; whatever Part A finds is actually slow, fixed at the source.
 **"Do nothing" is a legitimate answer**, and if the honest finding is that the
 1.5 s is irreducible without breaking law 4 or law 5, **say that and stop.**
 
-### Part D — what does this cost the plane, in total?
+### Part D — criterion 14 is unchecked, and nothing notices
+
+**013 retracted the one-step rule, which is what made criterion 14 true by
+construction** (`CONCEPT.md`, the criterion-14 entry). No default workflow may
+re-state a dependency devenv already declares. That is now a criterion to
+check, and **nothing in the plane checks it.**
+
+`pyjutsu` already declares `tasks."pyjutsu:test".after = [ "pyjutsu:build" ]`,
+so the exposure is not hypothetical.
+
+1. **Can a projected workflow be shown to re-state a devenv order today?**
+   Read the 54 repositories' `devenv.nix` task graphs against their projected
+   workflow files.
+2. **Should `doctor` check it, and can it?** The plane promises never to parse
+   a workflow to understand it (`CLAUDE.md`). Say whether that promise makes
+   the check impossible, or only makes it narrow.
+3. **If it cannot be checked, say so plainly** and record what that costs.
+
+### Part E — what does this cost the plane, in total?
 
 The number nobody has. 114 files execute the verb; `check` and `test` are 108
 of them and every one is nightly or reactive. **Estimate the machine's daily
@@ -207,8 +225,9 @@ instance configured with the flag is not isolated at all.
 3. **The shared state**, enumerated, with at least one concurrency experiment against `tasks.db`.
 4. **Whether `exec_if_modified` has the defect 013 found in `format`.**
 5. **The warm-path verdict**, against all three of Part C's tests, including "no safe path exists" if that is the answer.
-6. **The plane's total daily spend on the verb**, with its method.
-7. **What you did not measure**, plainly.
+6. **Whether criterion 14 can be checked**, and a check if it can.
+7. **The plane's total daily spend on the verb**, with its method.
+8. **What you did not measure**, plainly.
 
 Ship the change if it wins on the argument and the measurement. Amend the
 charter in the same commit if it contradicts one — with the measurement that

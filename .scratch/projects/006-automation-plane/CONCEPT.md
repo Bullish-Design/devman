@@ -1561,11 +1561,19 @@ schedules must be cheap by construction** (`PROPOSAL.md` §12, rule 8). This
 distinction has existed since stage 6 put schedules in workflow files; stage 7 is
 where it was measured.
 
-**Criterion 14 holds by construction since stage 7.** A default workflow runs
-exactly one `devenv tasks run`, so it declares no order and cannot re-state one.
-Before that it held only because almost no repository declared a task
-dependency — and `pyjutsu` already declared one, so the criterion was one
-ordinary `devenv.nix` edit away from being false.
+**Criterion 14 held by construction from stage 7 until 013, and now does not.**
+The construction was the one-step rule: a workflow running exactly one
+`devenv tasks run` declares no order and cannot re-state one. **013 retracted
+that rule** (`PROPOSAL.md` §1.1) because the plane aligns with what Dagu can
+express, and a one-step cap is not something Dagu asks for — `release` has had
+three steps since stage 4.
+
+**So criterion 14 is again a criterion to check rather than a fact.** The
+original exposure returns with it: it holds today only because almost no
+repository declares a task dependency, and `pyjutsu` already declares one
+(`tasks."pyjutsu:test".after = [ "pyjutsu:build" ]`), so it is one ordinary
+`devenv.nix` edit away from being false. **Nothing in the plane checks it**, and
+that gap is now open rather than closed.
 
 **Criterion 17 is the load-bearing one.** It is what lets the registry be
 derived, lets §9.3 promise reconstruction, and lets §5.2 have no manual register

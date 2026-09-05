@@ -40,7 +40,25 @@ registered, 58 eligible.**
 
 ### 1.1 The hinge — one workflow, one step, one task
 
-Every other recommendation follows from this one, so it is stated first.
+> **RETRACTED as a rule (013). It is not a law and it never should have been
+> stated as one.** The plane aligns with what Dagu can express; a hard cap of
+> one step per workflow is not something Dagu asks for, and it was already
+> contradicted by shipped content — `groups/release/workflows/release.yaml`
+> has **three** steps (`gate`, `build`, `record`) and has since stage 4.
+>
+> **What survives is not a rule but a default and a caution**, both kept below
+> with the measurements that produced them:
+>
+> * **One `devenv tasks run` per workflow remains the sensible default**, on the
+>   arithmetic in the fourth consequence below. It is a default, not a limit.
+> * **Criterion 14 still stands on its own** — no workflow may re-state a
+>   dependency devenv already declares — but it **no longer holds by
+>   construction**. It is now a thing to check, not a thing that cannot happen.
+> * **The devenv state-directory contention named in the fifth consequence is
+>   real and unmeasured.** Two `devenv tasks run` invocations in one checkout
+>   share `.devenv/state/tasks.db`. That is project 014's Part B.
+
+The original statement, kept because the consequences below argue from it:
 
 > **A default workflow runs exactly one `devenv tasks run`. The workflow names
 > the rung; the repository's devenv graph decides what that rung pulls in.**
@@ -59,7 +77,8 @@ A repository that wants `test` to lint first writes one line in `devenv.nix`:
 tasks."base:test".after = [ "base:check" ];
 ```
 
-**Four consequences, and they are the proposal.**
+**Four consequences, and they were the proposal.** They remain the argument
+for the default. They are no longer an argument for a prohibition.
 
 **It makes criterion 14 true by construction.** Criterion 14 says no default
 workflow may re-state a dependency devenv already declares. Every multi-step
