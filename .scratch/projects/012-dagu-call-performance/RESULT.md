@@ -583,9 +583,11 @@ is one developer, in one repository, waiting for `ruff`.
   configuration ran on a throwaway `DAGU_HOME` under `/tmp` on ports
   18080/50155. The live plane's three processes (1204, 1209, 1271) are the same
   ones that were running when this project started.
-* **What did touch the live plane:** about 150 `devman.format` runs enqueued in
-  the `devman` repository, which is what 011 did and what the KICKOFF permits.
-  All of them succeeded or skipped on the content-hash precondition.
+* **What did touch the live plane:** **182 `devman.format` runs**, every one of
+  them in the `devman` repository, which is what 011 did and what the KICKOFF
+  permits. **All 182 are recorded `succeeded`**; most skipped their step on the
+  content-hash precondition, which is what that precondition is for. No other
+  DAG was enqueued and no other repository was touched.
 * **`base:check`, `base:unit` (390 tests) and `base:test` (`nix flake check`)
   all pass.** `devman doctor` exits 1, byte-identically before and after these
   changes, for the pre-existing daemon-shell finding in item 1 of §6.
