@@ -99,6 +99,39 @@
 # per-workflow Nix option, by §7.4, and a schedule is content exactly as a queue
 # name is.
 #
+# IT ALSO COLLECTS devenv's SHELL CACHE, BECAUSE NOTHING ELSE DOES (014)
+#
+# `devenv` writes `.devenv/shell-<hash>.sh` for every distinct shell environment
+# it ever realises (`devenv/src/devenv/mod.rs:2163`) and **never deletes one**.
+# `devenv gc` does not either: all 85 lines of `devenv/src/devenv/gc.rs` collect
+# Nix store paths and dangling GC-root symlinks and never open the dotfile.
+# Measured across this machine's 54 repositories: 277,950 files, 22.9 GB, on a
+# disk at 91 %.
+#
+# THIS IS THE WORK NO OTHER OWNER HAS, which is the same argument that keeps
+# retention here. The directory is devenv's, not the plane's — but the plane is
+# the only thing that runs nightly in every repository, and the alternative is
+# that it grows forever in all 54.
+#
+# IT IS ON THE REPORT SIDE OF THIS FILE'S OWN LINE, NOT THE ARTIFACT SIDE. A
+# shell script here is regenerable by construction: `write_executable_script`
+# writes only when the file is absent, so devenv rewrites the one it needs on
+# the next run. That is why this may delete them unattended and may not delete
+# an artifact.
+#
+# `KEEP_DAYS` GUARDS THE LIVE ONE. A script is written when its environment is
+# realised, so an environment in current use has a recent script. An older one
+# belongs to an environment nobody has entered inside the window. A `devenv
+# shell` open longer than `KEEP_DAYS` could still lose the rcfile it would
+# re-source on reload — that fails loudly with a missing path, which is the
+# direction §15.7 asks for.
+#
+# CHEAP BY CONSTRUCTION, MEASURED, because §12 rule 8 is what lets this file
+# carry a schedule at all. On the largest caches on this machine the scan is
+# 0.03-0.05 s (15,786 files) and the delete is 0.79 s for 10,198 files freeing
+# 799 MB. It is one directory listing and some unlinks; it does not grow with
+# the repository, only with the cache it is removing.
+#
 # A SCHEDULED WORKFLOW THAT WRITES SOURCE FILES IS A DIFFERENT ANIMAL. This one
 # prunes its own report directory; it writes nothing a watcher watches and
 # nothing a person is editing. §8's argument for reactivity being its own group
@@ -117,6 +150,16 @@ steps:
       find .devman/.runs/reports -type f -mtime +"$KEEP_DAYS" -delete
       after=$(find .devman/.runs/reports -type f | wc -l)
 
+      # devenv's shell cache. Absent until this repository has entered its
+      # shell, so the guard is not decoration.
+      shells_before=0
+      shells_after=0
+      if [ -d .devenv ]; then
+        shells_before=$(find .devenv -maxdepth 1 -type f -name 'shell-*.sh' | wc -l)
+        find .devenv -maxdepth 1 -type f -name 'shell-*.sh' -mtime +"$KEEP_DAYS" -delete
+        shells_after=$(find .devenv -maxdepth 1 -type f -name 'shell-*.sh' | wc -l)
+      fi
+
       {
         echo "# maintain — ${context.dag.name}"
         echo
@@ -127,6 +170,8 @@ steps:
         echo '## this project'
         echo
         echo "- reports: $before before, $after after — $((before - after)) pruned"
+        echo "- devenv shell cache: $shells_before before, $shells_after after —" \
+             "$((shells_before - shells_after)) collected (nothing else collects these, 014)"
         echo "- artifacts: $(find .devman/.runs/artifacts -mindepth 1 | wc -l) entries," \
              "**never pruned here** — remove them by hand"
         echo "- log trees: $(find .devman/.runs/logs -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l)," \

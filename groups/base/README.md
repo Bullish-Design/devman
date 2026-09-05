@@ -103,7 +103,7 @@ lint first, in the file where the developer can also run it by hand.
 |---|---|---|---|---|
 | `check.yaml` | `light` (4) | manual; post-commit hook | no | `base:check` |
 | `test.yaml` | `normal` (2) | manual; pre-push hook | no | `base:test` |
-| `maintain.yaml` | `light` (4) | `schedule: 5 0 * * *` | only under `.devman/.runs/` | no repository task |
+| `maintain.yaml` | `light` (4) | `schedule: 5 0 * * *` | under `.devman/.runs/`, and `.devenv/shell-*.sh` | no repository task |
 
 **There is no third rung.** `full-test` was deleted at stage 7 on a measurement:
 its only content beyond `test` was `devenv test`, which **exits 0 having tested
@@ -153,8 +153,8 @@ workflow (§7.2).
 ## `maintain`, and why it has to be a run
 
 `maintain` calls no repository task. It prunes `.devman/.runs/reports/` older
-than `KEEP_DAYS` (default 7), **counts artifacts and never deletes one**, and
-writes one report.
+than `KEEP_DAYS` (default 7), collects `.devenv/shell-*.sh` older than the same
+window, **counts artifacts and never deletes one**, and writes one report.
 
 ```bash
 devman run maintain                 # keep 7 days
@@ -168,6 +168,32 @@ runs** (§9.2). A project whose workflows never run keeps its log tree forever.
 touched this month. That is why it stays in `base` rather than becoming an opt-in
 group, and why a machine-side pruner cannot replace it (`PROPOSAL.md` §10,
 rejected alternative 5).
+
+### It collects devenv's shell cache, because nothing else does
+
+devenv writes `.devenv/shell-<hash>.sh` for every distinct shell environment it
+ever realises and **never deletes one**. Neither does `devenv gc`, which
+collects Nix store paths and dangling GC roots and never opens the dotfile.
+Measured over this machine's 54 repositories at project 014: **277,950 files,
+22.9 GB**, on a disk at 91 %.
+
+**Taking `base` therefore means this workflow deletes files under your
+`.devenv/`.** That is the one place `maintain` touches a directory the plane
+does not own, and it is deliberate: the plane is the only thing that runs
+nightly in every repository, and the alternative is unbounded growth in all of
+them.
+
+**Only `shell-*.sh`, and only at the top level.** `state/venv`,
+`nix-eval-cache.db`, `profile` and `run` are left alone — they are not the
+unbounded part and deleting them breaks the shell. A shell script here is
+regenerable by construction: devenv writes one only when it is absent.
+
+**Why it matters beyond disk.** 52 of the 54 repositories on this machine name a
+local `path:` input, and Nix copies a `path:` target whole — `.gitignore` and
+all — on **every** `devenv tasks run`. So one repository's uncollected cache is
+charged to every repository that takes it. 014 measured 1562 ms → 913 ms from
+collecting alone. `devman doctor`'s `path inputs` check reports the rest, and
+names the one-line fix that removes the cause: `url: git+file://<path>`.
 
 **It prunes reports and never artifacts.** A report is regenerable text; an
 artifact is the thing you were about to ship. Deleting one unattended is exactly
