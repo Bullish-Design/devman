@@ -639,3 +639,74 @@ KICKOFF's own trap: a design argument without the spike that earns it.
 2. **The correction to the record.** 012's asserted `format` corruption race
    does not exist; S-9's either/or is disproved; and the `baseFile` comment
    describes a behaviour that never occurs on this machine.
+
+---
+
+## 10. Shipped: the `format` fixpoint, and what devenv startup costs the plane
+
+### 10.1 The fix
+
+`groups/format/workflows/format.yaml` now formats to a **fixpoint**: two
+consecutive formatter runs must produce byte-identical trees before the receipt
+is written, bounded at three passes, **refusing loudly** if the tree never
+settles. The §3.4 defect is closed.
+
+**The receipt format is unchanged** — `sha256sum`'s `HASH  -` line — so
+existing `.format.hash` files stay valid and nothing needs migrating. Verified
+against this repository's live receipt before the change was published.
+
+**Verified end-to-end on the live plane**, run `034JalcZktyjQlL0MlFbww`:
+`succeeded`, two formatter passes in the step log, correct receipt written.
+
+| | step duration |
+|---|---|
+| one pass (before) | 2.289 s |
+| two passes (after) | 3.319 s |
+| **cost of correctness** | **+1.03 s** |
+
+**The plane refused the first attempt at this change**, and that is worth
+recording. A patch that introduced mojibake produced
+`not loadable as YAML: unacceptable character #x0080 — fix the source; the
+plane publishes no file it cannot read`, and the projection **kept the old
+file**. Law 5 working as designed: a bad projection was refused rather than
+published.
+
+### 10.2 The finding underneath it: devenv startup is ~98% of a format run
+
+Measured while pricing the second pass, n=3 each, in this repository:
+
+| | time |
+|---|---|
+| `ruff format .` — the actual work | **31 ms** |
+| `devenv tasks run format:fmt` | ~1600 ms |
+| `devenv tasks run` running **nothing at all** | **~1550 ms** |
+
+**devenv doing nothing costs the same as devenv doing the work.** No flag
+avoids it: `--offline` (1475–1681 ms), `--no-reload` (1655–1950 ms) and the
+eval cache all make no difference at devenv 2.1.2.
+
+**Inside a Dagu run it is far cheaper** — the step log shows
+`Evaluating shell in 4.61ms (cached)` and the whole task in **18.4 ms** — which
+is why the measured second pass cost 1.03 s rather than 1.6 s. The cold figure
+is what a cold invocation costs; the plane's steps run warm.
+
+**A warm path exists and needs no process.** `.devenv/load-exports` is a plain
+shell script devenv itself generates, holding the already-computed environment.
+Sourcing it and running the tool directly:
+
+| path | time |
+|---|---|
+| `devenv tasks run format:fmt` | ~1600 ms |
+| `. .devenv/load-exports && ruff format .` | **16 ms** |
+
+**100x, with nothing running in the background.** It is **not** adopted, and
+the reason is law 4: it names the tool in the workflow and takes ordering away
+from the repository's devenv task graph. It also has no staleness check — a
+`devenv.nix` that changed since the exports were written would run the step in
+a stale environment, silently, which is Law 5 again.
+
+**This is a plane-wide cost, not a `format` cost.** Every workflow step in the
+plane runs `devenv tasks run`, so every run of all 170 projected workflows pays
+devenv's startup. **Not measured:** what that totals across 54 projects, and
+whether a safe warm path (with a freshness check, and still routed through the
+task graph) is possible. That is its own project.
