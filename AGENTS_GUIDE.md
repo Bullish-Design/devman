@@ -16,6 +16,28 @@ a developer        → a prompt   ─┤
 a cron expression  → the daemon ─┘   (schedule: bypasses the queue)
 ```
 
+**`devman run` is the layer, not always a process.** The watcher's dispatcher
+calls `run.trigger()` in its own process; the other three arrows are the
+command. One implementation either way (012, RESULT.md §3.1).
+
+**HOW LONG A SAVE TAKES, AND WHERE THE TIME GOES.** About 2.4 s from the write
+to the formatter's own write, and **most of it is one timer**:
+
+| | |
+|---|---:|
+| watchexec — inotify plus a 50 ms debounce | 72 ms |
+| `devman watch --dispatch` — resolve, refuse, `dagu enqueue` | 217 ms |
+| **Dagu's queue drain ticker — a 3.000 s period, so a mean wait of** | **1,500 ms** |
+| the run starting, then `devenv tasks run` | ≈540 ms |
+
+**The ticker has no configuration key in Dagu 2.15.0; the period is compiled
+in.** Do not go looking for one, and do not set anything under `scheduler:` in
+`config.yaml` expecting to move it — `lock_retry_interval` and its neighbours
+are about locks and zombies, not the drain. A wait longer than 3 s means the
+run's queue was at its `max_concurrency`, which is the queue working. Measured
+over n=50 controlled runs and 494 recorded ones:
+`.scratch/projects/012-dagu-call-performance/RESULT.md` §2.
+
 | Layer | Owns | Never |
 |---|---|---|
 | **Dagu** | the run: order, queues, retries, history, the web UI | knows what a project is |

@@ -26,6 +26,7 @@ import contextlib
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -82,6 +83,25 @@ IDENTITY_PATTERN = re.compile(IDENTITY_GRAMMAR)
 
 class RegistryError(Exception):
     """A refusal the developer must see. The CLI prints it and exits 1."""
+
+
+def report(exc: RegistryError) -> None:
+    """Print a refusal the way the CLI prints it, on stderr.
+
+    It lives beside the exception because there are now TWO callers and the
+    wording is the refusal, not decoration. `cli.main` prints one this way when
+    a person types a command; `watch.dispatch` prints one this way when the
+    dispatcher enqueues in-process, which it did not have to do while it read
+    the refusal off a child process's stderr (012, Part B candidate 1).
+
+    Every line is prefixed, so a multi-line refusal cannot have its second line
+    read as somebody else's output in the watcher's journal.
+    """
+    for line in str(exc).splitlines():
+        print(
+            f"devman: {line}" if not line.startswith(" ") else f"devman:{line}",
+            file=sys.stderr,
+        )
 
 
 def identity_fault(kind: str, value: str) -> str | None:

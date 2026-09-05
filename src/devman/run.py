@@ -316,30 +316,53 @@ def child_env(params: dict[str, str], dir_var: str) -> dict[str, str]:
     return env
 
 
-def main(args, reg: Registry) -> int:
-    overrides: dict[str, str] = {}
-    for item in args.params:
-        if "=" not in item:
-            print(f"devman run: '{item}' is not NAME=VALUE", file=sys.stderr)
-            return 2
-        key, _, value = item.partition("=")
-        overrides[key] = value
+def target(reg: Registry, name: str | None) -> Project:
+    """The project a trigger runs against — named, or the one holding `cwd`.
 
-    project = reg.project(args.project) if args.project else reg.project_for(Path.cwd())
+    A registered path that has gone is refused here rather than inside
+    `resolve()`, because the answer is `doctor --prune` rather than anything
+    about the workflow.
+    """
+    project = reg.project(name) if name else reg.project_for(Path.cwd())
     if not project.exists:
         raise RegistryError(
             f"refusing to enqueue in '{project.name}'\n"
             f"  its registered path {project.path} is not a directory\n"
             "  run `devman doctor --prune` to reconcile the registry (§10 check 5)"
         )
+    return project
 
-    dag, params, dir_var = resolve(reg, project, args.workflow, overrides)
-    # Before `command()` and before the `--print` branch, so neither path can
-    # skip it.
+
+def trigger(
+    reg: Registry,
+    project: Project,
+    workflow: str,
+    overrides: dict[str, str],
+    dagu_home: str,
+    print_only: bool = False,
+) -> int:
+    """Resolve, check, enqueue. **The whole of the trigger, in one call.**
+
+    IT EXISTS SO THAT THERE IS STILL EXACTLY ONE OF IT (012, Part B candidate 1).
+
+    `watch.dispatch` used to run `devman run` as a child process, which cost a
+    second Python interpreter and a second import of this package on every
+    filesystem event — 283 ms p50, measured, against 10 ms of actual work inside
+    it. The dispatcher now calls this function instead. That is only safe while
+    every refusal is on this side of the call, so every refusal is: `resolve()`
+    raises them all, and `assert_target()` runs before `command()` AND before the
+    `--print` branch, so neither path can skip it.
+
+    A caller that catches `RegistryError` around this call gets exactly what the
+    child process's exit code used to say, and `tests/unit/test_run.py` is the
+    specification for what that is — it was not modified to make this change
+    pass.
+    """
+    dag, params, dir_var = resolve(reg, project, workflow, overrides)
     assert_target(project, params, dir_var)
-    argv = command(reg, args.dagu_home, dag, params)
+    argv = command(reg, dagu_home, dag, params)
 
-    if args.print_only:
+    if print_only:
         # QUOTED, BECAUSE THE FLAG PROMISES A LINE YOU CAN PASTE (009 P3-2).
         #
         # A plain join was not replayable: a project path holding a space
@@ -357,3 +380,22 @@ def main(args, reg: Registry) -> int:
         return 0
 
     return subprocess.run(argv, env=child_env(params, dir_var), check=False).returncode
+
+
+def main(args, reg: Registry) -> int:
+    overrides: dict[str, str] = {}
+    for item in args.params:
+        if "=" not in item:
+            print(f"devman run: '{item}' is not NAME=VALUE", file=sys.stderr)
+            return 2
+        key, _, value = item.partition("=")
+        overrides[key] = value
+
+    return trigger(
+        reg,
+        target(reg, args.project),
+        args.workflow,
+        overrides,
+        args.dagu_home,
+        args.print_only,
+    )

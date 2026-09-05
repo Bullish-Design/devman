@@ -1,6 +1,12 @@
 """The watcher (CONCEPT.md §8, finding D7) — one process for the whole machine.
 
-    filesystem change → watchexec → devman watch --dispatch → devman run → dagu enqueue
+    filesystem change → watchexec → devman watch --dispatch → dagu enqueue
+
+The dispatcher calls `run.trigger` in this process. It ran `devman run` as a
+child until project 012 measured what that cost: a second Python interpreter
+and a second import of this package, 283 ms p50 of a 499 ms path, for 10 ms of
+work. `dispatch()` at the foot of this file states what the child gave and how
+each part of it is kept.
 
 **One watcher per machine, not one per repository, and the deciding fact is
 lifetime rather than capability.** A per-repository watcher has one plausible
@@ -49,7 +55,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
-from .registry import Project, Registry, deepest
+from . import run
+from .registry import Project, Registry, RegistryError, deepest, report
 
 # The watcher's own state, machine-side beside the registry it reads. Derived
 # and reconstructable like everything else under `~/.local/share/devman/`
@@ -548,27 +555,53 @@ def match(reg: Registry, paths: list[str]) -> list[tuple[WatchEntry, str]]:
 
 
 def dispatch(args, reg: Registry) -> int:
+    """One batch of filesystem events, enqueued.
+
+    IT CALLS `run.trigger` RATHER THAN RUNNING `devman run` (012, Part B
+    candidate 1).
+
+    It used to exec the CLI again — `subprocess.run([self_binary(), …, "run",
+    …])` — so a save started TWO Python interpreters and imported this package
+    twice. Measured on this machine: the child cost 283 ms p50 of which about
+    10 ms was the work, against a 499 ms path from the write to the enqueue
+    being accepted. Nothing about the second process was load-bearing; the
+    refusals live in `run.resolve()` and `run.assert_target()`, and both are
+    still the only way through, because `run.trigger` is now the only way in.
+
+    TWO THINGS THE CHILD PROCESS GAVE FOR FREE, AND HOW EACH IS KEPT.
+
+      * **A refusal did not end the batch.** A refused `devman run` was an exit
+        code, so the loop went on to the next `(project, workflow)` pair. So
+        `RegistryError` is caught PER ENTRY here, printed with the same
+        `registry.report` the CLI uses, and recorded as `refused (1)` — the
+        exit code `cli.main` gives a refusal, unchanged.
+      * **A crash was isolated.** It no longer is: an unexpected exception now
+        ends the batch instead of one entry of it. That is deliberate rather
+        than overlooked. Catching every exception here would turn a defect in
+        this package into a `fired.jsonl` line nobody reads, and §12 rule 4
+        refuses exactly that trade. watchexec's `--on-busy-update=queue` means
+        the next batch still arrives.
+    """
     paths = changed_paths(sys.stdin.read())
     state = WatchState(reg)
     rc = 0
     for entry, path in match(reg, paths):
-        argv = [
-            self_binary(),
-            "--registry",
-            str(reg.root),
-            "--dagu-home",
-            args.dagu_home,
-            "run",
-            entry.workflow,
-            "--project",
-            entry.project,
-        ]
-        result = subprocess.run(argv, check=False)
+        try:
+            code = run.trigger(
+                reg,
+                run.target(reg, entry.project),
+                entry.workflow,
+                {},
+                args.dagu_home,
+            )
+        except RegistryError as exc:
+            report(exc)
+            code = 1
         state.record(
             entry.project,
             entry.workflow,
             path,
-            "enqueued" if result.returncode == 0 else f"refused ({result.returncode})",
+            "enqueued" if code == 0 else f"refused ({code})",
         )
-        rc = rc or result.returncode
+        rc = rc or code
     return rc

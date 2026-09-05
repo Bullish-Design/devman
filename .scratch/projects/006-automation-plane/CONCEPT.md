@@ -695,6 +695,16 @@ schedule          → Dagu's own scheduler, from the workflow's own `schedule:`
 **The first two arrows reach Dagu through `devman run`. The third does not, and
 it took two stages to get there.**
 
+> **Amended by project 012 (2026-09-05).** The first arrow reaches `run.py` by
+> a function call rather than by a second process. `watch.dispatch()` ran
+> `devman run` as a child, which cost a whole Python interpreter and a second
+> import of the package — 283 ms p50 of a 499 ms path, for 10 ms of work — and
+> it is now `run.trigger()`, called in the dispatcher. **The claim this section
+> makes is unchanged and stronger: there is exactly one place that triggers a
+> workflow, and it is now one function rather than one command.** Every refusal
+> is in it, and `tests/unit/test_run.py` passed unmodified across the change.
+> Measured in `.scratch/projects/012-dagu-call-performance/RESULT.md` §3.1.
+
 A schedule is declared **in the workflow file**, in Dagu's own `schedule:` key,
 and Dagu's own scheduler fires it. That is only possible because the projection
 **states** each project's `working_dir`, `log_dir` and directory variable rather
