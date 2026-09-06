@@ -127,13 +127,49 @@ Read `.agents/skills/devman-workflow/SKILL.md`. The short form:
 - `nix build .#checks.<system>.groups-validate` runs `dagu validate` over every
   file here. It must pass.
 
+## Declaring what a group's workflow writes
+
+A group that ships a workflow which writes states what it writes, in
+`groups/<group>/writes.toml` — one table per workflow:
+
+```toml
+[format]
+tier  = "insitu"          # free | lane | insitu
+paths = ["**/*.py"]
+```
+
+**Why a separate file rather than a key in the workflow.** The same measurement
+that put `triggers.toml` here, re-verified in 015: `dagu validate` rejects an
+unknown top-level `writes:` outright, and `tags:` — the one extension point Dagu
+accepts — is a label map restricted to `a-zA-Z0-9-_.`, so it can hold neither a
+`:` nor a `/` nor a `*`. A glob cannot be expressed there at all.
+
+| Tier | What it claims | `doctor` checks |
+|---|---|---|
+| `free` | agent surface only — `.agents/**`, `docs/**`, `.devman/**`, `.loci/**`, `.gitman/**` | every declared path is inside that set |
+| `lane` | an edit to existing tracked source, left on a gitman lane for a person to merge | the workflow is one the project projects |
+| `insitu` | `format`'s bounded exception: an idempotent normalisation of a watched file, costing its own opt-in group, a content hash and a fixpoint | as above |
+
+**Resolution merges per workflow**, unlike §7.3 and unlike `triggers.toml`,
+which replace whole-file. The unit here is already one workflow, so a later
+group declaring `[regen]` does not silently drop an earlier group's `[format]`
+— and a dropped declaration is worse than a surprising one, because the audit
+would then report nothing at all. A repository narrows or overrides in
+`.devman/writes.toml`.
+
+**What this does not do.** It cannot prove a workflow writes what it says, or
+that a workflow declaring nothing writes nothing. `doctor` reports a project
+that declares none as **unaudited, not proven silent**. The amendment to §12
+rule 3 is weaker than the flat refusal it replaced, and this is the part that
+makes the claim legible rather than the part that makes it true.
+
 ## What must never be shipped in a group
 
 `PROPOSAL.md` §12, in full. The short form: anything an editor already does
 synchronously; anything irreversible outside this machine; an unattended write to
 **trunk** — every other write is tiered (015): a new file and agent surface are
 free, an edit to existing tracked source lands on a **gitman lane** for a person
-to merge; anything whose success is indistinguishable
+to merge, and `insitu` is `format`'s bounded exception; anything whose success is indistinguishable
 from doing nothing; anything needing a fact the repository did not state; a
 second implementation of a task the repository already has; anything whose output
 nobody reads; and anything expensive on a schedule — **a scheduled run bypasses

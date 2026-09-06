@@ -215,6 +215,38 @@ let
     cfg.groups;
 
   # ---------------------------------------------------------------------------
+  # Output ownership — what each workflow writes, and under which tier (015)
+  #
+  # `groups/<group>/writes.toml` is one table per workflow: `tier` (`free` or
+  # `lane`) and `paths`. §12 rule 3 refused every unattended write to tracked
+  # source until 015 amended it into tiers, and a tier is a CLAIM — this is
+  # where the claim is recorded so `doctor` can audit it.
+  #
+  # IT SITS HERE FOR THE SAME REASON THE TRIGGER MAP DOES, re-measured in 015:
+  # a top-level `writes:` key fails `dagu validate` outright, and `tags:` — the
+  # one extension point Dagu does accept — is a label map restricted to
+  # `a-zA-Z0-9-_.`, so it can hold neither a `:` nor a `/` nor a `*`. Both homes
+  # are closed, so this takes the third, exactly as A5 forced for triggers.
+  #
+  # RESOLUTION MERGES PER WORKFLOW, WHICH IS THE ONE PLACE THIS DIFFERS FROM
+  # §7.3 AND FROM `triggers`. Those replace whole-file because a partial result
+  # is hard to predict from either file alone. Here the unit is already one
+  # workflow, so a later group declaring `[regen]` does not silently drop an
+  # earlier group's `[format]` — and a dropped declaration is worse than a
+  # surprising one, because the audit would then report nothing at all.
+  groupWrites = group:
+    let
+      file = groupsRoot + "/${group}/writes.toml";
+    in
+    if builtins.pathExists file
+    then builtins.fromTOML (builtins.readFile file)
+    else { };
+
+  writes =
+    let merged = lib.foldl' (acc: group: acc // (groupWrites group)) { } cfg.groups;
+    in if merged == { } then null else merged;
+
+  # ---------------------------------------------------------------------------
   # The projection (§9.2), and the rare path that performs it
   #
   #   <registry>/projects/<project>/metadata.json
@@ -365,6 +397,7 @@ let
       (_: w: { inherit (w) group shadows; source = "${w.file}"; })
       resolved;
     inherit triggers;
+    inherit writes;
     renderer = "${renderer}";
   });
 

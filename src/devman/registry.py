@@ -242,12 +242,21 @@ class Project:
     # the groups this project takes (§8). `{"group": …, "map": {glob: workflow}}`,
     # or absent when no group the project takes declares any.
     triggers: dict | None = None
+
+    # Output ownership: which paths each workflow writes, and under which tier
+    # of §12 rule 3 as amended (015). Written by the projection, read by
+    # `doctor`. It deliberately does NOT bump the schema — see the note beside
+    # `entry_text` in project.py.
+    writes: dict | None = None
     plan: str = ""
     schema: int = 0
     entry: Path | None = None
 
     def raw_triggers(self) -> dict | None:
         return self.triggers
+
+    def raw_writes(self) -> dict | None:
+        return self.writes
 
     @property
     def exists(self) -> bool:
@@ -394,6 +403,7 @@ class Registry:
                 local=raw.get("local", []),
                 workflows=raw.get("workflows", {}),
                 triggers=raw.get("triggers"),
+                writes=raw.get("writes"),
                 plan=raw.get("plan", ""),
                 schema=raw.get("schema", 0),
                 entry=entry,

@@ -173,8 +173,10 @@ Say no, and point at `PROPOSAL.md` §12:
    this rule): **free** for a file that did not exist and for agent surface
    (`.agents/**`, `docs/**`, notes, a tool's hidden directory); **on a lane**
    for every edit to existing tracked source — dependency updates, code
-   generation, autofix. The lane is the review step. Rule 2 still stands: the
-   workflow does not publish, push or land
+   generation, autofix. The lane is the review step. `insitu` is `format`'s
+   bounded exception — its own group, a content hash, a fixpoint — and nothing
+   else holds it. Rule 2 still stands: the workflow does not publish, push or
+   land
 4. anything whose success is indistinguishable from doing nothing
 5. anything needing a fact the repository did not state
 6. a second implementation of a task the repository already has

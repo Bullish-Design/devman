@@ -55,6 +55,7 @@ class Plane:
         groups: list[str] | None = None,
         sources: dict[str, str] | None = None,
         triggers: dict | None = None,
+        writes: dict | None = None,
         link: bool = True,
         legacy: bool = False,
         make_dir: bool = True,
@@ -111,6 +112,7 @@ class Plane:
                         for w in {*workflows, *sources}
                     },
                     "triggers": triggers,
+                    "writes": writes,
                     "plan": "",
                 }
             )
