@@ -1,0 +1,6 @@
+env:
+  - REVIEW_FLAG: enabled
+schedule: "0 0 * * *"
+steps:
+  - name: inspect
+    run: printf '%s\n' "$DEVMAN_PROJECT_DIR"

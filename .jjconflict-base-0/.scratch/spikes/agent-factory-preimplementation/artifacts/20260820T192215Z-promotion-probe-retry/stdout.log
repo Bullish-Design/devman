@@ -1,0 +1,10 @@
+{
+  "expected_acceptances": 10,
+  "expected_rejections": 9,
+  "false_acceptances": 0,
+  "false_rejections": 0,
+  "model_quality_false_acceptance_rate": "unknown",
+  "model_quality_false_rejection_rate": "unknown",
+  "orchestration_false_acceptance_rate": 0.0,
+  "orchestration_false_rejection_rate": 0.0
+}

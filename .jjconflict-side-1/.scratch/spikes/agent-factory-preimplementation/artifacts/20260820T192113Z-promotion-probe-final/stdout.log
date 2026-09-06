@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-preimplementation/promotion_probe.py", line 670, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-preimplementation/promotion_probe.py", line 657, in main
+    results = asyncio.run(run_suite(args.artifacts))
+  File "/nix/store/3rhyvh4qcq9f3dljdwfcsvnz9gzlgps4-python3-3.13.14-env/lib/python3.13/asyncio/runners.py", line 196, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/nix/store/3rhyvh4qcq9f3dljdwfcsvnz9gzlgps4-python3-3.13.14-env/lib/python3.13/asyncio/runners.py", line 119, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/nix/store/3rhyvh4qcq9f3dljdwfcsvnz9gzlgps4-python3-3.13.14-env/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-preimplementation/promotion_probe.py", line 621, in run_suite
+    raise ValueError(f"artifact directory is not fresh: {artifacts}")
+ValueError: artifact directory is not fresh: .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T192113Z-promotion-probe-final

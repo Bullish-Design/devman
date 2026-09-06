@@ -1,0 +1,99 @@
+# devman/plane-report — one nightly report on the whole plane (stage 7).
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE EXISTS, AND WHY IT IS HERE RATHER THAN IN A GROUP
+#
+# `base/maintain` used to run `devman doctor` in every registered repository.
+# `doctor` forks one `dagu validate` per projected file, so at 58 projects and
+# roughly 174 files that is about 13 CPU-minutes every night producing 58
+# IDENTICAL plane-wide reports (PROPOSAL.md §5).
+#
+# **58 identical failures is not a signal. One is.** So the check moved here.
+#
+# It belongs to `devman` and not to a group because §11 already says so: a
+# workflow that belongs to no project belongs to this one. `doctor` reads the
+# whole registry, so its report is about the machine rather than about any
+# repository, and a group file that shipped it would run it 58 times again.
+#
+# ---------------------------------------------------------------------------
+# IT HOLDS `DEVMAN_PROJECT_DIR`, AND THAT IS CORRECT (§11)
+#
+# §11's rule is about a workflow that TRIGGERS other workflows: a parent's
+# environment outranks every child's own value, so a parent must name
+# `DEVMAN_SELF_DIR` instead. This workflow triggers nothing — it runs one
+# command that READS the registry — so it targets its own project like
+# `maintain` does, and the projection gives it the ordinary variable.
+# `devman doctor`'s own cross-repo check is what proves it: this file must not
+# appear in that count.
+#
+# ---------------------------------------------------------------------------
+# `|| rc=$?` IS LOAD-BEARING, AND THIS IS THE ONE THING THAT HAD TO BE MEASURED
+#
+# **Dagu runs a step's script with `set -e` already on.** Measured: a step that
+# prints `$-` reports `ehuB` (STAGE_7_LOG.md, S-5). So a bare failing command
+# ABORTS THE SCRIPT at that line — the rest of the step never runs.
+#
+# `devman doctor` exits non-zero when it has findings, which is precisely the
+# night this report matters. Written as
+#
+#     devman doctor >> "$report" 2>&1        # <- WRONG
+#     rc=$?
+#     printf '```\n' >> "$report"
+#
+# the script dies on the first line: the report keeps an unterminated code fence
+# and no verdict, and nothing says why. That is the shape `base/maintain` used
+# until stage 7, and it never fired only because `doctor` had never had a
+# finding on a scheduled night.
+#
+# `|| rc=$?` makes the call a compound command whose failure is handled, so
+# `-e` does not abort and the report is finished before the step exits.
+#
+# `continue_on: {failure: true}` — `base/review`'s answer — is the wrong tool
+# here. It exists so a CHAIN can finish; one step has nothing to keep going
+# for, and it would report `partially succeeded`, which says the workflow half
+# worked when what actually happened is that the plane is unhealthy.
+#
+# WHY IT DEFINES NO `handler_on`: one would replace base.yaml's, and the run
+# would then write no `metadata.jsonl` line at all — silently, with a clean
+# `dagu status` and correct logs (§9.2, S3).
+#
+# ---------------------------------------------------------------------------
+# THE SCHEDULE
+#
+# `20 0 * * *` — fifteen minutes after `maintain`'s `5 0 * * *`, so that the
+# nightly `maintain` runs have finished pruning before the plane is asked how it
+# is. `light` because it forks a subprocess per projected file and does nothing
+# else; if that cost passes 30 s the answer is `doctor --project` scope
+# (PLAN.md, R-4b), not a heavier queue.
+schedule: "20 0 * * *"
+queue: light
+steps:
+  - id: report
+    name: report
+    run: |
+      set -u
+      report=".devman/.runs/reports/plane-${context.run.id}.md"
+      mkdir -p .devman/.runs/reports
+
+      {
+        echo "# plane report — ${context.dag.name}"
+        echo
+        echo "- run id: \`${context.run.id}\`"
+        echo "- started: ${context.attempt.started_at}"
+        echo
+        echo '## devman doctor'
+        echo
+        echo '```'
+      } > "$report"
+
+      rc=0
+      devman doctor >> "$report" 2>&1 || rc=$?
+
+      {
+        echo '```'
+        echo
+        echo "- doctor exit: $rc"
+      } >> "$report"
+
+      cat "$report"
+      exit "$rc"

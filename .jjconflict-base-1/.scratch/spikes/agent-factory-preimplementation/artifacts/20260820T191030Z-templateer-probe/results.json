@@ -1,0 +1,30 @@
+{
+  "current_python": {
+    "parse_error": "unexpected character after line continuation character at 1:22",
+    "preserves_fragment": false,
+    "rendered_repr": "'def answer() -> int:\\\\n    return 42\\\\n'"
+  },
+  "outside_renderer": {
+    "preserves_fragment": true,
+    "syntax_valid": true
+  },
+  "probe_passed": true,
+  "text_mixed_counterexample": {
+    "artifact_parse_errors": [],
+    "assigned_names": [
+      "INJECTED",
+      "LABEL"
+    ],
+    "ordinary_string_changed_structure": true,
+    "rendered_repr": "'LABEL = \"safe\"\\nINJECTED = True\\n#\"\\n\\ndef answer() -> int:\\n    return 42\\n'"
+  },
+  "text_plus_validation": {
+    "deterministic_repeat": true,
+    "invalid_detail": "1 validation error for PythonModuleModel\nsections.0\n  Value error, invalid Python fragment at 1:11: '(' was never closed [type=value_error, input_value='def broken(', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+    "invalid_fragment_rejected_before_render": true,
+    "parse_errors": [],
+    "preserves_fragment": true,
+    "ruff_idempotent": true,
+    "warnings": []
+  }
+}

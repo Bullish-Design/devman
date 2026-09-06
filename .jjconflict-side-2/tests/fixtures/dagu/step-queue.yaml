@@ -1,0 +1,6 @@
+# REFUSED — "'spec.step' has invalid keys: queue". There is no step-level
+# `queue:` on Dagu 2.15.0, and Workflow.queues() read one until S-11.
+steps:
+  - name: s
+    queue: heavy
+    run: echo hi

@@ -1,0 +1,7 @@
+status=failed
+boundary=static lint retry
+classification=probe import ordering
+first_failure=I001 import block is unsorted
+runtime_started=false
+accepted_state_mutated=false
+fix=apply Ruff import sorting

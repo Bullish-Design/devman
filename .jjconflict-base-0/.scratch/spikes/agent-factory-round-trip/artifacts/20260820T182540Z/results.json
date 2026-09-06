@@ -1,0 +1,137 @@
+[
+  {
+    "byte_identity_percent": 100,
+    "case": "initial-identity",
+    "deterministic_repeat": true,
+    "formatting_stable": true,
+    "original_hash": "bd851b65f5bfd11d3480139143e29d9a44506725bc5372bd803d06c418c35d97",
+    "passed": true,
+    "rendered_hash": "bd851b65f5bfd11d3480139143e29d9a44506725bc5372bd803d06c418c35d97"
+  },
+  {
+    "case": "body-change",
+    "passed": true,
+    "preserved": true,
+    "promotion_converged": true,
+    "structural_diff": {
+      "added": [],
+      "changed": [
+        "u-1c506ad1f47ba8ba"
+      ],
+      "moved": [],
+      "removed": []
+    }
+  },
+  {
+    "case": "signature-parameter",
+    "passed": true,
+    "preserved": true,
+    "promotion_converged": true,
+    "structural_diff": {
+      "added": [],
+      "changed": [
+        "u-1c506ad1f47ba8ba"
+      ],
+      "moved": [],
+      "removed": []
+    }
+  },
+  {
+    "case": "docstring-change",
+    "passed": true,
+    "preserved": true,
+    "promotion_converged": true,
+    "structural_diff": {
+      "added": [],
+      "changed": [
+        "u-1c506ad1f47ba8ba"
+      ],
+      "moved": [],
+      "removed": []
+    }
+  },
+  {
+    "added_locations": [
+      "catalog::summarize"
+    ],
+    "case": "add-function",
+    "passed": true,
+    "structural_diff": {
+      "added": [
+        "u-fabb8b57b01e5132"
+      ],
+      "changed": [],
+      "moved": [],
+      "removed": []
+    }
+  },
+  {
+    "case": "delete-function",
+    "passed": true,
+    "recoverable": true,
+    "structural_diff": {
+      "added": [],
+      "changed": [],
+      "moved": [],
+      "removed": [
+        "u-ee9eacb282587e5a"
+      ]
+    },
+    "tombstones": [
+      "catalog::build_catalog"
+    ]
+  },
+  {
+    "case": "rename-method",
+    "moved_locations": [
+      "catalog::Catalog.resolve"
+    ],
+    "passed": true,
+    "structural_diff": {
+      "added": [],
+      "changed": [
+        "u-e563bd38662f87d4"
+      ],
+      "moved": [
+        "u-e563bd38662f87d4"
+      ],
+      "removed": []
+    }
+  },
+  {
+    "case": "cross-file-move",
+    "moved_locations": [
+      "normalization::normalize_name"
+    ],
+    "passed": true,
+    "structural_diff": {
+      "added": [
+        "u-1fe45c270d9d4002"
+      ],
+      "changed": [],
+      "moved": [
+        "u-1c506ad1f47ba8ba"
+      ],
+      "removed": []
+    },
+    "unit_churn": {
+      "added": 1,
+      "changed": 0,
+      "moved": 1,
+      "removed": 0
+    }
+  },
+  {
+    "case": "collated-import-rejected",
+    "error": "import requirement is collated; change the owning declaration spec; owner=catalog::build_catalog",
+    "owner": "catalog::build_catalog",
+    "passed": true
+  },
+  {
+    "case": "failed-promotion-preserves-source",
+    "owner": "catalog::normalize_name",
+    "passed": true,
+    "source_preserved": true,
+    "store_preserved": true
+  }
+]

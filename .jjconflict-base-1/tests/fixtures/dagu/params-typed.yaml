@@ -1,0 +1,8 @@
+# S-10 spelling 5 — the inline typed definition devman read as three parameters.
+params:
+  - name: A
+    type: string
+    default: x
+steps:
+  - name: s
+    run: echo hi

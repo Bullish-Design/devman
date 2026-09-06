@@ -1,0 +1,8 @@
+status=failed
+boundary=baseline dependency import
+exit_status=1
+error=ModuleNotFoundError: No module named 'fsdantic'
+last_confirmed=host, locale, Python, Ruff, devenv, repository revisions, and source hashes were captured
+classification=environment dependency exposure
+accepted_state_mutated=false
+next_step=retry baseline without claiming fsdantic runtime availability; add fsdantic to devenv only before an approved local fsdantic probe

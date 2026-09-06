@@ -1,0 +1,9 @@
+session_name: workspace-min
+start_directory: .
+windows:
+  - opencode:
+      panes:
+        - opencode
+  - editor:
+      panes:
+        - llm-core nvim

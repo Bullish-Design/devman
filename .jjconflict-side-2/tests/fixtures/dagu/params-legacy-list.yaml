@@ -1,0 +1,7 @@
+# S-10 spelling 1 — devman's own group files use this one.
+params:
+  - A: x
+  - B: y
+steps:
+  - name: s
+    run: echo hi

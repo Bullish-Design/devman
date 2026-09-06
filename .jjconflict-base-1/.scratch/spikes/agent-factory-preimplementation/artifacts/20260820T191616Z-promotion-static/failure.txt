@@ -1,0 +1,8 @@
+status=failed
+boundary=static format check
+classification=probe code formatting
+lint_status=passed
+format_status=failed
+runtime_started=false
+accepted_state_mutated=false
+fix=apply Ruff formatting to the two promotion probe files

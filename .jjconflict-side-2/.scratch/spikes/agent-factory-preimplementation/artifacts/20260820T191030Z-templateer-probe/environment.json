@@ -1,0 +1,7 @@
+{
+  "command": ".scratch/spikes/agent-factory-preimplementation/templateer_probe.py --artifacts .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T191030Z-templateer-probe",
+  "pydantic": "2.13.4",
+  "python": "3.13.14",
+  "ruff": "ruff 0.15.20",
+  "templateer": "0.2.0"
+}

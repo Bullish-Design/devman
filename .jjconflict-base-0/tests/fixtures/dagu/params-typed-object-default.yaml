@@ -1,0 +1,8 @@
+# REFUSED. Dagu keeps a default scalar, which is why _scalar() holds.
+params:
+  - name: A
+    type: object
+    default: {k: v}
+steps:
+  - name: s
+    run: echo hi

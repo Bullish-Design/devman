@@ -1,0 +1,213 @@
+# changelog/changelog-entries — one detailed diff file per landed commit
+# (`.scratch/projects/021-changelog/DESIGN.md`, §2.1).
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS TIER FREE, AND SO NEEDS NO GITMAN LANE
+#
+# Every file it writes is under `.devman/`, which is tier A's agent surface
+# (`FREE_PREFIXES`, `src/devman/project.py`). It is a NEW file per commit, never
+# an edit to a tracked one, so §12 rule 3 has nothing to say about it — the
+# lane exists for the OTHER workflow this group ships, `changelog.yaml`, which
+# edits `CHANGELOG.md` itself.
+#
+# ---------------------------------------------------------------------------
+# WHY IT IS TRIGGERED FROM `gitman.toml`'S `[land].post_hook`, AND NOT A GIT HOOK
+#
+# Two things were measured before this file was written, not assumed
+# (DESIGN.md §1):
+#
+#   1. gitman's own land hooks are a CHANGE DETECTOR, not an injection point.
+#      A hook whose command writes a file — even one inside its configured
+#      `allowed_paths` — blocks the land (pre-land) or leaves it flagged
+#      (post-land, "land succeeded; no rollback was attempted"). So this
+#      workflow's own writes may never run AS the hook's command.
+#
+#   2. A colocated jj commit does not fire git's native hooks. Measured in a
+#      scratch repo: `jj git init --colocate`, a `.git/hooks/post-commit` that
+#      writes a marker, `jj describe` + `jj new` — a real commit lands in
+#      `git log` and the hook never runs. `groups/base/README.md`'s documented
+#      `git-hooks.hooks.*` post-commit pattern does not reach a gitman
+#      repository for this reason.
+#
+# What DOES work is `devman run`, and it works precisely because it never
+# touches the working tree itself: it resolves the project and runs one
+# `dagu enqueue` (`src/devman/run.py:382`), which returns as soon as the run is
+# admitted to its queue — the write happens later, inside the enqueued run,
+# entirely outside the hook's own before/after filesystem snapshot. So a
+# taking repository's OWN `gitman.toml` names this workflow as its post-land
+# hook:
+#
+#     [land.post_hook]
+#     command = ["devman", "run", "changelog-entries"]
+#
+# That config lives in the repository, not in this group — a group may not
+# hold a project fact, and a hook command is the repository's own choice to
+# take (`groups/README.md`, "may not"-column).
+#
+# If the Dagu daemon is down when `land` runs, gitman reports the hook's
+# failure and its own exit code, and the land is NOT rolled back — a person
+# sees the note and can run `devman run changelog-entries` by hand. That is a
+# refusal a person acts on, not a run that reports success while doing
+# nothing (§12 rule 4).
+#
+# ---------------------------------------------------------------------------
+# THE FRONTIER IS A CHANGE ID, NOT A GIT COMMIT HASH, AND NOT A TREE HASH
+# (019's finding restated, plus one more reason)
+#
+# `format`'s receipt is a tree hash and cannot tell "ran, changed nothing" from
+# "ran, changed something" (019/MEASUREMENT.md: 148 of `format`'s runs wrote
+# the hash and only 23 did work). A delta needs an identity to diff against,
+# and jj's change id is the stable one — unlike a git commit hash, which
+# `land`'s own rebase changes every time a lane folds in, a change id survives
+# every rewrite gitman ever does to a commit. Naming entry files and the
+# receipt by change id means neither ever has to care whether a commit was
+# rebased since it was last seen; a git hash would have to.
+#
+# ---------------------------------------------------------------------------
+# THE GATE FAILS; IT DOES NOT SKIP (same reasoning as `release.yaml`'s gate)
+#
+# A DAG-level Dagu `preconditions:` entry records `Succeeded` with the run
+# aborted — right for a self-stopping loop (`format.yaml`), wrong for a
+# refusal. "Nothing landed since the last run" is a refusal, so the gate is an
+# ordinary step that reports what it found and exits 1.
+#
+# ---------------------------------------------------------------------------
+# PYJUTSU, NOT THE `jj` CLI — MEASURED, NOT ASSUMED
+#
+# The first draft of this file shelled out to `jj log`/`jj show`. Reading
+# gitman's own `pyproject.toml` before shipping that draft found the
+# assumption wrong: **"pyjutsu >= 0.20 binds the complete in-process surface
+# ... there is no `jj` CLI dependency."** `gitman doctor` itself only checks
+# for `pyjutsu` (the in-process library) and `git` (for jj's "escape hatch") —
+# never `jj`. A gitman-managed repository is not guaranteed to have the `jj`
+# binary on PATH just because it has gitman.
+#
+# So both steps below call `python3` directly, importing `pyjutsu` — the same
+# library gitman itself is built on, already a dependency wherever gitman is
+# installed. `pyjutsu.Workspace.load(".").log(revset)` and `.diff`/
+# `.diff_stat` replace `jj log`/`jj show`; the revset strings themselves are
+# unchanged (`::trunk & ~root()` for the first run, `last..trunk` after),
+# because pyjutsu takes the same revset language jj's CLI does — verified in a
+# scratch repo before this file was written, not assumed from the API alone.
+#
+# `pyjutsu`'s diff is structured (`Diff`/`DiffStat`, hunks with no surrounding
+# context — see its own models.py docstring), not a byte-exact unified patch,
+# so the render below is this workflow's own — not a copy of `git diff`'s
+# format. That is a deliberate, stated trade: the entry file is for a person
+# or an LLM to read, not for `patch` to replay.
+#
+# ---------------------------------------------------------------------------
+# THE TRUNK NAME COMES FROM `gitman.toml`, NEVER HARD-CODED
+#
+# `trunk` is frozen at `gitman init` (invariant I1, gitman's `models.py:
+# TrunkRef`) and this file's own copy is read the same way gitman itself
+# resolves it — no repository fact ("main", "trunk", whatever a taking
+# repository named it) is assumed here (§4).
+queue: light
+type: chain
+steps:
+  - id: gate
+    name: gate
+    run: |
+      set -eu
+      python3 - <<'PYEOF'
+      import pathlib
+      import sys
+      import tomllib
+
+      import pyjutsu
+
+      trunk = tomllib.loads(pathlib.Path("gitman.toml").read_text())["trunk"]
+      ws = pyjutsu.Workspace.load(".")
+      last_path = pathlib.Path(".devman/.runs/.changelog-entries.last")
+      last = last_path.read_text().strip() if last_path.is_file() else None
+      revset = f"{last}..{trunk}" if last else f"::{trunk} & ~root()"
+      commits = ws.log(revset)
+      if not commits:
+          print(
+              f"changelog-entries: no commits since {last or 'the beginning'} —"
+              " refusing rather than doing nothing",
+              file=sys.stderr,
+          )
+          sys.exit(1)
+      print(f"changelog-entries: {len(commits)} commit(s) since {last or 'the beginning'}")
+      PYEOF
+
+  - id: generate
+    name: generate
+    run: |
+      set -eu
+      mkdir -p .devman/changelog/entries
+      python3 - <<'PYEOF'
+      import pathlib
+      import tomllib
+
+      import pyjutsu
+
+      trunk = tomllib.loads(pathlib.Path("gitman.toml").read_text())["trunk"]
+      ws = pyjutsu.Workspace.load(".")
+      last_path = pathlib.Path(".devman/.runs/.changelog-entries.last")
+      last = last_path.read_text().strip() if last_path.is_file() else None
+      revset = f"{last}..{trunk}" if last else f"::{trunk} & ~root()"
+      commits = list(reversed(ws.log(revset)))  # oldest first
+
+      entries_dir = pathlib.Path(".devman/changelog/entries")
+      newest = last
+      for commit in commits:
+          stat = ws.diff_stat(commit.change_id)
+          diff = ws.diff(commit.change_id)
+          lines = [
+              f"Change ID: {commit.change_id}",
+              f"Commit ID: {commit.commit_id}",
+              f"Author: {commit.author.name} <{commit.author.email}> ({commit.author.timestamp})",
+              "",
+              commit.description.rstrip("\n") or "(no description)",
+              "",
+          ]
+          for f in stat.files:
+              lines.append(f"{f.path} | +{f.insertions} -{f.deletions}")
+          lines.append(
+              f"{len(stat.files)} file(s) changed, {stat.total_insertions} insertion(s)(+), "
+              f"{stat.total_deletions} deletion(s)(-)"
+          )
+          lines.append("")
+          for fc in diff.files:
+              header = f"--- {fc.kind}: {fc.path}"
+              if fc.source:
+                  header += f" (from {fc.source})"
+              lines.append(header)
+              if fc.binary:
+                  lines.append("  (binary)")
+                  continue
+              for h in fc.hunks:
+                  lines.append(f"@@ -{h.old_start},{h.old_lines} +{h.new_start},{h.new_lines} @@")
+                  for hl in h.lines:
+                      prefix = "+" if hl.kind == "added" else "-"
+                      lines.append(prefix + hl.content.rstrip("\n"))
+          (entries_dir / f"{commit.change_id}.md").write_text("\n".join(lines) + "\n")
+          newest = commit.change_id
+
+      if newest:
+          pathlib.Path(".devman/.runs/.changelog-entries.last").write_text(newest + "\n")
+      PYEOF
+
+  # `${context.dag.name}` is this run's own DAG name, `<project>.changelog-entries`
+  # under S-12's dot codec (`src/devman/registry.py:dag_name`). `${me%.*}` is the
+  # same derivation `release.yaml`'s gate already uses to name a project from its
+  # own run — the separator is a dot and a workflow name may not hold one (§9.2),
+  # so the split is total for every project name, hyphens included. The result
+  # names THIS project's own `changelog` DAG, never another project's — this
+  # workflow never becomes cross-repo (§11).
+  - id: target
+    name: resolve-target
+    output: CHANGELOG_DAG
+    run: |
+      set -eu
+      me="${context.dag.name}"
+      echo "${me%.*}.changelog"
+
+  - id: chain
+    name: enqueue-summary
+    action: dag.enqueue
+    with:
+      dag: ${CHANGELOG_DAG}

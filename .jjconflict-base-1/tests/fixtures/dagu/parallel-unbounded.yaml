@@ -1,0 +1,12 @@
+# UNBOUNDED. Measured: all 3 items started at once — the limit is optional and
+# its absence is unbounded (S-8).
+params:
+  - DEVMAN_SELF_DIR: /tmp
+steps:
+  - name: f
+    action: dag.run
+    with: {dag: "${ITEM.dag}"}
+    parallel:
+      items:
+        - {dag: one}
+        - {dag: two}

@@ -1,0 +1,22 @@
+session_name: nixos-collection
+start_directory: .
+windows:
+  - overview:
+      panes:
+        - llm-core nvim
+  - nixos-config:
+      start_directory: repos/nixos-config
+      panes:
+        - git status
+  - home-config:
+      start_directory: repos/home-config
+      panes:
+        - git status
+  - nixpkgs:
+      start_directory: repos/nixpkgs
+      panes:
+        - git status
+  - secrets:
+      start_directory: repos/secrets
+      panes:
+        - git status

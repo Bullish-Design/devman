@@ -1,0 +1,19 @@
+# devman's own trigger layer — §7.3's last layer, for triggers (§8).
+#
+# `groups/format/triggers.toml` maps `**/*.py`, which is right for the group:
+# it cannot know which files any taker's formatter actually touches. This
+# repository's `pyproject.toml` excludes `.scratch` from Ruff, because that
+# directory holds design notes, investigation scripts and vendored clones — code
+# this repository does not own.
+#
+# Without this line the two disagreed, and the disagreement was silent: saving
+# `.scratch/…/reproductions.py` fired `format`, the precondition hash covered
+# `.scratch` so the step did not skip, `devenv tasks run format:fmt` ran in
+# full, and Ruff formatted nothing. Measured over this machine's watcher log: 16
+# of 252 `format` fires, every one of them work that could not change a file
+# (009 P3-3).
+#
+# THE RULE THIS FOLLOWS. A repository that excludes a path from its formatter
+# excludes it here too. `groups/format/README.md` states it; this is the file
+# that states it back.
+ignore = [".scratch/**"]

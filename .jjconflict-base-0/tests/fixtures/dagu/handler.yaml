@@ -1,0 +1,8 @@
+# base.yaml is inherited whole-field, so this replaces the machine's exit
+# handler and the run appends no line to metadata.jsonl (§9.2, S3).
+handler_on:
+  success:
+    run: echo ok
+steps:
+  - name: s
+    run: echo hi

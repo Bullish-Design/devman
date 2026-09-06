@@ -1,0 +1,15 @@
+started_utc=2026-08-20T19:04:06Z
+command=devenv shell -- sh -lc <baseline retry probes>
+Python 3.13.14
+ruff 0.15.20
+devenv 2.1.2 (x86_64-linux)
+b9f494a0b1efd4a46d053f0ad54aad3765dc742b
+repo=../pydantree commit=11b1c62c0fc576e5baf7f5933144008b1d0567a0
+repo=../templateer_v2 commit=1075ca8786671a88b4830135634911a209014725
+repo=../fsdantic commit=56e2d5f394a97d68a5c1642104a9adeeff216983
+pydantic=2.13.4
+pydantree-sitter=0.2.0
+templateer=0.2.0
+tree-sitter-python=0.25.0
+fsdantic=not-importable-in-devman-devenv
+status=passed

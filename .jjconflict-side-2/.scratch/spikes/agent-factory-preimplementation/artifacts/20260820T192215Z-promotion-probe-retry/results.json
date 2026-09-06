@@ -1,0 +1,639 @@
+{
+  "metrics": {
+    "expected_acceptances": 10,
+    "expected_rejections": 9,
+    "false_acceptances": 0,
+    "false_rejections": 0,
+    "model_quality_false_acceptance_rate": "unknown",
+    "model_quality_false_rejection_rate": "unknown",
+    "orchestration_false_acceptance_rate": 0.0,
+    "orchestration_false_rejection_rate": 0.0
+  },
+  "rejection_cases": {
+    "cancel": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "provider request was cancelled",
+          "state": "cancelled"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": null,
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-cancelled"
+    },
+    "contradictory": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "required example missing or deterministic contradiction found",
+          "state": "examples-rejected"
+        },
+        {
+          "attempt": 2,
+          "detail": "required example missing or deterministic contradiction found",
+          "state": "examples-rejected"
+        },
+        {
+          "attempt": 3,
+          "detail": "required example missing or deterministic contradiction found",
+          "state": "examples-rejected"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-body",
+        "changes": [
+          {
+            "edit_kind": "body",
+            "examples": [
+              "example:body:unit:value",
+              "CONTRADICTS:return one"
+            ],
+            "semantic_spec": "Return two.",
+            "unit_id": "unit:value"
+          }
+        ]
+      },
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-attempt-limit"
+    },
+    "hallucinated": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "expected=['unit:value'] got=['unit:invented', 'unit:value']",
+          "state": "hallucinated-unit"
+        },
+        {
+          "attempt": 2,
+          "detail": "expected=['unit:value'] got=['unit:invented', 'unit:value']",
+          "state": "hallucinated-unit"
+        },
+        {
+          "attempt": 3,
+          "detail": "expected=['unit:value'] got=['unit:invented', 'unit:value']",
+          "state": "hallucinated-unit"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-body",
+        "changes": [
+          {
+            "edit_kind": "body",
+            "examples": [
+              "example:body:unit:value"
+            ],
+            "semantic_spec": "Return two.",
+            "unit_id": "unit:value"
+          },
+          {
+            "edit_kind": "body",
+            "examples": [
+              "example:invented"
+            ],
+            "semantic_spec": "Invent behavior.",
+            "unit_id": "unit:invented"
+          }
+        ]
+      },
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-attempt-limit"
+    },
+    "malformed": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "1 validation error for PromotionProposal\n  Input should be a valid dictionary or instance of PromotionProposal [type=model_type, input_value='not-a-mapping', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+          "state": "schema-rejected"
+        },
+        {
+          "attempt": 2,
+          "detail": "1 validation error for PromotionProposal\n  Input should be a valid dictionary or instance of PromotionProposal [type=model_type, input_value='not-a-mapping', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+          "state": "schema-rejected"
+        },
+        {
+          "attempt": 3,
+          "detail": "1 validation error for PromotionProposal\n  Input should be a valid dictionary or instance of PromotionProposal [type=model_type, input_value='not-a-mapping', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/model_type",
+          "state": "schema-rejected"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": null,
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-attempt-limit"
+    },
+    "nonconvergent": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "re-derived files differ from canonical edited source",
+          "state": "non-convergent"
+        },
+        {
+          "attempt": 2,
+          "detail": "re-derived files differ from canonical edited source",
+          "state": "non-convergent"
+        },
+        {
+          "attempt": 3,
+          "detail": "re-derived files differ from canonical edited source",
+          "state": "non-convergent"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-body",
+        "changes": [
+          {
+            "edit_kind": "body",
+            "examples": [
+              "example:body:unit:value"
+            ],
+            "semantic_spec": "Return the old value.",
+            "unit_id": "unit:value"
+          }
+        ]
+      },
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-attempt-limit"
+    },
+    "partial": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "expected=['unit:one', 'unit:two'] got=['unit:one']",
+          "state": "partial-output"
+        },
+        {
+          "attempt": 2,
+          "detail": "expected=['unit:one', 'unit:two'] got=['unit:one']",
+          "state": "partial-output"
+        },
+        {
+          "attempt": 3,
+          "detail": "expected=['unit:one', 'unit:two'] got=['unit:one']",
+          "state": "partial-output"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-split",
+        "changes": [
+          {
+            "edit_kind": "split",
+            "examples": [
+              "example:split:unit:one"
+            ],
+            "semantic_spec": "Return one.",
+            "unit_id": "unit:one"
+          }
+        ]
+      },
+      "source_after_hash": "cdd4c4d65752868dcbcd0f59ae51a935bd2dac945a3eb3aa489dcd30da797f42",
+      "source_before_hash": "cdd4c4d65752868dcbcd0f59ae51a935bd2dac945a3eb3aa489dcd30da797f42",
+      "store_after_hash": "5a33aaff588cac9ce5b852e10f738133605623e735b16f673bae86e427659df9",
+      "store_before_hash": "5a33aaff588cac9ce5b852e10f738133605623e735b16f673bae86e427659df9",
+      "terminal_state": "rejected-attempt-limit"
+    },
+    "stale": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "proposal generation token does not match accepted input",
+          "state": "stale-input"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-stale",
+        "changes": [
+          {
+            "edit_kind": "body",
+            "examples": [
+              "example:body:unit:value"
+            ],
+            "semantic_spec": "Return two.",
+            "unit_id": "unit:value"
+          }
+        ]
+      },
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-stale-input"
+    },
+    "timeout": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "provider exceeded the attempt timeout",
+          "state": "provider-timeout"
+        },
+        {
+          "attempt": 2,
+          "detail": "provider exceeded the attempt timeout",
+          "state": "provider-timeout"
+        },
+        {
+          "attempt": 3,
+          "detail": "provider exceeded the attempt timeout",
+          "state": "provider-timeout"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": null,
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-attempt-limit"
+    },
+    "undeclared-source-field": {
+      "accepted": false,
+      "accepted_store_preserved": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "1 validation error for PromotionProposal\nchanges.0.source_contract\n  Extra inputs are not permitted [type=extra_forbidden, input_value='def value() -> int:\\n    return 2\\n', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+          "state": "schema-rejected"
+        },
+        {
+          "attempt": 2,
+          "detail": "1 validation error for PromotionProposal\nchanges.0.source_contract\n  Extra inputs are not permitted [type=extra_forbidden, input_value='def value() -> int:\\n    return 2\\n', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+          "state": "schema-rejected"
+        },
+        {
+          "attempt": 3,
+          "detail": "1 validation error for PromotionProposal\nchanges.0.source_contract\n  Extra inputs are not permitted [type=extra_forbidden, input_value='def value() -> int:\\n    return 2\\n', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden",
+          "state": "schema-rejected"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-body",
+        "changes": [
+          {
+            "edit_kind": "body",
+            "examples": [
+              "example:body:unit:value"
+            ],
+            "semantic_spec": "Return two.",
+            "source_contract": "def value() -> int:\n    return 2\n",
+            "unit_id": "unit:value"
+          }
+        ]
+      },
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "rejected-attempt-limit"
+    }
+  },
+  "success_cases": {
+    "behavior": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-behavior",
+        "changes": [
+          {
+            "edit_kind": "behavior",
+            "examples": [
+              "example:behavior:unit:sign"
+            ],
+            "semantic_spec": "Return minus one for negative values and one otherwise.",
+            "unit_id": "unit:sign"
+          }
+        ]
+      },
+      "source_after_hash": "2a5be436caf0c661c619beccb5cc628f74ab416068f050a4bd4a2cddc31f27cb",
+      "source_before_hash": "2a5be436caf0c661c619beccb5cc628f74ab416068f050a4bd4a2cddc31f27cb",
+      "store_after_hash": "051296de4bc37419fab468316bbd94187b4c784684c5960b4370af7c265952f9",
+      "store_before_hash": "d1df25b1ff68a3930ac7aece9aecff92b4ab08cce210d30957a5291fadb28603",
+      "terminal_state": "accepted"
+    },
+    "body": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-body",
+        "changes": [
+          {
+            "edit_kind": "body",
+            "examples": [
+              "example:body:unit:value"
+            ],
+            "semantic_spec": "Return two.",
+            "unit_id": "unit:value"
+          }
+        ]
+      },
+      "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+      "store_after_hash": "47264d84026e94ae934b20a41b1c1a8a56ecbbcee15a5d525fc80d3fa85778f6",
+      "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+      "terminal_state": "accepted"
+    },
+    "delete": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-delete",
+        "changes": [
+          {
+            "edit_kind": "delete",
+            "examples": [
+              "example:delete:unit:obsolete"
+            ],
+            "semantic_spec": "Delete obsolete behavior and retain its tombstone.",
+            "unit_id": "unit:obsolete"
+          }
+        ]
+      },
+      "source_after_hash": "b52434b242a6ce7fa218d50b53a50a9080716d993d16040cb8a0e98674e3f976",
+      "source_before_hash": "b52434b242a6ce7fa218d50b53a50a9080716d993d16040cb8a0e98674e3f976",
+      "store_after_hash": "b607604ab8c62b1510c098b55ebcc1a406c07b69a0f56d61af71704b820b2268",
+      "store_before_hash": "fb4c27935705b410a431d583376ae87a57e5913b8263cc1d8fa01744447b0ddf",
+      "terminal_state": "accepted"
+    },
+    "docstring": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-docstring",
+        "changes": [
+          {
+            "edit_kind": "docstring",
+            "examples": [
+              "example:docstring:unit:value"
+            ],
+            "semantic_spec": "Return one and document that exact result.",
+            "unit_id": "unit:value"
+          }
+        ]
+      },
+      "source_after_hash": "8e6fc586bd37f83d08467f3e7d6f169e35343033fd6cd6141045e65f3485a993",
+      "source_before_hash": "8e6fc586bd37f83d08467f3e7d6f169e35343033fd6cd6141045e65f3485a993",
+      "store_after_hash": "f45a5d995847c2cb56254a6374df95df234bd211239a1057038a38c78bf554cb",
+      "store_before_hash": "a4afcc2bc74d372d7758beb96917b8a7726e396ca80d0a14b8dcaa70d3b8c71e",
+      "terminal_state": "accepted"
+    },
+    "import": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-import",
+        "changes": [
+          {
+            "edit_kind": "import",
+            "examples": [
+              "example:import:unit:root"
+            ],
+            "semantic_spec": "Use math.sqrt to return the square root.",
+            "unit_id": "unit:root"
+          }
+        ]
+      },
+      "source_after_hash": "9dedeed2ecc5b228451a90b84dfaea62faf49e3c922e40589ca0116b5fbbc255",
+      "source_before_hash": "9dedeed2ecc5b228451a90b84dfaea62faf49e3c922e40589ca0116b5fbbc255",
+      "store_after_hash": "ccaf298f387ae750080bb5227fdf600b919111124956053ad96849d92d18b556",
+      "store_before_hash": "25e3ca43198211fc9cb4e5874e8108c50fd939f97117962432eba6d5a6f8002b",
+      "terminal_state": "accepted"
+    },
+    "merge": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-merge",
+        "changes": [
+          {
+            "edit_kind": "merge",
+            "examples": [
+              "example:merge:unit:both"
+            ],
+            "semantic_spec": "Return one and two as a tuple.",
+            "unit_id": "unit:both"
+          }
+        ]
+      },
+      "source_after_hash": "adc63b86a3b7ec58d115570da2719cd86b250e66c1c23bc1b40ba8f3900e3ab0",
+      "source_before_hash": "adc63b86a3b7ec58d115570da2719cd86b250e66c1c23bc1b40ba8f3900e3ab0",
+      "store_after_hash": "025bd7f2a1197607599c2010cf72ad4017b0f0a6c9e92be9daef4afbfbc2383b",
+      "store_before_hash": "a10efdbc6618ae042b1e192bbe3efc8b7a7314acabdc7113e2200fea7c1ada1f",
+      "terminal_state": "accepted"
+    },
+    "move": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-move",
+        "changes": [
+          {
+            "edit_kind": "move",
+            "examples": [
+              "example:move:unit:helper"
+            ],
+            "semantic_spec": "Place helper in module b.",
+            "unit_id": "unit:helper"
+          }
+        ]
+      },
+      "source_after_hash": "5ba8977ed7e3b0492ae86008caf510a27038fe816336780ac04582bee65ff87e",
+      "source_before_hash": "5ba8977ed7e3b0492ae86008caf510a27038fe816336780ac04582bee65ff87e",
+      "store_after_hash": "740462ada7d66a66ae3d424dd1191b7e50b3a2ff613ade6a55fc9dd5cd7949d9",
+      "store_before_hash": "c090e6a1429b4bc10a7ad291178b6ca1c0398ecdf35c909e2455149f25331e72",
+      "terminal_state": "accepted"
+    },
+    "rename": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-rename",
+        "changes": [
+          {
+            "edit_kind": "rename",
+            "examples": [
+              "example:rename:unit:stable"
+            ],
+            "semantic_spec": "Expose this operation as new_name.",
+            "unit_id": "unit:stable"
+          }
+        ]
+      },
+      "source_after_hash": "3cffc5e051a1eab9790cc4da6a2a8087e201fe85ef6d471c05d70759d5e5c20d",
+      "source_before_hash": "3cffc5e051a1eab9790cc4da6a2a8087e201fe85ef6d471c05d70759d5e5c20d",
+      "store_after_hash": "4ff91f51855bd99c2aef78527e8a5ce0078b128234fd1454537be74c72b9a982",
+      "store_before_hash": "23e0bfd7b59449ed5ce3f26d5c1f54a56f645be59d1c440f5fc0c320f0083c06",
+      "terminal_state": "accepted"
+    },
+    "signature": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-signature",
+        "changes": [
+          {
+            "edit_kind": "signature",
+            "examples": [
+              "example:signature:unit:value"
+            ],
+            "semantic_spec": "Return the caller default, which is one by default.",
+            "unit_id": "unit:value"
+          }
+        ]
+      },
+      "source_after_hash": "15de960bbbdce5988a381377b9bbfc36da525041711c255a06508b16f73729f1",
+      "source_before_hash": "15de960bbbdce5988a381377b9bbfc36da525041711c255a06508b16f73729f1",
+      "store_after_hash": "89d60b0f8679cb4e2dd5b8b24da8fddabef46fed22c913d70e565a74346129c2",
+      "store_before_hash": "1af39d055afab4870704cfa9463d874bfd6b9c822fd661b22ab2068bec6f27dc",
+      "terminal_state": "accepted"
+    },
+    "split": {
+      "accepted": true,
+      "accepted_store_preserved": false,
+      "attempts": [
+        {
+          "attempt": 1,
+          "detail": "schema, token, ownership, examples, and convergence passed",
+          "state": "accepted"
+        }
+      ],
+      "edited_source_preserved": true,
+      "proposal": {
+        "base_generation_token": "token-split",
+        "changes": [
+          {
+            "edit_kind": "split",
+            "examples": [
+              "example:split:unit:one"
+            ],
+            "semantic_spec": "Return one.",
+            "unit_id": "unit:one"
+          },
+          {
+            "edit_kind": "split",
+            "examples": [
+              "example:split:unit:two"
+            ],
+            "semantic_spec": "Return two.",
+            "unit_id": "unit:two"
+          }
+        ]
+      },
+      "source_after_hash": "cdd4c4d65752868dcbcd0f59ae51a935bd2dac945a3eb3aa489dcd30da797f42",
+      "source_before_hash": "cdd4c4d65752868dcbcd0f59ae51a935bd2dac945a3eb3aa489dcd30da797f42",
+      "store_after_hash": "090f1ae91716ff7acbac24c5cfb9456513441b4a533c432cad2da1936ac15c51",
+      "store_before_hash": "5a33aaff588cac9ce5b852e10f738133605623e735b16f673bae86e427659df9",
+      "terminal_state": "accepted"
+    }
+  },
+  "suite_passed": true
+}

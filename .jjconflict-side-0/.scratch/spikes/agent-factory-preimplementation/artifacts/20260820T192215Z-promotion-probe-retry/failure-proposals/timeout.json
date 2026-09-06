@@ -1,0 +1,28 @@
+{
+  "accepted": false,
+  "accepted_store_preserved": true,
+  "attempts": [
+    {
+      "attempt": 1,
+      "detail": "provider exceeded the attempt timeout",
+      "state": "provider-timeout"
+    },
+    {
+      "attempt": 2,
+      "detail": "provider exceeded the attempt timeout",
+      "state": "provider-timeout"
+    },
+    {
+      "attempt": 3,
+      "detail": "provider exceeded the attempt timeout",
+      "state": "provider-timeout"
+    }
+  ],
+  "edited_source_preserved": true,
+  "proposal": null,
+  "source_after_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+  "source_before_hash": "40124f702aac85ef32a7a0f7d61bd743a6d80eb5ee157ae0565789408ade23f7",
+  "store_after_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+  "store_before_hash": "12a78e300c4c1f2921fe914c46e1383a20ffccb8d7697fa4e8f1b18b3ce36371",
+  "terminal_state": "rejected-attempt-limit"
+}

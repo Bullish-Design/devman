@@ -1,0 +1,11 @@
+[workspace]
+name = "nixos-collection"
+tags = ["nixos", "infra", "configs"]
+
+tmuxp.workspace = "workspace.tmuxp.yaml"
+
+[nvim]
+init = "nvim/init.lua"
+listen = ".devman/.state/nvim.sock"
+sessions_dir = "sessions"
+default_session = "home.vim"

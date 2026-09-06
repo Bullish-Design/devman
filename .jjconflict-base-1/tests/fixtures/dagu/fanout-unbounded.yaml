@@ -1,0 +1,11 @@
+# UNBOUNDED, and Dagu accepts it. A file stating no `type` runs its steps
+# concurrently, and the machine's base.yaml states none either.
+params:
+  - DEVMAN_SELF_DIR: /tmp
+steps:
+  - name: a
+    action: dag.run
+    with: {dag: child}
+  - name: b
+    action: dag.run
+    with: {dag: child}

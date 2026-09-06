@@ -1,0 +1,7 @@
+# The two places a file can name a queue on this pin: the DAG's own, and
+# `with.queue` on a dag.enqueue step (S-11).
+queue: light
+steps:
+  - name: a
+    action: dag.enqueue
+    with: {dag: child, queue: heavy}

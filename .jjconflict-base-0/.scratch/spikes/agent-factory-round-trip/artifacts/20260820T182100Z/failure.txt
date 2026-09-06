@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-round-trip/run_spike.py", line 75, in main
+    results = run_all(artifacts)
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-round-trip/cases.py", line 359, in run_all
+    return [case(artifacts) for case in CASES]
+            ~~~~^^^^^^^^^^^
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-round-trip/cases.py", line 112, in body_change
+    after, report, rendered = ingest_tree(before, edited)
+                              ~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/home/andrew/Documents/Projects/devman/.scratch/spikes/agent-factory-round-trip/prototype.py", line 923, in ingest_tree
+    raise UnsupportedEditError(
+    ...<2 lines>...
+    )
+prototype.UnsupportedEditError: rendered bytes do not reproduce edited tree: catalog; owner=catalog::<module>

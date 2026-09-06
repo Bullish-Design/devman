@@ -1,0 +1,170 @@
+# release/release — build a release, and refuse to when the policy says no
+# (CONCEPT.md §13, stage 4).
+#
+# ---------------------------------------------------------------------------
+# THE GATE IS A STEP THAT FAILS, NOT A PRECONDITION THAT SKIPS
+#
+# `python-format`'s loop break is a step-level `preconditions:`, and that is
+# right there: a self-stopping loop must not fill the run history with things
+# that look like failures, so a skipped step records `Succeeded` (E1, S6).
+#
+# A GATE IS THE OPPOSITE CASE. A release that is refused and reports success is
+# §10-of-the-prompt's failure exactly — a successful run that did the wrong
+# thing — and the plane has no check for it and is not growing one (§15.7). So
+# the gate is an ordinary step that writes what it found and then exits 1. The
+# run reports `Failed`, `metadata.jsonl` records `"status":"failed"`, and the
+# chain stops before anything is built.
+#
+# ---------------------------------------------------------------------------
+# THE POLICY, AND WHY IT NEEDS NO FIFTH GLOBAL NAME (§7.1)
+#
+# Gating needs to know whether something passed. Two sources already exist and
+# neither is a new name: this project's own `.devman/.runs/metadata.jsonl`, one
+# line per run, which survives retention because nothing in Dagu owns it (§9.2);
+# and Dagu's machine-side history. The first is enough, and it is the better of
+# the two — it is repo-side, so it is the record of what happened in THIS
+# working tree.
+#
+# Two conditions, both of them content:
+#
+#   1. the working tree is clean. A release built from uncommitted work cannot
+#      be rebuilt from the tag it claims.
+#   2. the last recorded run of THIS project's `test` succeeded.
+#
+# CONDITION 2 NAMES THE DAG EXACTLY, AND THE FIRST VERSION DID NOT. It matched
+# `"dag":"<anything>-validate"`, which looked safe — `metadata.jsonl` is per
+# working tree, so every line in it is already this project's (§9.2). Running it
+# found the hole immediately: it matched `devman-stack-validate`, the cross-repo
+# workflow (§11), and reported a *different* workflow's success as this one's.
+# A DAG name was `<project>-<workflow>` and a workflow name may itself contain a
+# hyphen, so the name could not be split from the right in general.
+#
+# The fix uses what the run already knows about itself. `${context.dag.name}` is
+# this run's own DAG name, so stripping the workflow half gives the project, and
+# the wanted name is exact. It still holds no project identity and no absolute
+# path, so criterion 10 stays true.
+#
+# S-12'S CODEC IS WHAT MAKES THAT SPLIT TOTAL, AND THIS LINE IS WHY IT MATTERED.
+#
+# The split used to be `${me%-*}` — strip the last hyphenated component — and it
+# was correct only because `release` holds no hyphen. The comment said so: "that
+# derivation assumes this workflow's own file name contains no hyphen", which is
+# an assumption a repository shadowing this file under a hyphenated name would
+# have broken silently.
+#
+# The separator is now a dot and a workflow name may not hold one (§9.2), so
+# `${me%.*}` is the project for EVERY workflow name, hyphens included. The
+# assumption is gone rather than documented.
+#
+# The migration costs one run. `metadata.jsonl` holds this project's older lines
+# under the pre-codec name, so the first `release` after the codec lands finds no
+# `<project>.test` line and refuses with `NONE RECORDED` — which is the same
+# loud refusal a repository that renames `test` already gets, and it clears the
+# moment `devman run test` records one line.
+#
+# STAGE 7 RENAMED THE TARGET FROM `validate` TO `test`, AND THE RENAME WAS
+# MEASURED RATHER THAN ASSUMED (STAGE_7_LOG.md, S-6). The reason it needed
+# measuring is that `-test` is a suffix of a workflow name that existed until
+# this stage — `full-test` — so `<project>-full-test` ends in the same three
+# characters the gate now wants. It does not match, and the reason is the
+# anchor: `grep -F` looks for the whole string `"dag":"<project>.test"`,
+# CLOSING QUOTE INCLUDED, so a longer name cannot contain it — the character
+# after `test` is `-`, not `"`. The same anchor is what stopped
+# `devman-stack-validate` matching before it.
+#
+# The project name is derived from THIS run's own DAG name, so a project whose
+# own name ends in `-test` is also safe: `foo-test.release` strips to `foo-test`
+# and the gate wants `foo-test.test`, which is that project's own test DAG.
+#
+# WHAT THE POLICY CANNOT SAY, stated rather than faked. `metadata.jsonl` records
+# a run's dag, id, status and time, and no commit. So the gate can say "the last
+# test succeeded" and cannot say "the last test succeeded on THIS commit". The
+# report prints the run id and the timestamp so a person can judge it; inventing
+# a freshness rule the data cannot support would be §15.7 with extra steps.
+#
+# ---------------------------------------------------------------------------
+# WHERE THE ARTIFACT GOES
+#
+# `.devman/.runs/artifacts/` — §9.2's own name for it, created at registration,
+# git-ignored, and pruned by nothing. The repository's `release:build` task puts
+# its output there; this workflow lists what appeared. A step addresses it
+# relatively, because `working_dir` is already the project.
+#
+# This workflow defines no `handler_on`: one would replace base.yaml's and the
+# run would then write no `metadata.jsonl` line at all (§9.2, S3) — which is the
+# one record this workflow's own gate reads.
+queue: heavy
+type: chain
+steps:
+  - id: gate
+    name: gate
+    run: |
+      set -u
+      report=".devman/.runs/reports/release-${context.run.id}.md"
+      refused=0
+      {
+        echo "# release — ${context.dag.name}"
+        echo
+        echo "- run id: \`${context.run.id}\`"
+        echo "- started: ${context.attempt.started_at}"
+        echo
+        echo '## gate'
+      } > "$report"
+
+      dirty=$(git status --porcelain 2>/dev/null) || dirty="(no git)"
+      if [ -z "$dirty" ]; then
+        echo "- clean tree: yes" >> "$report"
+      else
+        refused=1
+        {
+          echo "- clean tree: **NO** — refusing"
+          echo '```'
+          printf '%s\n' "$dirty"
+          echo '```'
+        } >> "$report"
+      fi
+
+      me="${context.dag.name}"
+      want="\"dag\":\"${me%.*}.test\""
+      last=$(grep -hF "$want" .devman/.runs/metadata.jsonl 2>/dev/null | tail -1)
+      if [ -z "$last" ]; then
+        refused=1
+        echo "- last test: **NONE RECORDED** for \`${me%.*}.test\` — refusing." \
+             "Run \`devman run test\` first" >> "$report"
+      else
+        case "$last" in
+          *'"status":"succeeded"'*)
+            echo "- last test: succeeded — \`$last\`" >> "$report" ;;
+          *)
+            refused=1
+            echo "- last test: **NOT SUCCEEDED** — refusing. \`$last\`" >> "$report" ;;
+        esac
+      fi
+
+      cat "$report"
+      if [ "$refused" != 0 ]; then
+        echo "release: the policy refused this release. See $report" >&2
+        exit 1
+      fi
+
+  - id: build
+    name: build
+    run: devenv tasks run -v release:build
+
+  - id: record
+    name: record
+    run: |
+      set -u
+      report=".devman/.runs/reports/release-${context.run.id}.md"
+      {
+        echo
+        echo '## built'
+        echo
+        echo "- head: \`$(git rev-parse HEAD 2>/dev/null || echo '-')\`"
+        echo "- describes as: \`$(git describe --tags --always --dirty 2>/dev/null || echo '-')\`"
+        echo
+        echo '```'
+        ls -l .devman/.runs/artifacts/ 2>/dev/null || echo '(no artifacts directory)'
+        echo '```'
+      } >> "$report"
+      cat "$report"

@@ -1,0 +1,186 @@
+# base/maintain — keep this project's run tree from growing forever
+# (CONCEPT.md §13, stage 4; narrowed at stage 7).
+#
+# ---------------------------------------------------------------------------
+# WHAT MAINTENANCE IS HERE
+#
+# `hist_retention_days` in the machine's base.yaml prunes both halves of a run:
+# Dagu's machine-side history and the per-project log tree under `log_dir` (D5,
+# S10). It does NOT prune `.devman/.runs/reports/` or `.runs/artifacts/`. Those
+# two directories are created at registration and owned by nobody, and stage 4
+# is what starts filling them — `release` writes a report plus an artifact. Left
+# alone they grow without limit, and §9.2's trap makes it worse: retention is per
+# DAG and runs when that DAG runs, so a project whose workflows stop running
+# keeps everything it ever wrote.
+#
+# IT PRUNES REPORTS AND NEVER ARTIFACTS. A report is regenerable text; an
+# artifact is the thing you were about to ship. Deleting one unattended is
+# exactly §15.7's failure — a successful run that did the wrong thing — so
+# artifacts are counted and reported, and a person removes them.
+#
+# ---------------------------------------------------------------------------
+# THIS WORKFLOW STOPPED RUNNING `devman doctor` AT STAGE 7, AND THE ARITHMETIC IS
+# THE ARGUMENT
+#
+# `devman doctor` forks one `dagu validate` per projected file. At 6 projects and
+# 36 workflows it costs 2.9 s; at 58 projects it is roughly 174 files. Run from
+# here it would cost about 13 CPU-minutes every night and produce 58 IDENTICAL
+# plane-wide reports (PROPOSAL.md §5).
+#
+# 58 identical failures is not a signal. One is. So `doctor` moved to
+# `plane-report`, which `devman` owns and which runs once for the machine, and
+# this workflow keeps only the work no other owner has.
+#
+# WHY THIS STILL EXISTS AS A DAG, which is the part nothing else records:
+# `hist_retention_days` is per DAG and fires when that DAG runs. A project whose
+# workflows never run keeps its log tree forever. `maintain` is the nightly run
+# that makes retention fire in a repository nobody touched this month. That is
+# why it stays in `base` rather than becoming an opt-in group, and why a
+# machine-side pruner cannot replace it (PROPOSAL.md §10, rejected alternative 5).
+#
+# ---------------------------------------------------------------------------
+# WHY `KEEP_DAYS` IS A PARAMETER AND NOT A READ OF THE MACHINE'S SETTING
+#
+# The right number is the machine's `hist_retention_days`, so that reports age
+# out with the logs they describe. A workflow cannot read it: it is Dagu's own
+# field in `base.yaml`, inherited into the run rather than exposed to it, and
+# reading `base.yaml` from a step would put a machine-specific absolute path in
+# this file (§9.1, criterion 10). So the default is stated here, matching the
+# module's own default, and the drift is named rather than hidden. A repository
+# or a trigger that wants another number passes `KEEP_DAYS=30`.
+#
+# DECLARING ONE PARAMETER MEANS DECLARING `DEVMAN_PROJECT_DIR` TOO. Dagu rejects
+# a parameter a DAG did not declare, and `devman run` always passes the
+# directory variable (src/devman/run.py:92). A workflow declares none, or it
+# declares that one first (STAGE_4_LOG.md, S3). **Dropping the `doctor` step does
+# not drop the parameter block** — the block is about how this DAG is triggered,
+# not about what its steps do.
+#
+# It is not the cross-repo case §11 forbids: this workflow triggers no other DAG,
+# so it targets its own project and holding the name is correct.
+#
+# ---------------------------------------------------------------------------
+# THE SCHEDULE LIVES HERE, AND IT IS DAGU'S OWN KEY (stage 6)
+#
+# Nightly at 00:05. Every repository that takes `base` is maintained without
+# anybody writing a systemd unit, and a repository that adopts `base` next month
+# is maintained from that night — which the hand-written timer it replaces could
+# never promise, because it held five project names somebody had to remember to
+# update (STAGE_5_LOG.md, S9).
+#
+# THIS WORKS ONLY BECAUSE THE PROJECTION IS GENERATED. Under `schedule:` the
+# enqueueing process is the Dagu daemon, which has one environment for the whole
+# machine, so a projection that interpolated `${DEVMAN_PROJECT_DIR}` produced a
+# run in a directory of that literal name (STAGE_4_LOG.md, S2). Since stage 6
+# each project's projected copy states its own `working_dir`, `log_dir` and
+# directory variable, so the daemon needs nothing from a trigger
+# (STAGE_6_LOG.md, S2).
+#
+# 58 SIMULTANEOUS DISPATCHES AT 00:05 ARE FINE, AND THE QUEUE IS NOT WHAT MAKES
+# THEM FINE — THIS COMMENT SAID IT WAS, AND IT WAS WRONG (009 P2-5).
+#
+# `light` has a limit of 4, and a queue binds the ENQUEUE path. **Dagu's own
+# scheduler bypasses queues**, which S-1 measured directly: 58 scheduled runs
+# started at once with the queue depth at 0, while 58 enqueued runs never
+# exceeded 4 and drained in 311 s. Criterion 12 was narrowed to say so
+# (`STAGE_7_LOG.md`, the criterion-12 entry).
+#
+# What makes 58 dispatches fine is therefore the rule that replaced the
+# property: **what the plane schedules must be cheap by construction.** This
+# workflow prunes its own report directory and does nothing else, which is why
+# it may carry a schedule at all (§12 rule 8).
+# Nothing carries a stagger and nothing should: a group file is shared, so an
+# offset written here gives all 58 repositories the same offset, and a
+# per-repository offset is a project fact held outside the project — which is
+# STAGE_5_LOG.md S9's timer problem in a new place.
+#
+# TO OPT OUT, USE §7.3. Shadow this file with your own `.devman/workflows/
+# maintain.yaml` and leave the key out, or do not take `base`. There is no
+# per-workflow Nix option, by §7.4, and a schedule is content exactly as a queue
+# name is.
+#
+# IT ALSO COLLECTS devenv's SHELL CACHE, BECAUSE NOTHING ELSE DOES (014)
+#
+# `devenv` writes `.devenv/shell-<hash>.sh` for every distinct shell environment
+# it ever realises (`devenv/src/devenv/mod.rs:2163`) and **never deletes one**.
+# `devenv gc` does not either: all 85 lines of `devenv/src/devenv/gc.rs` collect
+# Nix store paths and dangling GC-root symlinks and never open the dotfile.
+# Measured across this machine's 54 repositories: 277,950 files, 22.9 GB, on a
+# disk at 91 %.
+#
+# THIS IS THE WORK NO OTHER OWNER HAS, which is the same argument that keeps
+# retention here. The directory is devenv's, not the plane's — but the plane is
+# the only thing that runs nightly in every repository, and the alternative is
+# that it grows forever in all 54.
+#
+# IT IS ON THE REPORT SIDE OF THIS FILE'S OWN LINE, NOT THE ARTIFACT SIDE. A
+# shell script here is regenerable by construction: `write_executable_script`
+# writes only when the file is absent, so devenv rewrites the one it needs on
+# the next run. That is why this may delete them unattended and may not delete
+# an artifact.
+#
+# `KEEP_DAYS` GUARDS THE LIVE ONE. A script is written when its environment is
+# realised, so an environment in current use has a recent script. An older one
+# belongs to an environment nobody has entered inside the window. A `devenv
+# shell` open longer than `KEEP_DAYS` could still lose the rcfile it would
+# re-source on reload — that fails loudly with a missing path, which is the
+# direction §15.7 asks for.
+#
+# CHEAP BY CONSTRUCTION, MEASURED, because §12 rule 8 is what lets this file
+# carry a schedule at all. On the largest caches on this machine the scan is
+# 0.03-0.05 s (15,786 files) and the delete is 0.79 s for 10,198 files freeing
+# 799 MB. It is one directory listing and some unlinks; it does not grow with
+# the repository, only with the cache it is removing.
+#
+# A SCHEDULED WORKFLOW THAT WRITES SOURCE FILES IS A DIFFERENT ANIMAL. This one
+# prunes its own report directory; it writes nothing a watcher watches and
+# nothing a person is editing. §8's argument for reactivity being its own group
+# applies to any group that would ship a scheduled formatter.
+schedule: "5 0 * * *"
+queue: light
+steps:
+  - id: prune
+    name: prune
+    run: |
+      set -u
+      report=".devman/.runs/reports/maintain-${context.run.id}.md"
+      mkdir -p .devman/.runs/reports .devman/.runs/artifacts
+
+      before=$(find .devman/.runs/reports -type f | wc -l)
+      find .devman/.runs/reports -type f -mtime +"$KEEP_DAYS" -delete
+      after=$(find .devman/.runs/reports -type f | wc -l)
+
+      # devenv's shell cache. Absent until this repository has entered its
+      # shell, so the guard is not decoration.
+      shells_before=0
+      shells_after=0
+      if [ -d .devenv ]; then
+        shells_before=$(find .devenv -maxdepth 1 -type f -name 'shell-*.sh' | wc -l)
+        find .devenv -maxdepth 1 -type f -name 'shell-*.sh' -mtime +"$KEEP_DAYS" -delete
+        shells_after=$(find .devenv -maxdepth 1 -type f -name 'shell-*.sh' | wc -l)
+      fi
+
+      {
+        echo "# maintain — ${context.dag.name}"
+        echo
+        echo "- run id: \`${context.run.id}\`"
+        echo "- started: ${context.attempt.started_at}"
+        echo "- keep days: $KEEP_DAYS"
+        echo
+        echo '## this project'
+        echo
+        echo "- reports: $before before, $after after — $((before - after)) pruned"
+        echo "- devenv shell cache: $shells_before before, $shells_after after —" \
+             "$((shells_before - shells_after)) collected (nothing else collects these, 014)"
+        echo "- artifacts: $(find .devman/.runs/artifacts -mindepth 1 | wc -l) entries," \
+             "**never pruned here** — remove them by hand"
+        echo "- log trees: $(find .devman/.runs/logs -mindepth 2 -maxdepth 2 -type d 2>/dev/null | wc -l)," \
+             "pruned by the machine's hist_retention_days when this project's DAGs run"
+        echo
+        echo "The plane's own health is one report a night, not 58:" \
+             "\`devman/.devman/workflows/plane-report.yaml\`."
+      } > "$report"
+      cat "$report"
+params:
+  - DEVMAN_PROJECT_DIR: ""
+  - KEEP_DAYS: "7"

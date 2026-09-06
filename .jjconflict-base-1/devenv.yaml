@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  nixpkgs-python:
+    url: github:cachix/nixpkgs-python
+  nix2container:
+    url: github:nlewo/nix2container
+  mk-shell-bin:
+    url: github:rrbutani/nix-mk-shell-bin
+  codex-cli:
+    url: "github:sadjow/codex-cli-nix?ref=main"
+  claude-code:
+    url: "github:sadjow/claude-code-nix?ref=main"
+  # shellij: durable Zellij workbenches. This repo does not import RepoMan's
+  # meta-module, so it imports shellij's devenv module directly — shellij/zellij/
+  # yazi packages, the guarded `shellij open` enterShell hook, and
+  # YAZI_CONFIG_HOME pointing at the packaged Yazi assets.
+  shellij:
+    url: "git+file:///home/andrew/Documents/Projects/shellij"
+
+imports:
+  - shellij/modules
+  # devman adopts itself (criterion 16). A local directory, not an input: this
+  # repository is the plane, so there is no rev to pin against itself.
+  - ./modules
+
+# If you're using non-OSS software, you can set allowUnfree to true.
+# allowUnfree: true
+
+# If you're willing to use a package that's vulnerable
+# permittedInsecurePackages:
+#  - "openssl-1.1.1w"
+
+# If you have more than one devenv you can merge them
+#imports:
+# - ./backend

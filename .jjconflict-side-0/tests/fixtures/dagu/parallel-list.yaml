@@ -1,0 +1,9 @@
+# UNBOUNDED. A list is `parallel:`'s shorthand for its items, so it carries no
+# limit — only the mapping form can hold one.
+params:
+  - DEVMAN_SELF_DIR: /tmp
+steps:
+  - name: f
+    action: dag.run
+    with: {dag: "${ITEM}"}
+    parallel: [one, two, three]

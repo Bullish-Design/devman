@@ -1,0 +1,7 @@
+{
+  "command": ".scratch/spikes/agent-factory-preimplementation/python_corpus_probe.py --artifacts .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T192930Z-python-corpus-final",
+  "encoding": "UTF-8 bytes",
+  "network": "not used",
+  "parser": "tree-sitter-python through pydantree Language",
+  "python": "3.13.14"
+}

@@ -1,0 +1,8 @@
+plane_watchexec N=1 ticks=0 rss_kb=9104 fds=12 threads=10 inotify=316 nproc=1
+spike_watchfiles N=1 ticks=2 rss_kb=18812 fds=6 threads=2 inotify=316 nproc=1
+plane_watchexec N=5 ticks=0 rss_kb=9532 fds=12 threads=10 inotify=1580 nproc=1
+spike_watchfiles N=5 ticks=8 rss_kb=93788 fds=30 threads=10 inotify=1580 nproc=5
+plane_watchexec N=10 ticks=0 rss_kb=9928 fds=12 threads=10 inotify=3160 nproc=1
+spike_watchfiles N=10 ticks=17 rss_kb=188116 fds=60 threads=20 inotify=3160 nproc=10
+plane_watchexec N=25 ticks=0 rss_kb=11576 fds=12 threads=10 inotify=7900 nproc=1
+spike_watchfiles N=25 ticks=41 rss_kb=469928 fds=150 threads=50 inotify=7900 nproc=25

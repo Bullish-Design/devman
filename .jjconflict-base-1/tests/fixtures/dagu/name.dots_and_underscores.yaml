@@ -1,0 +1,6 @@
+# A DAG name may hold alphanumerics, dashes, dots and underscores. This one
+# matters to the identity codec: whatever encoding replaces
+# `<project>-<workflow>` may use these three characters.
+steps:
+  - name: s
+    run: echo hi

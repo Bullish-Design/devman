@@ -1,0 +1,3 @@
+status=failed
+error_type=ValueError
+error=artifact directory is not fresh: .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T192113Z-promotion-probe-final
