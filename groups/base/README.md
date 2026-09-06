@@ -101,9 +101,27 @@ lint first, in the file where the developer can also run it by hand.
 
 | File | Queue | Trigger | Writes | Runs |
 |---|---|---|---|---|
-| `check.yaml` | `light` (4) | manual; post-commit hook | no | `base:check` |
-| `test.yaml` | `normal` (2) | manual; pre-push hook | no | `base:test` |
+| `check.yaml` | `light` (4) | manual only | no | `base:check` |
+| `test.yaml` | `normal` (2) | manual only | no | `base:test` |
 | `maintain.yaml` | `light` (4) | `schedule: 5 0 * * *` | under `.devman/.runs/`, and `.devenv/shell-*.sh` | no repository task |
+
+**"Manual only" is measured, not aspirational.** This table used to name a
+post-commit hook for `check` and a pre-push hook for `test`. **No repository on
+this machine installs either**: 0 of 54 registered repositories have a
+`post-commit` hook, and no git hook anywhere names `devman` (015). The hook
+below is a thing a repository *may* take, and none has. `check` and `test`
+carry no schedule and no trigger, so the only thing that starts them is a person
+typing `devman run`.
+
+**How often that happens, measured over Dagu's whole surviving run history
+(015).** `check` and `test` last ran anywhere in the plane on **2026-08-26**. In
+the ten days to 2026-09-05 they ran **zero** times in all 54 repositories, while
+`maintain` ran 349 times and `format` 319. 47 of the 54 have all their `check`
+and `test` runs on a single day — their adoption day. This is not a defect:
+51 of 54 repositories define both task names correctly, and §7.4 says a
+workflow nobody triggers costs nothing. Measured, that cost is **3.2 s** of the
+nightly `doctor`'s 5.0 s. It is what these two workflows are *for* that is
+unsettled — see `.scratch/projects/015-what-the-plane-should-do/RESULT.md`.
 
 **There is no third rung.** `full-test` was deleted at stage 7 on a measurement:
 its only content beyond `test` was `devenv test`, which **exits 0 having tested
