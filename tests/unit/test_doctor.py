@@ -12,6 +12,7 @@ the stub. They belong to `nix/tests/dagu-service.nix`, which runs a real one.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -608,3 +609,102 @@ def test_an_unknown_tier_is_a_finding(plane):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("writes", "!!")
     assert "is not one of" in lines[0]
+
+
+# ---------------------------------------------------------------------------
+# check — what a repository's local libraries actually resolve to (016)
+
+
+def fake_sources(monkeypatch, table: dict) -> None:
+    """Stub `_source_state`, so these tests need no `git` binary.
+
+    The check shells out to git for `(head, dirty)`. That is git's behaviour,
+    not this check's logic, and `nix flake check` runs the suite in a sandbox
+    with no git on PATH — the first version of these tests passed in the devenv
+    shell and failed the gate for exactly that reason.
+    """
+    monkeypatch.setattr(
+        doctor, "_source_state", lambda src: table.get(Path(src), (None, False))
+    )
+
+
+def lockfile(root, src, *, rev: str | None = None, name: str = "devenv.lock") -> None:
+    locked = {"type": "git", "url": f"file://{src}"}
+    if rev:
+        locked["rev"] = rev
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_text(json.dumps({"nodes": {"lib": {"locked": locked}}}))
+
+
+def test_a_dirty_local_source_is_a_finding_with_its_consumer_count(
+    plane, tmp_path, monkeypatch
+):
+    """The finding this check exists to make, and it is the opposite of the one
+    expected: an unpinned `git+file:` input has no rev, so consumers resolve to
+    the source's WORKING TREE. A dirty source is consumed as uncommitted work."""
+    src = tmp_path / "lib"
+    fake_sources(monkeypatch, {src: ("a" * 40, True)})
+    for name in ("a", "b"):
+        proj = plane.add(name)
+        lockfile(Path(proj.path), src)
+    rep = doctor.Report()
+
+    doctor.check_local_sources(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("local sources", "!!")
+    assert "uncommitted changes" in lines[0]
+    assert "2 project(s)" in lines[0]
+
+
+def test_a_clean_unpinned_source_is_not_a_finding(plane, tmp_path, monkeypatch):
+    """Unpinned and clean is the normal, healthy fleet state — 91 of 93 inputs
+    on this machine. It must not be reported, or the check is noise."""
+    src = tmp_path / "lib"
+    fake_sources(monkeypatch, {src: ("a" * 40, False)})
+    proj = plane.add("a")
+    lockfile(Path(proj.path), src)
+    rep = doctor.Report()
+
+    doctor.check_local_sources(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"
+
+
+def test_a_pin_behind_its_source_is_a_finding(plane, tmp_path, monkeypatch):
+    """The other half: a `flake.lock` pin DOES carry a rev, so it can go stale."""
+    src = tmp_path / "lib"
+    fake_sources(monkeypatch, {src: ("a" * 40, False)})
+    proj = plane.add("a")
+    lockfile(Path(proj.path), src, rev="0" * 40, name="flake.lock")
+    rep = doctor.Report()
+
+    doctor.check_local_sources(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("local sources", "!!")
+    assert "pins lib at 00000000" in lines[0]
+
+
+def test_a_pin_at_head_is_not_a_finding(plane, tmp_path, monkeypatch):
+    src = tmp_path / "lib"
+    head = "a" * 40
+    fake_sources(monkeypatch, {src: (head, False)})
+    proj = plane.add("a")
+    lockfile(Path(proj.path), src, rev=head, name="flake.lock")
+    rep = doctor.Report()
+
+    doctor.check_local_sources(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"
+
+
+def test_a_repository_with_no_local_inputs_says_so(plane):
+    plane.add("a")
+    rep = doctor.Report()
+
+    doctor.check_local_sources(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("local sources", "ok")
+    assert "0 local libraries" in lines[0]

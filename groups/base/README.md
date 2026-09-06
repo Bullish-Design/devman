@@ -7,10 +7,15 @@ holds the leverage, so it stays small.
 Stage 7 narrowed it. It ships **three files**, calls **two task names**, and the
 ladder has **two rungs**.
 
-## The hinge — one workflow, one step, one devenv task
+## The hinge — one workflow, one devenv task
 
 > **A default workflow runs exactly one `devenv tasks run`. The workflow names
 > the rung; the repository's devenv task graph decides what that rung pulls in.**
+
+**This is a default, not a limit** — 013 retracted the one-step rule, and the
+surviving argument is the arithmetic below: one `devenv` invocation costs 1.44 s
+after a content change and three cost 4.3 s. Steps are cheap; `devenv` calls are
+not.
 
 ```yaml
 # groups/base/workflows/check.yaml — the whole file
@@ -22,19 +27,26 @@ steps:
 
 Four things follow, and they are why the group looks like this:
 
-- **Criterion 14 holds by construction.** A one-step workflow declares no order,
-  so it cannot re-state an order devenv already declares. Before stage 7 the
-  criterion held only because almost no repository declared a task dependency —
-  and `pyjutsu` already declared one.
+- **Criterion 14 no longer holds by construction — it is a thing to check.**
+  A one-step workflow declares no order, so it cannot re-state an order devenv
+  already declares. That was the argument, and **013 retracted the one-step rule
+  it rests on** (`e1c227f`; `PROPOSAL.md` §1.1): a hard cap of one step is not
+  something Dagu asks for, and `groups/release/workflows/release.yaml` has had
+  three steps since stage 4. 014 §6 re-measured the criterion as unviolated
+  across all 170 projected files, but by measurement rather than by
+  construction.
 - **A language group has nothing left in it.** `python/check` existed to run a
   linter and a type checker in order. That order is a task graph, and devenv
   holds task graphs. The `python` group was deleted (`PROPOSAL.md` §1.1).
 - **One devenv invocation per run.** `devenv tasks run` costs 0.16 s warm and
   1.44 s after a content change. Three invocations cost 4.3 s of devenv against
   1.44 s for one.
-- **`type: chain` is gone.** The key existed to stop two `devenv tasks run`
-  invocations in one checkout contending for one devenv state directory. One
-  invocation removes the contention instead of serialising around it.
+- **`type: chain` is gone from THIS group's files, and is not forbidden.** The
+  key existed to stop two `devenv tasks run` invocations in one checkout
+  contending for one devenv state directory. One invocation removes the
+  contention instead of serialising around it. A workflow that genuinely needs
+  more than one step states `type: chain` — `.devman/workflows/gitman-commit-message.yaml`
+  does — and `devman doctor`'s fan-out check accepts it as a stated bound.
 
 **What it costs, stated plainly.** Dagu's per-step status is lost: a failed run
 shows `test: failed`, and which devenv task failed is inside devenv's output.

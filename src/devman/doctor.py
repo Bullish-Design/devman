@@ -1007,6 +1007,134 @@ def _dotfile(target: Path) -> tuple[int, int]:
     return total, scripts
 
 
+# ---------------------------------------------------------------------------
+# what a repository's local libraries actually resolve to (015/016)
+
+
+def _local_git_inputs(root: Path) -> list[tuple[Path, str | None]]:
+    """Every `git+file:` lock node this repository holds, as `(source, rev)`.
+
+    Reads BOTH lockfiles because the two behave differently and that difference
+    is the whole finding: `devenv.lock` records a local git input as `{type,
+    url}` with NO `rev`, while `flake.lock` records a full pin. Measured across
+    this machine: 91 of 93 local inputs carry no rev, and 100 % of remote inputs
+    carry one.
+    """
+    out: list[tuple[Path, str | None]] = []
+    for name in ("devenv.lock", "flake.lock"):
+        try:
+            lock = json.loads((root / name).read_text())
+        except (OSError, ValueError):
+            continue
+        for node in (lock.get("nodes") or {}).values():
+            locked = (node or {}).get("locked") or {}
+            url = locked.get("url", "")
+            if locked.get("type") != "git" or not url.startswith("file://"):
+                continue
+            src = Path(url[len("file://") :].split("?")[0].rstrip("/"))
+            out.append((src, locked.get("rev")))
+    return out
+
+
+def _source_state(src: Path) -> tuple[str | None, bool]:
+    """`(head, dirty)` for a local source repository. `(None, False)` if absent."""
+    if not (src / ".git").exists():
+        return None, False
+
+    def git(*args: str) -> str | None:
+        try:
+            r = subprocess.run(
+                ["git", "-C", str(src), *args],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return r.stdout if r.returncode == 0 else None
+
+    head = git("rev-parse", "HEAD")
+    status = git("status", "--porcelain")
+    return (head.strip() if head else None), bool(status and status.strip())
+
+
+def check_local_sources(rep: Report, reg: Registry) -> None:
+    """What a repository's local libraries resolve to, which is not what it says.
+
+    **THE FINDING THIS EXISTS TO MAKE IS THE OPPOSITE OF THE ONE EXPECTED.** A
+    `git+file:` input looks pinned, and 016 set out to build a workflow that
+    would update the stale ones. Measured: `devenv.lock` records a local git
+    input as `{type, url}` with **no `rev` and no `narHash`**, so devenv's
+    generated resolver hands the bare attrset to `builtins.fetchTree`, which
+    resolves it LIVE. 91 of 93 local inputs on this machine are that shape, and
+    an update workflow would therefore have produced 52 empty branches — §12
+    rule 4, and the reason no such workflow was built.
+
+    What is left is the exposure underneath it. An unpinned input follows its
+    source's working tree, so **a source with uncommitted changes is consumed as
+    that working tree, not as any commit**: `fetchTree` returns `rev: NONE` and
+    a `-dirty` marker. Measured when this was written: `shellij` had 15
+    uncommitted files including `devenv.nix`, and 51 of the 54 registered
+    repositories consumed it. Nothing said so.
+
+    **IT IS CHEAP BECAUSE IT READS SOURCES, NOT CONSUMERS.** The consumer count
+    is 54 and the distinct-source count is 8, so this forks two `git` calls per
+    SOURCE and none per consumer — the arithmetic that makes it a check rather
+    than a fan-out (§12 rules 8 and 9).
+
+    **WHAT IT CANNOT SEE.** It reads lockfiles, not evaluations. A repository
+    that names an input it never uses is counted, and one that reaches a library
+    some other way is not.
+    """
+    consumers: dict[Path, set[str]] = {}
+    pinned: list[tuple[str, Path, str]] = []
+    for proj in reg.projects().values():
+        root = Path(proj.path)
+        for src, rev in _local_git_inputs(root):
+            consumers.setdefault(src, set()).add(proj.name)
+            if rev:
+                pinned.append((proj.name, src, rev))
+
+    state = {src: _source_state(src) for src in consumers}
+
+    lines: list[str] = []
+    for src, names in sorted(consumers.items(), key=lambda kv: -len(kv[1])):
+        head, dirty = state[src]
+        if head is None:
+            lines.append(
+                f"{src.name}: consumed by {len(names)}, and is not a git repository"
+            )
+        elif dirty:
+            lines.append(
+                f"{src.name}: **uncommitted changes**, consumed unpinned by"
+                f" {len(names)} project(s) — they resolve to this working tree,"
+                " not to a commit"
+            )
+    for name, src, rev in sorted(pinned):
+        head, _ = state.get(src, (None, False))
+        if head and head != rev:
+            lines.append(
+                f"{name}: pins {src.name} at {rev[:8]}, and its HEAD is {head[:8]}"
+            )
+
+    if lines:
+        lines.append(
+            "an unpinned `git+file:` input has no rev in devenv.lock and is"
+            " resolved live by fetchTree — commit the source, or pin it in"
+            " flake.nix"
+        )
+        rep.add("local sources", "!!", lines)
+    else:
+        rep.add(
+            "local sources",
+            "ok",
+            [
+                f"{len(consumers)} local libraries feed {sum(len(v) for v in consumers.values())}"
+                " inputs, none dirty and no pin behind its source"
+            ],
+        )
+
+
 def check_path_inputs(rep: Report, reg: Registry) -> None:
     """A `path:` input copies everything git ignores, `.devenv` included (014).
 
@@ -1338,6 +1466,7 @@ def main(args, reg: Registry) -> int:
     check_fanout(rep, reg)
     check_writes(rep, reg)
     check_trigger_targets(rep, reg)
+    check_local_sources(rep, reg)
     check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)
     check_watcher(rep, reg)
