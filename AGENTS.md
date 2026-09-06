@@ -62,10 +62,9 @@ keeps a change from re-learning something the plane already paid for.**
    default, and prefer a check that can fail to one that cannot. This is about
    correctness. Whether a correct result should have been reviewed first is a
    tier question, not this one.
-5. **The plane holds no project fact.** No absolute path in a workflow file, no
-   project name in the machine module, no per-project option in Nix. A workflow
-   that needs another project's path takes a parameter whose default is a project
-   *name*, and the trigger resolves it.
+5. **The plane does not prescribe dependency portability.** Workflows may use
+   repository-specific paths and dependencies when their adopting repository
+   provides them.
 6. **The registry is derived; the repository is canonical.** Read it freely.
    Write to it through the projection, or through `doctor --prune`.
 7. **Python for core logic; shell stays a thin wrapper.** Shell that grows past a
@@ -118,10 +117,4 @@ doing even where nothing enforces it:
 
 | Tier | What | Where it lands |
 |---|---|---|
-| `free` | a file that did not exist, and agent surface | the working tree |
-| `lane` | an edit to existing tracked source | a **gitman lane**, for a person to merge |
-| `insitu` | an idempotent normalisation of a watched file — `format` only | the working tree |
 
-**An unattended write to trunk has no tier**, and it is the one shape to keep out
-of a workflow: it appears in somebody's `git status` the next morning with
-nothing to explain it. A lane carries a name and a diff instead.

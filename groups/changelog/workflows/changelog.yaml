@@ -1,0 +1,367 @@
+# changelog/changelog — summarise the newly landed entries into CHANGELOG.md,
+# on a gitman lane for a person to merge (`.scratch/projects/021-changelog/
+# DESIGN.md`, §2.2). The plane's first tier-B writer (015).
+#
+# ---------------------------------------------------------------------------
+# CHAINED, NOT INDEPENDENTLY TRIGGERED, AND WHY THAT COST TWO WORKFLOWS
+#
+# `changelog-entries.yaml` (this group's other file) fires from the taking
+# repository's own `gitman.toml` `[land].post_hook`, and its last step enqueues
+# this DAG. This file is also runnable by hand (`devman run changelog`), for a
+# retry after an LLM hiccup that needs no re-generation of entry files.
+#
+# ---------------------------------------------------------------------------
+# THE GATE IS A STEP THAT FAILS; IT DOES NOT SKIP (`release.yaml`'s reasoning,
+# restated here because it is this project's central design constraint,
+# DESIGN.md §1)
+#
+# "No un-summarised entries" must record `Failed`, not `Succeeded` with a
+# skipped step — the latter is right for `format`'s self-stopping loop and
+# wrong for a refusal that would otherwise open an empty lane (016's
+# 52-empty-branches failure, in miniature, per commit).
+#
+# THE FRONTIER LIVES INSIDE `CHANGELOG.md` ITSELF, NOT A SEPARATE RECEIPT.
+#
+#     <!-- devman-changelog: covers up to <change id> -->
+#
+# A side-file receipt (as `changelog-entries.yaml` uses for its own frontier)
+# can desync from what the tracked file actually contains if a lane is
+# abandoned rather than landed. Reading the marker out of `CHANGELOG.md` itself
+# means the frontier and the artifact can never disagree. It is a jj change id,
+# not a git commit hash, for the same reason `changelog-entries.yaml` keys its
+# own receipt and entry files by change id: a git hash changes every time
+# `land`'s rebase touches a commit, and a change id never does.
+#
+# Filtering by "an entry file exists for this commit" — not "this commit is
+# new" — is deliberate: it is also the check that catches
+# `changelog-entries` having been skipped or having failed upstream of the
+# chain. A commit with no detail file behind it is not summarised, and the gap
+# is visible in the section this workflow writes rather than papered over.
+#
+# ---------------------------------------------------------------------------
+# THE LANE, AND WHY THE COLLISION IS CHECKED BEFORE `gitman start`, NOT AFTER
+#
+# `gitman start` is not idempotent (gitman `.scratch/projects/
+# 39-lane-lifecycle-facts/ISSUE.md`: `ensure_unique` refuses a name collision
+# outright). A fixed lane name (`changelog`) turns a re-run before the prior
+# lane landed into a check this workflow can make and explain, rather than a
+# raw `start` error a re-run would otherwise hit blind.
+#
+# ---------------------------------------------------------------------------
+# THE LLM STEP REUSES `gitman-commit-message.yaml`'S SHAPE EXACTLY, AND THAT IS
+# THE WHOLE POINT OF CHOOSING IT
+#
+# `queue: gpu`, no `secrets:` block, and an OpenAI-compatible client calling any
+# endpoint at `$GPU_LLM_BASE_URL` — a local, unauthenticated server. 020's two
+# open questions for a scheduled, quota-metered, CLOUD LLM workload — a sixth
+# queue name, and exercising §9.4's secrets path for the first time — do not
+# apply here: this is neither scheduled (it is triggered, through
+# `dagu enqueue`, which respects the queue) nor an externally metered API. It
+# is the same local call `gitman-commit-message.yaml` already makes.
+#
+# RULE-4 EXPOSURE IS SHARPER FOR AN LLM THAN FOR ANYTHING ELSE THIS PLANE RUNS
+# (020 §4.3) — a fluent, empty answer is exit 0 and a full log. Bounded four
+# ways here, not zero: the step cannot fire on an empty batch (the gate above
+# already refused that); the generation is read as a structured result and a
+# failed one is refused (see the `summarize` step); an artifact that holds no
+# non-space character is refused; and the written section lists every commit
+# verbatim beside the prose, so a hollow summary is caught by a person reading
+# it next to the commit list it claims to describe — not trusted on its own.
+#
+# `head -c 60000` bounds the input the same way `gitman-commit-message.yaml`
+# and `agent:review` both do: an unbounded diff is an unbounded bill.
+#
+# ---------------------------------------------------------------------------
+# EACH COMMIT BULLET IS AN OBSIDIAN WIKILINK, `[[<change id>|<subject>]]`, NOT
+# A MARKDOWN LINK
+#
+# `.devman/changelog/entries/` is gitignored locally (see this group's
+# README, "what taking it costs" §3) — regenerable cache, not committed
+# history. A markdown link (`[subject](.devman/changelog/entries/<change
+# id>.md)`) from the committed `CHANGELOG.md` would be dead for anyone reading
+# it on GitHub, on a fresh clone, or on a machine that never ran
+# `changelog-entries`. A wikilink costs nothing extra and resolves for
+# whoever opens this repository as an Obsidian vault on the machine that
+# generated the entry — everyone else still reads a plain commit subject and
+# change id, exactly as a bracketed reference degrades in any other markdown
+# renderer.
+#
+# TRUNK COMES FROM `gitman.toml`, THE SAME WAY `changelog-entries.yaml` READS
+# IT (§4) — never hard-coded, because the bookmark name is a repository fact.
+#
+# ---------------------------------------------------------------------------
+# EVERY TOOL THIS FILE USES IS A CONSOLE SCRIPT. NOTHING HERE IMPORTS A LIBRARY
+# THE SHARED SHELF HOLDS (023-toolchain P1 and P2).
+#
+# A console script is a property of the machine; a library import is a property
+# of the interpreter that imports it. The shared toolchain venv lends `gitman`
+# and `templateer` through PATH, and PATH cannot lend a library through
+# `sys.path` — so importing either one here failed in every adopter's devenv,
+# while both `repoman doctor` and `gitman doctor` reported the library green,
+# because each asks its own interpreter and neither asks this step's.
+#
+# `gitman log --revset <a>..<b> --json` exists for exactly this consumer. It
+# emits one object per change, oldest first, with `change_id` and
+# `description`. The gate reads the range ONCE and writes both the pending list
+# and a change-id -> subject map, so the write step resolves nothing a second
+# time and cannot disagree with the gate about what the range contained.
+#
+# The `python3` below is the adopter's own devenv interpreter and uses only the
+# standard library — `json`, `pathlib`, `tomllib`, `sys`. That is the line
+# between what a step may assume and what it may not.
+#
+# THE PROBE IS THE FIRST THING THE GATE DOES, AND IT RUNS AS A STEP RUNS.
+#
+# P1's expensive half was not the failure; it was that two doctors reported
+# green while the step failed. A doctor asks its own interpreter and its own
+# PATH. So this workflow asks its own, inside the same `devenv shell --` that
+# every later command uses, before it reads a single commit — and names the
+# tool that is missing rather than failing later inside a pipe.
+#
+# ---------------------------------------------------------------------------
+# ONE `devenv shell --` PER STEP, NOT ONE PER COMMAND
+#
+# A warm `devenv shell --` costs ~0.755 s (023-toolchain M2). The first draft of
+# this file paid it four times in two steps. Each step below enters the shell
+# once and does all of its work inside that one entry.
+#
+# ---------------------------------------------------------------------------
+# THE TEMPLATE PATH IS RELATIVE TO THE REPOSITORY, NOT ABSOLUTE
+#
+# `groups/README.md` forbids a group workflow from holding an absolute path,
+# and this parameter held one — a single machine's checkout. The default is now
+# relative, and `working_dir` is the project directory the projection wrote, so
+# it resolves without naming a machine.
+#
+# It resolves for devman itself, which is the repository that owns these
+# templates and adopts its own groups (criterion 16). It does NOT resolve for
+# another adopter, because a group ships workflow TEXT and no assets:
+# `modules/devenv.nix` reads each workflow with `builtins.readFile` and projects
+# the text, and there is no asset path beside it. That is 022's open question 2
+# and it is still open. Until it closes, an adopter that is not devman passes
+# its own `TEMPLATEER_TEMPLATE_PATH`, and the gate refuses loudly rather than
+# letting `templateer` fail later with an empty catalog.
+queue: gpu
+type: chain
+params:
+  - DEVMAN_PROJECT_DIR: ""
+  - TEMPLATEER_TEMPLATE_PATH: "groups/changelog/templates"
+  - GPU_LLM_BASE_URL: "http://127.0.0.1:8100/v1"
+  - GPU_LLM_MODEL: "gemma"
+steps:
+  - id: gate
+    name: gate
+    run: |
+      set -eu
+      last=$(sed -n 's/.*covers up to \([a-z0-9]*\).*/\1/p' CHANGELOG.md 2>/dev/null | head -1)
+      if [ -z "$last" ]; then
+        echo "changelog: CHANGELOG.md has no 'covers up to' marker — bootstrap it by hand first" >&2
+        exit 1
+      fi
+      if [ ! -d "$TEMPLATEER_TEMPLATE_PATH/changelog" ]; then
+        echo "changelog: no template at '$TEMPLATEER_TEMPLATE_PATH/changelog' — pass TEMPLATEER_TEMPLATE_PATH for this repository" >&2
+        exit 1
+      fi
+      script=$(mktemp)
+      trap 'rm -f "$script"' EXIT
+      # A quoted heredoc, so the outer shell substitutes nothing: what reaches
+      # the inner shell is what is written here. Values cross by environment.
+      cat > "$script" <<'SH'
+      set -eu
+      for tool in gitman templateer; do
+        command -v "$tool" >/dev/null 2>&1 || {
+          echo "changelog: no $tool on this step's PATH — the shared toolchain shelf is not reachable from a step, whatever a doctor reports" >&2
+          exit 1
+        }
+      done
+      trunk=$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("gitman.toml").read_text())["trunk"])')
+      gitman log --revset "$LAST..$trunk" --json > .devman/.runs/.changelog-range.json
+      python3 - <<'PYEOF'
+      import json
+      import os
+      import pathlib
+      import sys
+
+      # `gitman log` emits oldest first, which is the order this workflow
+      # writes and reads the pending list in: the LAST line is the newest
+      # change, and the write step reads it back with `tail -1`.
+      changes = json.loads(
+          pathlib.Path(".devman/.runs/.changelog-range.json").read_text()
+      )
+      entries = pathlib.Path(".devman/changelog/entries")
+      pending = [
+          c["change_id"]
+          for c in changes
+          if (entries / (c["change_id"] + ".md")).is_file()
+      ]
+      # Subjects come from the same single read, so the write step never has to
+      # resolve a change id a second time.
+      pathlib.Path(".devman/.runs/.changelog-subjects.json").write_text(
+          json.dumps(
+              {
+                  c["change_id"]: (c["description"].strip().splitlines() or [""])[0]
+                  for c in changes
+              }
+          )
+      )
+      pathlib.Path(".devman/.runs/.changelog-pending").write_text(
+          "".join(cid + "\n" for cid in pending)
+      )
+      if not pending:
+          print(
+              f"changelog: no un-summarised entries since {os.environ['LAST']} —"
+              " refusing rather than opening an empty lane",
+              file=sys.stderr,
+          )
+          sys.exit(1)
+      print(len(pending))
+      PYEOF
+      SH
+      # `devenv shell --` is a fresh environment boundary, so every value the
+      # inner script reads is named here. Nothing is assumed to survive it.
+      LAST="$last" devenv shell -- sh "$script"
+
+  - id: lane
+    name: start-lane
+    run: |
+      set -eu
+      script=$(mktemp)
+      trap 'rm -f "$script"' EXIT
+      cat > "$script" <<'SH'
+      set -eu
+      if gitman status --json 2>/dev/null | grep -q '"name":"changelog"'; then
+        echo "changelog: a changelog lane already awaits review — land it before running again" >&2
+        exit 1
+      fi
+      gitman start changelog
+      SH
+      devenv shell -- sh "$script"
+
+  - id: summarize
+    name: summarize
+    run: |
+      set -eu
+      prompt_file=$(mktemp)
+      script=$(mktemp)
+      trap 'rm -f "$prompt_file" "$script"' EXIT
+      {
+        printf '%s\n\n' "Summarise this batch of commits for a changelog entry read by someone who does not want diff detail. Group related commits into one or two sentences each. No preamble, no markdown fences, output only the summary body."
+        while read -r cid; do
+          printf '\n--- %s ---\n' "$cid"
+          cat ".devman/changelog/entries/$cid.md"
+        done < .devman/.runs/.changelog-pending
+      } | head -c 60000 > "$prompt_file"
+      if [ -z "${GPU_LLM_MODEL:-}" ]; then
+        echo "changelog: GPU_LLM_MODEL is unset" >&2
+        exit 2
+      fi
+      # `GPU_LLM_MODEL` stays the endpoint's own model name, the same value
+      # `gitman-commit-message.yaml` sends to `/v1/chat/completions` and the same
+      # id `/v1/models` lists. `templateer` is a pydantic-ai caller and names a
+      # model `<provider>:<id>`, so the provider is added here rather than baked
+      # into the parameter — measured: `--model gemma` returns
+      # `failure_reason: config_error`, `Unknown model: gemma`, and no artifact.
+      # Adding it here keeps one name for one model across both workflows.
+      #
+      # `templateer` is a console script on the machine's shared toolchain shelf
+      # (repoman.lock [managers.template], pinned to a tag), so this calls it by
+      # name. It previously reached a sibling checkout through an interpreter
+      # search-path variable plus `uv run --project`, which made the step depend
+      # on a directory layout that exists on one machine (023-toolchain P2/R2).
+      cat > "$script" <<'SH'
+      set -eu
+      templateer generate changelog \
+        --paths "$TEMPLATEER_TEMPLATE_PATH" --request "$(cat "$PROMPT_FILE")" \
+        --model "openai:$GPU_LLM_MODEL" --json \
+        > .devman/.runs/.changelog-result.json
+      python3 - <<'PYEOF'
+      import json
+      import pathlib
+      import sys
+
+      # WHY THIS READS A STRUCTURED RESULT AND NOT A BARE ARTIFACT.
+      #
+      # A truncated generation is an HTTP 200 carrying nothing: this endpoint
+      # returns finish_reason "length" with content "" when the model spends
+      # its budget on reasoning_content (023-toolchain P6, measured on this
+      # endpoint at max_tokens 16). `templateer --json` does not forward
+      # finish_reason — it emits `GenerationResult.model_dump()`, whose own
+      # validator forbids a success that carries no artifact. So a truncated
+      # generation surfaces here as `failure_reason` (`llm_failed` or
+      # `model_validation_failed`), never as a silent empty section.
+      #
+      # `failure_reason` is therefore the finish check this pipeline can
+      # actually make, and it is checked. The empty-artifact test below covers
+      # the one case it does not: a model that validly returns an EMPTY summary
+      # string, which the schema permits and which would otherwise append an
+      # empty section, advance the frontier marker past those commits, and exit
+      # 0 — the entries would then never be summarised again.
+      result = json.loads(
+          pathlib.Path(".devman/.runs/.changelog-result.json").read_text()
+      )
+      if result.get("failure_reason") is not None:
+          print(
+              "changelog: templateer refused — "
+              f"{result['failure_reason']}: {result.get('error_detail')}",
+              file=sys.stderr,
+          )
+          sys.exit(1)
+      artifact = result.get("artifact") or ""
+      if not artifact.strip():
+          print(
+              "changelog: the model returned an empty summary (likely truncated)"
+              " — refusing to advance the frontier",
+              file=sys.stderr,
+          )
+          sys.exit(1)
+      for warning in result.get("warnings") or []:
+          print("changelog: " + warning, file=sys.stderr)
+      pathlib.Path(".devman/.runs/.changelog-summary.md").write_text(
+          artifact.strip() + "\n"
+      )
+      PYEOF
+      SH
+      OPENAI_BASE_URL="${GPU_LLM_BASE_URL:-http://127.0.0.1:8000/v1}" \
+      OPENAI_API_KEY="${OPENAI_API_KEY:-local}" \
+      PROMPT_FILE="$prompt_file" \
+      TEMPLATEER_TEMPLATE_PATH="$TEMPLATEER_TEMPLATE_PATH" \
+      GPU_LLM_MODEL="$GPU_LLM_MODEL" \
+      devenv shell -- sh "$script"
+
+  - id: write
+    name: write
+    run: |
+      set -eu
+      newest=$(tail -1 .devman/.runs/.changelog-pending)
+      script=$(mktemp)
+      trap 'rm -f "$script"' EXIT
+      cat > "$script" <<'SH'
+      set -eu
+      python3 - > .devman/.runs/.changelog-bullets <<'PYEOF'
+      import json
+      import pathlib
+
+      subjects = json.loads(
+          pathlib.Path(".devman/.runs/.changelog-subjects.json").read_text()
+      )
+      for line in pathlib.Path(".devman/.runs/.changelog-pending").read_text().splitlines():
+          cid = line.strip()
+          if not cid:
+              continue
+          print("- [[" + cid + "|" + subjects.get(cid, "") + "]]")
+      PYEOF
+      SH
+      devenv shell -- sh "$script"
+      {
+        echo "<!-- devman-changelog: covers up to $newest -->"
+        echo
+        echo "## $(date +%Y-%m-%d)"
+        echo
+        cat .devman/.runs/.changelog-summary.md
+        echo
+        cat .devman/.runs/.changelog-bullets
+        echo
+        tail -n +2 CHANGELOG.md
+      } > CHANGELOG.md.new
+      mv CHANGELOG.md.new CHANGELOG.md
+      devenv shell -- gitman save -m "docs: update the changelog"

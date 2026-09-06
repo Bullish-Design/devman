@@ -1,1 +1,0 @@
-Render the validated input.

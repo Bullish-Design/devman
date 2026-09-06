@@ -1,5 +1,0 @@
-# S-10 spelling 4.
-params: [A=x, B=y]
-steps:
-  - name: s
-    run: echo hi

@@ -1,0 +1,46 @@
+# changelog — what this group's workflows write, and under which tier of §12
+# rule 3 as amended (015).
+#
+# ONE TABLE PER WORKFLOW. `tier` is `free`, `lane` or `insitu`; `paths` is the
+# set of globs the workflow writes, relative to the repository root.
+#
+# WHY THIS FILE IS HERE AND NOT A KEY IN EITHER WORKFLOW. The same measurement
+# that put `triggers.toml` here (A5), re-verified in 015: `dagu validate`
+# rejects an unknown top-level `writes:` outright, and `tags:` — the one
+# extension point Dagu accepts — is a label map restricted to `a-zA-Z0-9-_.`,
+# so it can hold neither a `:` nor a `/` nor a `*`. A glob cannot be expressed
+# there at all.
+#
+# THE SPLIT BETWEEN THESE TWO TIERS IS WHY THIS GROUP SHIPS TWO WORKFLOWS AND
+# NOT ONE. `.devman/**` is tier A's agent surface, so a write there needs no
+# review; an edit to a tracked `CHANGELOG.md` does. Writing one workflow that
+# did both would have forced the whole of it to the stricter tier, and would
+# have cost the independent re-runnability the README describes — a re-run of
+# the summary after an LLM hiccup would repeat the first stage's work.
+
+# Every path is a NEW file under `.devman/`, never an edit to a tracked one, so
+# rule 3 has nothing to say about it. `.changelog-entries.last` is this
+# workflow's own frontier receipt, keyed by jj change id.
+[changelog-entries]
+tier  = "free"
+paths = [
+  ".devman/changelog/entries/*.md",
+  ".devman/.runs/.changelog-entries.last",
+]
+
+# `CHANGELOG.md` is the tracked file, and it is the whole reason this group has
+# a lane at all — the plane's first tier-B writer. The workflow runs
+# `gitman save` on a fixed-name lane and never `gitman land`: a person reads the
+# model's prose beside the verbatim commit list and lands it.
+#
+# The `.devman/.runs/` scratch files are the range, the subject map, the pending
+# list, templateer's structured result, the summary and the rendered bullets.
+# They are declared here rather than left out because a tier is a CLAIM, and a
+# `paths` narrower than what the workflow writes claims ownership of less than
+# it touches — which is the claim `doctor` audits.
+[changelog]
+tier  = "lane"
+paths = [
+  "CHANGELOG.md",
+  ".devman/.runs/.changelog-*",
+]
