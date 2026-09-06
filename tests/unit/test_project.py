@@ -609,3 +609,80 @@ def test_removing_the_local_file_removes_the_kept_copy(tmp_path):
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
 
     assert not (registry / "projects" / "p" / "triggers.toml").exists()
+
+
+# ---------------------------------------------------------------------------
+# Output ownership — writes.toml (015, §12 rule 3 as amended)
+
+
+def write_local_writes(root, text: str) -> None:
+    d = root / ".devman"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "writes.toml").write_text(text)
+
+
+def test_a_project_with_no_layer_keeps_the_group_declaration(tmp_path):
+    group = {"format": {"tier": "insitu", "paths": ["**/*.py"]}}
+    assert project.resolve_writes(group, tmp_path) == group
+
+
+def test_no_group_and_no_local_declares_nothing(tmp_path):
+    """A declaration nobody made is absent, not an empty table — `doctor`
+    reports "unaudited", and an empty table would read as "audited, nothing"."""
+    assert project.resolve_writes(None, tmp_path) is None
+
+
+def test_the_local_layer_merges_per_workflow_not_whole_file(tmp_path):
+    """The one place this differs from §7.3 and from the trigger map: the unit
+    is already a workflow, so overriding one must not drop the others."""
+    write_local_writes(tmp_path, '[regen]\ntier = "lane"\npaths = ["src/**"]\n')
+    group = {
+        "format": {"tier": "insitu", "paths": ["**/*.py"]},
+        "regen": {"tier": "lane", "paths": ["gen/**"]},
+    }
+
+    out = project.resolve_writes(group, tmp_path)
+
+    assert out["format"] == {"tier": "insitu", "paths": ["**/*.py"]}
+    assert out["regen"] == {"tier": "lane", "paths": ["src/**"]}
+
+
+def test_free_path_is_agent_surface_only():
+    assert project.free_path(".agents/skills/x.md")
+    assert project.free_path("docs/index.md")
+    assert project.free_path(".devman/notes.md")
+    assert not project.free_path("src/devman/run.py")
+    assert not project.free_path("**/*.py")
+
+
+@pytest.mark.parametrize(
+    ("text", "expect"),
+    [
+        pytest.param("[a]\ntier =", "refusing to project", id="not-toml"),
+        pytest.param(
+            '[a]\ntier = "trunk"\npaths = ["x"]\n',
+            "there is no `trunk` tier",
+            id="trunk-is-not-a-tier",
+        ),
+        pytest.param(
+            '[a]\ntier = "trunk"\npaths = ["x"]\n', "a tier is one of", id="bad-tier"
+        ),
+        pytest.param('[a]\ntier = "lane"\n', "states no `paths`", id="no-paths"),
+        pytest.param(
+            '[a]\ntier = "lane"\npaths = []\n', "states no `paths`", id="empty-paths"
+        ),
+        pytest.param(
+            '[a]\ntier = "lane"\npaths = ["x"]\nqueue = "light"\n',
+            "this table holds",
+            id="unknown-key",
+        ),
+    ],
+)
+def test_a_malformed_declaration_is_refused(tmp_path, text, expect):
+    """A claim nobody can parse is worse than no claim: `doctor` would report it
+    absent and the workflow would look compliant."""
+    write_local_writes(tmp_path, text)
+
+    with pytest.raises(ProjectionError) as exc:
+        project.resolve_writes(None, tmp_path)
+    assert expect in str(exc.value)

@@ -43,6 +43,7 @@ It writes nothing unless `--prune` is given (§10 check 5).
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import difflib
 import json
@@ -671,6 +672,86 @@ def check_fanout(rep: Report, reg: Registry) -> None:
         )
 
 
+def check_writes(rep: Report, reg: Registry) -> None:
+    """A workflow that writes must say what it writes, and under which tier.
+
+    **This check exists because §12 rule 3 stopped being a refusal.** Until 015
+    the rule forbade every unattended write to tracked source, and a flat
+    refusal needs no audit: nothing was permitted, so nothing could be wrong.
+    The amendment replaced it with three tiers — free, on a lane, refused — and
+    a tier is a claim the workflow makes about itself. An unchecked claim is
+    weaker than the refusal it replaced, and this is what makes it checkable.
+
+    **What it can decide, and it is set membership rather than a heuristic, so
+    §15.7 does not reach it.** Every finding here is a comparison against a
+    stated set: a tier that is not one of the two names, a declaration naming a
+    workflow the project does not project, and — the one that matters — a
+    `tier = "free"` claim over a path outside tier A's agent surface. That last
+    one is the whole point: free-tier writes land in the working tree with
+    nobody present, so a workflow claiming it for `src/**` is claiming to edit
+    code unattended, which is precisely what the lane exists to prevent.
+
+    **What it CANNOT decide, stated so nobody reads more into a clean run.** It
+    cannot tell that a workflow which declares nothing writes nothing, and it
+    cannot tell that a declaration is true. `doctor` reads YAML and a TOML
+    table; it does not run the step. A silent finding here means every
+    declaration present is well formed — not that every writer declared.
+    """
+    tiers: collections.Counter[str] = collections.Counter()
+    lines: list[str] = []
+    declaring = 0
+    for proj in reg.projects().values():
+        decls = proj.raw_writes() or {}
+        if not decls:
+            continue
+        declaring += 1
+        known = set(proj.workflows or {})
+        for name, decl in sorted(decls.items()):
+            if not isinstance(decl, dict):
+                lines.append(f"{proj.name}/{name}: not a table")
+                continue
+            tier = decl.get("tier")
+            if tier not in project.TIERS:
+                lines.append(
+                    f"{proj.name}/{name}: tier {tier!r} is not one of"
+                    f" {', '.join(project.TIERS)}"
+                )
+                continue
+            tiers[tier] += 1
+            if known and name not in known:
+                lines.append(
+                    f"{proj.name}/{name}: declared, but this project projects"
+                    " no such workflow"
+                )
+            paths = decl.get("paths") or []
+            if tier == "free":
+                outside = [g for g in paths if not project.free_path(g)]
+                if outside:
+                    lines.append(
+                        f"{proj.name}/{name}: tier free over {', '.join(outside)}"
+                        " — outside agent surface"
+                    )
+    if lines:
+        lines.append(
+            "tier free is agent surface only ("
+            + ", ".join(project.FREE_PREFIXES)
+            + "); an edit to existing tracked source is tier lane, and tier"
+            " insitu is format's bounded exception — its own group, a content"
+            " hash, a fixpoint (§12 rule 3)"
+        )
+        rep.add("writes", "!!", lines)
+    else:
+        spread = ", ".join(f"{n} {t}" for t, n in sorted(tiers.items())) or "none"
+        rep.add(
+            "writes",
+            "ok",
+            [
+                f"{declaring} projects declare output ownership — {spread}",
+                "a workflow that declares none is unaudited, not proven silent",
+            ],
+        )
+
+
 def running_watchers(reg: Registry) -> list[tuple[int, int]]:
     """Every watchexec aimed at this registry, as `(pid, parent pid)`.
 
@@ -1255,6 +1336,7 @@ def main(args, reg: Registry) -> int:
     check_handlers(rep, reg)
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)
+    check_writes(rep, reg)
     check_trigger_targets(rep, reg)
     check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)

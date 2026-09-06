@@ -21,7 +21,8 @@ Measured on 2026-09-05, machine idle apart from this session, before any change.
 
 | gate | result |
 |---|---|
-| `devman doctor` | **exit 0**, 54 projects, 170 workflows |
+| `devman doctor` (installed 0.3.0) | exit 0, 54 projects, 170 workflows |
+| `devman doctor` (from source) | **exit 1 — `daemon shell` only**, the pre-existing 009 finding |
 | `devenv tasks run -v base:check` | exit 0, 39 ms |
 | `devenv tasks run -v base:test` | exit 0, 20.0 s |
 | `pytest tests/unit` | **327 passed** |
@@ -29,10 +30,15 @@ Measured on 2026-09-05, machine idle apart from this session, before any change.
 
 **Two corrections to the kickoff, both in the safe direction.**
 
-1. The kickoff says `doctor` "currently exits 1 on `daemon shell`". **It does
-   not.** It exits 0, and `projection` reports `170 DAG names each point at
-   their own project's file` — the 6 pre-codec names in `gitman` and `pyjutsu`
-   have since migrated. The baseline is clean.
+1. **This entry was itself wrong, and is retracted.** It read: *the kickoff says
+   `doctor` "currently exits 1 on `daemon shell`" — it does not.* That was
+   measured with the **installed** `devman`, which is the **0.3.0** build and
+   does not carry the check at all. Run from source, `doctor` **does** exit 1 on
+   `daemon shell`, exactly as the kickoff said, and the fix lands on the next
+   system rebuild. The lesson is 014's again in a new place: *the binary on
+   `PATH` is not the code in the tree.* What does stand: `projection` reports
+   `170 DAG names each point at their own project's file` — the 6 pre-codec
+   names in `gitman` and `pyjutsu` have migrated.
 2. The kickoff says "`tests/unit/` must pass unmodified. 398 tests today."
    398 is the whole of `tests/`; `tests/unit/` is **327**. The other 71 are
    `tests/conformance/`. Both pass, before and after.

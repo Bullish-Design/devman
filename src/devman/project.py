@@ -98,6 +98,7 @@ def entry_text(
     local: list[str],
     workflows: dict,
     triggers: object,
+    writes: object = None,
 ) -> str:
     return (
         "{\n"
@@ -108,9 +109,25 @@ def entry_text(
         f'  "plan": {json.dumps(plan)},\n'
         f'  "local": [{", ".join(json.dumps(n) for n in local)}],\n'
         f'  "workflows": {json.dumps(workflows, sort_keys=True)},\n'
-        f'  "triggers": {json.dumps(triggers, sort_keys=True)}\n'
+        f'  "triggers": {json.dumps(triggers, sort_keys=True)},\n'
+        f'  "writes": {json.dumps(writes, sort_keys=True)}\n'
         "}\n"
     )
+
+
+# WHY `writes` DOES NOT BUMP THE SCHEMA, AND `triggers` DID (015).
+#
+# Schema 2 added `workflows` and schema 3 added `triggers`, and both bumped
+# because a RUN-TIME reader depends on them: `run.resolve()` reads `workflows`
+# and the watcher reads `triggers`. An older reader that silently missed either
+# would dispatch the wrong thing, which is the failure §15.7 exists to prevent.
+#
+# `writes` has no run-time reader. It is written by the projection and read by
+# `doctor`, which is the same binary. An older `doctor` ignores the key and
+# loses a check it never had — degradation without misbehaviour, which is what
+# the version number is for. Bumping would instead make every already-projected
+# entry on this machine report "a newer devman wrote these entries" until every
+# shell is re-entered, for a field nothing at run time reads.
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +280,7 @@ class Plan:
     workflows: dict[str, dict]
     triggers: object
     renderer: str
+    writes: object = None
 
     @classmethod
     def read(cls, path: str | os.PathLike[str]) -> Plan:
@@ -273,6 +291,7 @@ class Plan:
             groups=raw.get("groups", []),
             workflows=raw.get("workflows", {}),
             triggers=raw.get("triggers"),
+            writes=raw.get("writes"),
             renderer=raw.get("renderer", ""),
         )
 
@@ -422,6 +441,7 @@ def apply(
         local=local,
         workflows=plan.workflows,
         triggers=resolve_triggers(plan.triggers, root),
+        writes=resolve_writes(plan.writes, root),
     )
     tmp = entry / ".metadata.json.new"
     tmp.write_text(text)
@@ -684,3 +704,135 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         help="one workflow name from .devman/workflows/, in glob order",
     )
     p.add_argument("--dagu", help="the dagu binary to validate with")
+
+
+# ---------------------------------------------------------------------------
+# Output ownership — what a workflow writes, and under which tier (015)
+#
+# WHY THIS FILE EXISTS. §12 rule 3 used to refuse every unattended write to
+# tracked source, and a flat refusal needs no declaration: nothing was allowed,
+# so nothing had to say what it wrote. 015 amended the rule into three tiers —
+# free, on a lane, and refused — and a tier is a CLAIM. This is where the claim
+# is written down, so `doctor` can read it instead of a reviewer guessing.
+#
+# WHY IT IS A TOML FILE BESIDE `triggers.toml`, AND NOT A KEY IN THE WORKFLOW.
+# The same measurement that put the trigger map here (A5), re-verified in 015:
+#
+#   * a top-level `writes:` key is rejected — `dagu validate` fails the document
+#     with "decoding failed", exactly as it does for any unknown key;
+#   * `tags:` IS accepted, and is useless for this — it is a label map with a
+#     charset of `a-zA-Z0-9-_.`, so `devman:writes=lane` is refused on the `:`
+#     and no glob containing `/` or `*` can be expressed at all.
+#
+# So the two homes a declaration could have had are closed, and this file takes
+# the third — the one §8 already established for the trigger map.
+#
+# IT IS PER WORKFLOW, KEYED BY THE NAME THE PROJECT PROJECTS. A group ships the
+# declaration for the workflows it ships, because the group wrote the steps and
+# knows what they touch; a repository narrows or replaces it, exactly as §7.3
+# resolves workflows and the local trigger layer resolves triggers.
+#
+# WHAT IT CANNOT DO, STATED PLAINLY. It cannot prove a workflow writes what it
+# says, or that a workflow which declares nothing writes nothing. The amendment
+# is weaker than the rule it replaced and this file does not close that gap —
+# it makes the claim legible and checkable, which is the difference between a
+# reviewer reading a shell script and `doctor` reading a set.
+LOCAL_WRITES = "writes.toml"
+
+# Tier A of §12 rule 3 as amended: agent surface. A declaration of `tier =
+# "free"` over a path outside this set is the finding `check_writes` exists to
+# make. The list is a PREFIX set on purpose — membership is decidable by reading
+# the glob, with no filesystem access and no guessing (§15.7).
+FREE_PREFIXES = (".agents/", "docs/", ".devman/", ".loci/", ".gitman/")
+# `insitu` is `format`'s bounded exception, kept exactly as narrow as the rule
+# it survives from: its own opt-in group, a content hash, and a fixpoint. It is
+# an idempotent normalisation of a file the trigger already watched — not new
+# content. A declaration that claims it states the glob it normalises.
+TIERS = ("free", "lane", "insitu")
+
+
+def free_path(glob: str) -> bool:
+    """Is this declared glob inside tier A's agent surface?"""
+    return any(glob.startswith(p) for p in FREE_PREFIXES)
+
+
+def _validate_writes(raw: dict, where: str) -> dict:
+    """Refuse a malformed declaration at projection time, not at audit time.
+
+    A tier is a claim, and a claim nobody can parse is worse than no claim:
+    `doctor` would report it as absent and the workflow would look compliant.
+    """
+    for name, decl in raw.items():
+        if not isinstance(decl, dict):
+            raise ProjectionError(
+                f"refusing to project '{where}'\n"
+                f"  [{name}] is a table: `tier` and `paths`"
+            )
+        tier = decl.get("tier")
+        if tier not in TIERS:
+            raise ProjectionError(
+                f"refusing to project '{where}'\n"
+                f"  [{name}] states tier {tier!r}, and a tier is one of:"
+                f" {', '.join(TIERS)}\n"
+                "  there is no `trunk` tier — an unattended write to trunk is"
+                " refused outright (§12 rule 3)"
+            )
+        paths = decl.get("paths")
+        if (
+            not isinstance(paths, list)
+            or not paths
+            or not all(isinstance(g, str) for g in paths)
+        ):
+            raise ProjectionError(
+                f"refusing to project '{where}'\n"
+                f"  [{name}] states no `paths`, and a declaration without one"
+                " claims a tier for nothing\n"
+                "  `paths` is a non-empty list of globs relative to the"
+                " repository root"
+            )
+        unknown = sorted(set(decl) - {"tier", "paths", "lane"})
+        if unknown:
+            raise ProjectionError(
+                f"refusing to project '{where}'\n"
+                f"  [{name}] states {', '.join(unknown)}; this table holds"
+                " `tier`, `paths` and an optional `lane`"
+            )
+    return raw
+
+
+def local_writes(root: Path) -> dict | None:
+    """This repository's own ownership layer, or `None` if it ships none."""
+    path = root / ".devman" / LOCAL_WRITES
+    if not path.is_file():
+        return None
+    try:
+        raw = tomllib.loads(path.read_text())
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            f"  {exc}\n"
+            '  it is TOML: one table per workflow, `tier = "free"|"lane"` and'
+            " `paths = [...]`"
+        ) from exc
+    return _validate_writes(raw, str(path))
+
+
+def resolve_writes(plan_writes: object, root: Path) -> object:
+    """The group layer, per workflow, overridden by this repository's own.
+
+    UNLIKE §7.3 AND THE TRIGGER MAP, THIS MERGES PER WORKFLOW RATHER THAN
+    WHOLE-FILE. Those two replace outright because a partial trigger map or a
+    half-shadowed workflow is hard to predict from either file alone. Here the
+    unit is already a workflow: a repository that overrides `[format]` says
+    nothing about `[regen]`, and inheriting the group's declaration for a
+    workflow it did not mention is the same inheritance §7.3 gives the workflow
+    itself. A repository silently losing a group's declaration would be the
+    worse surprise, because the audit would then report nothing.
+    """
+    group = plan_writes if isinstance(plan_writes, dict) else {}
+    local = local_writes(root)
+    if local is None:
+        return group or None
+    merged = dict(group)
+    merged.update(local)
+    return merged or None

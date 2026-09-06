@@ -508,3 +508,103 @@ def test_the_whole_dotfile_counts_not_only_the_shell_scripts(plane, tmp_path):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("path inputs", "!!")
     assert "0 shell-*.sh" in lines[0]
+
+
+# ---------------------------------------------------------------------------
+# check — output ownership (015, §12 rule 3 as amended)
+
+
+def test_a_project_declaring_nothing_is_reported_unaudited_not_clean(plane):
+    """The check must not read silence as compliance. §12 rule 3 stopped being a
+    refusal, so a workflow that declares nothing is simply unaudited."""
+    plane.add("p", workflows={"check": ORDINARY})
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("writes", "ok")
+    assert "unaudited, not proven silent" in lines[1]
+
+
+def test_a_well_formed_declaration_is_counted_by_tier(plane):
+    plane.add(
+        "p",
+        workflows={"format": ORDINARY, "regen": ORDINARY},
+        writes={
+            "format": {"tier": "insitu", "paths": ["**/*.py"]},
+            "regen": {"tier": "lane", "paths": ["src/**"]},
+        },
+    )
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("writes", "ok")
+    assert "1 insitu, 1 lane" in lines[0]
+
+
+def test_tier_free_outside_agent_surface_is_a_finding(plane):
+    """The finding this check exists to make. A free-tier write lands in the
+    working tree with nobody present, so claiming it for `src/**` is claiming to
+    edit code unattended — which is what the lane exists to prevent."""
+    plane.add(
+        "p",
+        workflows={"regen": ORDINARY},
+        writes={"regen": {"tier": "free", "paths": ["src/**"]}},
+    )
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("writes", "!!")
+    assert "tier free over src/** — outside agent surface" in lines[0]
+
+
+def test_tier_free_over_agent_surface_is_never_a_finding(plane):
+    plane.add(
+        "p",
+        workflows={"notes": ORDINARY},
+        writes={"notes": {"tier": "free", "paths": [".agents/**", "docs/**"]}},
+    )
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"
+
+
+def test_a_declaration_naming_no_projected_workflow_is_a_finding(plane):
+    """Same shape as the trigger-target check: a claim about a workflow that
+    does not exist audits nothing."""
+    plane.add(
+        "p",
+        workflows={"check": ORDINARY},
+        writes={"ghost": {"tier": "lane", "paths": ["src/**"]}},
+    )
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("writes", "!!")
+    assert "projects no such workflow" in lines[0]
+
+
+def test_an_unknown_tier_is_a_finding(plane):
+    """A registry entry can hold one even though the projection refuses it: an
+    older devman wrote the entry, or somebody edited it (§9.3)."""
+    plane.add(
+        "p",
+        workflows={"regen": ORDINARY},
+        writes={"regen": {"tier": "trunk", "paths": ["src/**"]}},
+    )
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("writes", "!!")
+    assert "is not one of" in lines[0]

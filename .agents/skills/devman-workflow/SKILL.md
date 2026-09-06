@@ -30,7 +30,10 @@ say why (`PROPOSAL.md` §12):
    `docs/**`, notes, a tool's hidden directory). **B, on a lane** — any edit to
    an existing tracked source file, left on a `gitman` lane for a person to
    merge; writing the working tree directly instead is breaking this rule, not
-   complying with it. Rule 2 still stands, so the workflow does not publish,
+   complying with it. **`insitu`** is `format`'s bounded exception — an
+   idempotent normalisation of a watched file, and it costs its own opt-in
+   group, a content hash and a fixpoint.
+   Declare it in `writes.toml`: one table per workflow, `tier` and `paths`. Rule 2 still stands, so the workflow does not publish,
    push or land. And if what you write is inside a watched glob, you need
    `format`'s whole apparatus — a content hash and a fixpoint — or you trigger
    yourself.

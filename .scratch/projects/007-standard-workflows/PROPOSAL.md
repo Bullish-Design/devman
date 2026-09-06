@@ -867,9 +867,28 @@ that amendment.
 
 | Tier | What | Where it lands |
 |---|---|---|
-| **A — free** | a file that did not exist, and **agent surface** wherever it lives: `.agents/**`, `docs/**`, notes, and the hidden directory a tool owns (`.devman/`, `.loci/`, `.gitman/`) | the working tree, directly |
-| **B — on a lane** | every edit to an existing tracked source file — dependency updates, code generation, autofix | a `gitman` lane or a branch, for a person to merge when they choose |
+| **A — `free`** | a file that did not exist, and **agent surface** wherever it lives: `.agents/**`, `docs/**`, notes, and the hidden directory a tool owns (`.devman/`, `.loci/`, `.gitman/`) | the working tree, directly |
+| **B — `lane`** | every edit to an existing tracked source file — dependency updates, code generation, autofix | a `gitman` lane or a branch, for a person to merge when they choose |
+| **— `insitu`** | the bounded exception the old rule already carried, and **`format` is still its only holder** | the working tree, directly |
 | **C — refused** | an unattended write to **trunk** | nowhere. This is the invariant that replaces the old rule |
+
+**`insitu` is not a loophole, and the first draft of this amendment lost it.**
+The rule this replaces ended *"`format` is the single exception and it is
+bounded three ways: one glob, a content hash, and its own group."* Written with
+only `free` and `lane`, the amendment made the plane's one blessed writer a
+finding against itself. The tier exists to keep that exception exactly as narrow
+as it was, and its three bounds are its entry price:
+
+1. **its own opt-in group**, so a repository chooses the behaviour (§8);
+2. **a content hash**, so a run that would change nothing does not run; and
+3. **a fixpoint**, so the receipt only ever describes a tree the writer has seen
+   settle (013).
+
+What distinguishes it from tier B is not trust, it is the *kind* of write: an
+`insitu` write is an **idempotent normalisation of the file the trigger already
+watched**. It adds no content, and running it twice changes nothing. Code
+generation, dependency updates and autofix beyond formatting are none of those
+things, and they are tier B.
 
 **Tier A is free because it destroys nothing.** A new file overwrites no work,
 and agent surface is written to be read by agents. A repository that disagrees
