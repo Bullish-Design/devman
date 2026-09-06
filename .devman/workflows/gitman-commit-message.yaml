@@ -38,17 +38,23 @@
 # ---------------------------------------------------------------------------
 # HOW THIS IS MEANT TO BE USED
 #
-#     llgym serve --n-gpu-layers 30       # in llgym's own shell, once
+#     # start any OpenAI-compatible server on $GPU_LLM_BASE_URL first
 #     GPU_LLM_MODEL=<name> devman run gitman-commit-message
 #     gitman save -m "$(cat .devman/gitman/messages/<run id>.md)"
 #
-# This workflow never calls `gitman save` itself. It drafts; a person (or a
-# wrapping script) decides whether the draft is right and commits it. An
-# automatic trigger that also auto-saved would be a Dagu run silently writing
-# a commit message nobody read — the exact "successful run that did the wrong
-# thing" §15.7 of CONCEPT.md warns against.
+# This workflow never calls `gitman save` itself. It drafts; a caller decides
+# what to do with the draft.
 #
-# devman does not start `llgym serve` — it only calls it (same rule
+# ITS ORIGINAL JUSTIFICATION IS RETRACTED AND MUST NOT BE RESTORED. This
+# comment used to argue that an automatic trigger which also saved would be a
+# "successful run that did the wrong thing". That argument rested on the
+# pre-015 rule refusing every unattended write to tracked source, and 015
+# replaced that rule with the three tiers. Under the amendment a save is a
+# write like any other: it lands on a lane for a person to merge (tier B), and
+# only an unattended write to TRUNK is refused. Whether this workflow should
+# save is now an open design question, not a settled refusal.
+#
+# devman does not start that server — it only calls it (same rule
 # `processes.dagu`'s note in devenv.nix states for Dagu itself: the plane
 # does not supervise long-running processes). If nothing answers on
 # `GPU_LLM_BASE_URL`, `gpu_complete.py` fails the step with that reason
