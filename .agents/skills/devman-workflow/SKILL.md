@@ -24,9 +24,16 @@ say why (`PROPOSAL.md` §12):
    format-in-buffer land next to the cursor in tens of milliseconds; the plane's
    round trip after a content change is 1.44 s and lands in a log file.
 2. Is it irreversible outside this machine? Publishing, tagging, deploying.
-3. Does it write **tracked source** with nobody present? Dependency updates, code
-   generation, autofix beyond formatting. A formatter is the single exception,
-   and it is bounded three ways: one glob, a content hash, its own group.
+3. Does it write to **trunk** with nobody present? That is the only write this
+   rule still refuses (015 amended it). Otherwise pick the tier and say which:
+   **A, free** — a file that did not exist, or agent surface (`.agents/**`,
+   `docs/**`, notes, a tool's hidden directory). **B, on a lane** — any edit to
+   an existing tracked source file, left on a `gitman` lane for a person to
+   merge; writing the working tree directly instead is breaking this rule, not
+   complying with it. Rule 2 still stands, so the workflow does not publish,
+   push or land. And if what you write is inside a watched glob, you need
+   `format`'s whole apparatus — a content hash and a fixpoint — or you trigger
+   yourself.
 4. Could it succeed while doing nothing? `devenv test` exits 0 having tested
    nothing in 30 of 58 repositories, which is why the rung that ran it was
    deleted.

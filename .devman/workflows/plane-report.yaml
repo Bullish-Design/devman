@@ -58,42 +58,6 @@
 # `dagu status` and correct logs (§9.2, S3).
 #
 # ---------------------------------------------------------------------------
-# IT ALSO READS THE MACHINE'S DISK ALLOCATION, BECAUSE NOTHING ELSE DOES (015)
-#
-# `df` IS NOT ABLE TO SHOW THE NUMBER THAT MATTERS ON btrfs. A btrfs filesystem
-# hands raw device space to data and metadata in chunks. When every chunk is
-# handed out, a write that needs a NEW metadata chunk fails with ENOSPC while
-# `df` still reports free space inside the chunks already allocated. 014 spent
-# hours reading that failure as a flake-input defect and retracted the finding
-# (014 `RESULT.md` §16). Measured here on 2026-09-05: `df` reported 71 G free
-# and 84 % used, while `Device unallocated` was 2.00 GiB of a 443.94 GiB
-# device — 0.45 %.
-#
-# THE THRESHOLD IS THE CHUNK SIZE, NOT A TASTE. btrfs allocates a metadata
-# chunk of up to 1 GiB, and this machine's metadata profile is DUP, so one more
-# metadata chunk costs up to 2 GiB of unallocated device. Below that the
-# filesystem cannot promise itself another metadata chunk, which is the
-# ENOSPC 014 hit. So: fail under 2 GiB, warn under 5 GiB.
-#
-# IT IS MACHINE SCOPE, WHICH IS WHY IT IS IN THIS FILE AND NOT IN A GROUP. The
-# disk belongs to the machine, not to any repository. A group workflow would
-# ask the same question 54 times and produce 54 identical answers — the same
-# arithmetic that moved `doctor` here in the first place. This adds no
-# projected file to any repository.
-#
-# IT NAMES NO PATH, BY LAW 5. `stat -f` and `btrfs filesystem usage` both read
-# `.`, which the projection has already set to this project's `working_dir`.
-# A workflow file that named `/home` would hold a machine fact.
-#
-# ON A FILESYSTEM THAT IS NOT btrfs IT SAYS SO AND DOES NOT FAIL. That is not
-# §12 rule 4's silent success: the report states the filesystem it found and
-# that the guard does not apply to it, which a reader can tell apart from a
-# clean btrfs result.
-#
-# CHEAP BY CONSTRUCTION, MEASURED: `btrfs filesystem usage -b .` is 4 ms
-# (n=10, warm, this machine). It reads allocation metadata and walks nothing.
-#
-# ---------------------------------------------------------------------------
 # THE SCHEDULE
 #
 # `20 0 * * *` — fifteen minutes after `maintain`'s `5 0 * * *`, so that the
@@ -130,47 +94,6 @@ steps:
         echo
         echo "- doctor exit: $rc"
       } >> "$report"
-
-      # The machine's disk allocation. `|| rc=$?` discipline applies here too:
-      # this section must never abort the step before the report is finished.
-      {
-        echo
-        echo '## disk'
-        echo
-      } >> "$report"
-
-      fstype=$(stat -f -c '%T' . 2>/dev/null) || fstype=unknown
-      if [ "$fstype" != "btrfs" ]; then
-        echo "ok  filesystem is \`$fstype\` — this guard reads btrfs allocation only." >> "$report"
-      else
-        usage=$(btrfs filesystem usage -b . 2>/dev/null) || usage=""
-        unalloc=$(printf '%s\n' "$usage" | awk '/Device unallocated:/ {print $3; exit}')
-        size=$(printf '%s\n' "$usage" | awk '/Device size:/ {print $3; exit}')
-        if [ -z "$unalloc" ] || [ -z "$size" ]; then
-          echo "ok  btrfs, but \`btrfs filesystem usage\` gave no allocation line — nothing read." >> "$report"
-        else
-          pct=$(( unalloc * 10000 / size ))
-          human="$(( unalloc / 1073741824 )).$(( unalloc % 1073741824 * 100 / 1073741824 )) GiB"
-          total="$(( size / 1073741824 )) GiB"
-          if [ "$unalloc" -lt 2147483648 ]; then
-            {
-              echo "FAIL  device unallocated $human of $total ($((pct/100)).$((pct%100)) %)"
-              echo "      Below one DUP metadata chunk. A write needing a new metadata"
-              echo "      chunk can fail with ENOSPC while df still reports free space."
-              echo "      Run \`btrfs balance start -dusage=<n> .\` to return chunks to the pool."
-            } >> "$report"
-            rc=1
-          elif [ "$unalloc" -lt 5368709120 ]; then
-            {
-              echo "warn  device unallocated $human of $total ($((pct/100)).$((pct%100)) %)"
-              echo "      Approaching the point where btrfs cannot allocate another"
-              echo "      metadata chunk. df cannot show this number (014 §16)."
-            } >> "$report"
-          else
-            echo "ok  device unallocated $human of $total ($((pct/100)).$((pct%100)) %)" >> "$report"
-          fi
-        fi
-      fi
 
       cat "$report"
       exit "$rc"

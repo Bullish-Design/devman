@@ -83,7 +83,9 @@ Eight rules, in `PROPOSAL.md` §12. The short form:
 
 - anything an editor already does synchronously
 - anything irreversible outside this machine
-- anything that writes tracked source with nobody present
+- an unattended write to **trunk** — every other write is tiered (015): a new
+  file and agent surface are free; an edit to existing tracked source lands on a
+  **gitman lane** for a person to merge
 - anything whose success is indistinguishable from doing nothing
 - anything needing a fact the repository did not state
 - a second implementation of a task the repository already has

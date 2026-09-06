@@ -5,10 +5,13 @@ looks empty is that the plane's one unique capability — running in a repositor
 nobody is present in — has exactly one class of work in it, and `maintain`
 already holds it.**
 
-This project adds **one** guard, to **one** machine-scope workflow, adding
-**zero** projected files. It adds no group, no trigger, and no `base` workflow.
-It deletes nothing. Every candidate that died is recorded in §4 with the
-`PROPOSAL.md` §12 rule that killed it.
+This project ships **no new workflow, group or trigger.** It corrects a false
+claim in `groups/base/README.md` (§5.2) and it carries the charter owner's
+**amendment to §12 rule 3** (§9), which reopens most of what §4 killed.
+
+A disk-allocation guard was proposed and **withdrawn**: it was chosen by
+frequency in the human's shell history, which is the wrong signal for a plane
+that exists to serve agentic workflows. §5.1 keeps the error on the record.
 
 ---
 
@@ -360,7 +363,7 @@ fifteen days** — small, pure waste, already fixed in source.
 
 | # | candidate | verdict |
 |---|---|---|
-| 1 | **Machine disk-allocation guard** | **SHIPPED** — §5 |
+| 1 | Machine disk-allocation guard | **WITHDRAWN — the framing was wrong.** §5.1 |
 | 2 | Fleet pin-drift report | **dead, rule 4** |
 | 3 | A `verify` workflow wrapping `testee` | **dead, rule 6** |
 | 4 | The gitman lane loop as a workflow | **dead, rules 2 and 3** |
@@ -368,6 +371,13 @@ fifteen days** — small, pure waste, already fixed in source.
 | 6 | Fleet-wide stale-git-state report | **dead, rules 4 and 7** |
 | 7 | Deleting `check` and `test` | **rejected on the measurement** — §6 |
 | 8 | A `python-quality` group | **dead, §3.1** |
+
+**§12 rule 3 was amended after this table was written, and four of these
+verdicts no longer stand.** See §9. Candidates 3, 4 and the changelog,
+issue-template and scaffolding ideas raised alongside them died on "writes
+tracked source with nobody present". That clause is gone. Their verdicts are
+**reopened**, not reversed — each still has to clear rules 2, 4 and §8's
+watcher argument, and none has been re-examined here.
 
 **2 — fleet pin-drift report.** Rule 4, *success indistinguishable from doing
 nothing*. Measured: all 53 repositories carrying a devman pin hold `v0.4.0`.
@@ -409,76 +419,27 @@ workflow wearing a costume, and the friction is rule 3, not packaging.
 
 ## 5. What shipped
 
-### 5.1 The disk-allocation guard, in `plane-report`
+### 5.1 A disk-allocation guard — proposed, then WITHDRAWN
 
-**The problem, and it is live right now.** `/home` is btrfs. btrfs hands raw
-device space to data and metadata in chunks; when every chunk is allocated, a
-write needing a *new* metadata chunk fails with `ENOSPC` while `df` still
-reports free space inside the chunks already handed out. Measured at 20:25 on
-2026-09-05:
+**This was proposed and is not shipped. It is left here because the reasoning
+error is the most useful thing in this document.**
 
-```
-df -h /home        ->  444G size, 370G used, 71G avail, 84% use
-btrfs … usage      ->  Device unallocated:  2.00 GiB of 443.94 GiB  (0.45 %)
-                       Metadata, DUP:       9.54 / 11.51 GiB used   (82.9 %)
-```
+I built the proposal on §2.1 — that disk health is 18.6 % of the commands the
+human types. That is a true measurement of the wrong thing. **devman exists to
+support automated agentic development workflows, not to automate the commands a
+person happens to type.** A plane whose content is chosen by frequency in shell
+history will reproduce a person's habits instead of serving the agents that do
+the work. The charter owner rejected the framing, and the rejection is correct.
 
-`Device unallocated` **fell from 3.00 GiB to 2.00 GiB during this session**,
-while `df` reported 71 G free throughout.
+It also failed a test this document applies to everything else: it was
+machine-scope, and 015 asked what the plane should do **across 54
+repositories**. A disk guard answers a question nobody asked of the plane.
 
-**This has already cost real time.** 014 spent hours attributing exactly this
-`ENOSPC` to a `git+file:` flake-input scheme, shipped a gate against it, and
-retracted the whole finding in `RESULT.md` §16 — six repositories declared
-incompatible that were not.
-
-**Why it earns a place.** It is the largest category of the human's hand work
-(§2.1, 18.6 %), and 40 of those commands are `df`, the tool that cannot answer
-the question.
-
-**Why it is in `plane-report` and not in a group.** The disk belongs to the
-machine, not to any repository. A group workflow would ask 54 times and get 54
-identical answers — the arithmetic that moved `doctor` here at stage 7. **This
-adds zero projected files.** `doctor` still reports 170.
-
-**Why it is one step and not two.** `groups/base/README.md` argues a workflow
-should declare no order it does not need. The guard is appended inside the
-existing `report` step, before its single `exit "$rc"`, preserving the
-`|| rc=$?` discipline that file exists to protect.
-
-**It names no path (law 5).** `stat -f` and `btrfs filesystem usage` both read
-`.`, which the projection has already set to `working_dir`. A workflow naming
-`/home` would hold a machine fact.
-
-**The threshold is the chunk size, not a taste.** btrfs allocates metadata
-chunks of up to 1 GiB; this machine's metadata profile is `DUP`, so one more
-metadata chunk costs up to **2 GiB** of unallocated device. Below that the
-filesystem cannot promise itself another metadata chunk. So: **fail under
-2 GiB, warn under 5 GiB.**
-
-**Rule 8 — cheap by construction, measured.** `btrfs filesystem usage -b .` is
-**4 ms** (n=10, warm, this machine, idle). It reads allocation metadata and
-walks no tree. It needs no `sudo`.
-
-**Rule 4 — it is distinguishable from doing nothing.** On a non-btrfs
-filesystem it reports the filesystem it found and that the guard does not apply,
-rather than passing silently.
-
-**Proved end to end.** `devman run plane-report`, run id
-`034JpQxLxa7TMlTyEF38m9`:
-
-```
-## disk
-
-warn  device unallocated 2.0 GiB of 443 GiB (0.45 %)
-      Approaching the point where btrfs cannot allocate another
-      metadata chunk. df cannot show this number (014 §16).
-```
-
-**How `doctor` would notice if it broke.** It would not, and that is deliberate.
-The guard reports *through* `doctor`'s own report and folds into `plane-report`'s
-exit code, so a night when it fires is a night `plane-report` fails and the
-report says why. There is no new check for `doctor` to hold, and no new file for
-it to validate.
+**The underlying condition was real and is unrelated to the proposal.** `/home`
+is btrfs; `Device unallocated` fell from 3.00 GiB to **1.00 MiB** over this
+session while `df` reported 68 G free throughout. That is the condition 014
+misdiagnosed (§16). It is a machine-administration fact, recorded here and
+nowhere else, and it is not the plane's job.
 
 ### 5.2 `groups/base/README.md` — a false claim, corrected
 
@@ -571,3 +532,76 @@ them, and should let them be what they are: available, cheap, and rarely needed.
 No charter amendment is required. `plane-report` is already the machine-scope
 workflow by `CONCEPT.md` §11; reading the machine's disk is within the purpose
 that file already states.
+
+
+---
+
+## 9. The charter amendment — §12 rule 3
+
+**Decided by the charter owner on 2026-09-05, after this project's investigation
+was written. It changes the conclusions above, and §4 says which.**
+
+### What the rule was
+
+> **3. Anything that writes tracked source without a person present.** Dependency
+> updates, code generation, autofix beyond formatting. The write is a change
+> nobody reviewed, and the plane has no review step.
+
+### Why it went
+
+**Its stated reason had expired.** "The plane has no review step" was true when
+it was written. `gitman` is now in **26 of the 54** registered repositories and
+supplies exactly that step: a lane is a named review queue, a lane cannot reach
+trunk except through `land`, and `gitman undo` reverts a whole intent through
+jj's operation log. 011 §8.2 named review, output ownership and audit as the
+machinery an amendment would need, and explicitly left the decision to the
+charter owner: *"no measurement in this document makes it."*
+
+**And this project measured what the rule cost.** It is the binding constraint on
+the plane's content. Of everything the plane has ever run, 83 % is one
+repository's formatter and one nightly janitor; there is one trigger; and §4's
+candidate table shows rule 3 killing more candidates than any other rule. A rule
+that forbids dependency updates, code generation and autofix forbids most of what
+an agentic development plane is for.
+
+### What it is now
+
+| Tier | What | Where it lands |
+|---|---|---|
+| **A — free** | a file that did not exist, and agent surface: `.agents/**`, `docs/**`, notes, a tool's hidden directory (`.devman/`, `.loci/`, `.gitman/`) | the working tree |
+| **B — on a lane** | every edit to an existing tracked source file | a `gitman` lane or branch, for a person to merge |
+| **C — refused** | an unattended write to **trunk** | nowhere |
+
+### What did not move, and this is the part to hold on to
+
+* **Rule 2 stands. The lane stays local.** No `publish`, no `push`, no `land`.
+  Creating a lane is reversible on this machine; pushing it is not.
+* **Rule 4 stands**, and is the likeliest way a generator dies: exit 0 having
+  produced nothing is `full-test` again.
+* **§8's watcher argument stands**, and was never rule 3's job. `.devman/.runs/`
+  is watcher-ignored; **a lane is not**. A tier-B workflow that writes `**/*.py`
+  in a repository taking `format` will fire `format`. Measure that; do not
+  assume it.
+
+### What is now owed, and is not built
+
+The amendment is **weaker than the rule it replaces**, on purpose. The old rule
+was a flat refusal and needed no enforcement. The new one needs three things
+that do not exist yet:
+
+1. **Output ownership** — a workflow states the paths it writes and the tier it
+   claims. Nothing records this today.
+2. **An audit** — `doctor` reports a writing workflow that states no tier.
+   Check 13 already reports an unbounded fan-out; this is the same shape.
+3. **Lane hygiene** — a scheduled tier-B workflow makes a lane per run per
+   repository. 54 lanes a night is rule 7 wearing a new hat.
+
+Until those exist the tier is a claim a reviewer checks by reading the file.
+**No tier-B workflow should ship before at least (1) and (2).**
+
+### Files changed by this amendment
+
+`PROPOSAL.md` §12 rule 3 (and the §5 and §11 passages that depended on it),
+`AGENTS.md`, `groups/README.md`, `.agents/skills/devman/SKILL.md`,
+`.agents/skills/devman-workflow/SKILL.md`. Historical logs and prior projects'
+`RESULT.md` files are records of what was true when written and are left alone.
