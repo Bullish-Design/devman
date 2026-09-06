@@ -686,3 +686,52 @@ def test_a_malformed_declaration_is_refused(tmp_path, text, expect):
     with pytest.raises(ProjectionError) as exc:
         project.resolve_writes(None, tmp_path)
     assert expect in str(exc.value)
+
+
+def test_the_local_writes_file_is_kept_beside_the_entry_for_the_guard(tmp_path):
+    """015 shipped the layer without this, and the layer was inert as a result.
+
+    The renderer read `.devman/writes.toml` correctly and the shell-entry guard
+    never asked it to, because the guard notices an edited local file only by
+    comparing it against the copy the projection kept (S-5a). Both halves were
+    individually right, which is why it took an end-to-end run to see.
+    """
+    root = tmp_path / "repo"
+    (root / ".devman" / "workflows").mkdir(parents=True)
+    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    write_local_writes(root, '[check]\ntier = "lane"\npaths = ["src/**"]\n')
+    registry = tmp_path / "registry"
+
+    project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+
+    kept = registry / "projects" / "p" / "writes.toml"
+    assert kept.read_text() == '[check]\ntier = "lane"\npaths = ["src/**"]\n'
+
+
+def test_removing_the_local_writes_file_removes_the_kept_copy(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".devman" / "workflows").mkdir(parents=True)
+    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    write_local_writes(root, '[check]\ntier = "lane"\npaths = ["src/**"]\n')
+    registry = tmp_path / "registry"
+    project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+
+    (root / ".devman" / "writes.toml").unlink()
+    project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+
+    assert not (registry / "projects" / "p" / "writes.toml").exists()
+
+
+def test_the_local_writes_layer_reaches_the_entry(tmp_path):
+    """The end-to-end property the guard fix restores: what the repository
+    declares is what the registry records."""
+    root = tmp_path / "repo"
+    (root / ".devman" / "workflows").mkdir(parents=True)
+    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    write_local_writes(root, '[check]\ntier = "free"\npaths = ["docs/**"]\n')
+    registry = tmp_path / "registry"
+
+    project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+
+    entry = json.loads((registry / "projects" / "p" / "metadata.json").read_text())
+    assert entry["writes"] == {"check": {"tier": "free", "paths": ["docs/**"]}}

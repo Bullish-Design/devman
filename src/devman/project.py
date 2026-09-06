@@ -426,12 +426,18 @@ def apply(
     # it the same way it notices an edited override: by comparing the source
     # against the copy this projection kept (S-5a). A verbatim copy beside the
     # entry is what makes that comparison forkless and exact.
-    source = root / ".devman" / LOCAL_TRIGGERS
-    kept = entry / LOCAL_TRIGGERS
-    if source.is_file():
-        kept.write_text(source.read_text())
-    else:
-        kept.unlink(missing_ok=True)
+    # The same applies to the local WRITES layer, and 015 shipped the layer
+    # without this and without the guard's half — so `.devman/writes.toml` was
+    # read correctly by the renderer and never re-read, because nothing marked
+    # the projection stale when it changed. Measured end-to-end: editing it
+    # changed the registry entry not at all until this was added.
+    for local_file in (LOCAL_TRIGGERS, LOCAL_WRITES):
+        source = root / ".devman" / local_file
+        kept = entry / local_file
+        if source.is_file():
+            kept.write_text(source.read_text())
+        else:
+            kept.unlink(missing_ok=True)
 
     text = entry_text(
         project=plan.project,

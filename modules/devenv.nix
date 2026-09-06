@@ -639,6 +639,29 @@ in
         devman_stale=1
       fi
 
+      # AND THE SAME FOR `.devman/writes.toml`, THE LOCAL OUTPUT-OWNERSHIP LAYER
+      # (015). It is read at run time by the renderer for the same reason the
+      # trigger layer is, so `plan` equality cannot cover it either.
+      #
+      # 015 shipped the layer WITHOUT this block, and the failure is the exact
+      # shape S-5a exists to prevent: the renderer read the file correctly and
+      # the guard never asked it to, so editing `writes.toml` changed the
+      # registry entry not at all. It was caught end-to-end rather than by a
+      # unit test, because both halves were individually right.
+      devman_wr="$devman_root/.devman/writes.toml"
+      devman_wr_kept="$devman_reg/projects/${projectName}/writes.toml"
+      if [ -f "$devman_wr" ]; then
+        if [ ! -f "$devman_wr_kept" ]; then
+          devman_stale=1
+        else
+          devman_wr_now=$(<"$devman_wr")
+          devman_wr_was=$(<"$devman_wr_kept")
+          [ "$devman_wr_now" = "$devman_wr_was" ] || devman_stale=1
+        fi
+      elif [ -f "$devman_wr_kept" ]; then
+        devman_stale=1
+      fi
+
       # §9.3 SAYS THE PROJECTION IS RECONSTRUCTABLE BY ENTERING THE SHELL, AND
       # THE GUARD USED TO CHECK TOO LITTLE FOR THAT TO BE TRUE.
       #
