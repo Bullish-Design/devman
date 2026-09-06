@@ -13,7 +13,7 @@ belongs to no project — or to the machine — is simply one of its own files (
 | `stack-validate.yaml` | `normal` | manual | a cross-repository workflow: it triggers other projects' `check` and runs no command itself |
 | `agent-review.yaml` | `exclusive` | manual | an agent reviews a commit and leaves the answer in `.runs/reports/` |
 | `bench-entry.yaml` | `exclusive` | manual | a benchmark campaign over a named other project's shell-entry cost |
-| `gitman-commit-message.yaml` | `gpu` | manual | drafts a commit message from the staged diff on the local GPU (`llgym serve` + pydantic-ai), for `gitman save -m "$(cat …)"` |
+| `gitman-commit-message.yaml` | `gpu` | manual | drafts a commit message from the staged diff on a local OpenAI-compatible server (pydantic-ai), for `gitman save -m "$(cat …)"` |
 
 **None of these is a group, and two of them never can be** (`PROPOSAL.md` §11):
 
@@ -49,7 +49,7 @@ devman run plane-report              # here — the machine-wide one
 devman run agent-review AGENT_REF=HEAD~3
 devman run bench-entry TARGET=pyjutsu RUNS=40
 
-llgym serve --n-gpu-layers 30        # in llgym's own shell, once
+# start any OpenAI-compatible server on $GPU_LLM_BASE_URL first
 devman run gitman-commit-message     # then read the file it names
 ```
 

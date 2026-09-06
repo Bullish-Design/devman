@@ -220,10 +220,10 @@ in
     # is a standalone `uv run --script` (PEP 723 inline deps: pydantic-ai +
     # openai), never installed into this package, so the GPU-only dependency
     # never reaches `pyproject.toml` or the shipped `devman` CLI (cli.py's own
-    # note: this CLI ships from the NixOS module only). It calls out to
-    # `llgym serve`'s OpenAI-compatible shim over the `inferference` engine —
-    # devman does not start that server, only calls it, and the script fails
-    # plainly if nothing answers on `$GPU_LLM_BASE_URL`.
+    # note: this CLI ships from the NixOS module only). It calls out to any
+    # OpenAI-compatible endpoint named by `$GPU_LLM_BASE_URL` — devman does not
+    # start or own that server, only calls it, and the script fails plainly if
+    # nothing answers.
     "gitman:commit-message".exec = ''
       set -euo pipefail
       prompt='Write a commit message for this diff. One summary line, 50

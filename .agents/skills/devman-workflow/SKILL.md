@@ -15,40 +15,32 @@ plane adds a generated header at projection time and reads nothing else.
 
 ---
 
-## 0. First decide whether it should be a workflow at all
+## 0. Start by sizing the work
 
-Answer these before writing a line. A "yes" to any of them means **stop**, and
-say why (`PROPOSAL.md` §12):
+**Write the reasoning into the workflow file.** A workflow file in this plane
+carries its own argument at the top, and that is the convention worth keeping:
+the next reader can weigh the trade-off again instead of guessing at it.
 
-1. Does an editor already do this synchronously? LSP diagnostics and
-   format-in-buffer land next to the cursor in tens of milliseconds; the plane's
-   round trip after a content change is 1.44 s and lands in a log file.
-2. Is it irreversible outside this machine? Publishing, tagging, deploying.
-3. Does it write to **trunk** with nobody present? That is the only write this
-   rule still refuses (015 amended it). Otherwise pick the tier and say which:
-   **A, free** — a file that did not exist, or agent surface (`.agents/**`,
-   `docs/**`, notes, a tool's hidden directory). **B, on a lane** — any edit to
-   an existing tracked source file, left on a `gitman` lane for a person to
-   merge; writing the working tree directly instead is breaking this rule, not
-   complying with it. **`insitu`** is `format`'s bounded exception — an
-   idempotent normalisation of a watched file, and it costs its own opt-in
-   group, a content hash and a fixpoint.
-   Declare it in `writes.toml`: one table per workflow, `tier` and `paths`. Rule 2 still stands, so the workflow does not publish,
-   push or land. And if what you write is inside a watched glob, you need
-   `format`'s whole apparatus — a content hash and a fixpoint — or you trigger
-   yourself.
-4. Could it succeed while doing nothing? `devenv test` exits 0 having tested
-   nothing in 30 of 58 repositories, which is why the rung that ran it was
-   deleted.
-5. Does it need a fact the repository did not state — another project's path, an
-   absolute path, a per-project schedule offset?
-6. Is it a second implementation of a task the repository already has? Running
-   `pytest` directly rather than calling the repository's own test task drifts,
-   and drifts silently because both keep passing.
-7. Will anybody read its output? A report produced 54 times is a report produced
-   zero times.
-8. Is it expensive **and** scheduled? **A scheduled run bypasses its queue.**
-   Nothing throttles the scheduled set.
+The `devman` skill holds the full set of questions and the measurement behind
+each. Two are worth repeating here, because they change what you write rather
+than whether you write it:
+
+**Can this run succeed while doing nothing?** If yes, give it something that can
+fail. `devenv test` exited 0 having tested nothing in 30 of 58 repositories, and
+nothing noticed for a month. `pytest` already exits 5 on zero collected — let it.
+A workflow whose success and whose vacuum look identical is a workflow you cannot
+debug later.
+
+**What does it write, and where should that land?** Pick a tier and declare it in
+`writes.toml` — `free` for a new file or agent surface, `lane` for an edit to
+existing tracked source, `insitu` for an idempotent normalisation of a file the
+trigger already watched. An unattended write to trunk is the one shape to keep
+out: it appears in somebody's `git status` the next morning with nothing to
+explain it. A lane carries a name and a diff instead.
+
+**If what you write is inside a watched glob**, you also need `format`'s
+apparatus — a content hash and a fixpoint — or the workflow triggers itself.
+§8's loop-break section has the working shape.
 
 ## 1. Then decide where it goes
 
@@ -99,7 +91,7 @@ round-trips.
 file it shadows. That is a report, not a complaint.
 
 **To be rid of a workflow, do not take its group.** There is no per-workflow Nix
-option and there will not be one (§7.4).
+option, because an inherited workflow nothing triggers costs nothing (§7.4).
 
 ---
 
@@ -125,7 +117,10 @@ devman show smoke             # confirm
 devman run smoke
 ```
 
-### The rules, each forced by a measurement
+### The file conventions, each forced by a measurement
+
+Every row is something that broke once. Follow them and the file works; the
+second column is the symptom when it does not.
 
 | Rule | What breaks otherwise |
 |---|---|
@@ -241,9 +236,10 @@ So: **schedule only work that is cheap by construction.** 54 repositories firing
 one cheap DAG at 00:05 costs 2 seconds. 58 concurrent `devman doctor` runs
 measured 139 s each against 14.3 s alone.
 
-**Never put a stagger in a group file.** A group file is shared, so an offset
+**A stagger belongs outside a group file.** A group file is shared, so an offset
 written there gives every repository the same offset — and a per-repository
-offset is a project fact held outside the project.
+offset is a project fact held outside the project. Stagger by triggering rather
+than scheduling, or accept the burst and keep the work cheap.
 
 **A schedule in a group file is opted out of by shadowing the file** and leaving
 the key out, or by not taking the group.
@@ -267,7 +263,7 @@ adopted project is simply never scheduled, silently.
 
 ## 7. A workflow that triggers other repositories' workflows
 
-**The one rule: the parent must not hold `DEVMAN_PROJECT_DIR`.** A parent exports
+**The thing to get right: the parent does not hold `DEVMAN_PROJECT_DIR`.** A parent exports
 its parameters into every child's environment, and that environment outranks the
 child's own `params:`, its `env:` block, and even an explicit `with.params`. A
 parent holding the name drags every child into its own directory — the children
@@ -478,8 +474,9 @@ ls .devman/.runs/logs/<project>_<workflow>/
 devman doctor
 ```
 
-**Never use `dagu dry`.** It creates `log_dir`, so it reproduces the
-literally-named `${DEVMAN_PROJECT_DIR}` directory this repository committed once.
+**Skip `dagu dry`.** It creates `log_dir`, so it reproduces the literally-named
+`${DEVMAN_PROJECT_DIR}` directory this repository committed once. `devman run
+<workflow> --print` shows the trigger and enqueues nothing.
 
 **Never use `dagu start`.** It ignores queues entirely.
 
@@ -505,7 +502,8 @@ that skips forever means the hash does not cover the glob.
 
 ## 11. Checklist before you commit
 
-- [ ] It is not one of §0's eight refusals.
+- [ ] §0's trade-offs are considered, and the header says how they landed.
+- [ ] It declares its writes in `writes.toml`, if it writes.
 - [ ] It is in the right place: repository file, existing group, or a new group
       justified by a **second** repository wanting the same file.
 - [ ] No top-level `name:`, no `working_dir:`, no `log_dir:` (unless cross-repo),
@@ -537,6 +535,8 @@ that skips forever means the hash does not cover the glob.
 | `.devman/workflows/stack-validate.yaml` | the cross-repository shape |
 | `.devman/workflows/plane-report.yaml` | `\|\| rc=$?` around a command that fails on purpose |
 | `.devman/workflows/agent-review.yaml` | free-text parameters with real defaults, `exclusive` |
+| `.devman/workflows/gitman-commit-message.yaml` | an LLM call over an OpenAI-compatible endpoint, on `gpu` |
+| `groups/format/writes.toml` | a tier declaration, and why it is a file beside `triggers.toml` |
 | `.devman/workflows/bench-entry.yaml` | a parameter whose default is another project's name |
 | `.devman/workflows/gitman-commit-message.yaml` | naming `gpu` for a resource, and calling a server the plane does not supervise |
 
