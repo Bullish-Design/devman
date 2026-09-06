@@ -130,8 +130,10 @@ Read `.agents/skills/devman-workflow/SKILL.md`. The short form:
 ## What must never be shipped in a group
 
 `PROPOSAL.md` §12, in full. The short form: anything an editor already does
-synchronously; anything irreversible outside this machine; anything that writes
-tracked source with nobody present; anything whose success is indistinguishable
+synchronously; anything irreversible outside this machine; an unattended write to
+**trunk** — every other write is tiered (015): a new file and agent surface are
+free, an edit to existing tracked source lands on a **gitman lane** for a person
+to merge; anything whose success is indistinguishable
 from doing nothing; anything needing a fact the repository did not state; a
 second implementation of a task the repository already has; anything whose output
 nobody reads; and anything expensive on a schedule — **a scheduled run bypasses

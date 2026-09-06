@@ -438,8 +438,8 @@ whatever is enqueued, unbounded by any limit. At the shipped size that burst is
 | repository-health digest across all projects | reads only | **accepted** — this is `plane-report` |
 | stale-branch report | reads only | **folded into `plane-report`** — per project it is noise; across 58 it is a list |
 | security audit (`pip-audit`, `nix flake check`) | reads only | **deferred**, not refused. See OPEN_QUESTIONS §3 |
-| documentation build | writes | **refused** — nobody asked for it, and its output is either ignored or tracked |
-| `nix flake update`, `uv lock` | **writes tracked source** | **refused**, and the reactivity answer is below |
+| documentation build | writes | **refused at stage 7** — nobody asked for it. **Now tier A** under §12 rule 3 as amended (015), if somebody does |
+| `nix flake update`, `uv lock` | **writes tracked source** | **refused at stage 7**, and the reactivity answer is below. **Now tier B** under §12 rule 3 as amended (015): the update lands on a lane, and the paragraph below is what the lane answers |
 
 **The reactivity answer for dependency updates.** The write lands at 03:00 with
 nobody present. What fires next is: **nothing, and that is the problem.** The
@@ -448,8 +448,13 @@ all. The tree is simply dirty the next morning. Three things follow, and each is
 worse than the last: `release`'s clean-tree gate refuses every release until
 somebody looks; the developer's next `git status` shows a change nobody wrote;
 and if the update broke the build, the plane produced it and cannot say why. A
-dependency update is a change a person reviews. **It never becomes a workflow**
-(§12).
+dependency update is a change a person reviews.
+
+**AMENDED (015): it may now become a workflow, on a lane.** Every sentence above
+stays true of a write to the *working tree*, and that is what §12 rule 3 as
+amended forbids. On a lane none of the three follow: `release`'s clean-tree gate
+sees a clean tree, `git status` on trunk shows nothing nobody wrote, and a
+broken update is a lane the person declines to merge.
 
 ---
 
@@ -819,7 +824,7 @@ file. Two further conditions apply to this one, and both are about secrets.
 | Group | `agent` |
 | Required task | `agent:review` — the group names the task and never the tool, so `claude`, `codex` or a script all fit |
 | Queue | `exclusive`. Not `heavy`: `heavy` says "this costs a lot of machine", `exclusive` says "this must not overlap with other exclusive work". An agent run is long, non-deterministic, and reads a tree another run may be rewriting |
-| Writes | one file under `.devman/.runs/reports/`, which the watcher and git both ignore. **An agent workflow that rewrote source would need `format`'s whole argument**, and would belong in a reactive group |
+| Writes | one file under `.devman/.runs/reports/`, which the watcher and git both ignore. **An agent workflow that rewrote source is now tier B** under §12 rule 3 as amended (015): it writes on a lane. It still needs `format`'s whole argument — a content hash and a fixpoint — if what it writes is inside a watched glob |
 | Secrets | the workflow declares Dagu's own `secrets:` block; the module reads the value from the machine's secret manager and sets it on the user service. **The repository declares a dependency on a secret and never holds one** (§9.4) |
 | Trigger | manual only. An agent that runs on a commit is an agent nobody asked a question |
 
@@ -840,10 +845,63 @@ tag, cutting a release, deploying. `release` builds and does not publish, on
 purpose (`STAGE_4_LOG.md`, S7). A plane that can publish is a plane whose bug is
 somebody else's problem, and it is the reason §9.4 is still unused.
 
-**3. Anything that writes tracked source without a person present.** Dependency
-updates, code generation, autofix beyond formatting. The write is a change nobody
-reviewed, and the plane has no review step. `format` is the single exception and
-it is bounded three ways: one glob, a content hash, and its own group.
+**3. An unattended write to trunk. Every other write is tiered, and the tier is
+where the write lands.**
+
+**AMENDED 2026-09-05 (015). The rule used to read "anything that writes tracked
+source without a person present", and it refused dependency updates, code
+generation and autofix outright.** It was not wrong when it was written. Its
+stated reason was `the plane has no review step`, and that was true: in
+2026-08 the only way a workflow's write reached a person was by appearing in
+`git status` the next morning, unexplained. The rule has been the binding
+constraint on this plane's content ever since, and 015 measured the result —
+one trigger, in one repository, and 83 % of every run the plane has ever made
+being one formatter and one janitor.
+
+**What changed is that the review step now exists.** `gitman` is in 26 of the 54
+registered repositories and supplies exactly the missing piece: a lane is a named
+review queue, a lane cannot reach trunk except through `land`, and `gitman undo`
+reverts a whole intent through jj's operation log. 011 §8.2 named review,
+output ownership and audit as the machinery an amendment would need. This is
+that amendment.
+
+| Tier | What | Where it lands |
+|---|---|---|
+| **A — free** | a file that did not exist, and **agent surface** wherever it lives: `.agents/**`, `docs/**`, notes, and the hidden directory a tool owns (`.devman/`, `.loci/`, `.gitman/`) | the working tree, directly |
+| **B — on a lane** | every edit to an existing tracked source file — dependency updates, code generation, autofix | a `gitman` lane or a branch, for a person to merge when they choose |
+| **C — refused** | an unattended write to **trunk** | nowhere. This is the invariant that replaces the old rule |
+
+**Tier A is free because it destroys nothing.** A new file overwrites no work,
+and agent surface is written to be read by agents. A repository that disagrees
+narrows the list — the repository is canonical (law 6), and this table is the
+default rather than the limit.
+
+**Tier B is the whole of the amendment.** The lane *is* the review. The plane
+writes, the person merges, and the change is legible as a lane with a name
+instead of appearing as an unexplained diff. §5's dependency-update argument —
+"the developer's next `git status` shows a change nobody wrote" — is answered
+by the lane, and only by the lane. **A tier-B workflow that writes the working
+tree directly has not complied with this rule; it has broken it.**
+
+**Three rules did NOT move, and a tier-B workflow still has to clear them.**
+
+- **Rule 2 stands. The lane stays local.** A workflow does not `publish`, does
+  not `push` and does not `land`. Creating a lane is reversible on this machine;
+  pushing it is not, which is rule 2's own boundary and it has not moved.
+- **Rule 4 stands, and it is the likeliest way a generator dies.** A code
+  generator that exits 0 having produced nothing is `full-test` again.
+- **§8's watcher argument stands, and it was never rule 3's job.** A workflow
+  that writes inside a watched glob needs `format`'s whole apparatus — a content
+  hash and a fixpoint — or it triggers itself. `.devman/.runs/` is watcher-ignored;
+  **a lane is not**, so a tier-B workflow writing `**/*.py` in a repository that
+  takes `format` will fire `format`. That is the first thing to measure, not to
+  assume.
+
+**What this rule now requires of a workflow that writes, and what `doctor` should
+come to check:** a writing workflow states the paths it writes and the tier it
+claims. Nothing enforces that yet. Until it does, the tier is a claim a reviewer
+checks by reading the file, which is weaker than the old rule's flat refusal and
+is the price of the amendment being useful.
 
 **4. Anything whose success is indistinguishable from doing nothing.**
 `full-test`'s third step is the worked example: exit 0, 15.2 s, nothing tested,

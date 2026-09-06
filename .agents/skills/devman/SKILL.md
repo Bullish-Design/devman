@@ -169,9 +169,12 @@ Say no, and point at `PROPOSAL.md` §12:
 
 1. anything an editor already does synchronously — LSP diagnostics, format-in-buffer
 2. anything irreversible outside this machine — publishing, tagging, deploying
-3. anything that writes tracked source with nobody present — dependency updates,
-   code generation. A formatter in its own group — one glob, a content hash —
-   is the single bounded exception
+3. an unattended write to **trunk**. Every other write is tiered (015 amended
+   this rule): **free** for a file that did not exist and for agent surface
+   (`.agents/**`, `docs/**`, notes, a tool's hidden directory); **on a lane**
+   for every edit to existing tracked source — dependency updates, code
+   generation, autofix. The lane is the review step. Rule 2 still stands: the
+   workflow does not publish, push or land
 4. anything whose success is indistinguishable from doing nothing
 5. anything needing a fact the repository did not state
 6. a second implementation of a task the repository already has
