@@ -21,7 +21,7 @@ repository's own environment.
 
 ```bash
 cd <repo>
-devenv shell -- true            # MUST pass before any edit
+devenv shell -- true            # the gate: everything below assumes this passes
 ```
 
 **A repository that cannot enter its own devenv shell cannot be adopted.** Shell
@@ -229,8 +229,11 @@ Used by every Nix repository in the plane.
 ### A Neovim plugin, or Lua
 
 Either the flake answer above, or `luacheck` plus a headless `nvim` run. A Lua
-repository takes the default group and nothing else — **a language is not a
-reason for a group**, so there is no `lua` group and there will not be one.
+repository takes the default group and nothing else. **A group exists when taking
+it costs a repository something it cannot decline any other way** — a task name
+it must define, or a write it did not ask for. A language costs neither: what
+differs is what a task *is*, and `devenv.nix` already holds that. So the Lua
+recipe is a task line, not a group.
 
 ### A repository with no language files
 
