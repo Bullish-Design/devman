@@ -1,0 +1,96 @@
+=== raw step env ===
+DAG_DOCS_DIR=/home/andrew/.local/share/devman/dags/wiki/zz-toolchain-probe
+DAG_NAME=zz-toolchain-probe
+DAG_PARAMS_JSON={"DEVMAN_PROJECT_DIR":"/home/andrew/Documents/Projects/devman"}
+DAG_RUN_ID=034KOdSeVgQC8oUGKUyGGD
+DAG_RUN_LOG_FILE=/home/andrew/Documents/Projects/devman/.devman/.runs/logs/zz-toolchain-probe/dag-run_20260907_002503Z_034KOdSeVgQC8oUGKUyGGD/dag-run_20260906.202503.694.034KOdSe.log
+DAG_RUN_STEP_NAME=probe
+DAG_RUN_STEP_STDERR_FILE=/home/andrew/Documents/Projects/devman/.devman/.runs/logs/zz-toolchain-probe/dag-run_20260907_002503Z_034KOdSeVgQC8oUGKUyGGD/run_20260907_002505Z_af75ea/probe.20260906.202505.057.034KOdSe.err
+DAG_RUN_STEP_STDOUT_FILE=/home/andrew/Documents/Projects/devman/.devman/.runs/logs/zz-toolchain-probe/dag-run_20260907_002503Z_034KOdSeVgQC8oUGKUyGGD/run_20260907_002505Z_af75ea/probe.20260906.202505.057.034KOdSe.out
+DAG_RUN_WORK_DIR=/home/andrew/.local/share/dagu/data/dag-run-work/zz-toolchain-probe/jprhj6n5bjtc2jqskszceca26m/root
+DAGU_CONFIG=/home/andrew/.local/share/dagu/config.yaml
+DAGU_EXECUTABLE=/nix/store/2mjbj2imilxj56l8l79z689hz40ram6a-dagu-2.15.0/bin/dagu
+DAGU_HOME=/home/andrew/.local/share/dagu
+DAGU_OUTPUT_FILE=/home/andrew/Documents/Projects/devman/.devman/.runs/logs/zz-toolchain-probe/dag-run_20260907_002503Z_034KOdSeVgQC8oUGKUyGGD/run_20260907_002505Z_af75ea/probe.0.3986536226.output
+DAGU_PARAMS_JSON={"DEVMAN_PROJECT_DIR":"/home/andrew/Documents/Projects/devman"}
+DAGU_QUEUE_DISPATCH_RETRY=1
+DAG_WIKI_DIR=/home/andrew/.local/share/devman/dags/wiki/zz-toolchain-probe
+DEVMAN_PROJECT_DIR=/home/andrew/Documents/Projects/devman
+DISABLE_AUTOUPDATER=1
+EDITOR=nano
+FZF_ALT_C_COMMAND=fd --type d --hidden --follow --exclude .git
+FZF_CTRL_R_COMMAND=
+FZF_CTRL_T_COMMAND=fd --type f --hidden --follow --exclude .git
+FZF_DEFAULT_COMMAND=fd --type f --hidden --follow --exclude .git
+FZF_DEFAULT_OPTS=--height 40% --layout=reverse --border --inline-info
+GTK_A11Y=none
+GTK_PATH=/home/andrew/.nix-profile/lib/gtk-2.0:/home/andrew/.nix-profile/lib/gtk-3.0:/home/andrew/.nix-profile/lib/gtk-4.0:/nix/profile/lib/gtk-2.0:/nix/profile/lib/gtk-3.0:/nix/profile/lib/gtk-4.0:/home/andrew/.local/state/nix/profile/lib/gtk-2.0:/home/andrew/.local/state/nix/profile/lib/gtk-3.0:/home/andrew/.local/state/nix/profile/lib/gtk-4.0:/etc/profiles/per-user/andrew/lib/gtk-2.0:/etc/profiles/per-user/andrew/lib/gtk-3.0:/etc/profiles/per-user/andrew/lib/gtk-4.0:/nix/var/nix/profiles/default/lib/gtk-2.0:/nix/var/nix/profiles/default/lib/gtk-3.0:/nix/var/nix/profiles/default/lib/gtk-4.0:/run/current-system/sw/lib/gtk-2.0:/run/current-system/sw/lib/gtk-3.0:/run/current-system/sw/lib/gtk-4.0
+__HM_SESS_VARS_SOURCED=1
+__HM_ZSH_SESS_VARS_SOURCED=1
+HOME=/home/andrew
+INFOPATH=/home/andrew/.nix-profile/info:/home/andrew/.nix-profile/share/info:/nix/profile/info:/nix/profile/share/info:/home/andrew/.local/state/nix/profile/info:/home/andrew/.local/state/nix/profile/share/info:/etc/profiles/per-user/andrew/info:/etc/profiles/per-user/andrew/share/info:/nix/var/nix/profiles/default/info:/nix/var/nix/profiles/default/share/info:/run/current-system/sw/info:/run/current-system/sw/share/info
+LANG=en_US.UTF-8
+LC_ADDRESS=en_US.UTF-8
+LC_IDENTIFICATION=en_US.UTF-8
+LC_MEASUREMENT=en_US.UTF-8
+LC_MONETARY=en_US.UTF-8
+LC_NAME=en_US.UTF-8
+LC_NUMERIC=en_US.UTF-8
+LC_PAPER=en_US.UTF-8
+LC_TELEPHONE=en_US.UTF-8
+LC_TIME=en_US.UTF-8
+LESSKEYIN_SYSTEM=/nix/store/5x85b1fdkwflrlh1y3jza6mas50acacj-lessconfig
+LIBEXEC_PATH=/home/andrew/.nix-profile/libexec:/nix/profile/libexec:/home/andrew/.local/state/nix/profile/libexec:/etc/profiles/per-user/andrew/libexec:/nix/var/nix/profiles/default/libexec:/run/current-system/sw/libexec
+LOCALE_ARCHIVE_2_27=/nix/store/dkij3qk5h8rwzysr42w02knfl95vz8q8-glibc-locales-2.42-67/lib/locale/locale-archive
+LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive
+LOGNAME=andrew
+NIXBUILD_DEFAULT_ACTION=test
+NIXBUILD_KEEP_LAST=10
+NIXBUILD_OUTPUT_DIR=/home/andrew/.nixbuild-logs
+NIX_LD_LIBRARY_PATH=/run/current-system/sw/share/nix-ld/lib
+NIX_LD=/run/current-system/sw/share/nix-ld/lib/ld.so
+__NIXOS_SET_ENVIRONMENT_DONE=1
+NIX_PATH=nixpkgs=flake:nixpkgs:/nix/var/nix/profiles/per-user/root/channels
+NIXPKGS_CONFIG=/etc/nix/nixpkgs-config.nix
+NIX_PROFILES=/run/current-system/sw /nix/var/nix/profiles/default /etc/profiles/per-user/andrew /home/andrew/.local/state/nix/profile /nix/profile /home/andrew/.nix-profile
+NIX_USER_PROFILE_DIR=/nix/var/nix/profiles/per-user/andrew
+NO_AT_BRIDGE=1
+OLDPWD=/home/andrew/Documents/Projects/devman
+PAGER=less
+PATH=/run/wrappers/bin:/home/andrew/.nix-profile/bin:/nix/profile/bin:/home/andrew/.local/state/nix/profile/bin:/etc/profiles/per-user/andrew/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin
+PWD=/home/andrew/Documents/Projects/devman
+QTWEBKIT_PLUGIN_PATH=/home/andrew/.nix-profile/lib/mozilla/plugins/:/nix/profile/lib/mozilla/plugins/:/home/andrew/.local/state/nix/profile/lib/mozilla/plugins/:/etc/profiles/per-user/andrew/lib/mozilla/plugins/:/nix/var/nix/profiles/default/lib/mozilla/plugins/:/run/current-system/sw/lib/mozilla/plugins/
+_=/run/current-system/sw/bin/env
+SHELL=/nix/store/0641h8qfqaxnwrsw2nzrz6i1wbzyx92l-bash-interactive-5.3p9/bin/bash
+SHLVL=1
+SSH_ASKPASS=
+STARSHIP_CONFIG=/home/andrew/.config/starship.toml
+SYSTEMD_XKB_DIRECTORY=/etc/X11/xkb
+TERM=
+TERMINFO_DIRS=/home/andrew/.nix-profile/share/terminfo:/nix/profile/share/terminfo:/home/andrew/.local/state/nix/profile/share/terminfo:/etc/profiles/per-user/andrew/share/terminfo:/nix/var/nix/profiles/default/share/terminfo:/run/current-system/sw/share/terminfo
+TZDIR=/etc/zoneinfo
+USER=andrew
+XCURSOR_PATH=/home/andrew/.icons:/home/andrew/.local/share/icons:/home/andrew/.nix-profile/share/icons:/home/andrew/.nix-profile/share/pixmaps:/nix/profile/share/icons:/nix/profile/share/pixmaps:/home/andrew/.local/state/nix/profile/share/icons:/home/andrew/.local/state/nix/profile/share/pixmaps:/etc/profiles/per-user/andrew/share/icons:/etc/profiles/per-user/andrew/share/pixmaps:/nix/var/nix/profiles/default/share/icons:/nix/var/nix/profiles/default/share/pixmaps:/run/current-system/sw/share/icons:/run/current-system/sw/share/pixmaps
+XDG_CONFIG_DIRS=/etc/xdg:/home/andrew/.nix-profile/etc/xdg:/nix/profile/etc/xdg:/home/andrew/.local/state/nix/profile/etc/xdg:/etc/profiles/per-user/andrew/etc/xdg:/nix/var/nix/profiles/default/etc/xdg:/run/current-system/sw/etc/xdg
+XDG_DATA_DIRS=/home/andrew/.nix-profile/share:/nix/profile/share:/home/andrew/.local/state/nix/profile/share:/etc/profiles/per-user/andrew/share:/nix/var/nix/profiles/default/share:/run/current-system/sw/share
+=== which (raw step) ===
+python3    /etc/profiles/per-user/andrew/bin/python3
+uv         MISSING
+gitman     MISSING
+repoman    /etc/profiles/per-user/andrew/bin/repoman
+devenv     /home/andrew/.nix-profile/bin/devenv
+dagu       /run/current-system/sw/bin/dagu
+jj         MISSING
+git        /run/current-system/sw/bin/git
+=== raw step python ===
+/etc/profiles/per-user/andrew/bin/python3
+ModuleNotFoundError: No module named 'pyjutsu'
+=== inside devenv shell ===
+hello from devenv
+git version 2.54.0
+PATH=/home/andrew/Documents/Projects/devman/.devenv/state/venv/bin:/home/andrew/.local/share/repoman/venv/bin:/home/andrew/Documents/Projects/devman/.devenv/state/venv/bin:/nix/store/k2v9f3y5ghvcg7r84x9cpd8xpaig5dn9-ruff-0.15.20/bin:/nix/store/af0wjrqd6b63xkv7a0941z3i863rv5fr-shellij-0.3.0/bin:/nix/store/l9k0anq0z7zz81zcwy035jfwap9ga6rl-python3-3.13.13/bin:/nix/store/6rgbf364a7ky2ibsdr2n6l77jph83pb3-python3.13-typer-0.24.0/bin:/nix/store/9hqfprx1x6gw6zclb42rimddv87gv903-python3.13-markdown-it-py-4.0.0/bin:/nix/store/vzw28zjszh3miba384pbc3riazynky4c-python3.13-pygments-2.20.0/bin:/nix/store/6vw60zm3wvai9am0k0hpnxakvh09wcdr-zellij-0.44.3/bin:/nix/store/wpnla0i2d64sahcxvbjvl5qh5bl9g2a9-yazi-26.5.6/bin:/nix/store/k3wl6cg7q50zkx47af3msmg1yrg1f203-git-2.54.0/bin:/nix/store/0641h8qfqaxnwrsw2nzrz6i1wbzyx92l-bash-interactive-5.3p9/bin:/nix/store/3rhyvh4qcq9f3dljdwfcsvnz9gzlgps4-python3-3.13.14-env/bin:/nix/store/cgvijxnmydknslkl368k4j4j43akvl8b-uv-0.11.25/bin:/nix/store/mqllsns0gq46jsjff2vv0qn9rykwwx8d-pyright-1.1.411/bin:/nix/store/ajkkfz77yqb9sj2bc97ygd97r02m8lmp-hello/bin:/nix/store/8fk2lpwfl2bpb99y0f2766yb94dk07as-repoman-sync/bin:/nix/store/k2v9f3y5ghvcg7r84x9cpd8xpaig5dn9-ruff-0.15.20/bin:/nix/store/2mjbj2imilxj56l8l79z689hz40ram6a-dagu-2.15.0/bin:/nix/store/pgrhba5bp8ghfx0jm7rijr92xkmm9waf-hyperfine-1.20.0/bin:/nix/store/4f67kvm4dlllmakjnm4dd42haaklddaw-watchexec-2.5.1/bin:/nix/store/9cb2ijpwa9hcv8i0qmrxl0pc5731xm9w-codex-0.144.1/bin:/nix/store/6id8bnzgy97rym2dgjmxs6w5kwayarhk-claude-code-2.1.207/bin:/nix/store/sq5p43ziv78vxp51rpaajhvz0584lgqw-pkg-config-wrapper-0.29.2/bin:/nix/store/jbav217344pndjbghzyjmh0mkzy1973i-patchelf-0.15.2/bin:/nix/store/xcnqqnhw9hb4j5rjgds2yjryi8qki5f3-gcc-wrapper-15.2.0/bin:/nix/store/sq0nrnfwhkc5ljvklnrk5ps4358g4nbj-gcc-15.2.0/bin:/nix/store/521dd0054ifhzmjfmpx9mz0hr7wh7sig-glibc-2.42-67-bin/bin:/nix/store/sr26flm2nkfa12dkrwj2630kqsfakky4-coreutils-9.11/bin:/nix/store/z4zcd87nx2hrsdayd0vl2mx5ncj3ikd8-binutils-wrapper-2.46/bin:/nix/store/39lyf5g2iz4jd2r6q4g5whk9vw09zglj-binutils-2.46/bin:/nix/store/sr26flm2nkfa12dkrwj2630kqsfakky4-coreutils-9.11/bin:/nix/store/zjwih3d9rrrw4ixll52wsy0538p7vdfd-findutils-4.10.0/bin:/nix/store/3c05s0vxy8wafaa7lkj4bfh69wa0ch10-diffutils-3.12/bin:/nix/store/0hamsiy8hsyfw1hmizbc3bf93ad7fa1v-gnused-4.9/bin:/nix/store/w8xlvapzxcz23ba312q119p57bnc7200-gnugrep-3.12/bin:/nix/store/cdd73p8qiphg0scs02i6lrg1sjsdvbkx-gawk-5.4.0/bin:/nix/store/066fzlsj0wdq2sqxjrksysfxyr4r5f72-gnutar-1.35/bin:/nix/store/h304h5a5y9h1pl6crhz65jlri91nxyay-gzip-1.14/bin:/nix/store/lc20sfvskz0my6phs73nmsnlrxp06kgb-bzip2-1.0.8-bin/bin:/nix/store/i4jf7w00lr5q85r55rc35n83l7iwys73-gnumake-4.4.1/bin:/nix/store/zh1ijdhb6gng1509b1zrilb6xlzx60j6-bash-5.3p9/bin:/nix/store/vm55g5jg7ra19gdsxsxr092vpb52ayiz-patch-2.8/bin:/nix/store/y5zljns1fbcdgh5pp1szjlw0j11xxvcy-xz-5.8.3-bin/bin:/nix/store/y1fmsp7vhpdaclpqbsgm2qyl7yixx4ci-file-5.47/bin:/nix/store/z8s1yrg6mvld9nlx8857wk5k6wc00cfq-devenv-2.1.2/bin:/nix/store/j4qlr10zsna9bjmpxx10yr3z4slb0dfd-cachix-1.11.1-bin/bin:/nix/store/w3n8ij71zax4smb9c1aib5m89gip7hzs-nixd-2.9.1/bin:/run/wrappers/bin:/home/andrew/.nix-profile/bin:/nix/profile/bin:/home/andrew/.local/state/nix/profile/bin:/etc/profiles/per-user/andrew/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin
+gitman=/home/andrew/.local/share/repoman/venv/bin/gitman
+uv=/nix/store/cgvijxnmydknslkl368k4j4j43akvl8b-uv-0.11.25/bin/uv
+/home/andrew/Documents/Projects/devman/.devenv/state/venv/bin/python3
+ModuleNotFoundError: No module named 'pyjutsu'
+/home/andrew/Documents/Projects/devman/../templateer_v2/src/templateer/__init__.py

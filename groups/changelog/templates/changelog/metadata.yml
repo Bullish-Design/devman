@@ -1,0 +1,18 @@
+name: changelog
+description: Summarise a landed commit batch for a Markdown changelog.
+
+output:
+  kind: full_file
+  path: summary.md
+  language: markdown
+
+schema:
+  module: schema
+  class: ChangelogSummary
+
+prompt:
+  file: prompt.md
+
+renderer:
+  engine: minijinja
+  file: template.j2

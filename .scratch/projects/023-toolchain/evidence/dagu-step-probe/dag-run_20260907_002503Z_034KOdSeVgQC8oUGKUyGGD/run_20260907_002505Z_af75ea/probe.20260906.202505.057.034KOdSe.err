@@ -1,0 +1,25 @@
+• Validating lock
+• [35;1mwarning:[0m Git tree '/home/andrew/Documents/Projects/repoman' is dirty
+✓ Validating lock in 48.4ms
+• Configuring shell
+• Configuring cachix
+✓ Configuring cachix in 4.52ms
+• Evaluating shell
+• [35;1mwarning:[0m Git tree '/home/andrew/Documents/Projects/repoman' is dirty
+• [35;1mevaluation warning:[0m 'system' has been renamed to/replaced by 'stdenv.hostPlatform.system'
+✓ Evaluating shell in 6.05s
+✓ Configuring shell in 6.06s
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 19.7ms
+✓ Loading tasks in 21.5ms
+• Running tasks
+• Running devenv:files:cleanup
+• Running devenv:python:virtualenv
+✓ Running devenv:files:cleanup in 19.0ms
+✓ Running devenv:python:virtualenv in 30.0ms
+• Running devenv:enterShell
+✓ Running devenv:enterShell in 18.0ms
+• Running devenv:enterTest
+✓ Running devenv:enterTest in 6.10µs (no command)
+✓ Running tasks in 49.4ms

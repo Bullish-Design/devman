@@ -25,6 +25,13 @@ in
 {
   # https://devenv.sh/basics/
   env.GREET = "devenv";
+  env.GPU_LLM_BASE_URL = "http://127.0.0.1:8100/v1";
+  env.GPU_LLM_MODEL = "gemma";
+
+  repoman = {
+    enable = true;
+    managers = [ "git" ];
+  };
 
   # https://devenv.sh/packages/
   packages = [
@@ -139,7 +146,7 @@ in
   devman = {
     enable = true;
     project = "devman";
-    groups = [ "base" "format" "release" ];
+    groups = [ "base" "format" "release" "changelog" ];
   };
 
   # https://devenv.sh/tasks/

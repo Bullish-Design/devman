@@ -19,8 +19,15 @@ inputs:
   shellij:
     url: "git+file:///home/andrew/Documents/Projects/shellij"
 
+  # RepoMan's shared machine toolchain: its git manager exposes the
+  # repoman-sync-managed venv containing gitman and pyjutsu.
+  repoman:
+    url: "git+file:///home/andrew/Documents/Projects/repoman?dir=modules"
+    flake: false
+
 imports:
   - shellij/modules
+  - repoman
   # devman adopts itself (criterion 16). A local directory, not an input: this
   # repository is the plane, so there is no rev to pin against itself.
   - ./modules
