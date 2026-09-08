@@ -27,6 +27,7 @@ to define, is in that group's own `README.md`.
 | `base` | [`base/README.md`](base/README.md) | shipped — the default |
 | `format` | [`format/README.md`](format/README.md) | shipped — opt-in |
 | `release` | [`release/README.md`](release/README.md) | shipped — opt-in |
+| `agent` | [`agent/README.md`](agent/README.md) | shipped — opt-in |
 | `python` | [`python/README.md`](python/README.md) | **tombstone** |
 | `python-format` | [`python-format/README.md`](python-format/README.md) | **tombstone** |
 

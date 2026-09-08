@@ -69,11 +69,13 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `nix/tests/dagu-service.nix` | a NixOS VM test: the unit starts, a projected DAG is discovered, a run lands its logs in the right project |
 | `modules/devenv.nix` | the **repo** interface — three options, the `enterShell` guard, §7.3 resolution at evaluation time, and `planFile`. **The projection itself is `src/devman/project.py`**, not shell: it was shell until project 009 stage 3, and four findings were symptoms of that one duplication |
 | `groups/` | workflow **content**, one directory per group. `groups/README.md` is the mechanism and the index; each group's own README says what taking it costs |
-| `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `registry`, `workflow`, and `project` — the projection, which the devenv module runs at shell entry |
+| `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `agent`, `registry`, `workflow`, and `project` — the projection, which the devenv module runs at shell entry |
 | `tests/` | the Python test layer. `tests/README.md` says what it protects and what it refuses to test |
 | `.devman/workflows/` | this repository's own workflows. `.devman/workflows/README.md` documents them |
 | `.scratch/projects/006-automation-plane/` | the charter and stage logs 1–6 |
 | `.scratch/projects/007-standard-workflows/` | the standard-set proposal, plan, open questions and stage log 7 |
+| `.scratch/projects/020-scheduling-metered-work/` | why a scheduled run bypasses its queue, and why `groups/agent/` has no schedule. `RESULT.md` closes it |
+| `.scratch/projects/022-agentman-integration/` | the Agentman boundary. `EVIDENCE.md` holds the six measurements and eight decisions the adapter rests on |
 
 `.scratch/projects/001`–`005` are superseded and carry no authority.
 
@@ -90,6 +92,7 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `src/devman/show.py` | prints the **source** file, never the generated projection, so `devman show x > .devman/workflows/x.yaml` round-trips |
 | `src/devman/doctor.py` | thirteen checks over the whole plane |
 | `src/devman/watch.py` | the watcher's entry point. Reads the registry, execs watchexec, dispatches one batch of events |
+| `src/devman/agent.py` | §10's fourth command, and the only one that runs **inside** a workflow. Translates one admitted run into one Agentman invocation: a strict request, an allowlisted environment, a bounded process, a verified receipt, one exit code. Never composes a capsule |
 
 ### `devman run`'s refusals, and why each exists
 
@@ -294,6 +297,9 @@ systemctl --user status dagu devman-watch
 | editing an override without re-entering the shell | the previous version runs, silently, with `doctor` reporting nothing wrong |
 | `devenv test` as a rung | exits 0 having tested nothing in 30 of 58 repositories |
 | a git worktree inside a registered checkout | it never registers, so `devman run` typed inside it would target the outer project. `run` refuses instead |
+| relying on Dagu to kill a runaway step | **it never escalates.** It re-sends `SIGTERM` every 5 s forever, and a step that ignores it runs unbounded with the DAG never finishing (022 M3). A long-lived child bounds itself |
+| assuming a step can read `DAGU_RUN_ID` | there is no such variable. Dagu 2.15.0 sets `DAG_RUN_ID` (022 M1) |
+| assuming a masked secret is safe to handle | masking replaces the **exact** value only. Five characters of a token log in clear (022 M4) |
 
 ---
 
@@ -302,6 +308,8 @@ systemctl --user status dagu devman-watch
 | Question | Read |
 |---|---|
 | why is this line here at all? | the stage log entry its comment cites |
+| what does Dagu do on cancellation, on timeout, and to a secret in a log? | `.scratch/projects/022-agentman-integration/EVIDENCE.md`, M2–M5 |
+| why does nothing expensive carry a `schedule:`? | `.scratch/projects/020-scheduling-metered-work/RESULT.md` |
 | what is the design? | `.scratch/projects/006-automation-plane/CONCEPT.md` |
 | why five workflows and not nine? | `.scratch/projects/007-standard-workflows/PROPOSAL.md` |
 | what is still unsettled? | `.scratch/projects/007-standard-workflows/OPEN_QUESTIONS.md` |

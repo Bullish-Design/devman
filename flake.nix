@@ -178,9 +178,35 @@
           python-tests =
             let
               python = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ]);
+              # WHAT THE SUITE IS ALLOWED TO READ, AND WHY IT GREW (022).
+              #
+              # `tests/unit/test_agent.py` asserts things about files OUTSIDE
+              # `src/` and `tests/`: that `groups/agent/workflows/agent.yaml`
+              # names the `llm` queue and states no `retry_policy` or
+              # `schedule:`, that its `writes.toml` claims only tier A's agent
+              # surface, and that `nix/nixos-module.nix` declares the queue the
+              # workflow names. Every one of those is a claim a refactor can
+              # break silently, so every one of them belongs in the hermetic
+              # check rather than only in the developer's `base:unit`.
+              #
+              # **The fast loop reads the working tree and this reads the
+              # fileset, so they disagree by construction when this list is too
+              # narrow.** That is exactly how these five arrived green locally
+              # and red here. `tests/README.md`'s warning applies to this line:
+              # a row about coverage is a claim, and this is the claim.
+              #
+              # `./nix/nixos-module.nix` is named as one file rather than
+              # `./nix`, so a change to the Dagu package or the VM test does not
+              # rebuild the Python suite.
               source = nixpkgs.lib.fileset.toSource {
                 root = ./.;
-                fileset = nixpkgs.lib.fileset.unions [ ./src ./tests ./pyproject.toml ];
+                fileset = nixpkgs.lib.fileset.unions [
+                  ./src
+                  ./tests
+                  ./pyproject.toml
+                  ./groups
+                  ./nix/nixos-module.nix
+                ];
               };
             in
             pkgs.runCommand "devman-python-tests"

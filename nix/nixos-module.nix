@@ -376,10 +376,42 @@ in
         heavy = 1;
         gpu = 1;
         exclusive = 1;
+
+        # THE SIXTH NAME, AND IT IS THE ONLY ONE WHOSE LIMIT IS NOT ABOUT THIS
+        # MACHINE (§7.1 as amended by project 022, forced by 020's measurement).
+        #
+        # The other five bound a local resource — cores, the GPU, a lock. `llm`
+        # bounds a QUOTA HELD SOMEWHERE ELSE: requests per minute, tokens per
+        # minute, and money, shared by every repository on this machine at once.
+        # 020 §3 is the argument. For CPU work a queue buys only a quieter peak,
+        # because the machine does the same total work either way. For a metered
+        # resource it buys correctness: 54 concurrent calls against a per-minute
+        # limit return `429` and a partial fan-out, and the same 54 at a time
+        # succeed for the same money. A queue converts a breached limit into a
+        # longer wall clock, which is the one trade this workload needs.
+        #
+        # Sharing `heavy` was the alternative and it tunes neither: `heavy` is
+        # sized against local builds, and a number that is right for a compiler
+        # is right for an API quota only by accident. `gpu` is already the local
+        # inference server (`groups/changelog/`), which is not metered at all.
+        #
+        # **2 IS A STATED BOUND AND NOT A MEASUREMENT**, exactly as the other
+        # five are (AGENTS_GUIDE.md §1: "nobody has measured it"). devman cannot
+        # measure another vendor's quota, and the honest thing is to say so
+        # rather than to imply a number was derived. It is deliberately below
+        # every published per-minute floor, because the failure it prevents is
+        # not slowness — it is 54 runs recorded green or red for a reason
+        # unrelated to the work.
+        llm = 2;
       };
       description = ''
         Queue names and their concurrency limits (§7.1). The machine states how
         much may run at once, never what runs (§4).
+
+        **`llm` is the one whose limit is not about this machine.** Its
+        concurrency stands in for an external, shared, metered quota rather than
+        for a local resource, and 2 is a stated bound rather than a measured one
+        (§7.1 as amended by 022).
 
         Renaming a queue is a migration across every workflow that names it.
         Dagu accepts an undeclared name silently and gives it concurrency 1,

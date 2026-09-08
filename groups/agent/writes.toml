@@ -1,0 +1,34 @@
+# agent — what this group's workflow writes, and under which tier of §12 rule 3
+# as amended (015).
+#
+# ONE TABLE PER WORKFLOW. `tier` is `free`, `lane` or `insitu`; `paths` is the
+# set of globs the workflow writes, relative to the repository root.
+#
+# WHAT THIS DECLARATION COVERS, AND WHAT IT DELIBERATELY DOES NOT.
+#
+# It covers what DEVMAN writes: the request file, which `src/devman/agent.py`
+# creates with mode 0600 and removes in a `finally`, and the receipt and chat
+# artifacts Agentman leaves behind under the path shape §9.2 reserves. All of it
+# is inside `.devman/` and `.loci/`, which are tier A's agent surface, so
+# `doctor`'s writes check passes them.
+#
+# It does NOT cover what the CAPSULE writes, and restating that here would be a
+# false claim rather than a stricter one. A capsule declares its own `[writes]`
+# tier in its own `capsule.toml`, and Agentman enforces it before the backend
+# starts (`run.guard_write_tier`). devman cannot read that file — it is
+# Agentman's — so devman does not paraphrase it. A repository taking this group
+# and selecting a capsule that edits tracked source narrows this table in its
+# own `.devman/writes.toml`, and `groups/agent/README.md` says so.
+#
+# THIS IS THE ONE PLACE THE TWO SYSTEMS' TIER VOCABULARIES MEET, and they agree
+# by coincidence rather than by contract: both name `free` and `lane`, devman
+# adds `insitu` for `format`, and Agentman's tier governs a capsule while
+# devman's governs a workflow. Do not assume a future value of one is a value of
+# the other.
+[agent]
+tier  = "free"
+paths = [
+  ".devman/.runs/agent/request-*.json",
+  ".devman/.runs/receipts/agentman-*.json",
+  ".loci/chats/*.md",
+]

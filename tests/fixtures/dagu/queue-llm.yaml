@@ -1,0 +1,9 @@
+# The sixth queue name (§7.1 as amended by 022). Dagu accepts ANY queue name,
+# declared or not — this fixture pins that acceptance, which is precisely why
+# `doctor`'s `queue names` check has to compare against the machine's own
+# `config.yaml`: an undeclared name is silently given concurrency 1, shared by
+# every DAG that names it (S-9).
+queue: llm
+steps:
+  - name: s
+    run: echo hi

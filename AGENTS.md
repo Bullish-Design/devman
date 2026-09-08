@@ -52,10 +52,12 @@ keeps a change from re-learning something the plane already paid for.**
    is the design, amended by `007-standard-workflows/PROPOSAL.md`. A change that
    contradicts either changes that document in the same commit, with the
    measurement that forced it.
-3. **Four names are shared by every repository at once**: the five queue names,
+3. **Four names are shared by every repository at once**: the six queue names,
    `DEVMAN_PROJECT_DIR`, `DEVMAN_SELF_DIR`, and the `.devman/.runs/` path shape.
    Everything else belongs to the repository. Adding a fifth changes the charter,
-   because every repository inherits it — weigh it that way.
+   because every repository inherits it — weigh it that way. **The queue list
+   gained `llm` in 022**, and it is the only name whose limit bounds a quota held
+   outside this machine rather than a local resource.
 4. **A run that reports success while producing an incorrect result is the
    failure this design exists to prevent** — the wrong output, the wrong script,
    the right work in the wrong directory. Prefer a loud refusal to a silent
@@ -73,7 +75,9 @@ keeps a change from re-learning something the plane already paid for.**
 8. **Secrets are declared, never held.** A workflow names a secret through Dagu's
    `secrets:` field and the machine supplies the value. Dagu then masks it in
    logs, and a missing one fails the run before any step runs. Nothing in this
-   repository holds a value.
+   repository holds a value. **Masking covers the exact value only** — measured
+   in 022: the same step echoing five characters of a token logged them in clear.
+   A step must not print a fragment of a credential.
 9. **Write in Simplified Technical English.** Short sentences, active voice,
    one word for one meaning, no filler. See `.agents/skills/my-ai/SKILL.md`.
 

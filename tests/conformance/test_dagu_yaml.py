@@ -62,6 +62,16 @@ CASES = [
     Case("params-typed-nodefault", True, params={"A": ""}),
     Case("params-typed-enum", True, params={"A": "y"}),
     Case("params-mixed", True, params={"Z": "q", "A": "x"}),
+    # -- §9.4's secrets block, exercised for the first time (022) ------------
+    #
+    # `validate` proves the SHAPE. The two properties the block is taken for
+    # were measured against a RUNNING dag rather than the validator, and the
+    # fixtures' own comments record them: the step gets the true value and the
+    # log gets `*******`, and masking covers the exact value only.
+    Case("secrets-env", True, steps=1, queues=[]),
+    Case("secrets-dagu-prefix", False, refusal="must not start with DAGU_"),
+    # -- the sixth queue name, and Dagu's silence about an undeclared one -----
+    Case("queue-llm", True, steps=1, queues=["llm"]),
     Case(
         "params-typed-name-only",
         False,

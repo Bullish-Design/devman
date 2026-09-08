@@ -19,6 +19,16 @@ nothing behaves differently, is a liability here.
 | `unit/` | the bounded reader, resolution, the refusal contract, the watcher's decisions. No subprocess, no network, no Dagu. |
 | `conformance/` | the devman/Dagu semantic boundary, against the pinned binary. |
 
+`unit/test_agent.py` is a third shape inside `unit/`, and it is worth naming.
+It runs **a real subprocess** — `fixtures/fake_agentman.py` — through a real
+`Popen`, because `src/devman/agent.py` exists to bound a process: it filters an
+environment, applies `setrlimit`, enforces a wall clock, forwards a signal and
+reads one document off stdout. **A patched function proves none of those.** The
+double reaches no network, holds no credential and calls no model; its
+behaviour comes from a control file in the test's repository, because the
+adapter's environment allowlist is strict enough to keep a `FAKE_AGENTMAN_*`
+variable out — which is itself one of the things under test.
+
 `fixtures/dagu/` holds one YAML file per case the conformance layer pins. Each
 carries a comment saying what Dagu does with it and why devman reads it that way.
 

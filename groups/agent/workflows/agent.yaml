@@ -1,0 +1,87 @@
+# agent/agent — run one Agentman capsule as one queued, masked, bounded
+# execution (`.scratch/projects/022-agentman-integration/CONCEPT.md`).
+#
+#   devman run agent → dagu enqueue → the llm queue → devman agent → agentman
+#
+# ---------------------------------------------------------------------------
+# THERE IS NO `schedule:` HERE, AND THAT IS PROJECT 020'S ANSWER RATHER THAN AN
+# OMISSION.
+#
+# A scheduled run bypasses its queue. Re-measured on the pin for 020: two DAGs
+# naming a `max_concurrency: 1` queue, both under `schedule: "* * * * *"`,
+# started four overlapping runs inside 0.4 s, and the scheduler logged
+# "Dispatching planned run" with no admission line at all. `dagu schema config`
+# sets `additionalProperties: false` and its `SchedulerDef` holds no
+# queue-routing key, so no configuration repairs it either.
+#
+# An LLM call is metered OUTSIDE this machine, so an ungated fan-out is not a
+# slower run — it is `429` across 54 repositories at once (020 §3). This
+# workflow is therefore triggered and never scheduled: a hook, a watcher glob,
+# or a person. Every one of those arrows reaches Dagu through `devman run`,
+# which always enqueues (`src/devman/run.py`), so the `llm` queue below is the
+# gate and it binds.
+#
+# A genuinely periodic Agentman workload is 020's Option B — one cheap
+# dispatcher DAG carrying the schedule, whose steps are `dag.enqueue`. It is not
+# built here, because nothing yet needs it and a workflow nobody fires is a
+# workflow nobody reads (groups/README.md).
+#
+# ---------------------------------------------------------------------------
+# THERE IS NO `retry_policy:` HERE EITHER, AND THE REASON IS MONEY.
+#
+# 020 §4.5: a queue bounds concurrency and nothing bounds spend. Every failure
+# this boundary can have is either deterministic — a malformed request, an
+# unauthorised backend, a missing secret, Agentman exit 3 — or already paid
+# for: a timeout, a cancellation, Agentman exit 2 and a missing receipt all
+# happen AFTER the model was invoked and billed. Retrying the first kind fails
+# the same way; retrying the second kind pays twice. So the plane retries
+# nothing, and a person re-runs `devman run agent`.
+#
+# `groups/agent/README.md` holds the table, failure by failure.
+#
+# ---------------------------------------------------------------------------
+# THE SECRET IS DECLARED HERE AND NOWHERE ELSE (§9.4, and law 8).
+#
+# The block is per workflow on purpose. Dagu accepts one in `base.yaml`, which
+# would grant every workflow on the machine every secret and delete the sentence
+# §9.4 exists for. Two properties this buys, both measured on the pin:
+#
+#   * Dagu masks the resolved value in the log — a step echoing it wrote
+#     `*******`. It masks the EXACT value and nothing else: the same step
+#     echoing its first five characters wrote them in clear. So a step here must
+#     never print a fragment of a credential.
+#   * A secret whose provider has no value fails the run before any step runs,
+#     naming the secret and the provider.
+#
+# `provider: env` reads the Dagu USER SERVICE's environment, which the machine
+# module sets from the machine's secret manager. Nothing in this repository
+# holds a value, and this file holds a name twice.
+#
+# ---------------------------------------------------------------------------
+# THE RUN ID IS NOT A PARAMETER, BECAUSE DAGU ALREADY SETS IT.
+#
+# Measured: a step's environment carries `DAG_RUN_ID`, and a grandchild of the
+# step's shell inherits it. The Agentman contract calls the same value
+# `DAGU_RUN_ID`. `src/devman/agent.py` is the one place that maps one spelling
+# to the other, so neither side carries the other's, and no parameter can be
+# filled with a run id that is not this run's.
+#
+# ---------------------------------------------------------------------------
+# ONE STEP, ONE `devenv tasks run -v agent:capsule` (PROPOSAL.md §1.1).
+#
+# The workflow names a rung; the repository's devenv graph decides what it
+# pulls in. `-v` is load-bearing: without it devenv captures the task's stdout
+# and prints none of it, and the task's stdout is the run's result document.
+queue: llm
+params:
+  - DEVMAN_PROJECT_DIR: ""
+  - AGENT_CAPSULE: "review"
+  - AGENT_TIMEOUT_S: "900"
+  - AGENT_MEMORY_MB: "4096"
+secrets:
+  - name: ANTHROPIC_API_KEY
+    provider: env
+    key: ANTHROPIC_API_KEY
+steps:
+  - name: capsule
+    run: devenv tasks run -v agent:capsule

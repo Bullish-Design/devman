@@ -502,8 +502,38 @@ machine states it, once, like the other three (`STAGE_2_LOG.md`, S12).
 costs; a workflow names one. It is Dagu's own field, not a devman word for it.
 
 ```
-light   normal   heavy   gpu   exclusive
+light   normal   heavy   gpu   exclusive   llm
 ```
+
+> **AMENDED — the sixth name is `llm`** (project 022, forced by 020's
+> measurement). Five names bounded a local resource. `llm` bounds a **quota held
+> outside this machine** — requests per minute, tokens per minute, and money —
+> and that quota is shared by every repository at once.
+>
+> **The measurement that forced it.** A scheduled run bypasses its queue, and
+> the pin confirms it twice: `dagu schema config` sets
+> `additionalProperties: false` and its `SchedulerDef` holds no queue-routing
+> key, so no configuration repairs it; and two DAGs naming a
+> `max_concurrency: 1` queue under `schedule: "* * * * *"` started four
+> overlapping runs inside 0.4 s, with the scheduler logging "Dispatching planned
+> run" and no admission at all. So the gate only ever binds on the `devman run`
+> arrow — which is where `groups/agent/` puts every Agentman run, and the gate
+> it needs there is a queue whose limit is set by the vendor's quota rather than
+> by this machine's cores.
+>
+> **Why not one of the five.** `heavy` is sized against local builds, and a
+> number that suits a compiler suits an API quota only by accident. `gpu` is
+> already the local inference server (`groups/changelog/`), which is not metered
+> at all. Sharing either couples two limits and tunes neither.
+>
+> **What it costs, and it is the cost §7.1 warns about.** Every repository
+> inherits the name. A rename is a migration across every workflow that names
+> it, and Dagu accepts an undeclared name silently at concurrency 1 — so a
+> missed file serialises rather than frees. `devman doctor`'s `queue names`
+> check is what catches that, and it reads the machine's own `config.yaml`.
+>
+> **Its limit is a stated bound, not a measurement.** devman cannot measure
+> another vendor's quota. `nix/nixos-module.nix` says so where the number is.
 
 An earlier draft of this section claimed queue names were the *entire* shared
 vocabulary. They never were: §7.2's portable workflow also rests on one agreed
@@ -1155,6 +1185,17 @@ values:
   value; the log holds `*******`. Without this, any step can echo a token into a
   log that lands in `.devman/.runs/`, and from there into a screenshot or a bug
   report.
+
+  > **AMENDED — it masks the EXACT value and nothing else** (project 022, first
+  > exercise of this section). Measured on the pin: a step echoing `$TOKEN`
+  > wrote `*******`, and the same step echoing its first five characters wrote
+  > them in clear. A partial value is not masked, and neither is an encoded one.
+  >
+  > So this property bounds an accident — a `set -x`, a tool that dumps its
+  > environment, a crash trace — and it does not bound a step that takes a
+  > credential apart. **A workflow must not print a fragment of a secret**, and
+  > `src/devman/agent.py` redacts to the same limit deliberately, so devman's own
+  > diagnostic is not safer than the log beside it.
 - **A missing secret fails the run before any step runs**, naming the secret and
   the provider. Contrast an unresolved path variable (§7.2), which fails silently
   and creates a wrongly-named directory.
@@ -1169,13 +1210,41 @@ exists for.
 
 ## 10. The CLI, deferred
 
-Three commands.
+Three commands a developer types, and one the plane runs.
 
 | Command | Does |
 |---|---|
 | `devman run <workflow>` | trigger a workflow in the current project |
 | `devman show <workflow>` | print the resolved file, to start an override (§7.3) |
 | `devman doctor` | diagnose the plane, and report shadowed files and their drift |
+| `devman agent --capsule <name>` | **amended (022)** — translate one admitted run into one Agentman invocation |
+
+> **AMENDED — the fourth command, and it is a different kind of thing**
+> (project 022). The first three are *about* the plane: a person types them and
+> reads the answer. `devman agent` runs *inside* it, as the step of
+> `groups/agent/`'s workflow.
+>
+> **Why it is a command and not a devenv task.** §6 says devenv owns the
+> implementation of one task in one repository. This is not one repository's
+> implementation — it is the translation between an admitted run and an external
+> execution plane, and every repository taking the group needs the same one.
+> Leaving it to each adopter would put the secret allowlist, the process bound,
+> the receipt check and the exit-code mapping in 54 devenv files that drift.
+>
+> **Why it is not shell in the workflow.** Law 7: Python for core logic. It
+> builds a strict request, filters an environment down to a declared allowlist,
+> bounds a process with `setrlimit` and its own timeout, verifies a receipt
+> against the run id, and maps four exit codes. None of that is testable in a
+> Dagu step's shell, and `src/devman/agent.py` is tested.
+>
+> **What it must never grow.** Agentman owns capsule composition, capability
+> grants, filesystem, network and write-tier policy, backend selection, typed
+> validation, repair, and the receipt. The request carries references and no
+> policy field at all, which is what makes "this cannot widen a capsule" a
+> property of the document rather than a promise about the code.
+>
+> `list`, `status`, `register` and `unregister` are still refused, for the
+> reasons below.
 
 No `list`, `status`, `register`, or `unregister`. Registration is automatic
 (§5.2) and has no manual path; the rest is what `doctor` reports. There is still

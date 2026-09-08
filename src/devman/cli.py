@@ -43,7 +43,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import project, run, show, watch
+from . import agent, project, run, show, watch
 from .registry import (
     DEFAULT_DAGU_HOME,
     DEFAULT_REGISTRY,
@@ -150,6 +150,19 @@ def parser() -> argparse.ArgumentParser:
         help="how often to re-read the registry for a changed watch set (§8, S16)",
     )
 
+    # THE FOURTH COMMAND, AND §10 SAID THERE WERE THREE (022).
+    #
+    # The other three are ABOUT the plane: a developer types them and reads the
+    # answer. This one runs INSIDE it — it is the step of `groups/agent/`'s
+    # workflow, translating one admitted run into one Agentman invocation. The
+    # charter amendment says why it is a command rather than a devenv task: the
+    # translation is execution-plane work, so the plane owns it, and law 7 says
+    # core logic is Python rather than shell.
+    p_agent = sub.add_parser(
+        "agent", help="run one Agentman capsule for this admitted run (§10, 022)"
+    )
+    agent.add_arguments(p_agent)
+
     p_project = sub.add_parser(
         "project", help="the projection — machinery, run by the devenv module (§9.2)"
     )
@@ -173,6 +186,7 @@ def handler(command: str):
 
         return doctor.main
     return {
+        "agent": agent.main,
         "run": run.main,
         "show": show.main,
         "watch": watch.main,
