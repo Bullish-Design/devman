@@ -73,6 +73,27 @@
             touch $out
           '';
 
+          # The shell-entry hook assigns state into `devman_*` variables and
+          # must unset each one before it returns. This check reads the shipped
+          # module text. It prevents another staleness block from leaking a
+          # variable into every adopting repository's interactive shell.
+          shell-variable-unset = pkgs.runCommand "devman-shell-variable-unset" { } ''
+            module=${./modules/devenv.nix}
+            assigned=$(grep -oE '(^|[[:space:]])devman_[A-Za-z0-9_]+=' "$module" \
+              | grep -oE 'devman_[A-Za-z0-9_]+=' | sed 's/=$//' | sort -u)
+            unset=$(sed -n '/^[[:space:]]*unset devman_/,/devman_cur$/p' "$module" \
+              | grep -oE 'devman_[A-Za-z0-9_]+' | sort -u | tr '\n' ' ')
+            missing=0
+            for name in $assigned; do
+              case " $unset " in
+                *" $name "*) ;;
+                *) echo "assigned variable is not unset: $name" >&2; missing=1 ;;
+              esac
+            done
+            [ "$missing" = 0 ]
+            touch $out
+          '';
+
           # THE THIRD READER OF THE SHARED IDENTITY TABLE (009 P1-5).
           #
           # The grammar is stated twice — `src/devman/registry.py` for the CLI

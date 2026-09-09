@@ -546,6 +546,20 @@ def test_a_well_formed_declaration_is_counted_by_tier(plane):
     assert "1 insitu, 1 lane" in lines[0]
 
 
+def test_a_local_workflow_writes_declaration_is_known(plane):
+    """Local workflows belong to the project's complete projected set."""
+    plane.add(
+        "p",
+        local=["mine"],
+        writes={"mine": {"tier": "lane", "paths": ["src/**"]}},
+    )
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"
+
+
 def test_tier_free_outside_agent_surface_is_a_finding(plane):
     """The finding this check exists to make. A free-tier write lands in the
     working tree with nobody present, so claiming it for `src/**` is claiming to

@@ -843,6 +843,7 @@ in
             devman_relink devman_stale devman_proj devman_body devman_have \
             devman_recorded devman_plan devman_locals devman_badroot \
             devman_trig devman_trig_kept devman_trig_now devman_trig_was \
+            devman_wr devman_wr_kept devman_wr_now devman_wr_was \
             devman_ex devman_gd devman_cd devman_cur
     '';
   };

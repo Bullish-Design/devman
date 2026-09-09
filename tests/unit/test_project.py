@@ -450,9 +450,12 @@ def test_an_unchanged_file_is_not_revalidated(tmp_path):
     registry = tmp_path / "registry"
 
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
+    link = registry / "dags" / "p.check.yaml"
+    inode = link.lstat().st_ino
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="false")
 
     assert (registry / "projects" / "p" / "workflows" / "check.yaml").exists()
+    assert link.lstat().st_ino == inode
 
 
 def test_a_changed_file_is_revalidated(tmp_path):
