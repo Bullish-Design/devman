@@ -684,7 +684,7 @@ def check_writes(rep: Report, reg: Registry) -> None:
 
     **What it can decide, and it is set membership rather than a heuristic, so
     §15.7 does not reach it.** Every finding here is a comparison against a
-    stated set: a tier that is not one of the two names, a declaration naming a
+    stated set: a tier that is not one of the three names, a declaration naming a
     workflow the project does not project, and — the one that matters — a
     `tier = "free"` claim over a path outside tier A's agent surface. That last
     one is the whole point: free-tier writes land in the working tree with
@@ -705,7 +705,7 @@ def check_writes(rep: Report, reg: Registry) -> None:
         if not decls:
             continue
         declaring += 1
-        known = set(proj.workflows or {})
+        known = set(proj.workflow_names())
         for name, decl in sorted(decls.items()):
             if not isinstance(decl, dict):
                 lines.append(f"{proj.name}/{name}: not a table")

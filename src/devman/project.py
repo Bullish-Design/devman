@@ -409,7 +409,13 @@ def apply(
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
-    _sweep(plan.project, workflows_dir, dags)
+    _sweep(
+        plan.project,
+        workflows_dir,
+        dags,
+        published_names=set(published),
+        rendered_names=set(rendered),
+    )
 
     for name, text in rendered.items():
         tmp = workflows_dir / f".{name}.yaml.new"
@@ -584,7 +590,14 @@ def _sources(plan: Plan, root: Path, local: list[str]) -> dict[str, Path]:
     return out
 
 
-def _sweep(project: str, workflows_dir: Path, dags: Path) -> None:
+def _sweep(
+    project: str,
+    workflows_dir: Path,
+    dags: Path,
+    *,
+    published_names: set[str],
+    rendered_names: set[str],
+) -> None:
     """The registry is derived, so the projection is rebuilt rather than patched.
 
     A `dags/` link is removed only when it still points at this project's own
@@ -597,18 +610,30 @@ def _sweep(project: str, workflows_dir: Path, dags: Path) -> None:
     stale schedule still fires. Drop `-` when `doctor` reports no unmigrated
     workflow.
     """
-    for old in sorted(workflows_dir.glob("*.yaml")):
-        stem = old.stem
+
+    def target(stem: str) -> str:
+        return f"../projects/{project}/workflows/{stem}.yaml"
+
+    removed_names = published_names - rendered_names
+    for stem in sorted(removed_names):
         for sep in (DAG_SEPARATOR, LEGACY_DAG_SEPARATOR):
             link = dags / f"{project}{sep}{stem}.yaml"
-            if link.is_symlink() and os.readlink(link) == (
-                f"../projects/{project}/workflows/{stem}.yaml"
-            ):
+            if link.is_symlink() and os.readlink(link) == target(stem):
                 link.unlink()
-        old.unlink()
+        (workflows_dir / f"{stem}.yaml").unlink(missing_ok=True)
+
+    # Sweep the legacy shape for every surviving workflow. This keeps the S-12
+    # migration active without removing a current link that the next loop will
+    # rewrite byte-identically.
+    for stem in sorted(rendered_names):
+        link = dags / f"{project}{LEGACY_DAG_SEPARATOR}{stem}.yaml"
+        if link.is_symlink() and os.readlink(link) == target(stem):
+            link.unlink()
 
 
 def _relink(link: Path, target: str) -> None:
+    if link.is_symlink() and os.readlink(link) == target:
+        return
     if link.is_symlink() or link.exists():
         link.unlink()
     link.symlink_to(target)
