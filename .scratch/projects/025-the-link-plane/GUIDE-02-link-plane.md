@@ -55,8 +55,8 @@ Five states, one function:
 | absent | link it |
 | absent, **and canonical absent** | create canonical (`mkdir -p`, or render `template`), then link |
 
-Three behaviours from that one declaration: the symlink, the
-`.git/info/exclude` line, and the drift assertion.
+Three behaviours from that one declaration: the view symlink, the central
+`.local.gitignore` symlinked at `.git/info/exclude`, and the drift assertion.
 
 ---
 
@@ -229,13 +229,15 @@ so it forks nothing when absent — the guard shape at `modules/devenv.nix:832-8
 (`modules/devenv.nix:841-847`). Add them in the same commit** or the flake check
 fails. That check is itself being added in devman's uncommitted work (§2).
 
-### 4.5 The exclude lines
+### 4.5 The central exclude file
 
-Extend the writer at `modules/devenv.nix:821-827`. It appends `.devman/.runs/`
-today; it will append one rule per link-in whose view lands inside a git
-repository. Keep its worktree awareness (`:798-827`): a `.git` *file* is a linked
-worktree whose `commondir` points back, and a repo with no `.git` correctly gets no
-rule.
+The reconciler owns the per-project
+`<overlay>/projects/<project>/.local.gitignore` file. It preserves an existing
+`.git/info/exclude`, appends `.devman/.runs/` and one rule per central or external
+view, then symlinks the Git exclude path to the central file. A `.git` *file* is
+a linked worktree; its `commondir` points to the shared Git directory. A gitman
+workspace has no `.git` marker because jj owns that workspace, so it gets no
+second exclude link.
 
 ### 4.6 The doctor check
 

@@ -229,30 +229,138 @@ def _git_exclude_path(root: Path) -> Path | None:
     return git_dir / "info" / "exclude"
 
 
-def _ensure_exclusions(root: Path, links: list[ResolvedLink]) -> None:
-    """Keep link views and run state out of the repository's git view."""
-    exclude = _git_exclude_path(root)
-    if exclude is None:
-        return
-    try:
-        contents = exclude.read_text()
-    except FileNotFoundError:
-        contents = ""
-    current = contents.splitlines()
+def _exclusion_entries(links: list[ResolvedLink]) -> list[str]:
     entries = [".devman/.runs/"]
     entries.extend(
         link.declaration.view
         for link in links
         if link.declaration.canonical in {"central", "external"}
     )
+    return list(dict.fromkeys(entries))
+
+
+def _append_exclusion_entries(path: Path, entries: list[str]) -> bool:
+    try:
+        contents = path.read_text()
+    except FileNotFoundError:
+        contents = ""
+    current = contents.splitlines()
     additions = [entry for entry in entries if entry not in current]
-    if additions:
-        exclude.parent.mkdir(parents=True, exist_ok=True)
-        with exclude.open("a") as stream:
-            if contents and not contents.endswith("\n"):
-                stream.write("\n")
-            for entry in additions:
-                stream.write(f"{entry}\n")
+    if not additions:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as stream:
+        if contents and not contents.endswith("\n"):
+            stream.write("\n")
+        for entry in additions:
+            stream.write(f"{entry}\n")
+    return True
+
+
+def _local_gitignore_path(overlay: Path, project: str) -> Path:
+    return _expanded_path(
+        overlay,
+        f"projects/{project}/.local.gitignore",
+        project,
+        f"local gitignore for {project!r}",
+    )
+
+
+def _local_gitignore_key(project: str) -> str:
+    return f"{project}:.git/info/exclude"
+
+
+def _link_path(
+    view: Path,
+    canonical: Path,
+    *,
+    promoted: bool = False,
+    backup: bool = True,
+) -> None:
+    view.parent.mkdir(parents=True, exist_ok=True)
+    if view.is_symlink():
+        view.unlink()
+    elif view.exists():
+        if not promoted:
+            raise LinkError(f"refusing to replace real view {view}")
+        if backup:
+            backup_path = view.with_name(f"{view.name}.devman-promoted")
+            if backup_path.exists() or backup_path.is_symlink():
+                raise LinkError(
+                    f"refusing to replace {view}; promotion backup already"
+                    f" exists at {backup_path}"
+                )
+            os.replace(view, backup_path)
+        else:
+            view.unlink()
+    view.symlink_to(canonical)
+
+
+def _ensure_local_gitignore(
+    root: Path,
+    overlay: Path,
+    project: str,
+    links: list[ResolvedLink],
+    state: dict[str, dict[str, str]],
+) -> bool:
+    """Project Git's exclude file from one central per-project file."""
+    exclude = _git_exclude_path(root)
+    if exclude is None:
+        return False
+
+    canonical = _local_gitignore_path(overlay.resolve(), project)
+    key = _local_gitignore_key(project)
+    entries = _exclusion_entries(links)
+    changed = False
+
+    if not canonical.exists():
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        if exclude.exists() and not exclude.is_symlink():
+            canonical.write_text(exclude.read_text())
+        else:
+            canonical.touch()
+        changed = True
+
+    previous = state.get(key, {})
+    expected_hash = previous.get("hash")
+    if exclude.exists() and not exclude.is_symlink():
+        actual_hash = _content_hash(canonical)
+        if expected_hash and expected_hash != actual_hash:
+            raise LinkError(
+                "refusing promotion for "
+                f"{project}:.git/info/exclude: central .local.gitignore and"
+                " the repository exclude file both changed; review both sides"
+            )
+        if not expected_hash and exclude.read_text() != canonical.read_text():
+            raise LinkError(
+                "refusing promotion for "
+                f"{project}:.git/info/exclude: central .local.gitignore and"
+                " the repository exclude file differ without a recorded baseline"
+            )
+        if expected_hash and exclude.read_text() != canonical.read_text():
+            canonical.write_text(exclude.read_text())
+            changed = True
+        _link_path(exclude, canonical, promoted=True, backup=False)
+        changed = True
+    elif exclude.is_symlink():
+        target = exclude.resolve(strict=False)
+        if target != canonical:
+            _link_path(exclude, canonical)
+            changed = True
+    else:
+        _link_path(exclude, canonical)
+        changed = True
+
+    if _append_exclusion_entries(canonical, entries):
+        changed = True
+    record = {
+        "canonical": str(canonical),
+        "hash": _content_hash(canonical),
+    }
+    if state.get(key) != record:
+        changed = True
+    state[key] = record
+    return changed
 
 
 def _record(link: ResolvedLink, state: dict[str, dict[str, str]]) -> None:
@@ -344,20 +452,7 @@ def _create_canonical(link: ResolvedLink) -> None:
 
 
 def _link(link: ResolvedLink, *, promoted: bool = False) -> None:
-    link.view_path.parent.mkdir(parents=True, exist_ok=True)
-    if link.view_path.is_symlink():
-        link.view_path.unlink()
-    elif link.view_path.exists():
-        if not promoted:
-            raise LinkError(f"refusing to replace real view {link.view_path}")
-        backup = link.view_path.with_name(f"{link.view_path.name}.devman-promoted")
-        if backup.exists() or backup.is_symlink():
-            raise LinkError(
-                f"refusing to replace {link.view_path}; promotion backup already"
-                f" exists at {backup}"
-            )
-        os.replace(link.view_path, backup)
-    link.view_path.symlink_to(link.canonical_path)
+    _link_path(link.view_path, link.canonical_path, promoted=promoted)
 
 
 def reconcile(
@@ -406,7 +501,10 @@ def reconcile(
         _record(link, state)
         changed = True
         results.append(result)
-    _ensure_exclusions(root.resolve(), resolved_links)
+    if _ensure_local_gitignore(
+        root.resolve(), overlay, project, resolved_links, state
+    ):
+        changed = True
     if changed:
         _write_state(overlay, state)
     return results

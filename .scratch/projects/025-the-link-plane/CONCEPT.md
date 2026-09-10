@@ -303,11 +303,12 @@ separate workflow and no second mechanism.
 ### 5.2 Three behaviours derived from one declaration
 
 1. **The symlink** — created and repointed by reconcile.
-2. **The `.git/info/exclude` line** — for every view inside a git repository. You
-   cannot link a file in and forget to exclude it, because both come from the same
-   attribute. This extends a writer already proven in all 51 registered
-   repositories (`devman/modules/devenv.nix:788-827`; verified at
-   `copyroom/.git/info/exclude:7`).
+2. **The `.git/info/exclude` link** — for every view inside a git repository. The
+   reconciler keeps the rules in
+   `<overlay>/projects/<project>/.local.gitignore` and symlinks the repository's
+   `.git/info/exclude` to that file. Existing exclude content is promoted before
+   the replacement. This keeps the declaration, the central file, and the view
+   in one reconciliation path.
 3. **The drift assertion** — `test -L` plus `readlink -f`. This *is* the detector;
    it is only "which of the five states am I in".
 
@@ -622,6 +623,7 @@ own terms.
     devenv.local.nix                     tracked · real file
     claude.json                          tracked · real file
     agents/                              composed agent surface (§7.2) · tracked
+    .local.gitignore                     per-project exclude rules · canonical
     repo      -> ~/Documents/Projects/flora        ignored · absolute · derived
     workflows -> <repo>/.devman/workflows          ignored · absolute · derived
     notes     -> ~/Notes/1_Projects/flora          ignored · absolute · derived
@@ -672,8 +674,8 @@ pointing everything else at it:
 | Version control | `~/Notes`' own repository, on its own timer |
 
 **No note content enters a project repository's history.** `.loci` is one excluded
-symlink, and `.git/info/exclude` gets its line from the same `devman.link`
-declaration that creates it (§5.2).
+symlink, and the central `.local.gitignore` gets its rule from the same
+`devman.link` declaration that creates it (§5.2).
 
 **`1_Projects/` already exists** and already holds repo names — `andrew`,
 `argentic`, `flora`, `image-gen-pipeline`, `nix-nvim`, `nvcheck`, `shellij`. The
@@ -741,14 +743,14 @@ flora/                              ← TRACKED. Code, and three lines of devman
   .loci             -> ~/Notes/1_Projects/flora
 ```
 
-**Every link is gitignored, via a `.git/info/exclude` line written from the same
-declaration that created it.** `git status` shows code. `ls -la` shows where
-everything else actually lives.
+**Every link is ignored through a central `.local.gitignore` symlinked at
+`.git/info/exclude`.** `git status` shows code. `ls -la` shows where everything
+else actually lives.
 
 The loop:
 
 ```
-devenv shell            registers, reconciles links, writes exclude lines
+devenv shell            registers, reconciles links, writes the central exclude file
 copyroom update         converge tracked template content
 <change>
 testee verify           check
@@ -879,7 +881,9 @@ devenv shell                # registers, reconciles, links, writes excludes
 
 The reconciler creates `~/.config/devman/projects/<name>/`, renders any declared
 `template` with copyroom, `mkdir -p`s the `canonical = "repo"` targets, links both
-directions and writes the exclude lines. **One shell entry, nothing else.**
+directions, and links `.git/info/exclude` to
+`~/.config/devman/projects/<name>/.local.gitignore`. **One shell entry, nothing
+else.**
 
 **Auto-template is legitimate here and only here.** copyroom's invariant is
 managed ⇒ tracked ⇒ committed, and `update` needs a clean worktree

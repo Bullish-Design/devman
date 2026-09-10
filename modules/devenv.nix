@@ -849,9 +849,9 @@ in
       fi
 
       # Link reconciliation is separate from registry projection. The Python
-      # reconciler owns both the view and its .git/info/exclude entry. The
-      # implicit bootstrap declaration remains active so it can create the
-      # canonical devenv.local.nix before the next shell evaluates it.
+      # reconciler owns the view, the central .local.gitignore file, and the
+      # .git/info/exclude symlink. The implicit bootstrap declaration remains
+      # active so it can create devenv.local.nix before the next shell entry.
       if [ -n "$devman_overlay" ]; then
         ${linkScript} "$devman_root" "$devman_overlay" "$devman_reg"
       fi

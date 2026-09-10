@@ -20,7 +20,7 @@ This file is how to use the plane. [`README.md`](README.md) is the shape of it.
 |---|---|
 | **NixOS**, with `services.devman-dagu.enable = true` | the Dagu user service, the queues, the `devman` CLI and the watcher all ship from `nixosModules.default` |
 | **devenv** in every repository that joins | a workflow step runs `devenv tasks run` |
-| **git** | registration writes one ignore rule to `.git/info/exclude` |
+| **git** | registration links `.git/info/exclude` to the central per-project exclude file |
 | **the central config repository** (normally `~/.config/devman`) | supplies the machine-local `devenv.local.nix` and any per-repository overlays |
 
 The machine side installs itself. Check it:
@@ -122,7 +122,8 @@ belongs in the central config repository, normally at `~/.config/devman`:
 The first shell entry creates the bootstrap view at
 `<repo>/devenv.local.nix`. It then reconciles every declared link. Central
 content is canonical and tracked in the config repository; the repository-side
-paths are symlinks and are excluded from that repository's
+paths are symlinks and are excluded through
+`<overlay>/projects/<project>/.local.gitignore`, which is linked at
 `.git/info/exclude`. Use `canonical = "external"` for content that belongs
 outside both repositories, such as a notes directory.
 
@@ -167,9 +168,11 @@ inspect status before using it when both sides may contain edits.
 <repo>/.devman/.runs/metadata.jsonl  one line per run: dag, id, status, log path
 ```
 
-`.devman/.runs/` is added to `.git/info/exclude`, never to `.gitignore` — that
-file may be a read-only store symlink, and writing to it would dirty the tree the
-rule exists to keep clean.
+`.devman/.runs/` and every declared machine-local view are recorded in
+`<overlay>/projects/<project>/.local.gitignore`. The reconciler symlinks that
+file to `.git/info/exclude`, never `.gitignore`. A linked gitman workspace has
+no `.git` marker, so it does not get a second exclude file; gitman manages that
+workspace through its shared jj repository.
 
 **`.devman/` has both project and machine-local views.** The run state and
 repository-owned `triggers.toml` stay in the checkout. `workflows/` is normally

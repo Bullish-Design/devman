@@ -94,7 +94,8 @@ machine-local links, including the per-repository workflow overlay:
 ```
 
 The central files are canonical and tracked in the configuration repository.
-The paths shown in the project are symlinks and are excluded through
+The paths shown in the project are symlinks and are excluded through the
+central per-project `<overlay>/projects/<project>/.local.gitignore`, linked at
 `.git/info/exclude`. A repository may add other machine-local links, such as
 `.envrc`, `.claude/skills`, or an external `.loci` directory. The declaration
 belongs in `devenv.local.nix`, not tracked `devenv.nix`.

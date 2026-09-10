@@ -268,6 +268,8 @@ def test_reconcile_writes_exclusions_for_normal_git_repositories(tmp_path: Path)
         ".devman/.runs/",
         ".envrc",
     ]
+    assert exclude.is_symlink()
+    assert exclude.resolve() == (overlay / "projects/demo/.local.gitignore").resolve()
     assert not (root / ".gitignore").exists()
 
 
@@ -296,6 +298,56 @@ def test_reconcile_writes_exclusions_to_a_linked_worktree_common_git_dir(
         ".devman/.runs/",
         ".envrc",
     ]
+    assert (common_git / "info/exclude").is_symlink()
+    assert (common_git / "info/exclude").resolve() == (
+        overlay / "projects/demo/.local.gitignore"
+    ).resolve()
+
+
+def test_reconcile_promotes_changed_exclude_after_the_central_file_was_linked(
+    tmp_path: Path,
+):
+    overlay = tmp_path / "overlay"
+    root = tmp_path / "repo"
+    exclude = root / ".git/info/exclude"
+    exclude.parent.mkdir(parents=True)
+    exclude.write_text("# existing\n")
+
+    reconcile(
+        {".envrc": central_decl()}, overlay=overlay, root=root, project="demo"
+    )
+    exclude.unlink()
+    exclude.write_text("# edited locally\n")
+
+    result = reconcile(
+        {".envrc": central_decl()}, overlay=overlay, root=root, project="demo"
+    )
+
+    assert result[0].state == "ok"
+    assert (overlay / "projects/demo/.local.gitignore").read_text().startswith(
+        "# edited locally\n"
+    )
+    assert exclude.is_symlink()
+
+
+def test_reconcile_refuses_two_sided_local_gitignore_edits(tmp_path: Path):
+    overlay = tmp_path / "overlay"
+    root = tmp_path / "repo"
+    exclude = root / ".git/info/exclude"
+    exclude.parent.mkdir(parents=True)
+    exclude.write_text("# existing\n")
+
+    reconcile(
+        {".envrc": central_decl()}, overlay=overlay, root=root, project="demo"
+    )
+    (overlay / "projects/demo/.local.gitignore").write_text("# central edit\n")
+    exclude.unlink()
+    exclude.write_text("# local edit\n")
+
+    with pytest.raises(LinkError, match="both changed"):
+        reconcile(
+            {".envrc": central_decl()}, overlay=overlay, root=root, project="demo"
+        )
 
 
 @pytest.mark.parametrize(
