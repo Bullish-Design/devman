@@ -34,10 +34,12 @@ to define, is in that group's own `README.md`.
 ## How a group reaches a repository
 
 **Resolution is whole-file, in the order the repository lists its groups**, and
-the repository's own `.devman/workflows/` is the last layer (§7.3):
+the central per-repository workflow overlay, viewed at `.devman/workflows/`, is
+the last layer (§7.3):
 
 ```
-groups[0] → groups[1] → … → <repo>/.devman/workflows/
+groups[0] → groups[1] → … → ~/.config/devman/projects/<project>/workflows/
+                                      (view: <repo>/.devman/workflows/)
 ```
 
 A later layer shadowing an earlier one replaces the **whole file**. There is no
@@ -75,9 +77,9 @@ Two rules, and both have to hold.
 
 > **§16 — a group begins when a *second* repository wants the same file.**
 
-One repository wanting something is that repository's own
-`.devman/workflows/` file. Promotion costs nothing later, because the workflow
-names a task and the task names the tool.
+One repository wanting something is that repository's own central overlay file
+under `~/.config/devman/projects/<project>/workflows/`. Promotion costs nothing
+later, because the workflow names a task and the task names the tool.
 
 > **§3 — a group exists when taking it costs the repository something it cannot
 > decline any other way**: a task name it must define, or a write to its own

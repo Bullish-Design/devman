@@ -33,7 +33,7 @@ directory variable it passes to its children.
 | Interface | File | Serves |
 |---|---|---|
 | the machine | `nixosModules.default` | one Dagu user service, the queues, the state paths, the ports, the watcher, the `devman` CLI |
-| the repository | `modules/devenv.nix` | three Nix options, registration, and §7.3's resolution |
+| the repository | `modules/devenv.nix` | project membership, link declarations, registration, and §7.3's resolution |
 
 They share **text only** — the queue names, two variable names, and a path
 shape. Each takes `pkgs` from its own side, so one flake serves two nixpkgs
@@ -41,11 +41,16 @@ without either constraining the other. `nix/dagu.nix` is the one measured
 exception: nixpkgs packages no Dagu at any version, so both call the same file.
 
 **The machine never learns a project fact.** No project names, no per-project
-options, no absolute paths. That constraint is what everything else bends around.
+options, no absolute paths. Machine-local choices live in the central
+configuration repository (`devman.overlayDir`, default `~/.config/devman`) and
+reach each checkout through the link plane. That boundary is what everything
+else bends around.
 
 ## How a repository adopts it
 
-Two files, then the task names the groups you take ask for.
+The tracked repository declares its identity and imports the module. Machine-local
+overlays are supplied by the central configuration repository, not committed to
+the project.
 
 ```yaml
 # devenv.yaml
@@ -58,13 +63,41 @@ imports:
 ```
 
 ```nix
-# devenv.nix
+# devenv.nix — tracked project definition
 devman = {
   enable  = true;
   project = "myproject";
   groups  = [ "base" ];
 };
 ```
+
+On a machine using the central configuration repository, enter the shell once.
+The module first bootstraps `devenv.local.nix` from
+`~/.config/devman/projects/myproject/devenv.local.nix`; that file declares the
+machine-local links, including the per-repository workflow overlay:
+
+```nix
+# ~/.config/devman/projects/myproject/devenv.local.nix
+{ config, ... }:
+{
+  devman.link = {
+    ".devman/workflows" = {
+      canonical = "central";
+      path = "projects/${config.devman.project}/workflows";
+    };
+    ".agents" = {
+      canonical = "central";
+      path = "projects/${config.devman.project}/agents";
+    };
+  };
+}
+```
+
+The central files are canonical and tracked in the configuration repository.
+The paths shown in the project are symlinks and are excluded through
+`.git/info/exclude`. A repository may add other machine-local links, such as
+`.envrc`, `.claude/skills`, or an external `.loci` directory. The declaration
+belongs in `devenv.local.nix`, not tracked `devenv.nix`.
 
 | Key | Rule |
 |---|---|
@@ -99,31 +132,35 @@ is automatic and has no manual path; the rest is what `doctor` reports.
 
 ## The contract
 
-**Four global names, and the list is closed** (`CONCEPT.md` §7.1). The machine
-states all four once, so no workflow repeats them:
+**The shared contract is closed** (`CONCEPT.md` §7.1): six queue names, two
+directory variables, and the `.devman/.runs/` path shape. The machine states
+these once, so no workflow repeats them:
 
 | Name | Whose field | Where the machine states it |
 |---|---|---|
-| the queue names — `light` `normal` `heavy` `gpu` `exclusive` | Dagu's `queue:` | `config.yaml`, with each limit |
+| the queue names — `light` `normal` `heavy` `gpu` `exclusive` `llm` | Dagu's `queue:` | `config.yaml`, with each limit |
 | `DEVMAN_PROJECT_DIR` | the project a run targets | the generated projection header |
 | `DEVMAN_SELF_DIR` | a cross-repo workflow's own directory | the same header |
 | the `.devman/.runs/` path shape | Dagu's `log_dir:` | the same header |
 
-Everything else belongs to the repository: task names, workflow names, and every
-line of every workflow file. **Adding a fifth name is a charter change, not an
-implementation detail.**
+Everything else belongs to the repository or its central per-repository overlay:
+task names and project-specific workflow bodies are selected there. **Adding a
+new shared name is a charter change, not an implementation detail.**
 
-**`.devman/` belongs to the repository too.** devman reserves three names
-inside it — `workflows/`, `.runs/` and `triggers.toml` — and never reads,
+**`.devman/` is split by the boundary rule.** The run state and repository-owned
+`triggers.toml` stay in the checkout; `.devman/workflows/` is the view of the
+central per-repository overlay. devman reserves these names and never reads,
 writes or inspects anything else there.
 
 ## Resolution and projection
 
 A workflow name resolves through the groups a repository lists, in order, and
-then through the repository's own `.devman/workflows/`:
+then through that repository's central overlay, exposed as
+`.devman/workflows/`:
 
 ```
-groups[0] → groups[1] → … → <repo>/.devman/workflows/
+groups[0] → groups[1] → … → ~/.config/devman/projects/<project>/workflows/
+                                      (view: <repo>/.devman/workflows/)
 ```
 
 **Shadowing is whole-file, never a field merge.** `devman show <workflow>` prints
@@ -186,19 +223,20 @@ nix/            the machine interface — NixOS module, the Dagu package, the CL
 modules/        the repo interface — devenv.nix, the name is required
 groups/         workflow content, one directory per group — see groups/README.md
 src/devman/     the CLI — run, show, doctor, watch
-.devman/        this repository's own workflows — see .devman/workflows/README.md
+.devman/        run state, triggers, and the central workflow view
 ```
 
 Machine-side state lives in `~/.local/share/devman/`: `projects/<project>/` holds
 each repository's identity and its projected workflows, and `dags/` holds Dagu's
 flat view of them.
 
-**The registry is derived and the repository is canonical.** Everything there is
-reconstructable by re-entering every registered repository's shell, which is what
-makes `devman doctor --prune` safe.
+**The registry is derived.** Group sources and central overlay files are
+canonical; registry projections are reconstructable by re-entering every
+registered repository's shell, which is what makes `devman doctor --prune` safe.
 
 Run output stays with the checkout that produced it, in `<repo>/.devman/` —
-`workflows/` tracked, `.runs/` ignored.
+the workflow directory is a central-config view, while `.runs/` is local and
+ignored.
 
 ## What ships
 
@@ -207,7 +245,7 @@ devman is the mechanism. The content documents itself:
 | Where | What |
 |---|---|
 | [`groups/README.md`](groups/README.md) | the group mechanism, and an index of the groups this repository ships |
-| [`.devman/workflows/README.md`](.devman/workflows/README.md) | devman's own workflows, including the machine-wide plane report |
+| [`.devman/workflows/README.md`](.devman/workflows/README.md) | devman's own central workflow overlay, including the machine-wide plane report |
 
 ## Status
 
@@ -223,9 +261,9 @@ devman is the mechanism. The content documents itself:
 | 6 | the projection became a **generated** file per project, so Dagu's own scheduler can fire a workflow |
 | 7 | the standard set: fewer workflows in fewer groups, the one-step rule, one nightly plane report instead of one per repository, and a rollout past 50 repositories |
 
-**No stage added machinery.** The contract is still four global names, the CLI is
-still three commands, the repo interface is still three keys, and the queue list
-is still five. Every deliverable is a file.
+**No stage added machinery.** The shared contract remains closed, the repository
+interface has project identity/group controls plus the link plane, and every
+deliverable is a file. `llm` is the sixth queue name added by project 022.
 
 ## The design is written down
 
@@ -241,6 +279,7 @@ is still five. Every deliverable is a file.
 | [`PROPOSAL.md`](.scratch/projects/007-standard-workflows/PROPOSAL.md) | the standard workflow set — the one-step rule, the group rule, and eight things that must never become a workflow |
 | [`STAGE_7_LOG.md`](.scratch/projects/007-standard-workflows/STAGE_7_LOG.md) | the rollout, measured batch by batch |
 | [`FINDINGS.md`](.scratch/projects/006-automation-plane/FINDINGS.md) | the five investigations, all closed |
+| [`025-the-link-plane/CONCEPT.md`](.scratch/projects/025-the-link-plane/CONCEPT.md) | the central configuration repository, link plane, and per-repository overlay |
 
 Every non-obvious line in this repository has a measurement behind it. The stage
 logs hold those measurements — the answer, the versions, the exact command, the

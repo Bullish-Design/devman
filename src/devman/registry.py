@@ -1,7 +1,7 @@
 """Reading devman's registry (CONCEPT.md §9.2).
 
-The registry is derived and the repository is canonical (§9.3), so everything
-here reads and nothing here writes. The one exception is `Registry.unproject`,
+The registry is derived and group/central overlay sources are canonical (§9.3),
+so everything here reads and nothing here writes. The one exception is `Registry.unproject`,
 which `doctor --prune` calls, and §10 makes that safe for the same reason: a
 pruned entry restores itself the next time that repository's shell is entered.
 

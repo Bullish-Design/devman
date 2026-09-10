@@ -86,7 +86,7 @@ def parser() -> argparse.ArgumentParser:
     # Global, because the NixOS module wraps this binary with them when a
     # machine moves either directory. They are flags rather than `DEVMAN_*`
     # variables on purpose: Dagu passes every `DEVMAN_*` in the enqueueing
-    # process's environment through to the run, and §7.1's list of four names is
+    # process's environment through to the run, and §7.1's shared contract is
     # closed.
     ap.add_argument(
         "--registry", default=DEFAULT_REGISTRY, help="the registry root (§9.2)"

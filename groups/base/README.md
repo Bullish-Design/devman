@@ -74,7 +74,9 @@ group's names:
 | `base:check` | the fast check that needs no build and runs no test | ≤ 5 s warm |
 | `base:test` | the test suite | ≤ 5 min |
 
-Two names, and the list is closed.
+Two names, and this group's list is closed. The machine-wide queue contract is
+documented in the top-level guide; it currently includes `llm` in addition to
+the five local-resource queues.
 
 ```nix
 tasks."base:check".exec = "ruff check .";

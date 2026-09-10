@@ -34,7 +34,7 @@ tasks."release:build".exec = "uv build --out-dir .devman/.runs/artifacts";
 `.devman/.runs/artifacts/` is §9.2's own name for the place a run's output goes.
 It is created at registration, it is git-ignored, and retention does not touch
 it. A task addresses it relatively — `working_dir` is already the project — or
-through `$DEVMAN_PROJECT_DIR`, which is one of §7.1's four global names. Neither
+through `$DEVMAN_PROJECT_DIR`, which is one of §7.1's shared directory variables. Neither
 puts an absolute path anywhere.
 
 **It builds. It does not publish.** Pushing a tag, uploading a wheel or cutting a
@@ -52,8 +52,8 @@ The first step is a gate, and it **fails** when it refuses. It never skips.
 | the working tree is clean | a release built from uncommitted work cannot be rebuilt from the commit it claims |
 | the last recorded run of this project's `test` succeeded | the plane already records every run, per working tree, in `.devman/.runs/metadata.jsonl` |
 
-Both are read out of files this repository already has, so gating needs no fifth
-entry in §7.1's closed list of global names and no new devman command.
+Both are read out of files this repository already has, so gating needs no new
+shared contract name and no new devman command.
 
 ```
 $ devman run release

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-# §7.1's closed list of four names holds two that are directories, and a trigger
+# §7.1's closed shared contract holds two directory variables, and a trigger
 # sets exactly one of them. `DEVMAN_PROJECT_DIR` names the project a run
 # targets; `DEVMAN_SELF_DIR` names the directory of a workflow that targets no
 # project because it directs others (§11).

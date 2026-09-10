@@ -78,9 +78,9 @@ let
   # §7.3 resolution, at evaluation time
   #
   # Groups resolve in the order the repo lists them, each shadowing the last.
-  # Shadowing is whole-file, never a field merge. The repo's own
-  # `.devman/workflows/` is the final layer and is applied by the projection
-  # script below, because which files are in a working tree is a run-time fact.
+  # Shadowing is whole-file, never a field merge. The central per-project
+  # workflow overlay is the final layer and is applied by the projection script
+  # below through the repository's `.devman/workflows/` view.
   groupsRoot = ../groups;
 
   # One group's workflows, as `<name> -> <store file>`.
@@ -312,7 +312,7 @@ let
   # passes to its children.
   #
   # The cost is stated in `STAGE_6_LOG.md` S1 rather than discovered: a
-  # repository's own `.devman/workflows/x.yaml` is no longer read live by Dagu.
+  # central overlay's `.devman/workflows/x.yaml` view is no longer read live by Dagu.
   # Editing it needs one shell entry to re-project.
   #
   # This script forks. It runs only when the rendered entry differs from the one
@@ -506,7 +506,7 @@ in
       type = types.listOf types.str;
       default = [ "base" ];
       example = [ "base" "format" ];
-      description = "Workflow groups this repository inherits, in precedence order (§7.3). `[ ]` is legal: the repository then has only its own `.devman/workflows/`.";
+      description = "Workflow groups this repository inherits, in precedence order (§7.3). `[ ]` is legal: the repository then has only its central per-project `.devman/workflows/` overlay.";
     };
 
     registryDir = mkOption {

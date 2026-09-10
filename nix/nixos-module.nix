@@ -210,8 +210,8 @@ let
   #
   # Both are FLAGS rather than `DEVMAN_*` variables, and that is deliberate:
   # Dagu passes every `DEVMAN_*` in the enqueueing process's environment through
-  # to the run (`env_passthrough_prefixes` above), and §7.1's list of four names
-  # is closed. A fifth would arrive in every workflow's environment.
+  # to the run (`env_passthrough_prefixes` above), and §7.1's shared contract
+  # is closed. A new shared name would arrive in every workflow's environment.
   #
   # `%h` and `$HOME` become `~`, which the CLI expands itself. The options carry
   # a systemd specifier and a shell form respectively, because that is what the

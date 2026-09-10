@@ -4,7 +4,7 @@
 #
 # `nixosModules.default` puts this on the machine's PATH. The devenv module does
 # not, and that is §3.1's second rule: what the two interfaces share must be
-# TEXT — queue names, the four variable names, the `.devman/.runs/` path shape,
+# TEXT — queue names, the two directory variables, the `.devman/.runs/` path shape,
 # the registry schema. `nix/dagu.nix` is the single measured exception, and it
 # costs two store paths holding one identical binary.
 #

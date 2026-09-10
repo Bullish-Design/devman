@@ -598,9 +598,9 @@ def _sources(
 ) -> dict[str, Path]:
     """`<workflow> -> the file that won §7.3`, group files then local overrides.
 
-    The central project's workflows are the last layer and shadow every group,
-    whole-file.  `root` remains an explicit parameter for the transition and
-    for callers that still expose a repository-local view.
+    The central per-project workflows are the last layer and shadow every group,
+    whole-file. `root` remains an explicit parameter for the project-side view
+    and for the repository's run-state paths.
     """
     out = {n: Path(w["source"]) for n, w in plan.workflows.items()}
     for name in local:
@@ -740,7 +740,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
 
     `--root` and `--local` stay arguments rather than moving into `planFile`,
     because both are run-time facts: where this checkout sits, and which files
-    are in its `.devman/workflows/` right now. Everything Nix knows is in the
+    are in its `.devman/workflows/` view right now. Everything Nix knows is in the
     plan.
     """
     p.add_argument("--plan", required=True, help="the plan file Nix wrote")
@@ -750,7 +750,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         metavar="NAME",
-        help="one workflow name from .devman/workflows/, in glob order",
+        help="one workflow name from the .devman/workflows/ overlay view, in glob order",
     )
     p.add_argument("--dagu", help="the dagu binary to validate with")
 

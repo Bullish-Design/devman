@@ -23,7 +23,7 @@ this flake actually ships documents itself, in the directory that holds it:**
 |---|---|
 | `groups/` | [`groups/README.md`](groups/README.md) — the group mechanism, and an index of the groups here |
 | `groups/<group>/` | what that group ships, and what taking it costs a repository |
-| `.devman/workflows/` | [`.devman/workflows/README.md`](.devman/workflows/README.md) — this repository's own workflows |
+| `.devman/workflows/` | [`.devman/workflows/README.md`](.devman/workflows/README.md) — this repository's central workflow overlay view |
 
 Keep it that way. Never move a workflow's or a group's specifics up into a
 library document, and never leave a new group or workflow without its own README
@@ -54,12 +54,13 @@ keeps a change from re-learning something the plane already paid for.**
    `.scratch/projects/025-the-link-plane/CONCEPT.md`. A change that contradicts
    any of the three changes that document in the same commit, with the
    measurement that forced it.
-3. **Four names are shared by every repository at once**: the six queue names,
-   `DEVMAN_PROJECT_DIR`, `DEVMAN_SELF_DIR`, and the `.devman/.runs/` path shape.
-   Everything else belongs to the repository. Adding a fifth changes the charter,
-   because every repository inherits it — weigh it that way. **The queue list
-   gained `llm` in 022**, and it is the only name whose limit bounds a quota held
-   outside this machine rather than a local resource.
+3. **The shared contract is closed**: six queue names, `DEVMAN_PROJECT_DIR`,
+   `DEVMAN_SELF_DIR`, and the `.devman/.runs/` path shape. Everything else is
+   repository content or central per-repository overlay content. Adding another
+   shared name changes the charter, because every repository inherits it — weigh
+   it that way. **The queue list gained `llm` in 022**, and it is the only name
+   whose limit bounds a quota held outside this machine rather than a local
+   resource.
 4. **A run that reports success while producing an incorrect result is the
    failure this design exists to prevent** — the wrong output, the wrong script,
    the right work in the wrong directory. Prefer a loud refusal to a silent
@@ -70,8 +71,9 @@ keeps a change from re-learning something the plane already paid for.**
    project name in the machine module, no per-project option in Nix. A workflow
    that needs another project's path takes a parameter whose default is a project
    *name*, and the trigger resolves it.
-6. **The registry is derived; the repository is canonical.** Read it freely.
-   Write to it through the projection, or through `doctor --prune`.
+6. **The registry is derived.** Group sources and central overlay content are
+   canonical. Read the registry freely; write to it through the projection, or
+   through `doctor --prune`.
 7. **Python for core logic; shell stays a thin wrapper.** Shell that grows past a
    wrapper is shell nobody can test.
 8. **Secrets are declared, never held.** A workflow names a secret through Dagu's

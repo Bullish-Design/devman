@@ -347,7 +347,7 @@ def self_binary() -> str:
 
     Not an environment variable: Dagu passes every `DEVMAN_*` in the enqueueing
     process's environment through to the run (`env_passthrough_prefixes`), and
-    §7.1's list of four names is closed.
+    §7.1's shared contract is closed.
     """
     return shutil.which("devman") or sys.argv[0]
 

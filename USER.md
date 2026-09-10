@@ -21,6 +21,7 @@ This file is how to use the plane. [`README.md`](README.md) is the shape of it.
 | **NixOS**, with `services.devman-dagu.enable = true` | the Dagu user service, the queues, the `devman` CLI and the watcher all ship from `nixosModules.default` |
 | **devenv** in every repository that joins | a workflow step runs `devenv tasks run` |
 | **git** | registration writes one ignore rule to `.git/info/exclude` |
+| **the central config repository** (normally `~/.config/devman`) | supplies the machine-local `devenv.local.nix` and any per-repository overlays |
 
 The machine side installs itself. Check it:
 
@@ -57,7 +58,7 @@ imports:
 The import path is `devman/modules`, not `devman/modules/devenv.nix`. devenv
 resolves `<input>/<subdir>` and then looks for `devenv.nix` inside it.
 
-### 2.2 `devenv.nix` — three keys
+### 2.2 `devenv.nix` — tracked project membership
 
 ```nix
 devman = {
@@ -71,10 +72,13 @@ devman = {
 |---|---|
 | `enable` | required to join |
 | `project` | **required, and stated rather than inferred.** Identity that defaulted to the directory name would break on a rename: the repository would re-register as new and lose its run history |
-| `groups` | the groups this repository inherits, in precedence order. `[ ]` is legal — the repository then has only its own `.devman/workflows/` |
+| `groups` | the groups this repository inherits, in precedence order. `[ ]` is legal — the repository then has only its central per-project workflow overlay |
 
-Two optional keys exist: `registryDir` (must match the machine's) and
-`installClient` (puts the Dagu client on this shell's PATH, default true).
+The optional `registryDir` must match the machine's registry. `overlayDir`
+selects the central configuration root and normally stays at its default,
+`$HOME/.config/devman`. `installClient` puts the Dagu client on this shell's
+PATH and defaults to true. The `link` option belongs in the machine-local
+`devenv.local.nix` overlay described next.
 
 ### 2.3 Define the task names your groups call
 
@@ -93,7 +97,41 @@ then fails loudly with devenv's own `no such task`. Never satisfy a name with
 something that does nothing: a workflow reporting success having checked nothing
 is the one failure this whole design exists to avoid.
 
-### 2.4 Enter the shell once
+### 2.4 Configure the machine-local overlay
+
+The tracked repository keeps only project facts. Machine-local configuration
+belongs in the central config repository, normally at `~/.config/devman`:
+
+```nix
+# ~/.config/devman/projects/myproject/devenv.local.nix
+{ config, ... }:
+{
+  devman.link = {
+    ".devman/workflows" = {
+      canonical = "central";
+      path = "projects/${config.devman.project}/workflows";
+    };
+    ".agents" = {
+      canonical = "central";
+      path = "projects/${config.devman.project}/agents";
+    };
+  };
+}
+```
+
+The first shell entry creates the bootstrap view at
+`<repo>/devenv.local.nix`. It then reconciles every declared link. Central
+content is canonical and tracked in the config repository; the repository-side
+paths are symlinks and are excluded from that repository's
+`.git/info/exclude`. Use `canonical = "external"` for content that belongs
+outside both repositories, such as a notes directory.
+
+The central overlay is per repository: `projects/myproject/workflows/` shadows
+group workflows whole-file, while `projects/myproject/agents/` supplies this
+machine's agent surface. Do not put these declarations in tracked
+`devenv.nix`, and do not create a dangling `devenv.local.nix` symlink.
+
+### 2.5 Enter the shell once
 
 ```bash
 devenv shell -- true
@@ -106,7 +144,7 @@ The hook is guarded by a content hash, so every entry after the first costs abou
 0.3 ms. It also prints nothing on success, by design: devenv runs the hook twice
 and discards the output of the firing that performs the write.
 
-### 2.5 Confirm
+### 2.6 Confirm
 
 ```bash
 devman show          # what this project projects, and where each file came from
@@ -114,10 +152,10 @@ devman run <workflow>
 devman doctor        # the plane's own health
 ```
 
-### 2.6 What registration creates
+### 2.7 What registration creates
 
 ```
-<repo>/.devman/workflows/            your own workflow files — TRACKED
+<repo>/.devman/workflows/            symlink to the central per-repo overlay
 <repo>/.devman/.runs/logs/           each step's stdout and stderr
 <repo>/.devman/.runs/reports/        what a run leaves for a person to read
 <repo>/.devman/.runs/artifacts/      what a run builds
@@ -128,9 +166,10 @@ devman doctor        # the plane's own health
 file may be a read-only store symlink, and writing to it would dirty the tree the
 rule exists to keep clean.
 
-**`.devman/` is yours.** devman reserves three names inside it —
-`workflows/`, `.runs/` and `triggers.toml` (§5.6) — and never reads, writes or
-inspects anything else there.
+**`.devman/` has both project and machine-local views.** The run state and
+repository-owned `triggers.toml` stay in the checkout. `workflows/` is normally
+the view of the central per-repository overlay. devman reserves these three
+names and never reads, writes or inspects anything else there.
 
 **One restriction on where a repository may live.** Its path may not hold a
 double quote, a backslash, a tab or a newline. Spaces, `: `, `#` and every
@@ -213,9 +252,9 @@ landed.
 
 ### 5.1 Override one file
 
-Resolution layers by group in the order you list them, and your own
-`.devman/workflows/` is the last layer. Shadowing is **whole-file**, never a
-field merge.
+Resolution layers by group in the order you list them, and your central
+per-repository overlay, viewed at `.devman/workflows/`, is the last layer.
+Shadowing is **whole-file**, never a field merge.
 
 ```bash
 devman show <workflow> > .devman/workflows/<workflow>.yaml   # start from what runs today
@@ -227,10 +266,11 @@ devman show <workflow>                                       # confirm
 `devman show` prints the file on stdout and everything about where it came from
 on stderr, so the redirect stays exact.
 
-**An edit needs one shell entry to reach Dagu.** The projection is a generated
-copy, not a symlink. The shell-entry guard compares your override's body against
-the tail of its projection, so it notices an edit in place — but only at shell
-entry.
+**An edit needs one shell entry to reach Dagu.** The project-side workflow
+directory is a symlink into the central config repository; the registry
+projection is a separate generated copy. Edit the canonical central file or its
+view, then re-enter the shell. The guard compares the override's body against
+the tail of its projection, so it notices an edit in place.
 
 **Every file is validated before it is published.** The projection runs
 `dagu validate` on the bytes it is about to write. A file Dagu cannot load is

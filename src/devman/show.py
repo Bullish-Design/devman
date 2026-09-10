@@ -28,7 +28,7 @@ def main(args, reg: Registry) -> int:
         for name in project.workflow_names():
             info = project.workflows.get(name, {})
             if name in project.local:
-                where = "your own .devman/workflows/"
+                where = "central overlay (.devman/workflows/ view)"
                 if info.get("group"):
                     where += f" (shadows {info['group']})"
             else:
@@ -46,7 +46,7 @@ def main(args, reg: Registry) -> int:
 
     info = project.workflows.get(args.workflow, {})
     origin = (
-        "your own .devman/workflows/"
+        "central overlay (.devman/workflows/ view)"
         if args.workflow in project.local
         else f"group {info.get('group', '?')}"
     )
@@ -74,7 +74,8 @@ def source_file(project, workflow: str, projected: Path) -> Path:
     next projection would add a second header to it.
 
     The registry already records where each workflow came from: `source` for a
-    group file, and the repository's own `.devman/workflows/` for an override.
+    group file, and the central per-project overlay exposed through the
+    repository's `.devman/workflows/` view for an override.
     """
     if workflow in project.local:
         own = project.path / ".devman" / "workflows" / f"{workflow}.yaml"

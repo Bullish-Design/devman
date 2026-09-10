@@ -1,6 +1,9 @@
 # The development system — full concept
 
-**Status:** concept. No code written.
+**Status:** implemented in devman v0.5.1 for the bootstrap link, declared link
+reconciliation, central agent surface, and central per-repository workflow
+source overlay. Directly linking registry DAGs to central files remains deferred
+(§6.2a and Stage 4 below).
 **Measured:** 2026-09-09, on `server`. Every claim carries a command or a `file:line`.
 **Evidence base:** [`FINDINGS.md`](FINDINGS.md) beside this file — the twelve-repository audit this design answers.
 **Supersedes:** `devman/.scratch/projects/024-personal-overlay/CONCEPT.md` §3.2 (store location) and §2.5 (the dotbot rejection stands; the reasoning is corrected in §3.6).
@@ -370,6 +373,11 @@ That statement is already devman's charter and it is correct. What changes is ho
 a workflow reaches Dagu.
 
 ### 6.1 Two layers: groups, then the per-repository overlay
+
+**Implementation note (2026-09-10):** the central overlay described below is
+implemented. `_sources` now reads `overlayDir/projects/<project>/workflows/`,
+and the repository's `.devman/workflows/` path is its symlink view. The later
+direct-registry-link optimization remains deferred as §6.2a records.
 
 devman already resolves workflows in layers —
 `devman/src/devman/project.py:591-600`:

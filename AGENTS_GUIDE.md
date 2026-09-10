@@ -71,7 +71,7 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `groups/` | workflow **content**, one directory per group. `groups/README.md` is the mechanism and the index; each group's own README says what taking it costs |
 | `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `agent`, `registry`, `workflow`, and `project` — the projection, which the devenv module runs at shell entry |
 | `tests/` | the Python test layer. `tests/README.md` says what it protects and what it refuses to test |
-| `.devman/workflows/` | this repository's own workflows. `.devman/workflows/README.md` documents them |
+| `.devman/workflows/` | this repository's central per-project workflow overlay view. `.devman/workflows/README.md` documents it |
 | `.scratch/projects/006-automation-plane/` | the charter and stage logs 1–6 |
 | `.scratch/projects/007-standard-workflows/` | the standard-set proposal, plan, open questions and stage log 7 |
 | `.scratch/projects/020-scheduling-metered-work/` | why a scheduled run bypasses its queue, and why `groups/agent/` has no schedule. `RESULT.md` closes it |
@@ -89,7 +89,7 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `src/devman/registry.py` | reading `~/.local/share/devman/`. Resolves a directory to a project, refuses a checkout inside a checkout, detects a flat DAG name two projects claim |
 | `src/devman/workflow.py` | the only YAML reading there is: `params()`, `triggers_other_dags()`, `holds_project_dir()`, `handlers()`, `queues()` |
 | `src/devman/run.py` | the one place that triggers a workflow. Resolves, refuses, exports, enqueues |
-| `src/devman/show.py` | prints the **source** file, never the generated projection, so `devman show x > .devman/workflows/x.yaml` round-trips |
+| `src/devman/show.py` | prints the **source** file, never the generated projection, so `devman show x > .devman/workflows/x.yaml` round-trips into the central overlay through its project-side view |
 | `src/devman/doctor.py` | thirteen checks over the whole plane |
 | `src/devman/watch.py` | the watcher's entry point. Reads the registry, execs watchexec, dispatches one batch of events |
 | `src/devman/agent.py` | §10's fourth command, and the only one that runs **inside** a workflow. Translates one admitted run into one Agentman invocation: a strict request, an allowlisted environment, a bounded process, a verified receipt, one exit code. Never composes a capsule |
@@ -142,8 +142,9 @@ passes 30 s the answer is a `--project` scope, not a heavier queue.
   `dagu ls`, the scheduler and `dagu enqueue` all agree on.
 - **`<project>-<workflow>` is not injective.** `devman-b` + `check` and `devman`
   + `b-check` render the same name. `registry.dag_link_fault` is what catches it.
-- **The registry is derived and the repository is canonical.** Everything there
-  is reconstructable by re-entering every registered repository's shell.
+- **The registry is derived.** Group sources and central per-project overlay files
+  are canonical; everything in the registry is reconstructable by re-entering
+  every registered repository's shell.
 - **Nothing walks the disk looking for repositories.** §15.1 forbids it. Reading
   devman's own registry is not scanning.
 
