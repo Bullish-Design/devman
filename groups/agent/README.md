@@ -37,8 +37,8 @@ tasks."agent:capsule".exec = ''
 ```
 
 `devman` is on `PATH` from the NixOS module, and `agentman` must be on the
-step's PATH — the repository provides it, the same way `groups/changelog` needs
-`templateer` there. **A doctor asks its own PATH and not this step's** (023 P1),
+step's PATH — the adopting repository provides it along with any other external
+tool its task needs. **A doctor asks its own PATH and not this step's** (023 P1),
 so the adapter probes for `agentman` itself and names it when it is missing,
 rather than failing later inside a pipe.
 

@@ -9,7 +9,7 @@
 The central configuration model is working in production on server. The
 devman repository now ships the link plane, the typed devman.link declaration,
 the reconciler, the central agent surface, and the central per-project workflow
-source overlay. The repository is on main at d3f9932, after the tagged
+source overlay. The repository is on main at 0909e9c2, after the tagged
 v0.5.1 release at 8311f14. The corresponding nix-meta configuration is on
 main at 76dd689 and pins devman to refs/tags/v0.5.1 / revision
 8311f1434d6959ab0f50533cada8a451f5eab70e.
@@ -81,7 +81,7 @@ The four files were promoted as configuration, not silently discarded. This
 preserves the backburner decision while making the machine-only choice visible
 and versionable in one place.
 
-### 3.2 The link plane
+### 3.2 The link plane (core implementation, with open gaps)
 
 devman.link is declared as an attribute set of typed link declarations. Each
 declaration names the view path and may use one of three canonical owners:
@@ -105,12 +105,19 @@ The reconciler also:
 
 - records the canonical content hash after linking;
 - refuses a promote when both the view and canonical side changed;
-- writes the corresponding .git/info/exclude entry;
+- is called by the shell hook after that hook writes the corresponding
+  `.git/info/exclude` entry; direct `src/devman/link.py` calls do not write the
+  exclusion themselves;
 - never removes a real view before its content has been promoted; and
-- supports templates only for canonical content owned by the central store.
+- accepts the template field without currently enforcing that it is limited to
+  central canonical content.
 
-The same reconciliation function is called from shell entry and the watcher.
-devman link status and devman doctor expose link state and drift.
+Shell entry invokes the Python reconciler. The watcher currently dispatches
+workflow runs and does not call `link.reconcile`, so the watcher integration
+described by the charter remains open. `devman link status --all` and
+`devman doctor` expose link state and drift; per-project `devman link status`
+from devman's own repository currently fails because its identity is expressed
+through a `projectName` variable rather than a literal `devman.project` field.
 
 Implementation is in src/devman/link.py, with the option and shell integration
 in modules/devenv.nix and tests in tests/unit/test_link.py.
@@ -174,7 +181,10 @@ tagged release rather than an untagged moving revision.
 
 ### 3.6 Documentation and verification
 
-The devman repository documentation was aligned with the central-overlay model:
+The devman repository documentation was largely aligned with the
+central-overlay model, but this handoff is not a passing audit of that
+documentation. The review found command, state-layout, and link-plane
+clarifications that are recorded in this commit:
 
 - README.md explains the planes, central configuration, and normal entry;
 - USER.md documents the user-facing shell, link, workflow, and diagnosis
@@ -194,6 +204,10 @@ The first-pass evidence in
 - devman link status;
 - base:check; and
 - base:test.
+
+Those return codes are isolated first-pass artifacts. The doctor artifact has
+zero projects, so it is not evidence that the live registry is healthy. The
+current live checks are recorded by the audit that follows this handoff.
 
 ## 4. What was completed in the overall system
 
@@ -218,6 +232,10 @@ devenv.local.nix  -> ~/.config/devman/projects/devman/devenv.local.nix
 The four backburnered repositories also have their local Nix files in the
 central store and retain their opt-out. Spot checks show the shared .envrc and
 per-project .loci views in place for them.
+
+Those spot checks do not show complete view convergence: sampled existing
+repositories still have real `.agents` and `.claude/skills` directories and no
+`.devman/workflows` view, even where the central declaration exists.
 
 The system rebuild path is aligned with the tagged devman release. The machine
 profile imports devman's NixOS module and does not duplicate the plane's queue,

@@ -74,6 +74,10 @@ keeps a change from re-learning something the plane already paid for.**
 6. **The registry is derived.** Group sources and central overlay content are
    canonical. Read the registry freely; write to it through the projection, or
    through `doctor --prune`.
+
+   **Current state:** the registry remains under `~/.local/share/devman/`.
+   Link-plane Stage 3 plans to move generated registry and runtime state to
+   `~/.local/state/devman/`; that directory does not exist yet.
 7. **Python for core logic; shell stays a thin wrapper.** Shell that grows past a
    wrapper is shell nobody can test.
 8. **Secrets are declared, never held.** A workflow names a secret through Dagu's

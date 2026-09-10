@@ -38,7 +38,7 @@ src = ["src"]
 
 # `.scratch/` is design work: investigation scripts, NixOS test bodies whose
 # globals the test driver injects, and vendored upstream clones. None of it is
-# code this repository owns, so the `base:lint` task does not lint it.
+# code this repository owns, so the `base:check` task does not lint it.
 extend-exclude = [".scratch"]
 
 [tool.ruff.lint]

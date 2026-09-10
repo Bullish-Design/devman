@@ -152,6 +152,11 @@ devman run <workflow>
 devman doctor        # the plane's own health
 ```
 
+For link diagnostics, use `devman link status --all` or
+`devman link status --project <name>`. Shell entry invokes
+`devman link reconcile`; it can promote a real view into the central store, so
+inspect status before using it when both sides may contain edits.
+
 ### 2.7 What registration creates
 
 ```
@@ -170,6 +175,11 @@ rule exists to keep clean.
 repository-owned `triggers.toml` stay in the checkout. `workflows/` is normally
 the view of the central per-repository overlay. devman reserves these three
 names and never reads, writes or inspects anything else there.
+
+The generated machine registry is still under `~/.local/share/devman/`. The
+planned link-plane Stage 3 moves generated registry and runtime state to
+`~/.local/state/devman/`; that split is not implemented yet, and the state
+directory is absent on the current machine.
 
 **One restriction on where a repository may live.** Its path may not hold a
 double quote, a backslash, a tab or a newline. Spaces, `: `, `#` and every
@@ -588,6 +598,7 @@ time that repository's shell is entered.
 | `its path holds a double quote` | this checkout's path holds `"`, `\`, a tab or a newline | move or rename the directory (§2.6) |
 | `these names are the plane's, not the caller's` | you passed `DEVMAN_PROJECT_DIR=` or `DEVMAN_SELF_DIR=` | drop it, and pass `--project NAME` instead (§3) |
 | `these overrides name no declared parameter` | a misspelled parameter name | use a name from the list the refusal prints |
+| `cannot determine project identity` | link status cannot find a literal `devman.project` declaration | pass `--project NAME`, or use `devman link status --all` |
 | `so it names a project` | you gave a path to a parameter that defaults to a project name | pass a registered project's name instead (§3) |
 | `devman: group 'X' does not exist` | a group name that is not in `groups/` | fix the name; a deleted group leaves a tombstone that does **not** throw |
 | `× Invalid task name: check` | devenv requires `namespace:name` | write `<group>:<name>` |

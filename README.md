@@ -124,11 +124,23 @@ Each group states in its own `README.md` which task names it calls. See
 | `devman show <workflow>` | print the resolved file, to start an override |
 | `devman doctor` | diagnose the plane, and report shadowed files and their drift |
 
-`devman watch` is the fourth subcommand and it is not a fourth command: it is the
-watcher service's entry point, run by systemd rather than by a person.
+The remaining subcommands are plumbing used by the shell hook, the watcher, or
+workflow steps:
 
-There is no `list`, no `status`, no `register` and no `unregister`. Registration
-is automatic and has no manual path; the rest is what `doctor` reports.
+| Command | Does |
+|---|---|
+| `devman watch` | run the machine-wide watcher service |
+| `devman agent` | invoke the Agentman adapter from an admitted workflow |
+| `devman project apply` | render one repository's registry projection |
+| `devman link reconcile` | reconcile declared repository views |
+| `devman link status [--all]` | inspect declared link state |
+
+`watch`, `project`, and `link reconcile` are normally called by systemd or
+shell entry. `devman link status --all` is the broad link diagnostic.
+
+There is no top-level `list`, `status`, `register`, or `unregister` command.
+Registration is automatic and has no manual path; link status is available under
+`devman link`, and the rest is what `doctor` reports.
 
 ## The contract
 
@@ -222,13 +234,19 @@ refuses, naming the file and the field, when:
 nix/            the machine interface — NixOS module, the Dagu package, the CLI package, tests
 modules/        the repo interface — devenv.nix, the name is required
 groups/         workflow content, one directory per group — see groups/README.md
-src/devman/     the CLI — run, show, doctor, watch
+src/devman/     the CLI and projection tools — run, show, doctor, watch, agent, project, link
 .devman/        run state, triggers, and the central workflow view
 ```
 
 Machine-side state lives in `~/.local/share/devman/`: `projects/<project>/` holds
 each repository's identity and its projected workflows, and `dags/` holds Dagu's
 flat view of them.
+
+This is the current layout. Link-plane Stage 3 is planned, not shipped: it will
+separate authored configuration from generated state under
+`~/.local/state/devman`. That directory does not exist on the current machine;
+the registry and its generated projections remain under
+`~/.local/share/devman/`.
 
 **The registry is derived.** Group sources and central overlay files are
 canonical; registry projections are reconstructable by re-entering every
@@ -250,6 +268,10 @@ devman is the mechanism. The content documents itself:
 ## Status
 
 **Stages 1 to 7 are shipped.**
+
+These are the historical automation-plane stages. They do not mean link-plane
+Stage 3 (the state split) or Stage 4 (direct workflow links) is complete; both
+remain deferred as described in project 029.
 
 | Stage | What it delivered |
 |---|---|

@@ -85,12 +85,12 @@ fill. Nothing rewrites a file at projection time except the generated header.
 
 | File | Responsible for |
 |---|---|
-| `src/devman/cli.py` | the argument surface. Three commands plus `watch`. `--registry` and `--dagu-home` are global flags, not `DEVMAN_*` variables, because Dagu passes every `DEVMAN_*` through to a run |
+| `src/devman/cli.py` | the argument surface: `run`, `show`, `doctor`, `watch`, `agent`, `project apply`, and `link reconcile/status`. `--registry` and `--dagu-home` are global flags, not `DEVMAN_*` variables, because Dagu passes every `DEVMAN_*` through to a run |
 | `src/devman/registry.py` | reading `~/.local/share/devman/`. Resolves a directory to a project, refuses a checkout inside a checkout, detects a flat DAG name two projects claim |
 | `src/devman/workflow.py` | the only YAML reading there is: `params()`, `triggers_other_dags()`, `holds_project_dir()`, `handlers()`, `queues()` |
 | `src/devman/run.py` | the one place that triggers a workflow. Resolves, refuses, exports, enqueues |
 | `src/devman/show.py` | prints the **source** file, never the generated projection, so `devman show x > .devman/workflows/x.yaml` round-trips into the central overlay through its project-side view |
-| `src/devman/doctor.py` | thirteen checks over the whole plane |
+| `src/devman/doctor.py` | whole-plane diagnostic checks |
 | `src/devman/watch.py` | the watcher's entry point. Reads the registry, execs watchexec, dispatches one batch of events |
 | `src/devman/agent.py` | §10's fourth command, and the only one that runs **inside** a workflow. Translates one admitted run into one Agentman invocation: a strict request, an allowlisted environment, a bounded process, a verified receipt, one exit code. Never composes a capsule |
 
@@ -144,7 +144,10 @@ passes 30 s the answer is a `--project` scope, not a heavier queue.
   + `b-check` render the same name. `registry.dag_link_fault` is what catches it.
 - **The registry is derived.** Group sources and central per-project overlay files
   are canonical; everything in the registry is reconstructable by re-entering
-  every registered repository's shell.
+  every registered repository's shell. The current registry remains under
+  `~/.local/share/devman/`. Link-plane Stage 3 plans to put generated registry
+  and runtime state under `~/.local/state/devman/`; that directory is not current
+  and does not exist on this machine.
 - **Nothing walks the disk looking for repositories.** §15.1 forbids it. Reading
   devman's own registry is not scanning.
 

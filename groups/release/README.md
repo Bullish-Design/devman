@@ -60,7 +60,7 @@ $ devman run release
 $ cat .devman/.runs/reports/release-<run id>.md
 ## gate
 - clean tree: yes
-- last test: **NONE RECORDED** for `myproject-test` — refusing. Run `devman run test` first
+- last test: **NONE RECORDED** for `myproject.test` — refusing. Run `devman run test` first
 ```
 
 The run reports `Failed` and `metadata.jsonl` records `"status":"failed"`. That
@@ -71,7 +71,7 @@ produced a successful run that did the wrong thing.
 
 ### The gate names the DAG exactly, and a suffix match is not enough
 
-The second condition matches the full string `"dag":"<project>-test"`, with the
+The second condition matches the full string `"dag":"<project>.test"`, with the
 project taken from the run's own `${context.dag.name}`. Matching the suffix
 `-test` would be wrong, and running the earlier version is what proved so: it
 matched `devman-stack-validate`, the cross-repo workflow, and reported a
@@ -123,7 +123,7 @@ rule the data cannot support is §15.7 with extra steps.
 ```
 .devman/.runs/reports/release-<run id>.md    the gate's findings and the artifact listing
 .devman/.runs/artifacts/                     whatever `release:build` wrote
-.devman/.runs/logs/<project>-release/…       each step's own output
+.devman/.runs/logs/<project>_release/…       each step's own output
 .devman/.runs/metadata.jsonl                 one line: dag, run id, status, log path
 ```
 
