@@ -10,7 +10,7 @@
 
 [project]
 name = "devman"
-version = "0.4.0"
+version = "0.5.0"
 description = "The devman automation plane's CLI — run, show, doctor, watch"
 requires-python = ">=3.13"
 dependencies = ["pyyaml"]
