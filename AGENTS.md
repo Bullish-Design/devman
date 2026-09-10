@@ -39,7 +39,7 @@ entry.
 
 ## How this repository works
 
-**Nine properties. Each has a measurement behind it, and knowing them is what
+**Ten properties. Each has a measurement behind it, and knowing them is what
 keeps a change from re-learning something the plane already paid for.**
 
 1. **Read the stage log before you change a line that looks redundant.** Every
@@ -49,8 +49,10 @@ keeps a change from re-learning something the plane already paid for.**
    answer, the versions, the exact command, the evidence, and what the charter
    had to change. Keep a comment that cites one.
 2. **The charter governs.** `.scratch/projects/006-automation-plane/CONCEPT.md`
-   is the design, amended by `007-standard-workflows/PROPOSAL.md`. A change that
-   contradicts either changes that document in the same commit, with the
+   is the design, amended by `007-standard-workflows/PROPOSAL.md`. **A second
+   charter governs how files reach a repository:**
+   `.scratch/projects/025-the-link-plane/CONCEPT.md`. A change that contradicts
+   any of the three changes that document in the same commit, with the
    measurement that forced it.
 3. **Four names are shared by every repository at once**: the six queue names,
    `DEVMAN_PROJECT_DIR`, `DEVMAN_SELF_DIR`, and the `.devman/.runs/` path shape.
@@ -80,6 +82,17 @@ keeps a change from re-learning something the plane already paid for.**
    A step must not print a fragment of a credential.
 9. **Write in Simplified Technical English.** Short sentences, active voice,
    one word for one meaning, no filler. See `.agents/skills/my-ai/SKILL.md`.
+10. **The boundary test decides where a file lives.** Ask: *would this still be
+    true for someone else who cloned the repository?* **Yes** — it is the project;
+    it stays in the repository, tracked. **No, it is true for this user or this
+    machine** — it goes central, under `devman.overlayDir`, and reaches the
+    repository as a symlink with its own `.git/info/exclude` line. So `devenv.nix`
+    stays and `devenv.local.nix` goes; `AGENTS.md` stays and `.agents/skills/`
+    goes; a `base:check` task stays and the workflow that runs it at 3am goes.
+    **Never decide this per file type** — every placement is one application of the
+    one rule. The charter is `.scratch/projects/025-the-link-plane/CONCEPT.md` §P0,
+    and it is written down because the question was re-litigated five times before
+    anyone stated it.
 
 ## Verify before you save
 
