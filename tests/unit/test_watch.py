@@ -579,6 +579,64 @@ def test_dispatch_starts_no_devman_process(plane, tmp_path, monkeypatch):
     assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 0
 
 
+def test_dispatch_reconciles_links_before_triggering_a_workflow(
+    plane, tmp_path, monkeypatch
+):
+    overlay = tmp_path / "overlay"
+    canonical = overlay / "common/envrc"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("use devenv\n")
+    proj = plane.add(
+        "p",
+        workflows={"format": ORDINARY},
+        triggers=PY_TRIGGERS,
+        overlay=str(overlay),
+        links={".envrc": {"canonical": "central", "path": "common/envrc"}},
+    )
+    monkeypatch.setattr(watch.run, "trigger", lambda *a, **k: 0)
+    monkeypatch.setattr("sys.stdin", io.StringIO(event(str(proj.path / "a.py"))))
+
+    assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 0
+    assert (proj.path / ".envrc").is_symlink()
+
+
+def test_a_link_refusal_is_reported_and_does_not_hide_other_projects(
+    plane, tmp_path, monkeypatch, capsys
+):
+    broken = plane.add(
+        "a",
+        workflows={"format": ORDINARY},
+        triggers=PY_TRIGGERS,
+        links={".envrc": {"canonical": "central", "path": "../escape"}},
+    )
+    healthy = plane.add(
+        "b", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS
+    )
+    triggered = []
+    monkeypatch.setattr(
+        watch.run,
+        "trigger",
+        lambda reg, project, workflow, overrides, dagu_home: triggered.append(
+            (project.name, workflow)
+        )
+        or 0,
+    )
+    monkeypatch.setattr(
+        "sys.stdin",
+        io.StringIO(
+            event(str(broken.path / "a.py"), str(healthy.path / "b.py"))
+        ),
+    )
+
+    assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 1
+    assert triggered == [("b", "format")]
+    assert "refusing to reconcile links for 'a'" in capsys.readouterr().err
+    assert {(f["project"], f["outcome"]) for f in fired(plane)} == {
+        ("a", "refused (1)"),
+        ("b", "enqueued"),
+    }
+
+
 def test_a_refusal_is_recorded_and_the_rest_of_the_batch_still_fires(
     plane, tmp_path, monkeypatch, capsys
 ):

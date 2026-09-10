@@ -472,12 +472,6 @@ let
   };
   effectiveLinks = bootstrapLink // cfg.link;
 
-  # Central and external declarations put their view in this repository.
-  # Repository-canonical declarations expose their view inside the overlay.
-  linkViews = lib.attrNames (lib.filterAttrs (
-    _name: value: value.canonical == "central" || value.canonical == "external"
-  ) effectiveLinks);
-
 in
 {
   options.devman = {
@@ -842,51 +836,6 @@ in
         echo "devman:   set a different devman.project in one of them" >&2
 
       else
-        # §9.2: the ignore rule goes in `.git/info/exclude`, never `.gitignore`.
-        # `.gitignore` may be a read-only store symlink, in which case the
-        # append fails on every entry forever; it is tracked, so writing to it
-        # dirties the tree the rule exists to keep clean; and `devenv init`
-        # writes to it too (C4).
-        #
-        # `git rev-parse --git-path info/exclude` is the documented way to find
-        # it, and it forks. The two shapes it resolves are cheap to read
-        # directly: a `.git` directory holds `info/exclude`, and a `.git` FILE
-        # is a linked worktree, whose `commondir` points back at the main
-        # repository — which is why the literal path fails there. A repo with no
-        # `.git` gets no rule, and that is correct: there is nothing to ignore.
-        devman_ex=""
-        if [ -d "$devman_root/.git" ]; then
-          devman_ex="$devman_root/.git/info/exclude"
-        elif [ -f "$devman_root/.git" ]; then
-          devman_gd=$(<"$devman_root/.git")
-          devman_gd="''${devman_gd#gitdir: }"
-          devman_gd="''${devman_gd%%$'\n'*}"
-          case "$devman_gd" in /*) ;; *) devman_gd="$devman_root/$devman_gd" ;; esac
-          if [ -f "$devman_gd/commondir" ]; then
-            devman_cd=$(<"$devman_gd/commondir")
-            devman_cd="''${devman_cd%%$'\n'*}"
-            case "$devman_cd" in
-              /*) devman_ex="$devman_cd/info/exclude" ;;
-              *) devman_ex="$devman_gd/$devman_cd/info/exclude" ;;
-            esac
-          else
-            devman_ex="$devman_gd/info/exclude"
-          fi
-        fi
-
-        if [ -n "$devman_ex" ] && [ -d "''${devman_ex%/*}" ]; then
-          devman_cur=""
-          [ -f "$devman_ex" ] && devman_cur=$(<"$devman_ex")
-          if [[ $'\n'"$devman_cur"$'\n' != *$'\n.devman/.runs/\n'* ]]; then
-            printf '%s\n' ".devman/.runs/" >> "$devman_ex"
-          fi
-          ${lib.concatMapStrings (view: ''
-            if [[ $'\n'"$devman_cur"$'\n' != *$'\n${view}\n'* ]]; then
-              printf '%s\n' ${lib.escapeShellArg view} >> "$devman_ex"
-            fi
-          '') linkViews}
-        fi
-
         # The guard. `[ -d ]` on the Dagu view as well as the entry, so that
         # deleting the registry and re-entering restores it exactly
         # (criterion 17).
@@ -899,9 +848,10 @@ in
         fi
       fi
 
-      # Link reconciliation is separate from registry projection. The central
-      # project directory is the opt-in boundary and the guard keeps this hook
-      # from forking for repositories that have no central declarations yet.
+      # Link reconciliation is separate from registry projection. The Python
+      # reconciler owns both the view and its .git/info/exclude entry. The
+      # implicit bootstrap declaration remains active so it can create the
+      # canonical devenv.local.nix before the next shell evaluates it.
       if [ -n "$devman_overlay" ]; then
         ${linkScript} "$devman_root" "$devman_overlay" "$devman_reg"
       fi
@@ -912,8 +862,7 @@ in
             devman_relink devman_stale devman_proj devman_body devman_have \
             devman_recorded devman_plan devman_locals devman_badroot \
             devman_trig devman_trig_kept devman_trig_now devman_trig_was \
-            devman_wr devman_wr_kept devman_wr_now devman_wr_was \
-            devman_ex devman_gd devman_cd devman_cur
+            devman_wr devman_wr_kept devman_wr_now devman_wr_was
     '';
   };
 }

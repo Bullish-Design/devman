@@ -55,7 +55,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
-from . import run
+from . import link, run
 from .registry import Project, Registry, RegistryError, deepest, report
 
 # The watcher's own state, machine-side beside the registry it reads. Derived
@@ -575,6 +575,11 @@ def dispatch(args, reg: Registry) -> int:
         `RegistryError` is caught PER ENTRY here, printed with the same
         `registry.report` the CLI uses, and recorded as `refused (1)` — the
         exit code `cli.main` gives a refusal, unchanged.
+      * **Link reconciliation uses the same function as shell entry.** Before
+        a matched workflow runs, this dispatcher reconciles that registered
+        project's declared links. A link refusal is caught PER ENTRY, printed,
+        and recorded as `refused (1)`, so the batch cannot report success while
+        hiding a broken project view.
       * **A crash was isolated.** It no longer is: an unexpected exception now
         ends the batch instead of one entry of it. That is deliberate rather
         than overlooked. Catching every exception here would turn a defect in
@@ -587,15 +592,35 @@ def dispatch(args, reg: Registry) -> int:
     rc = 0
     for entry, path in match(reg, paths):
         try:
+            project = reg.project(entry.project)
+            # Link reconciliation is the same state machine used by shell
+            # entry. The watcher owns the event path, but it must not create a
+            # second interpretation of canonical, view, or promotion state.
+            link.reconcile(
+                project.links or {},
+                overlay=Path(
+                    os.path.expandvars(os.path.expanduser(project.overlay))
+                ),
+                root=project.path,
+                project=project.name,
+            )
             code = run.trigger(
                 reg,
-                run.target(reg, entry.project),
+                run.target(reg, project.name),
                 entry.workflow,
                 {},
                 args.dagu_home,
             )
         except RegistryError as exc:
             report(exc)
+            code = 1
+        except link.LinkError as exc:
+            print(
+                f"devman: refusing to reconcile links for '{entry.project}'",
+                file=sys.stderr,
+            )
+            for line in str(exc).splitlines():
+                print(f"devman: {line}", file=sys.stderr)
             code = 1
         state.record(
             entry.project,

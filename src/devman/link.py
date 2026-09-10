@@ -23,6 +23,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .registry import identity_fault
+
 STATE_FILE = ".devman-link-state.json"
 STATES = ("ok", "repoint", "promote", "link", "create")
 
@@ -53,6 +55,11 @@ class Declaration:
             raise LinkError(f"link {view!r} has a non-string path")
         if template is not None and not isinstance(template, str):
             raise LinkError(f"link {view!r} has a non-string template")
+        if template is not None and canonical != "central":
+            raise LinkError(
+                f"link {view!r} uses template={template!r}, but templates are"
+                ' allowed only for canonical="central" links'
+            )
         _relative(view, f"view {view!r}")
         if canonical == "external":
             path = os.path.expanduser(path)
@@ -84,6 +91,8 @@ class LinkResult:
 
 def _relative(value: str, label: str) -> None:
     path = Path(value)
+    if value in {"", "."}:
+        raise LinkError(f"{label} must name a path")
     if path.is_absolute() or ".." in path.parts:
         raise LinkError(f"{label} must be relative and stay inside its root")
 
@@ -97,6 +106,20 @@ def _expanded_path(root: Path, value: str, project: str, label: str) -> Path:
         path.relative_to(root)
     except ValueError as exc:
         raise LinkError(f"{label} escapes {root}") from exc
+    if path == root:
+        raise LinkError(f"{label} must name a path below {root}")
+    return path
+
+
+def _view_path(root: Path, view: str) -> Path:
+    """Resolve a view while refusing a symlinked parent outside the repo."""
+    root = root.resolve()
+    path = root / view
+    parent = path.parent.resolve()
+    try:
+        parent.relative_to(root)
+    except ValueError as exc:
+        raise LinkError(f"view {view!r} escapes project repository {root}") from exc
     return path
 
 
@@ -104,7 +127,9 @@ def resolve(
     declaration: Declaration, *, overlay: Path, root: Path, project: str
 ) -> ResolvedLink:
     """Resolve both sides without inferring identity from a directory name."""
-    view = root.resolve() / declaration.view
+    root = root.resolve()
+    overlay = overlay.resolve()
+    view = _view_path(root, declaration.view)
     default = f"projects/{project}/repo/{declaration.view}"
     if declaration.canonical == "external":
         rendered = declaration.path.replace("${project}", project)
@@ -123,7 +148,7 @@ def resolve(
                     f" {name}: {external}"
                 )
         return ResolvedLink(
-            declaration, project, overlay.resolve(), root.resolve(), view, external
+            declaration, project, overlay, root, view, external
         )
     central = _expanded_path(
         overlay,
@@ -133,13 +158,13 @@ def resolve(
     )
     if declaration.canonical == "central":
         return ResolvedLink(
-            declaration, project, overlay.resolve(), root.resolve(), view, central
+            declaration, project, overlay, root, view, central
         )
     return ResolvedLink(
         declaration,
         project,
-        overlay.resolve(),
-        root.resolve(),
+        overlay,
+        root,
         central,
         view,
     )
@@ -180,6 +205,56 @@ def _write_state(overlay: Path, state: dict[str, dict[str, str]]) -> None:
     os.replace(temporary, overlay / STATE_FILE)
 
 
+def _git_exclude_path(root: Path) -> Path | None:
+    """Return the exclude file for a normal checkout or linked worktree."""
+    marker = root / ".git"
+    if marker.is_dir():
+        return marker / "info" / "exclude"
+    if not marker.is_file():
+        return None
+
+    lines = marker.read_text().splitlines()
+    if not lines or not lines[0].startswith("gitdir:"):
+        raise LinkError(f"cannot read linked-worktree metadata from {marker}")
+    git_dir = Path(lines[0].partition(":")[2].strip())
+    if not git_dir.is_absolute():
+        git_dir = root / git_dir
+    git_dir = git_dir.resolve()
+    commondir = git_dir / "commondir"
+    if commondir.is_file():
+        common = Path(commondir.read_text().strip())
+        if not common.is_absolute():
+            common = git_dir / common
+        git_dir = common.resolve()
+    return git_dir / "info" / "exclude"
+
+
+def _ensure_exclusions(root: Path, links: list[ResolvedLink]) -> None:
+    """Keep link views and run state out of the repository's git view."""
+    exclude = _git_exclude_path(root)
+    if exclude is None:
+        return
+    try:
+        contents = exclude.read_text()
+    except FileNotFoundError:
+        contents = ""
+    current = contents.splitlines()
+    entries = [".devman/.runs/"]
+    entries.extend(
+        link.declaration.view
+        for link in links
+        if link.declaration.canonical in {"central", "external"}
+    )
+    additions = [entry for entry in entries if entry not in current]
+    if additions:
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        with exclude.open("a") as stream:
+            if contents and not contents.endswith("\n"):
+                stream.write("\n")
+            for entry in additions:
+                stream.write(f"{entry}\n")
+
+
 def _record(link: ResolvedLink, state: dict[str, dict[str, str]]) -> None:
     state[link.key] = {
         "canonical": str(link.canonical_path),
@@ -195,8 +270,10 @@ def inspect(link: ResolvedLink) -> LinkResult:
     view = link.view_path
     if view.is_symlink():
         target = view.resolve(strict=False)
-        if target == link.canonical_path:
+        if target == link.canonical_path and link.canonical_path.exists():
             return LinkResult(link, "ok")
+        if target == link.canonical_path:
+            return LinkResult(link, "create", "canonical target is absent")
         return LinkResult(link, "repoint", f"points to {target}")
     if view.exists():
         return LinkResult(link, "promote")
@@ -293,11 +370,13 @@ def reconcile(
     """Apply declarations and return one result per view."""
     state = _read_state(overlay)
     results: list[LinkResult] = []
+    resolved_links: list[ResolvedLink] = []
     changed = False
     for view, raw in declarations.items():
         link = resolve(
             Declaration.read(view, raw), overlay=overlay, root=root, project=project
         )
+        resolved_links.append(link)
         result = inspect(link)
         if result.state == "ok":
             if link.canonical_path.exists() and link.key not in state:
@@ -321,10 +400,13 @@ def reconcile(
             _create_canonical(link)
             _link(link)
         else:
+            if not link.canonical_path.exists():
+                _create_canonical(link)
             _link(link)
         _record(link, state)
         changed = True
         results.append(result)
+    _ensure_exclusions(root.resolve(), resolved_links)
     if changed:
         _write_state(overlay, state)
     return results
@@ -350,9 +432,9 @@ def main(args, reg) -> int:
 def _main_one(args, reg) -> int:
     project = args.project
     root = Path(args.root).resolve()
-    if project is None:
-        project = _project_from_nix(root)
     try:
+        if project is None:
+            project = _project_from_nix(root)
         registered = reg.project(project)
         if args.root == ".":
             root = registered.path.resolve()
@@ -405,19 +487,77 @@ def cli(argv: list[str] | None = None) -> int:
 
 
 def _project_from_nix(root: Path) -> str:
+    """Read an explicit literal identity or a literal-bound Nix variable.
+
+    This intentionally supports only the small identity grammar the module
+    exposes. It never derives an identity from the repository directory name.
+    """
     import re
 
-    matches: list[str] = []
+    def strip_comments(text: str) -> str:
+        return re.sub(r"(?m)#.*$", "", text)
+
+    def attrset_body(text: str, start: int) -> str:
+        depth = 0
+        quoted = False
+        escaped = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    quoted = False
+                continue
+            if char == '"':
+                quoted = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start + 1 : index]
+        return ""
+
+    candidates: list[str] = []
     for name in ("devenv.nix", "devenv.local.nix"):
         path = root / name
         if not path.is_file():
             continue
-        matches.extend(
-            re.findall(r"\bdevman\.project\s*=\s*\"([^\"]+)\"", path.read_text())
+        text = strip_comments(path.read_text())
+        bindings = dict(
+            re.findall(
+                r"(?m)^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*\"([^\"]*)\"\s*;",
+                text,
+            )
         )
-    if len(set(matches)) != 1:
+        candidates.extend(
+            re.findall(r"\bdevman\s*\.\s*project\s*=\s*\"([^\"]+)\"", text)
+        )
+        for match in re.finditer(r"\bdevman\s*=\s*\{", text):
+            body = attrset_body(text, match.end() - 1)
+            for value, variable in re.findall(
+                r"(?m)^\s*project\s*=\s*(?:\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_-]*))\s*;",
+                body,
+            ):
+                candidates.append(value or bindings.get(variable, ""))
+
+    matches = sorted({candidate for candidate in candidates if candidate})
+    if not matches:
         raise LinkError(
-            "cannot determine project identity; pass --project or state one"
-            " devman.project in devenv.nix"
+            "cannot determine project identity from explicit devman.project;"
+            " pass --project, or state one literal identity or a variable assigned"
+            " a literal string in devenv.nix"
         )
+    if len(matches) != 1:
+        raise LinkError(
+            "ambiguous project identity: found "
+            + ", ".join(repr(match) for match in matches)
+            + "; pass --project or leave exactly one explicit devman.project"
+        )
+    fault = identity_fault("project", matches[0])
+    if fault:
+        raise LinkError(f"invalid explicit project identity {matches[0]!r}: {fault}")
     return matches[0]
