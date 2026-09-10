@@ -209,3 +209,24 @@ def test_external_path_cannot_resolve_inside_project_or_overlay(tmp_path: Path):
                 root=root,
                 project="demo",
             )
+
+
+def test_new_project_devenv_local_file_bootstraps_default_links(tmp_path: Path):
+    result = reconcile(
+        {
+            "devenv.local.nix": {
+                "canonical": "central",
+                "path": "projects/demo/devenv.local.nix",
+            }
+        },
+        overlay=tmp_path / "overlay",
+        root=tmp_path / "repo",
+        project="demo",
+    )
+
+    assert result[0].state == "create"
+    local = tmp_path / "overlay/projects/demo/devenv.local.nix"
+    assert '".envrc"' in local.read_text()
+    assert '".loci"' in local.read_text()
+    assert '".agents"' in local.read_text()
+    assert '".claude/skills"' in local.read_text()

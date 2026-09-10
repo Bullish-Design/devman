@@ -902,7 +902,7 @@ in
       # Link reconciliation is separate from registry projection. The central
       # project directory is the opt-in boundary and the guard keeps this hook
       # from forking for repositories that have no central declarations yet.
-      if [ -d "$devman_overlay/projects/${projectName}" ]; then
+      if [ -n "$devman_overlay" ]; then
         ${linkScript} "$devman_root" "$devman_overlay" "$devman_reg"
       fi
 

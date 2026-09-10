@@ -227,6 +227,19 @@ def _create_canonical(link: ResolvedLink) -> None:
         path.mkdir(parents=True, exist_ok=True)
         return
     path.parent.mkdir(parents=True, exist_ok=True)
+    if link.declaration.view == "devenv.local.nix":
+        path.write_text(
+            "{ config, ... }:\n\n"
+            "{\n"
+            "  devman.link = {\n"
+            '    ".envrc" = { canonical = "central"; path = "common/envrc"; };\n'
+            '    ".loci" = { canonical = "external"; path = "~/Notes/1_Projects/${config.devman.project}"; };\n'
+            '    ".agents" = { canonical = "central"; path = "projects/${config.devman.project}/agents"; };\n'
+            '    ".claude/skills" = { canonical = "central"; path = "projects/${config.devman.project}/agents/skills"; };\n'
+            "  };\n"
+            "}\n"
+        )
+        return
     if link.declaration.template:
         copyroom = shutil.which("copyroom")
         if copyroom is None:
