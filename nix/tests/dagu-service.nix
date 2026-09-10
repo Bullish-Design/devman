@@ -297,11 +297,13 @@
     # Stage 3 made the renderer a program. These subtests run it.
 
     FIX = HOME + "/work/fixture"
+    LOCAL = HOME + "/.config/devman/projects/fixture/workflows"
 
     with subtest("the real renderer projects the fixture repository"):
         machine.succeed(f"mkdir -p {FIX}/.devman/workflows")
-        machine.succeed(f"cp {FIXTURE}/.devman/workflows/comment-only.yaml {FIX}/.devman/workflows/")
-        machine.succeed(f"chown -R tester:users {HOME}/work/fixture")
+        machine.succeed(f"mkdir -p {LOCAL}")
+        machine.succeed(f"cp {FIXTURE}/.devman/workflows/comment-only.yaml {LOCAL}/")
+        machine.succeed(f"chown -R tester:users {HOME}/work/fixture {HOME}/.config/devman")
 
         out = tester(
             f"devman --registry {REG} project apply --plan {PLAN}"
@@ -359,8 +361,8 @@
         # directory variable silently and ran in a directory named literally
         # after it. Refusing is the fix; merging would mean editing
         # the author's document, which breaks §7.2 and the guard's tail test.
-        machine.succeed(f"cp {FIXTURE}/.devman/workflows/env-only.yaml {FIX}/.devman/workflows/")
-        machine.succeed(f"chown -R tester:users {HOME}/work/fixture")
+        machine.succeed(f"cp {FIXTURE}/.devman/workflows/env-only.yaml {LOCAL}/")
+        machine.succeed(f"chown -R tester:users {HOME}/work/fixture {HOME}/.config/devman")
         refusal = machine.fail(
             f"su tester -c '{ENV}devman --registry {REG} project apply --plan {PLAN}"
             f" --root {FIX} --local comment-only --local env-only' 2>&1"
@@ -413,8 +415,8 @@
         # queued item with nothing running as a wedged queue — correctly.
         # Removing the file does not empty the queue either: an item already
         # dispatched outlives its DAG. Ordering is the only clean answer.
-        machine.succeed(f"cp {FIXTURE}/.devman/workflows/tick.yaml {FIX}/.devman/workflows/")
-        machine.succeed(f"chown -R tester:users {HOME}/work/fixture")
+        machine.succeed(f"cp {FIXTURE}/.devman/workflows/tick.yaml {LOCAL}/")
+        machine.succeed(f"chown -R tester:users {HOME}/work/fixture {HOME}/.config/devman")
         tester(
             f"devman --registry {REG} project apply --plan {PLAN}"
             f" --root {FIX} --local comment-only --local tick"

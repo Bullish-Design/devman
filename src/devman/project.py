@@ -348,7 +348,12 @@ def apply(
     for name in ("logs", "artifacts", "reports"):
         (root / ".devman" / ".runs" / name).mkdir(parents=True, exist_ok=True)
 
-    sources = _sources(plan, root, local)
+    sources = _sources(
+        plan,
+        root,
+        local,
+        Path(os.path.expandvars(os.path.expanduser(plan.overlay))),
+    )
     for name in sources:
         fault = identity_fault("workflow", name)
         if fault:
@@ -588,15 +593,18 @@ def _recorded_plan(entry: Path) -> str | None:
         return None
 
 
-def _sources(plan: Plan, root: Path, local: list[str]) -> dict[str, Path]:
+def _sources(
+    plan: Plan, root: Path, local: list[str], overlay: Path
+) -> dict[str, Path]:
     """`<workflow> -> the file that won §7.3`, group files then local overrides.
 
-    The repository's own `.devman/workflows/` is the last layer and shadows
-    every group, whole-file.
+    The central project's workflows are the last layer and shadow every group,
+    whole-file.  `root` remains an explicit parameter for the transition and
+    for callers that still expose a repository-local view.
     """
     out = {n: Path(w["source"]) for n, w in plan.workflows.items()}
     for name in local:
-        out[name] = root / ".devman" / "workflows" / f"{name}.yaml"
+        out[name] = overlay / "projects" / plan.project / "workflows" / f"{name}.yaml"
     return out
 
 

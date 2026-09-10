@@ -309,13 +309,32 @@ def plan_for(tmp_path, workflows=None):
         workflows=workflows or {},
         triggers=None,
         renderer="/nix/store/renderer",
+        overlay=str(tmp_path / "overlay"),
     )
+
+
+def local_workflow(tmp_path, name: str, text: str):
+    source = tmp_path / "overlay" / "projects" / "p" / "workflows" / f"{name}.yaml"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(text)
+    return source
+
+
+def test_local_workflow_sources_are_read_from_the_overlay(tmp_path):
+    plan = plan_for(tmp_path)
+    overlay = tmp_path / "overlay"
+    source = overlay / "projects" / "p" / "workflows" / "check.yaml"
+    source.parent.mkdir(parents=True)
+    source.write_text(ORDINARY)
+
+    result = project._sources(plan, tmp_path / "repo", ["check"], overlay)
+
+    assert result["check"] == source
 
 
 def test_apply_publishes_a_file_a_link_and_an_entry(tmp_path):
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
 
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
@@ -344,8 +363,7 @@ def test_an_invalid_project_identity_is_refused_before_any_path_is_built(tmp_pat
 
 def test_a_workflow_name_holding_a_dot_is_refused(tmp_path):
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "release.tagged.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "release.tagged", ORDINARY)
     registry = tmp_path / "registry"
 
     with pytest.raises(ProjectionError) as exc:
@@ -361,8 +379,7 @@ def test_a_file_dagu_refuses_is_not_published(tmp_path):
     here moves it to the author, at shell entry, and makes every published link
     known valid."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
 
     with pytest.raises(ProjectionError) as exc:
@@ -377,8 +394,7 @@ def test_a_file_dagu_refuses_is_not_published(tmp_path):
 def test_a_local_override_shadows_the_group_file(tmp_path):
     """§7.3's last layer, whole-file. The repository's own copy wins."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text("# mine\n" + ORDINARY)
+    local_workflow(tmp_path, "check", "# mine\n" + ORDINARY)
     group = tmp_path / "group-check.yaml"
     group.write_text("# the group's\n" + ORDINARY)
     registry = tmp_path / "registry"
@@ -399,8 +415,7 @@ def test_the_entry_is_written_last(tmp_path):
     next shell entry retries it (§9.3). The refusal above is that state: files
     published, no entry."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
 
     with pytest.raises(ProjectionError):
@@ -414,8 +429,7 @@ def test_a_stale_link_and_file_are_swept(tmp_path):
     patched — including the pre-codec `<project>-<workflow>` shape, which is
     what makes the codec migrate itself (S-12)."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
     workflows = registry / "projects" / "p" / "workflows"
     dags = registry / "dags"
@@ -445,8 +459,7 @@ def test_an_unchanged_file_is_not_revalidated(tmp_path):
     """Second projection, same bytes, same plan: no fork. `false` as the
     validator makes any validation a failure, so passing proves the skip."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
 
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
@@ -461,9 +474,7 @@ def test_an_unchanged_file_is_not_revalidated(tmp_path):
 def test_a_changed_file_is_revalidated(tmp_path):
     """The whole point of the skip is that it does not cover an edit."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    source = root / ".devman" / "workflows" / "check.yaml"
-    source.write_text(ORDINARY)
+    source = local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
 
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
@@ -477,8 +488,7 @@ def test_a_new_plan_revalidates_everything(tmp_path):
     """A new plan path means a new renderer, and the renderer wraps the Dagu
     that validates. Unchanged bytes prove nothing against a new validator."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
 
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
@@ -499,11 +509,8 @@ def test_a_refusal_leaves_the_previous_projection_intact(tmp_path):
     until every file has rendered and every changed file has validated.
     """
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    good = root / ".devman" / "workflows" / "good.yaml"
-    bad = root / ".devman" / "workflows" / "bad.yaml"
-    good.write_text(ORDINARY)
-    bad.write_text(ORDINARY)
+    local_workflow(tmp_path, "good", ORDINARY)
+    bad = local_workflow(tmp_path, "bad", ORDINARY)
     registry = tmp_path / "registry"
     project.apply(plan_for(tmp_path), root, registry, ["good", "bad"], dagu="true")
     before = (registry / "projects" / "p" / "workflows" / "good.yaml").read_text()
@@ -589,8 +596,7 @@ def test_the_local_file_is_kept_beside_the_entry_for_the_guard(tmp_path):
     """The shell-entry guard compares the repository's file against this copy,
     forklessly — the same shape as the override tail-test (S-5a)."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     write_local_triggers(root, 'ignore = [".scratch/**"]\n')
     registry = tmp_path / "registry"
 
@@ -602,8 +608,7 @@ def test_the_local_file_is_kept_beside_the_entry_for_the_guard(tmp_path):
 
 def test_removing_the_local_file_removes_the_kept_copy(tmp_path):
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     write_local_triggers(root, 'ignore = [".scratch/**"]\n')
     registry = tmp_path / "registry"
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
@@ -700,8 +705,7 @@ def test_the_local_writes_file_is_kept_beside_the_entry_for_the_guard(tmp_path):
     individually right, which is why it took an end-to-end run to see.
     """
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     write_local_writes(root, '[check]\ntier = "lane"\npaths = ["src/**"]\n')
     registry = tmp_path / "registry"
 
@@ -713,8 +717,7 @@ def test_the_local_writes_file_is_kept_beside_the_entry_for_the_guard(tmp_path):
 
 def test_removing_the_local_writes_file_removes_the_kept_copy(tmp_path):
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     write_local_writes(root, '[check]\ntier = "lane"\npaths = ["src/**"]\n')
     registry = tmp_path / "registry"
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
@@ -729,8 +732,7 @@ def test_the_local_writes_layer_reaches_the_entry(tmp_path):
     """The end-to-end property the guard fix restores: what the repository
     declares is what the registry records."""
     root = tmp_path / "repo"
-    (root / ".devman" / "workflows").mkdir(parents=True)
-    (root / ".devman" / "workflows" / "check.yaml").write_text(ORDINARY)
+    local_workflow(tmp_path, "check", ORDINARY)
     write_local_writes(root, '[check]\ntier = "free"\npaths = ["docs/**"]\n')
     registry = tmp_path / "registry"
 

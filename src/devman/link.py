@@ -3,7 +3,8 @@
 The declaration names the view path.  A central link stores its canonical
 content under the overlay and exposes it in the project.  A repository link
 keeps its canonical content in the project and exposes it under
-``projects/<project>/repo`` in the overlay.
+``projects/<project>/repo`` in the overlay.  An external link stores its
+canonical content at an absolute path outside both roots.
 
 The reconciler never removes a real view.  It promotes that content first and
 records the canonical content hash after every successful link.  A later
@@ -44,16 +45,18 @@ class Declaration:
         canonical = raw.get("canonical", "central")
         path = raw.get("path", "")
         template = raw.get("template")
-        if canonical not in {"central", "repo"}:
+        if canonical not in {"central", "repo", "external"}:
             raise LinkError(
-                f"link {view!r} states canonical={canonical!r}; use central or repo"
+                f"link {view!r} states canonical={canonical!r}; use central, repo, or external"
             )
         if not isinstance(path, str) or not isinstance(view, str):
             raise LinkError(f"link {view!r} has a non-string path")
         if template is not None and not isinstance(template, str):
             raise LinkError(f"link {view!r} has a non-string template")
         _relative(view, f"view {view!r}")
-        if path:
+        if canonical == "external":
+            path = os.path.expanduser(path)
+        elif path:
             _relative(path, f"path for {view!r}")
         return cls(view, canonical, path, template)
 
@@ -103,6 +106,25 @@ def resolve(
     """Resolve both sides without inferring identity from a directory name."""
     view = root.resolve() / declaration.view
     default = f"projects/{project}/repo/{declaration.view}"
+    if declaration.canonical == "external":
+        rendered = declaration.path.replace("${project}", project)
+        rendered = os.path.expandvars(os.path.expanduser(rendered))
+        candidate = Path(rendered)
+        if not candidate.is_absolute():
+            raise LinkError(
+                f"path for {declaration.view!r} must be absolute after expansion"
+            )
+        external = candidate.resolve()
+        for name, boundary in (("project repository", root), ("overlay", overlay)):
+            boundary = boundary.resolve()
+            if external == boundary or boundary in external.parents:
+                raise LinkError(
+                    f"external path for {declaration.view!r} resolves inside the"
+                    f" {name}: {external}"
+                )
+        return ResolvedLink(
+            declaration, project, overlay.resolve(), root.resolve(), view, external
+        )
     central = _expanded_path(
         overlay,
         declaration.path or default,
@@ -201,6 +223,9 @@ def _copy_content(source: Path, destination: Path) -> None:
 
 def _create_canonical(link: ResolvedLink) -> None:
     path = link.canonical_path
+    if link.declaration.canonical == "external":
+        path.mkdir(parents=True, exist_ok=True)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     if link.declaration.template:
         copyroom = shutil.which("copyroom")

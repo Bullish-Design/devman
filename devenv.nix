@@ -143,16 +143,6 @@ in
     enable = true;
     project = projectName;
     groups = [ "base" "format" "release" ];
-    link = {
-      "devenv.local.nix" = {
-        canonical = "central";
-        path = "projects/${projectName}/devenv.local.nix";
-      };
-      ".envrc" = {
-        canonical = "central";
-        path = "common/envrc";
-      };
-    };
   };
 
   # https://devenv.sh/tasks/

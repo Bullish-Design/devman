@@ -169,3 +169,43 @@ def test_declaration_cannot_escape_overlay(tmp_path: Path):
             root=tmp_path / "repo",
             project="demo",
         )
+
+
+def test_external_canonical_is_created_as_a_directory(tmp_path: Path):
+    root = tmp_path / "repo"
+    external = tmp_path / "Notes" / "1_Projects" / "demo"
+
+    result = reconcile(
+        {".loci": {"canonical": "external", "path": str(external)}},
+        overlay=tmp_path / "overlay",
+        root=root,
+        project="demo",
+    )
+
+    assert result[0].state == "create"
+    assert external.is_dir()
+    assert (root / ".loci").is_symlink()
+    assert (root / ".loci").resolve() == external.resolve()
+
+
+def test_external_path_must_be_absolute_after_expansion(tmp_path: Path):
+    with pytest.raises(LinkError, match="must be absolute"):
+        reconcile(
+            {".loci": {"canonical": "external", "path": "Notes/${project}"}},
+            overlay=tmp_path / "overlay",
+            root=tmp_path / "repo",
+            project="demo",
+        )
+
+
+def test_external_path_cannot_resolve_inside_project_or_overlay(tmp_path: Path):
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    for path in (root / "notes", overlay / "notes"):
+        with pytest.raises(LinkError, match="inside the"):
+            reconcile(
+                {".loci": {"canonical": "external", "path": str(path)}},
+                overlay=overlay,
+                root=root,
+                project="demo",
+            )

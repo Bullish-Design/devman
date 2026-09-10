@@ -461,10 +461,10 @@ let
       --project ${projectName}
   '';
 
-  # Only central-canonical declarations put their view in this repository.
+  # Central and external declarations put their view in this repository.
   # Repository-canonical declarations expose their view inside the overlay.
   linkViews = lib.attrNames (lib.filterAttrs (
-    _name: value: value.canonical == "central"
+    _name: value: value.canonical == "central" || value.canonical == "external"
   ) cfg.link);
 
 in
@@ -514,7 +514,7 @@ in
       type = types.attrsOf (types.submodule {
         options = {
           canonical = mkOption {
-            type = types.enum [ "central" "repo" ];
+            type = types.enum [ "central" "repo" "external" ];
             default = "central";
           };
           path = mkOption {
