@@ -399,7 +399,7 @@ let
     inherit triggers;
     inherit writes;
     overlay = cfg.overlayDir;
-    links = cfg.link;
+    links = effectiveLinks;
     renderer = "${renderer}";
   });
 
@@ -461,11 +461,22 @@ let
       --project ${projectName}
   '';
 
+  # The machine-local file is the bootstrap edge into the central config.  It
+  # must be linked before the next shell evaluates its declarations, so keep
+  # this one declaration implicit instead of asking every project to repeat it.
+  bootstrapLink = {
+    "devenv.local.nix" = {
+      canonical = "central";
+      path = "projects/${projectName}/devenv.local.nix";
+    };
+  };
+  effectiveLinks = bootstrapLink // cfg.link;
+
   # Central and external declarations put their view in this repository.
   # Repository-canonical declarations expose their view inside the overlay.
   linkViews = lib.attrNames (lib.filterAttrs (
     _name: value: value.canonical == "central" || value.canonical == "external"
-  ) cfg.link);
+  ) effectiveLinks);
 
 in
 {
