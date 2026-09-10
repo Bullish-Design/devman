@@ -1,10 +1,12 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
+  projectName = "devman";
   # The plane's orchestrator (CONCEPT.md §4). nixpkgs packages no Dagu at any
   # version, so this repo carries the expression and both interfaces call the
   # same file — this shell now, the NixOS module at stage 1 (§3.1).
   dagu = pkgs.callPackage ./nix/dagu.nix { };
+  devmanCli = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
 
   # WHAT RUNS THE PYTHON TESTS, AND WHY IT IS NOT THE VENV (S-11).
   #
@@ -31,6 +33,7 @@ in
     pkgs.git
     pkgs.ruff
     dagu
+    devmanCli
 
     # MEASUREMENT TOOLING (project 012). Both are here rather than typed into a
     # `nix shell` by hand, because a number in `.scratch/projects/012-*/RESULT.md`
@@ -138,8 +141,18 @@ in
   # person (groups/release/README.md).
   devman = {
     enable = true;
-    project = "devman";
+    project = projectName;
     groups = [ "base" "format" "release" ];
+    link = {
+      "devenv.local.nix" = {
+        canonical = "central";
+        path = "projects/${projectName}/devenv.local.nix";
+      };
+      ".envrc" = {
+        canonical = "central";
+        path = "common/envrc";
+      };
+    };
   };
 
   # https://devenv.sh/tasks/

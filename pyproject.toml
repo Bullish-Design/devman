@@ -22,6 +22,7 @@ devman = "devman.cli:main"
 # it as its own derivation so that its store path is an evaluation-time fact the
 # shell-entry guard can observe. See `src/devman/project.py`.
 devman-project = "devman.project:cli"
+devman-link = "devman.link:cli"
 
 [build-system]
 requires = ["hatchling"]

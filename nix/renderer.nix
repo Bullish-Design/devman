@@ -82,6 +82,7 @@ python3Packages.buildPythonApplication {
     runHook preInstallCheck
     $out/bin/devman-project --help > /dev/null
     $out/bin/devman-project apply --help > /dev/null
+    $out/bin/devman-link --help > /dev/null
     runHook postInstallCheck
   '';
 

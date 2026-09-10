@@ -248,6 +248,8 @@ class Project:
     # `doctor`. It deliberately does NOT bump the schema — see the note beside
     # `entry_text` in project.py.
     writes: dict | None = None
+    overlay: str = "~/.config/devman"
+    links: dict = field(default_factory=dict)
     plan: str = ""
     schema: int = 0
     entry: Path | None = None
@@ -404,6 +406,8 @@ class Registry:
                 workflows=raw.get("workflows", {}),
                 triggers=raw.get("triggers"),
                 writes=raw.get("writes"),
+                overlay=raw.get("overlay", "~/.config/devman"),
+                links=raw.get("links", {}),
                 plan=raw.get("plan", ""),
                 schema=raw.get("schema", 0),
                 entry=entry,

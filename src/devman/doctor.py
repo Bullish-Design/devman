@@ -59,7 +59,7 @@ from pathlib import Path
 
 import yaml
 
-from . import project, watch
+from . import link, project, watch
 from .registry import Registry, dag_name_fault, identity_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
@@ -1210,6 +1210,39 @@ def check_path_inputs(rep: Report, reg: Registry) -> None:
         )
 
 
+def check_link_drift(rep: Report, reg: Registry) -> None:
+    """Report the reconciler state for every declared link.
+
+    This is deliberately a filesystem read, not a subprocess per project. The
+    state names are the reconciler's contract, so doctor and ``link status``
+    cannot disagree about what drift means.
+    """
+    checked = 0
+    findings: list[str] = []
+    for proj in reg.projects().values():
+        for view, raw in (proj.links or {}).items():
+            checked += 1
+            try:
+                resolved = link.resolve(
+                    link.Declaration.read(view, raw),
+                    overlay=Path(os.path.expandvars(proj.overlay)).expanduser(),
+                    root=proj.path,
+                    project=proj.name,
+                )
+                state = link.inspect(resolved).state
+            except link.LinkError as exc:
+                findings.append(f"{proj.name}:{view}: invalid declaration — {exc}")
+                continue
+            if state != "ok":
+                findings.append(f"{proj.name}:{view}: {state}")
+    if findings:
+        rep.add("link drift", "!!", findings)
+    elif checked:
+        rep.add("link drift", "ok", [f"{checked} declared links are correct"])
+    else:
+        rep.add("link drift", "ok", ["no registered project declares a link"])
+
+
 def check_trigger_targets(rep: Report, reg: Registry) -> None:
     """A trigger must name a workflow the project actually projects (S-3).
 
@@ -1466,6 +1499,7 @@ def main(args, reg: Registry) -> int:
     check_fanout(rep, reg)
     check_writes(rep, reg)
     check_trigger_targets(rep, reg)
+    check_link_drift(rep, reg)
     check_local_sources(rep, reg)
     check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)

@@ -377,3 +377,4 @@ cython_debug/
 # `.vend/` is the payload -- a full upstream clone, refetched on demand and
 # never committed.
 .scratch/context/.vend/
+devenv.local.nix.devman-promoted

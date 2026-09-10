@@ -56,6 +56,8 @@ class Plane:
         sources: dict[str, str] | None = None,
         triggers: dict | None = None,
         writes: dict | None = None,
+        overlay: str = "~/.config/devman",
+        links: dict | None = None,
         link: bool = True,
         legacy: bool = False,
         make_dir: bool = True,
@@ -113,6 +115,8 @@ class Plane:
                     },
                     "triggers": triggers,
                     "writes": writes,
+                    "overlay": overlay,
+                    "links": links or {},
                     "plan": "",
                 }
             )

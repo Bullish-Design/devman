@@ -99,6 +99,8 @@ def entry_text(
     workflows: dict,
     triggers: object,
     writes: object = None,
+    overlay: str = "~/.config/devman",
+    links: object = None,
 ) -> str:
     return (
         "{\n"
@@ -110,7 +112,9 @@ def entry_text(
         f'  "local": [{", ".join(json.dumps(n) for n in local)}],\n'
         f'  "workflows": {json.dumps(workflows, sort_keys=True)},\n'
         f'  "triggers": {json.dumps(triggers, sort_keys=True)},\n'
-        f'  "writes": {json.dumps(writes, sort_keys=True)}\n'
+        f'  "writes": {json.dumps(writes, sort_keys=True)},\n'
+        f'  "overlay": {json.dumps(overlay)},\n'
+        f'  "links": {json.dumps(links or {}, sort_keys=True)}\n'
         "}\n"
     )
 
@@ -281,6 +285,8 @@ class Plan:
     triggers: object
     renderer: str
     writes: object = None
+    overlay: str = "~/.config/devman"
+    links: dict = None
 
     @classmethod
     def read(cls, path: str | os.PathLike[str]) -> Plan:
@@ -292,6 +298,8 @@ class Plan:
             workflows=raw.get("workflows", {}),
             triggers=raw.get("triggers"),
             writes=raw.get("writes"),
+            overlay=raw.get("overlay", "~/.config/devman"),
+            links=raw.get("links", {}),
             renderer=raw.get("renderer", ""),
         )
 
@@ -454,6 +462,8 @@ def apply(
         workflows=plan.workflows,
         triggers=resolve_triggers(plan.triggers, root),
         writes=resolve_writes(plan.writes, root),
+        overlay=plan.overlay,
+        links=plan.links,
     )
     tmp = entry / ".metadata.json.new"
     tmp.write_text(text)

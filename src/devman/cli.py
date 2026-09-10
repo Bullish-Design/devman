@@ -43,7 +43,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import agent, project, run, show, watch
+from . import agent, link, project, run, show, watch
 from .registry import (
     DEFAULT_DAGU_HOME,
     DEFAULT_REGISTRY,
@@ -171,6 +171,17 @@ def parser() -> argparse.ArgumentParser:
         p_project_sub.add_parser("apply", help="rebuild this repository's projection")
     )
 
+    p_link = sub.add_parser("link", help="reconcile this repository's links (§5)")
+    p_link_sub = p_link.add_subparsers(dest="link_command", required=True)
+    link.add_arguments(
+        p_link_sub.add_parser("reconcile", help="make declared links match")
+    )
+    p_status = p_link_sub.add_parser("status", help="report declared link states")
+    link.add_arguments(p_status)
+    p_status.add_argument(
+        "--all", action="store_true", help="report every registered project"
+    )
+
     return ap
 
 
@@ -191,6 +202,7 @@ def handler(command: str):
         "show": show.main,
         "watch": watch.main,
         "project": project.main,
+        "link": link.main,
     }[command]
 
 

@@ -20,7 +20,7 @@ pytestmark = pytest.mark.unit
 # `agent` is §10's fourth command, amended in by project 022: it runs INSIDE
 # a workflow rather than being typed at one. The list stays closed either way,
 # and this is one of the two places that spell it.
-SUBCOMMANDS = ("run", "show", "doctor", "watch", "project", "agent")
+SUBCOMMANDS = ("run", "show", "doctor", "watch", "project", "agent", "link")
 
 
 @pytest.mark.parametrize("command", SUBCOMMANDS)

@@ -19,6 +19,7 @@ import yaml
 from helpers import ORDINARY
 
 from devman import doctor
+from devman.link import reconcile
 from devman.workflow import PROJECT_DIR
 
 pytestmark = pytest.mark.unit
@@ -58,6 +59,48 @@ def test_a_check_with_no_lines_still_prints(capsys):
     rep.add("plane", "ok", [])
     rep.print()
     assert capsys.readouterr().out.strip() == "ok  plane"
+
+
+def test_link_drift_reports_the_reconciler_state(plane, tmp_path):
+    overlay = tmp_path / "overlay"
+    canonical = overlay / "common/envrc"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("use devenv\n")
+    repo = plane.repos / "p"
+    plane.add(
+        "p",
+        links={".envrc": {"canonical": "central", "path": "common/envrc"}},
+        overlay=str(overlay),
+    )
+    reconcile(
+        {".envrc": {"canonical": "central", "path": "common/envrc"}},
+        overlay=overlay,
+        root=repo,
+        project="p",
+    )
+    report = doctor.Report()
+
+    doctor.check_link_drift(report, plane.reg)
+
+    assert report.sections == [("link drift", "ok", ["1 declared links are correct"])]
+
+
+def test_link_drift_names_a_real_view_as_promote(plane, tmp_path):
+    overlay = tmp_path / "overlay"
+    repo = plane.repos / "p"
+    repo.mkdir(parents=True)
+    (repo / ".envrc").write_text("local\n")
+    plane.add(
+        "p",
+        links={".envrc": {"canonical": "central", "path": "common/envrc"}},
+        overlay=str(overlay),
+    )
+    report = doctor.Report()
+
+    doctor.check_link_drift(report, plane.reg)
+
+    assert report.sections[0][0:2] == ("link drift", "!!")
+    assert report.sections[0][2] == ["p:.envrc: promote"]
 
 
 # ---------------------------------------------------------------------------

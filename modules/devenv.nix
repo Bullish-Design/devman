@@ -398,6 +398,8 @@ let
       resolved;
     inherit triggers;
     inherit writes;
+    overlay = cfg.overlayDir;
+    links = cfg.link;
     renderer = "${renderer}";
   });
 
@@ -450,6 +452,21 @@ let
       "''${@:3}"
   '';
 
+  linkScript = pkgs.writeShellScript "devman-link-${projectName}" ''
+    exec ${renderer}/bin/devman-link \
+      --registry "$3" \
+      reconcile \
+      --overlay "$2" \
+      --root "$1" \
+      --project ${projectName}
+  '';
+
+  # Only central-canonical declarations put their view in this repository.
+  # Repository-canonical declarations expose their view inside the overlay.
+  linkViews = lib.attrNames (lib.filterAttrs (
+    _name: value: value.canonical == "central"
+  ) cfg.link);
+
 in
 {
   options.devman = {
@@ -485,6 +502,33 @@ in
       type = types.str;
       default = "$HOME/.local/share/devman";
       description = "The registry root (§9.2). `$HOME` is expanded by the shell hook, not by Nix. It must match `services.devman-dagu.registryDir` on the machine.";
+    };
+
+    overlayDir = mkOption {
+      type = types.str;
+      default = "$HOME/.config/devman";
+      description = "The config repository root. `$HOME` is expanded by the shell hook, not by Nix.";
+    };
+
+    link = mkOption {
+      type = types.attrsOf (types.submodule {
+        options = {
+          canonical = mkOption {
+            type = types.enum [ "central" "repo" ];
+            default = "central";
+          };
+          path = mkOption {
+            type = types.str;
+            default = "";
+          };
+          template = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+          };
+        };
+      });
+      default = { };
+      description = "Filesystem links reconciled at shell entry (§5).";
     };
 
     installClient = mkOption {
@@ -524,6 +568,7 @@ in
     enterShell = ''
       devman_root="$DEVENV_ROOT"
       devman_reg="${cfg.registryDir}"
+      devman_overlay="${cfg.overlayDir}"
       devman_meta="$devman_reg/projects/${projectName}/metadata.json"
 
       # §15.2: `.devman/` IS THE REPOSITORY'S. devman reserves three names
@@ -824,6 +869,11 @@ in
           if [[ $'\n'"$devman_cur"$'\n' != *$'\n.devman/.runs/\n'* ]]; then
             printf '%s\n' ".devman/.runs/" >> "$devman_ex"
           fi
+          ${lib.concatMapStrings (view: ''
+            if [[ $'\n'"$devman_cur"$'\n' != *$'\n${view}\n'* ]]; then
+              printf '%s\n' ${lib.escapeShellArg view} >> "$devman_ex"
+            fi
+          '') linkViews}
         fi
 
         # The guard. `[ -d ]` on the Dagu view as well as the entry, so that
@@ -838,7 +888,15 @@ in
         fi
       fi
 
+      # Link reconciliation is separate from registry projection. The central
+      # project directory is the opt-in boundary and the guard keeps this hook
+      # from forking for repositories that have no central declarations yet.
+      if [ -d "$devman_overlay/projects/${projectName}" ]; then
+        ${linkScript} "$devman_root" "$devman_overlay" "$devman_reg"
+      fi
+
       unset devman_root devman_reg devman_meta devman_b devman_f \
+            devman_overlay \
             devman_disk devman_local devman_local_args devman_names devman_n \
             devman_relink devman_stale devman_proj devman_body devman_have \
             devman_recorded devman_plan devman_locals devman_badroot \
