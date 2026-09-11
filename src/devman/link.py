@@ -370,6 +370,18 @@ def _record(link: ResolvedLink, state: dict[str, dict[str, str]]) -> None:
     }
 
 
+def _record_available(
+    links: list[ResolvedLink], state: dict[str, dict[str, str]]
+) -> bool:
+    """Record canonical paths that appeared while reconciling earlier views."""
+    changed = False
+    for link in links:
+        if link.canonical_path.exists() and link.key not in state:
+            _record(link, state)
+            changed = True
+    return changed
+
+
 def _user_path(value: str | Path) -> Path:
     return Path(os.path.expandvars(str(value))).expanduser()
 
@@ -511,6 +523,8 @@ def reconcile(
             _link(link)
         _record(link, state)
         changed = True
+        if _record_available(all_links, state):
+            changed = True
         results.append(result)
     if _ensure_local_gitignore(
         root.resolve(), overlay, project, resolved_links, state

@@ -148,6 +148,40 @@ def test_first_reconcile_creates_a_shared_canonical_ancestor_as_a_directory(
     assert (root / ".claude/skills").is_symlink()
 
 
+def test_promoting_an_ancestor_records_a_nested_canonical_view(
+    tmp_path: Path,
+):
+    overlay = tmp_path / "overlay"
+    root = tmp_path / "repo"
+    (root / ".agents/skills/shared").mkdir(parents=True)
+    (root / ".agents/skills/shared/one.md").write_text("one\n")
+    (root / ".claude/skills/two.md").parent.mkdir(parents=True)
+    (root / ".claude/skills/two.md").write_text("two\n")
+
+    result = reconcile(
+        {
+            ".agents": {"canonical": "central", "path": "projects/demo/agents"},
+            ".claude/skills": {
+                "canonical": "central",
+                "path": "projects/demo/agents/skills",
+            },
+        },
+        overlay=overlay,
+        root=root,
+        project="demo",
+    )
+
+    assert [item.state for item in result] == ["promote", "promote"]
+    assert (overlay / "projects/demo/agents/skills/shared/one.md").read_text() == (
+        "one\n"
+    )
+    assert (overlay / "projects/demo/agents/skills/two.md").read_text() == (
+        "two\n"
+    )
+    assert (root / ".agents").is_symlink()
+    assert (root / ".claude/skills").is_symlink()
+
+
 def test_promotion_refuses_when_canonical_changed_since_link(tmp_path: Path):
     overlay = tmp_path / "overlay"
     root = tmp_path / "repo"

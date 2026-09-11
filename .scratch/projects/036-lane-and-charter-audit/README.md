@@ -53,9 +53,39 @@ is in [`tests/unit/test_link.py`](../../../tests/unit/test_link.py).
 
 ### Deferred questions
 
-The remaining Stage 3 registry/state split, Stage 4 direct workflow links, live
-fleet adoption, and the other open questions remain separate work. This closure
-does not silently flip those designs or change unrelated repositories.
+The Stage 3 registry/state split, Stage 4 direct workflow links, and live fleet
+adoption remain separate work. The six Part C questions are recorded below.
+
+## Part C — charter questions
+
+1. **Claude settings write behaviour:** not settled. The fleet still has real
+   `.claude/settings.local.json` files, but no controlled Claude permission
+   approval was run in this audit. Keep these files local until that product
+   write test is performed.
+2. **`cliProvider = "store"`: settled.** `nix build
+   .#repoman-toolchain-core` in vendomat produced a closure. The vendomat
+   `tests/fixtures/store-consumer` repository entered a store-mode shell and
+   `repoman doctor` completed successfully. It reported only the fixture's
+   expected missing skill-entrypoint warnings. The closure measured 24K; the
+   vendomat checkout's `.devenv` is 122M. Store mode removes the manager
+   toolchain from the consumer venv, but a consumer that imports a local
+   `path:` vendomat tree still pays the path-input copy cost.
+3. **Agentman:** settled as new and now consumed. `groups/agent/` exists in
+   devman, and `agentman run review --backend fake` completed cleanly with one
+   validated turn and zero findings.
+4. **CopyRoom git compatibility:** do not shrink this file as a whole. The
+   call graph has callers in both `src/copyroom/workshop/registry.py` and the
+   project/template/release/manage code. Workshop uses source and tag lookup;
+   project workflows use worktree, status, commit, and diff operations.
+5. **Lock-reader noise:** signal, not false positive. `check_local_sources`
+   reports an actual stale `pytuin` pin for `atuout`, and `check_path_inputs`
+   reports the measured 122M vendomat `.devenv` copy cost. The checks should
+   remain warnings until the source or input is corrected.
+6. **Promote conflicts:** measured at 12 of about 46 fleet migrations. The
+   refusals were caused by the per-view state gap when an ancestor promotion
+   made a nested canonical path available. Reconcile now records newly
+   available canonical paths for all declarations after each successful step.
+   The regression is covered in `tests/unit/test_link.py`.
 
 ## Verification record
 
@@ -73,3 +103,5 @@ logs are in `artifacts/20260911T130000Z-final/`:
   outer Git root passed all 20 checks, including the Dagu service VM. The raw
   task failure and the successful rerun are preserved in the dated local
   artifacts.
+- The follow-up promote-state fix passed `base:check`, `base:unit` with 520
+  tests, and `devman doctor` with the same seven pre-existing findings.
