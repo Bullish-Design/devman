@@ -161,6 +161,7 @@ Therefore:
 |---|---|---|
 | **Tracked, shared** — `AGENTS.md`, templates, genome content | **copyroom** | git must see the bytes; a version record and a three-way merge make it updatable |
 | **Untracked, machine-local** — `devenv.local.nix`, `.envrc`, notes, overlays, **`.agents/`** | **the link plane** | one inode means zero drift, and nothing enters anyone's history |
+| **Tracked, central per-project policy** — `.local.gitignore` | **gitman in the config repository** | the exclusion policy is authored configuration and must survive review, recovery, and cloning of the config repository |
 
 This is not a file-type split. It is one property — *does git track it* — and it
 is not negotiable.
@@ -308,7 +309,9 @@ separate workflow and no second mechanism.
    `<overlay>/projects/<project>/.local.gitignore` and symlinks the repository's
    `.git/info/exclude` to that file. Existing exclude content is promoted before
    the replacement. This keeps the declaration, the central file, and the view
-   in one reconciliation path.
+   in one reconciliation path. The central file is tracked in the per-project
+   config directory. It is not generated runtime state, and the config
+   repository must not ignore `projects/*/.local.gitignore`.
 3. **The drift assertion** — `test -L` plus `readlink -f`. This *is* the detector;
    it is only "which of the five states am I in".
 

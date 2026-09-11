@@ -122,6 +122,32 @@ def test_real_directory_is_promoted_without_deleting_the_view(tmp_path: Path):
     )
 
 
+def test_first_reconcile_creates_a_shared_canonical_ancestor_as_a_directory(
+    tmp_path: Path,
+):
+    overlay = tmp_path / "overlay"
+    root = tmp_path / "repo"
+
+    result = reconcile(
+        {
+            ".agents": {"canonical": "central", "path": "projects/demo/agents"},
+            ".claude/skills": {
+                "canonical": "central",
+                "path": "projects/demo/agents/skills",
+            },
+        },
+        overlay=overlay,
+        root=root,
+        project="demo",
+    )
+
+    assert [item.state for item in result] == ["create", "create"]
+    assert (overlay / "projects/demo/agents").is_dir()
+    assert (overlay / "projects/demo/agents/skills").is_dir()
+    assert (root / ".agents").is_symlink()
+    assert (root / ".claude/skills").is_symlink()
+
+
 def test_promotion_refuses_when_canonical_changed_since_link(tmp_path: Path):
     overlay = tmp_path / "overlay"
     root = tmp_path / "repo"

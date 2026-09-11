@@ -7,6 +7,19 @@ the authoritative design in
 `.scratch/projects/025-the-link-plane/CONCEPT.md`. It does not implement the
 deferred Stage 3 state separation or Stage 4 direct workflow links.
 
+## Closure decision
+
+The per-project `.local.gitignore` is tracked in the central config repository
+at `projects/<project>/.local.gitignore`. It is authored configuration, not
+generated state. The config repository's `.gitignore` therefore does not ignore
+this path. The repository-side `.git/info/exclude` remains a symlinked view of
+the tracked file.
+
+The reconciler also resolves all declarations before creating missing canonical
+paths. If one canonical path is an ancestor of another, it is created as a
+directory even when its view name has no slash. This covers the bootstrap pair
+`.agents` and `.claude/skills`.
+
 ## Before this change
 
 - The reconciler implemented the five link states, promotion, recorded

@@ -406,7 +406,7 @@ def _copy_content(source: Path, destination: Path) -> None:
     os.replace(temporary, destination)
 
 
-def _create_canonical(link: ResolvedLink) -> None:
+def _create_canonical(link: ResolvedLink, *, as_directory: bool = False) -> None:
     path = link.canonical_path
     if link.declaration.canonical == "external":
         path.mkdir(parents=True, exist_ok=True)
@@ -445,7 +445,7 @@ def _create_canonical(link: ResolvedLink) -> None:
                 f" {link.key}: {detail or f'exit {result.returncode}'}"
             )
         return
-    if "/" in link.declaration.view:
+    if as_directory or "/" in link.declaration.view:
         path.mkdir(exist_ok=True)
     else:
         path.touch()
@@ -465,13 +465,22 @@ def reconcile(
     """Apply declarations and return one result per view."""
     state = _read_state(overlay)
     results: list[LinkResult] = []
-    resolved_links: list[ResolvedLink] = []
-    changed = False
-    for view, raw in declarations.items():
-        link = resolve(
+    all_links = [
+        resolve(
             Declaration.read(view, raw), overlay=overlay, root=root, project=project
         )
-        resolved_links.append(link)
+        for view, raw in declarations.items()
+    ]
+    canonical_paths = [link.canonical_path for link in all_links]
+    directory_paths = {
+        candidate
+        for candidate in canonical_paths
+        for other in canonical_paths
+        if other != candidate and candidate in other.parents
+    }
+    resolved_links = all_links
+    changed = False
+    for link in all_links:
         result = inspect(link)
         if result.state == "ok":
             if link.canonical_path.exists() and link.key not in state:
@@ -492,11 +501,13 @@ def reconcile(
             _copy_content(link.view_path, link.canonical_path)
             _link(link, promoted=True)
         elif result.state == "create":
-            _create_canonical(link)
+            _create_canonical(link, as_directory=link.canonical_path in directory_paths)
             _link(link)
         else:
             if not link.canonical_path.exists():
-                _create_canonical(link)
+                _create_canonical(
+                    link, as_directory=link.canonical_path in directory_paths
+                )
             _link(link)
         _record(link, state)
         changed = True
