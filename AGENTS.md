@@ -83,7 +83,7 @@ keeps a change from re-learning something the plane already paid for.**
    in 022: the same step echoing five characters of a token logged them in clear.
    A step must not print a fragment of a credential.
 9. **Write in Simplified Technical English.** Short sentences, active voice,
-   one word for one meaning, no filler. See `.agents/skills/my-ai/SKILL.md`.
+   one word for one meaning, no filler. See `.agents/skills/writing/SKILL.md`.
 10. **The boundary test decides where a file lives.** Ask: *would this still be
     true for someone else who cloned the repository?* **Yes** — it is the project;
     it stays in the repository, tracked. **No, it is true for this user or this
