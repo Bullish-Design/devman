@@ -322,7 +322,7 @@ def check_literal(rep: Report, reg: Registry, dagu_home: Path) -> None:
     §7.1's list of four holds two directory variables.
     """
     roots = [proj.path for proj in reg.projects().values() if proj.exists]
-    roots += [reg.root, dagu_home, Path.cwd()]
+    roots += [reg.root, reg.state, dagu_home, Path.cwd()]
     hits: list[Path] = []
     for root in roots:
         for hit in _literal_dirs(root):
@@ -544,7 +544,7 @@ def check_dag_names(rep: Report, reg: Registry) -> None:
     for proj in reg.projects().values():
         fault = identity_fault("project", proj.name)
         if fault:
-            meta = (proj.entry or reg.projects_dir / proj.name) / "metadata.json"
+            meta = (proj.entry or reg.state_projects_dir / proj.name) / "metadata.json"
             bad.append(f"{proj.name}: {fault.splitlines()[0]}\n     {meta}")
     for proj, name, _path in reg.projected_files():
         fault = identity_fault("workflow", name) or dag_name_fault(name)
@@ -775,7 +775,7 @@ def running_watchers(reg: Registry) -> list[tuple[int, int]]:
     §15.1 forbids walking the disk to find repositories; it says nothing about
     asking the kernel what is running.
     """
-    marker = f"--project-origin={reg.root}".encode()
+    marker = f"--project-origin={reg.state}".encode()
     found = []
     try:
         entries = list(Path("/proc").iterdir())
@@ -1478,6 +1478,7 @@ def main(args, reg: Registry) -> int:
         f"devman doctor — {len(projects)} projects, {len(reg.projected_files())} workflows"
     )
     print(f"    registry   {reg.root}")
+    print(f"    state      {reg.state}")
     print(f"    dagu home  {dagu_home}")
     print()
 

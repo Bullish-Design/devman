@@ -51,6 +51,7 @@
     PLAN = "${plan}"
     HOME = "/home/tester"
     REG = HOME + "/.local/share/devman"
+    STATE = HOME + "/.local/state/devman"
     PROJ = HOME + "/work/demo"
     # DAGU_HOME matters: without it the CLI picks its own default home, reads a
     # different config.yaml, and lists Dagu's bundled examples instead of the
@@ -84,7 +85,7 @@
         assert "devman-record-run" in base
 
     with subtest("both registry directories exist before anything registers"):
-        tester(f"test -d {REG}/projects && test -d {REG}/dags")
+        tester(f"test -d {REG}/projects && test -d {REG}/dags && test -d {STATE}/projects")
 
     with subtest("a projection in the devenv module's shape is discovered"):
         # The names are the codec's: `<project>.<workflow>` (§9.2, S-12). This
@@ -154,10 +155,11 @@
             "workflows": {"check": {"group": "base", "shadows": [], "source": ""}},
             "triggers": None,
         })
+        machine.succeed(f"mkdir -p {STATE}/projects/demo")
         machine.succeed(
-            f"install -o tester -g users -m 644 /dev/null {REG}/projects/demo/metadata.json"
+            f"install -o tester -g users -m 644 /dev/null {STATE}/projects/demo/metadata.json"
         )
-        machine.succeed(f"echo '{entry}' > {REG}/projects/demo/metadata.json")
+        machine.succeed(f"echo '{entry}' > {STATE}/projects/demo/metadata.json")
         shown = tester("cd " + PROJ + " && devman show probe")
         assert "run: pwd" in shown, "devman show did not print the resolved file"
 
@@ -176,13 +178,13 @@
         )
 
     with subtest("devman run refuses when the project directory is gone (S15)"):
-        machine.succeed(f"echo '{entry.replace(PROJ, PROJ + '-gone')}' > {REG}/projects/demo/metadata.json")
+        machine.succeed(f"echo '{entry.replace(PROJ, PROJ + '-gone')}' > {STATE}/projects/demo/metadata.json")
         refusal = machine.fail(
             f"su tester -c 'cd {PROJ} && HOME={HOME} devman run probe -p demo' 2>&1"
         )
         print(refusal)
         assert "refusing" in refusal
-        machine.succeed(f"echo '{entry}' > {REG}/projects/demo/metadata.json")
+        machine.succeed(f"echo '{entry}' > {STATE}/projects/demo/metadata.json")
 
     with subtest("devman doctor reports nothing on a healthy plane"):
         report = machine.succeed(
@@ -214,23 +216,23 @@
             "workflows": {"probe": {"group": "base", "shadows": [], "source": ""}},
             "triggers": {"group": "base", "map": {"**/*.py": "probe"}},
         })
-        machine.succeed(f"echo '{reactive}' > {REG}/projects/demo/metadata.json")
+        machine.succeed(f"echo '{reactive}' > {STATE}/projects/demo/metadata.json")
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"demo\\\"\" {REG}/watch/state.json'",
+            f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"demo\\\"\" {STATE}/watch/state.json'",
             timeout=60,
         )
         after = tester("systemctl --user show devman-watch -p NRestarts -p ExecMainStartTimestamp")
         assert before == after, f"the unit restarted: {before} -> {after}"
-        watching = json.loads(tester(f"cat {REG}/watch/state.json"))
+        watching = json.loads(tester(f"cat {STATE}/watch/state.json"))
         assert "--watch" in watching["command"], watching["command"]
         assert PROJ in watching["command"], watching["command"]
 
     with subtest("a save in that project fires the workflow, with nothing restarted"):
         tester(f"touch {PROJ}/hello.py")
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}test -f {REG}/watch/fired.jsonl'", timeout=90
+            f"su tester -c '{ENV}test -f {STATE}/watch/fired.jsonl'", timeout=90
         )
-        fired = json.loads(tester(f"tail -1 {REG}/watch/fired.jsonl"))
+        fired = json.loads(tester(f"tail -1 {STATE}/watch/fired.jsonl"))
         print(fired)
         assert fired["project"] == "demo" and fired["workflow"] == "probe"
         assert fired["outcome"] == "enqueued", fired
@@ -259,21 +261,22 @@
             "workflows": {"probe": {"group": "base", "shadows": [], "source": ""}},
             "triggers": {"group": "base", "map": {"**/*.py": "probe"}},
         })
-        machine.succeed(f"echo '{nested}' > {REG}/projects/nested/metadata.json")
+        machine.succeed(f"mkdir -p {STATE}/projects/nested")
+        machine.succeed(f"echo '{nested}' > {STATE}/projects/nested/metadata.json")
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"nested\\\"\" {REG}/watch/state.json'",
+            f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"nested\\\"\" {STATE}/watch/state.json'",
             timeout=60,
         )
-        tester(f"truncate -s 0 {REG}/watch/fired.jsonl")
+        tester(f"truncate -s 0 {STATE}/watch/fired.jsonl")
 
         tester(f"touch {inner}/changed.py")
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}grep -q nested {REG}/watch/fired.jsonl'", timeout=90
+            f"su tester -c '{ENV}grep -q nested {STATE}/watch/fired.jsonl'", timeout=90
         )
         # Give the outer project every chance to fire late, then read the whole
         # file: the assertion is that it fired ONCE, for the inner project.
         machine.succeed("sleep 10")
-        lines = tester(f"cat {REG}/watch/fired.jsonl").strip().splitlines()
+        lines = tester(f"cat {STATE}/watch/fired.jsonl").strip().splitlines()
         print(lines)
         owners = {json.loads(line)["project"] for line in lines if line}
         assert owners == {"nested"}, f"the outer project fired too: {owners}"

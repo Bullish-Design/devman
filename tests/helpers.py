@@ -43,7 +43,15 @@ class Plane:
 
     @property
     def reg(self) -> Registry:
-        return Registry(self.root)
+        """Registry root and state root are the same directory here.
+
+        `Registry` supports splitting them (§11 Stage 3), but this fixture
+        keeps the pre-split single-directory shape — `add()` writes
+        `metadata.json` beside `workflows/` in one `entry`, exactly as the
+        devenv module did before Stage 3. A test that needs the split shape
+        constructs its own `Registry(root, state)` with two distinct roots.
+        """
+        return Registry(self.root, self.root)
 
     def add(
         self,

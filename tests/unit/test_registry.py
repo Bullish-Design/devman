@@ -29,7 +29,9 @@ pytestmark = pytest.mark.unit
 
 
 def test_an_empty_registry_has_no_projects(tmp_path):
-    assert Registry(tmp_path / "nothing").projects() == {}
+    # Both roots under `tmp_path`, so this never reads the real
+    # `~/.local/state/devman` (§11 Stage 3's default) if it happens to exist.
+    assert Registry(tmp_path / "nothing", tmp_path / "nothing-state").projects() == {}
 
 
 def test_a_half_written_entry_is_skipped(plane):

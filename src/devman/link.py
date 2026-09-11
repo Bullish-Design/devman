@@ -596,17 +596,21 @@ def _main_one(args, reg) -> int:
 
 
 def cli(argv: list[str] | None = None) -> int:
+    from .registry import DEFAULT_REGISTRY, DEFAULT_STATE, Registry
+
     parser = argparse.ArgumentParser(prog="devman-link")
-    parser.add_argument("--registry", default="~/.local/share/devman")
+    parser.add_argument("--registry", default=DEFAULT_REGISTRY)
+    # Only `reg.project()`/`reg.projects()` are read here — metadata.json, so
+    # the state root, not the registry root (§11 Stage 3).
+    parser.add_argument("--state", default=DEFAULT_STATE)
     sub = parser.add_subparsers(dest="link_command", required=True)
     add_arguments(sub.add_parser("reconcile"))
     status = sub.add_parser("status")
     add_arguments(status)
     status.add_argument("--all", action="store_true")
     args = parser.parse_args(argv)
-    from .registry import Registry
 
-    return main(args, Registry(args.registry))
+    return main(args, Registry(args.registry, args.state))
 
 
 def _project_from_nix(root: Path) -> str:

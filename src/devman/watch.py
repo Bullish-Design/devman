@@ -58,10 +58,10 @@ from pathlib import Path, PurePath
 from . import link, run
 from .registry import Project, Registry, RegistryError, deepest, report
 
-# The watcher's own state, machine-side beside the registry it reads. Derived
-# and reconstructable like everything else under `~/.local/share/devman/`
-# (§9.3): deleting it costs the answer to "what did it last fire", which the
-# next event restores.
+# The watcher's own state, under the state root (§11 Stage 3) rather than the
+# registry root, because it is regenerated rather than authored. Derived and
+# reconstructable (§9.3): deleting it costs the answer to "what did it last
+# fire", which the next event restores.
 WATCH_DIR = "watch"
 
 # A run writes its logs under `.devman/.runs/`, inside the tree being watched.
@@ -201,7 +201,9 @@ def unwatchable(reg: Registry) -> list[Project]:
 
 class WatchState:
     def __init__(self, reg: Registry) -> None:
-        self.dir = reg.root / WATCH_DIR
+        # §11 Stage 3: the watcher's own state is regenerated, so it lives
+        # under the state root rather than the registry root.
+        self.dir = reg.state / WATCH_DIR
         self.state = self.dir / "state.json"
         self.fired = self.dir / "fired.jsonl"
         # When THIS process began. The supervisor rewrites the state file every
@@ -326,12 +328,13 @@ def watchexec_command(
         # `~/Documents/Projects`, or `$HOME` for a service systemd starts there —
         # and walks it. Measured: the same command line spun a core at 99.4% for
         # over a minute with the origin searched, and sat at 0.3% with it given
-        # (S5). The registry root is the honest answer: it is devman's own
-        # directory, it is small, and it is where this process's state lives.
+        # (S5). The state root is the honest answer (§11 Stage 3): it is
+        # devman's own directory, it is small, and it is where this process's
+        # own state (`WatchState.dir`) lives.
         #
         # The cost is that no repository's `.gitignore` is consulted, which is
         # what `DEFAULT_IGNORES` above is for.
-        f"--project-origin={reg.root}",
+        f"--project-origin={reg.state}",
     ]
     for pattern in DEFAULT_IGNORES:
         argv += ["--ignore", pattern]
@@ -357,6 +360,8 @@ def dispatch_command(reg: Registry, dagu_home: str) -> list[str]:
         self_binary(),
         "--registry",
         str(reg.root),
+        "--state",
+        str(reg.state),
         "--dagu-home",
         dagu_home,
         "watch",
