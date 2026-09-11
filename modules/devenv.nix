@@ -247,16 +247,18 @@ let
     in if merged == { } then null else merged;
 
   # ---------------------------------------------------------------------------
-  # The projection (§9.2), and the rare path that performs it
+  # The projection (§9.2, §11 Stage 3), and the rare path that performs it
   #
-  #   <registry>/projects/<project>/metadata.json
+  #   <state>/projects/<project>/metadata.json
   #   <registry>/projects/<project>/workflows/<workflow>.yaml -> the winner
   #   <registry>/dags/<project>.<workflow>.yaml               -> the line above
   #
   # `dags/` is Dagu's flat view of `projects/`. A DAG is keyed by its file's
   # base name, so two projects both projecting `check.yaml` are reported as a
   # duplicate and both vanish from `dagu ls`, from the web UI and from the
-  # scheduler. See nix/nixos-module.nix, which points `dags_dir` at it.
+  # scheduler. See nix/nixos-module.nix, which points `dags_dir` at the
+  # registry root. `metadata.json` moved to the state root at Stage 3, because
+  # it is regenerated on every shell entry rather than authored.
   #
   # THE SEPARATOR IS A DOT, AND THIS IS ONE OF TWO PLACES THAT RENDERS IT.
   #
@@ -448,13 +450,15 @@ let
     exec ${renderer}/bin/devman-project apply \
       --plan ${planFile} \
       --registry "$2" \
+      --state "$3" \
       --root "$1" \
-      "''${@:3}"
+      "''${@:4}"
   '';
 
   linkScript = pkgs.writeShellScript "devman-link-${projectName}" ''
     exec ${renderer}/bin/devman-link \
       --registry "$3" \
+      --state "$4" \
       reconcile \
       --overlay "$2" \
       --root "$1" \
@@ -512,7 +516,29 @@ in
     registryDir = mkOption {
       type = types.str;
       default = "$HOME/.local/share/devman";
-      description = "The registry root (§9.2). `$HOME` is expanded by the shell hook, not by Nix. It must match `services.devman-dagu.registryDir` on the machine.";
+      description = ''
+        The registry root (§9.2) — `dags/` and the `workflows/` projection.
+        `$HOME` is expanded by the shell hook, not by Nix. It must match
+        `services.devman-dagu.registryDir` on the machine.
+
+        **Not moved to `~/.config/devman` yet, though `overlayDir` already
+        defaults there** (§11 Stage 3's charter said it should). `_sources()`
+        in `project.py` reads a local workflow override's authored source from
+        `overlay/projects/<p>/workflows/<name>.yaml`, the same relative path
+        `apply()` writes the rendered projection to under `registry/projects/
+        <p>/workflows/`. Moving this option would make the two the same file
+        until §6.2a's render-to-link change lands, and every shell entry would
+        overwrite a tracked, hand-authored workflow with its own generated
+        output. §6.2a is deferred: it needs a design for how a scheduled
+        (cron-fired) run still gets its project directory without a
+        per-project rendered file (see CONCEPT.md §11 Stage 4).
+      '';
+    };
+
+    stateDir = mkOption {
+      type = types.str;
+      default = "$HOME/.local/state/devman";
+      description = "The state root (§11 Stage 3) — `metadata.json` and the kept copies of `.devman/triggers.toml` and `.devman/writes.toml`, regenerated on every shell entry. `$HOME` is expanded by the shell hook, not by Nix. It must match `services.devman-dagu.stateDir` on the machine.";
     };
 
     overlayDir = mkOption {
@@ -579,8 +605,9 @@ in
     enterShell = ''
       devman_root="$DEVENV_ROOT"
       devman_reg="${cfg.registryDir}"
+      devman_state="${cfg.stateDir}"
       devman_overlay="${cfg.overlayDir}"
-      devman_meta="$devman_reg/projects/${projectName}/metadata.json"
+      devman_meta="$devman_state/projects/${projectName}/metadata.json"
 
       # §15.2: `.devman/` IS THE REPOSITORY'S. devman reserves three names
       # inside it — `workflows/`, `.runs/` and `triggers.toml` — and never
@@ -682,7 +709,7 @@ in
       # forkless, and the same shape as the override tail-test above. A
       # repository that ships no such file pays one `[ -f ]` on each side.
       devman_trig="$devman_root/.devman/triggers.toml"
-      devman_trig_kept="$devman_reg/projects/${projectName}/triggers.toml"
+      devman_trig_kept="$devman_state/projects/${projectName}/triggers.toml"
       if [ -f "$devman_trig" ]; then
         if [ ! -f "$devman_trig_kept" ]; then
           devman_stale=1
@@ -705,7 +732,7 @@ in
       # registry entry not at all. It was caught end-to-end rather than by a
       # unit test, because both halves were individually right.
       devman_wr="$devman_root/.devman/writes.toml"
-      devman_wr_kept="$devman_reg/projects/${projectName}/writes.toml"
+      devman_wr_kept="$devman_state/projects/${projectName}/writes.toml"
       if [ -f "$devman_wr" ]; then
         if [ ! -f "$devman_wr_kept" ]; then
           devman_stale=1
@@ -895,7 +922,7 @@ in
            || [ "$devman_locals" != "$devman_local" ] \
            || [ ! -d "$devman_reg/dags" ] \
            || [ -n "$devman_relink" ] || [ -n "$devman_stale" ]; then
-          ${projectScript} "$devman_root" "$devman_reg" "''${devman_local_args[@]}"
+          ${projectScript} "$devman_root" "$devman_reg" "$devman_state" "''${devman_local_args[@]}"
         fi
       fi
 
@@ -903,10 +930,10 @@ in
       # project directory is the opt-in boundary and the guard keeps this hook
       # from forking for repositories that have no central declarations yet.
       if [ -n "$devman_overlay" ]; then
-        ${linkScript} "$devman_root" "$devman_overlay" "$devman_reg"
+        ${linkScript} "$devman_root" "$devman_overlay" "$devman_reg" "$devman_state"
       fi
 
-      unset devman_root devman_reg devman_meta devman_b devman_f \
+      unset devman_root devman_reg devman_state devman_meta devman_b devman_f \
             devman_overlay \
             devman_disk devman_local devman_local_args devman_names devman_n \
             devman_relink devman_stale devman_proj devman_body devman_have \

@@ -47,6 +47,7 @@ from . import agent, link, project, run, show, watch
 from .registry import (
     DEFAULT_DAGU_HOME,
     DEFAULT_REGISTRY,
+    DEFAULT_STATE,
     Registry,
     RegistryError,
     report,
@@ -90,6 +91,11 @@ def parser() -> argparse.ArgumentParser:
     # closed.
     ap.add_argument(
         "--registry", default=DEFAULT_REGISTRY, help="the registry root (§9.2)"
+    )
+    ap.add_argument(
+        "--state",
+        default=DEFAULT_STATE,
+        help="the state root — metadata.json and kept triggers/writes copies (§11 Stage 3)",
     )
     ap.add_argument(
         "--dagu-home", default=DEFAULT_DAGU_HOME, help="the plane's DAGU_HOME (S2)"
@@ -208,7 +214,7 @@ def handler(command: str):
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    reg = Registry(args.registry)
+    reg = Registry(args.registry, args.state)
     try:
         return handler(args.command)(args, reg)
     except RegistryError as exc:

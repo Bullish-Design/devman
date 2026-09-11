@@ -1,14 +1,28 @@
-"""Reading devman's registry (CONCEPT.md §9.2).
+"""Reading devman's registry (CONCEPT.md §9.2, §11 Stage 3).
 
 The registry is derived and group/central overlay sources are canonical (§9.3),
 so everything here reads and nothing here writes. The one exception is `Registry.unproject`,
 which `doctor --prune` calls, and §10 makes that safe for the same reason: a
 pruned entry restores itself the next time that repository's shell is entered.
 
-    ~/.local/share/devman/
-    ├── projects/<project>/metadata.json               # identity and path
-    │   └── workflows/<workflow>.yaml   -> the winner of §7.3's resolution
-    └── dags/<project>.<workflow>.yaml  -> the line above
+    ~/.local/share/devman/                                  (the registry root)
+    ├── projects/<project>/workflows/<workflow>.yaml   -> the winner of §7.3's resolution
+    └── dags/<project>.<workflow>.yaml                 -> the line above
+
+    ~/.local/state/devman/                                   (the state root)
+    └── projects/<project>/metadata.json                # identity and path
+        ├── triggers.toml                               # kept copy, drift check
+        └── writes.toml                                 # kept copy, drift check
+
+Stage 3 splits what was one directory in two, by kind rather than by
+convenience: `dags/` and the projected `workflows/*.yaml` are a projection of
+authored config; `metadata.json` and the kept copies of the repository's own
+`triggers.toml`/`writes.toml` are regenerated on every shell entry and belong
+in state. Both halves lived under `~/.local/share/devman/` before Stage 3;
+only the second half has actually moved, to `~/.local/state/devman/`.
+`registryDir` itself is NOT moving to `~/.config/devman` yet — see
+`DEFAULT_REGISTRY`'s comment for why (§6.2a is the blocker). `link.py:395` and
+the NixOS module's `--registry`/`--state` flags are the boundary either way.
 
 `dags/` is Dagu's flat view; `projects/` is devman's. A DAG is keyed by its
 file's base name, so the flat name is what `dagu ls`, the scheduler and `dagu
@@ -30,10 +44,30 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# CONCEPT.md §9.2 and §16: the registry root is `~/.local/share/devman`, and
-# nothing else claims it (D1). The NixOS module exposes it as an option, and
-# wraps this CLI with `--registry` when a machine moves it.
+# CONCEPT.md §9.2, §11 Stage 3 and §16: the registry root holds `dags/` and the
+# `workflows/` projection. The NixOS module exposes it as an option, and wraps
+# this CLI with `--registry` when a machine moves it.
+#
+# **Stage 3 keeps this at `~/.local/share/devman` for now, deliberately.**
+# `overlayDir` already defaults to `~/.config/devman`, and `_sources()` in
+# `project.py` reads a local workflow override's AUTHORED source from
+# `overlay/projects/<p>/workflows/<name>.yaml` — the same relative path
+# `apply()` WRITES the rendered projection to under `registry/projects/<p>/
+# workflows/`. Moving `registryDir` to `~/.config/devman` before §6.2a's
+# render-to-link change lands would make those the same file, and every shell
+# entry would overwrite a tracked, hand-authored workflow with its own
+# generated projection. §6.2a is deferred pending a design for how a
+# *scheduled* (cron-fired) run still gets its project directory without a
+# per-project rendered file — see CONCEPT.md §11 Stage 4. Move this only once
+# that lands.
 DEFAULT_REGISTRY = "~/.local/share/devman"
+
+# §11 Stage 3: the state root holds what a shell entry regenerates —
+# `metadata.json` and the kept copies of a repository's own `triggers.toml` and
+# `writes.toml`. Split from the registry root because the two kinds have
+# different lifetimes: config is authored, state is derived fresh every time.
+# The NixOS module wraps this CLI with `--state` when a machine moves it.
+DEFAULT_STATE = "~/.local/state/devman"
 
 # The plane's Dagu home. Deliberately NOT the ambient `DAGU_HOME`: an unset one
 # makes `dagu` build a fresh home and seed five example DAGs, and a wrong one
@@ -228,7 +262,10 @@ def split_dag_name(name: str) -> tuple[str, str]:
 
 @dataclass
 class Project:
-    """One `projects/<project>/metadata.json`, as written by the devenv module."""
+    """One `<state>/projects/<project>/metadata.json`, as written by the devenv
+    module. `entry` (below) names that state-side directory; the project's
+    projected workflows live under the registry root instead — see
+    `Registry._workflows_dir()`."""
 
     name: str
     path: Path
@@ -322,8 +359,13 @@ class RegistryFault:
 
 
 class Registry:
-    def __init__(self, root: str | os.PathLike[str] = DEFAULT_REGISTRY) -> None:
+    def __init__(
+        self,
+        root: str | os.PathLike[str] = DEFAULT_REGISTRY,
+        state: str | os.PathLike[str] = DEFAULT_STATE,
+    ) -> None:
         self.root = Path(os.path.expanduser(str(root)))
+        self.state = Path(os.path.expanduser(str(state)))
 
     @property
     def projects_dir(self) -> Path:
@@ -332,6 +374,16 @@ class Registry:
     @property
     def dags_dir(self) -> Path:
         return self.root / "dags"
+
+    @property
+    def state_projects_dir(self) -> Path:
+        return self.state / "projects"
+
+    def _workflows_dir(self, project: Project) -> Path:
+        """Where a project's projected workflow files live — always the
+        registry root (§11 Stage 3), never `project.entry`, which is the
+        state-side entry holding `metadata.json`."""
+        return self.projects_dir / project.name / "workflows"
 
     def load(self) -> tuple[dict[str, Project], list[RegistryFault]]:
         """Every valid project, and every entry that is not one (009 P2-3).
@@ -354,9 +406,9 @@ class Registry:
         """
         out: dict[str, Project] = {}
         faults: list[RegistryFault] = []
-        if not self.projects_dir.is_dir():
+        if not self.state_projects_dir.is_dir():
             return out, faults
-        for entry in sorted(self.projects_dir.iterdir()):
+        for entry in sorted(self.state_projects_dir.iterdir()):
             if not entry.is_dir():
                 continue
             meta = entry / "metadata.json"
@@ -511,8 +563,7 @@ class Registry:
 
     def workflow_file(self, project: Project, workflow: str) -> Path:
         """The projected file for one workflow — the winner of §7.3."""
-        path = (project.entry or self.projects_dir / project.name) / "workflows"
-        path = path / f"{workflow}.yaml"
+        path = self._workflows_dir(project) / f"{workflow}.yaml"
         if not path.exists():
             names = ", ".join(project.workflow_names()) or "(none)"
             raise RegistryError(
@@ -585,7 +636,7 @@ class Registry:
         """Every `(project, workflow, projected file)` in the registry."""
         out = []
         for proj in self.projects().values():
-            wdir = (proj.entry or self.projects_dir / proj.name) / "workflows"
+            wdir = self._workflows_dir(proj)
             if not wdir.is_dir():
                 continue
             for f in sorted(wdir.glob("*.yaml")):
@@ -607,8 +658,8 @@ class Registry:
         Both shapes are removed while the machine holds both (S-12).
         """
         removed: list[Path] = []
-        entry = project.entry or self.projects_dir / project.name
-        wdir = entry / "workflows"
+        registry_entry = self.projects_dir / project.name
+        wdir = registry_entry / "workflows"
         for f in sorted(wdir.glob("*.yaml")) if wdir.is_dir() else []:
             want = f"../projects/{project.name}/workflows/{f.stem}.yaml"
             for sep in (DAG_SEPARATOR, LEGACY_DAG_SEPARATOR):
@@ -619,8 +670,10 @@ class Registry:
             f.unlink()
             removed.append(f)
         _rmdir(wdir)
+        _rmdir(registry_entry)
         # `metadata.json` goes last, so a prune interrupted half way leaves an
         # entry `doctor` reports again rather than a directory nothing owns.
+        entry = project.entry or self.state_projects_dir / project.name
         meta = entry / "metadata.json"
         if meta.exists():
             meta.unlink()

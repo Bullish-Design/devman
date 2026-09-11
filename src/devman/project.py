@@ -1,8 +1,11 @@
-"""The projection (CONCEPT.md §9.2) — the producer, in Python.
+"""The projection (CONCEPT.md §9.2, §11 Stage 3) — the producer, in Python.
 
-    <registry>/projects/<project>/metadata.json
+    <state>/projects/<project>/metadata.json
     <registry>/projects/<project>/workflows/<workflow>.yaml   the generated file
     <registry>/dags/<project>.<workflow>.yaml   -> the line above
+
+`state` and `registry` are the same directory unless a caller splits them
+(`apply()`'s `state` keyword, §11 Stage 3).
 
 **This used to be shell inside `modules/devenv.nix`, and four of project 009's
 findings were one consequence of that.** The module decided the directory
@@ -310,6 +313,7 @@ def apply(
     registry: Path,
     local: list[str],
     *,
+    state: Path | None = None,
     dagu: str | None = None,
 ) -> None:
     """Rebuild this project's whole projection, then record it.
@@ -331,16 +335,25 @@ def apply(
     whoever triggers the workflow next; validating here moves it to the one
     person who can fix it — the author, at shell entry — and it means every
     runnable link is known valid.
+
+    **§11 Stage 3 splits the entry in two.** `workflows_dir` and `dags` are the
+    projection of authored config and stay under `registry`; `entry` — holding
+    `metadata.json` and the kept copies of `.devman/triggers.toml` and
+    `.devman/writes.toml` — is regenerated on every shell entry and moves under
+    `state`. The two are the same directory when a caller passes `registry ==
+    state`, which is what every test in this suite still does.
     """
     fault = identity_fault("project", plan.project)
     if fault:
         raise ProjectionError(f"refusing to project '{plan.project}'\n  {fault}")
 
-    entry = registry / "projects" / plan.project
-    workflows_dir = entry / "workflows"
+    registry_entry = registry / "projects" / plan.project
+    workflows_dir = registry_entry / "workflows"
     dags = registry / "dags"
+    entry = (state if state is not None else registry) / "projects" / plan.project
     workflows_dir.mkdir(parents=True, exist_ok=True)
     dags.mkdir(parents=True, exist_ok=True)
+    entry.mkdir(parents=True, exist_ok=True)
 
     # §9.2's run-state layout, repo-side. Dagu creates `log_dir` itself, but
     # `artifacts/` and `reports/` have no other owner and a step that writes a
@@ -698,6 +711,7 @@ def main(args, reg) -> int:
             Path(args.root),
             reg.root,
             list(args.local),
+            state=reg.state,
             dagu=getattr(args, "dagu", None),
         )
     except ProjectionError as exc:
@@ -727,10 +741,12 @@ def cli(argv: list[str] | None = None) -> int:
     p = sub.add_parser("apply", help="rebuild this repository's projection")
     add_arguments(p)
     p.add_argument("--registry", required=True, help="the registry root (§9.2)")
+    p.add_argument("--state", required=True, help="the state root (§11 Stage 3)")
     args = ap.parse_args(argv)
 
     class _Reg:
         root = Path(args.registry)
+        state = Path(args.state)
 
     return main(args, _Reg())
 

@@ -843,22 +843,62 @@ Reversible by deleting one directory.
 **Stop here and use it for a week.** Stages 0–2 give the whole model with the
 registry in its old place and workflows still rendered.
 
-### Stage 3 — move the registry, split config from state (1 day)
+### Stage 3 — split config from state (1 day). **`registryDir` did NOT move — measured 2026-09-11.**
 
-1. `devman/nix/nixos-module.nix:334` and `devman/modules/devenv.nix:485`: default
-   `registryDir` → `$HOME/.config/devman`; add `stateDir` →
-   `$HOME/.local/state/devman`.
-2. `devman/nix/nixos-module.nix:88`: `paths.dags_dir` follows the new root.
-3. `metadata.json`, `plan.json`, `triggers.toml` move to `stateDir`.
-4. Rebuild. Every repository re-registers on its next shell entry. Delete
-   `~/.local/share/devman/` when `devman doctor` is clean.
+1. Add `stateDir` → `$HOME/.local/state/devman` beside `registryDir` in
+   `devman/nix/nixos-module.nix` and `devman/modules/devenv.nix`.
+   `metadata.json` and the kept copies of a repository's own
+   `.devman/triggers.toml`/`.devman/writes.toml` move there. **Implemented and
+   landed** — `src/devman/registry.py`, `project.py`, `watch.py`, `doctor.py`,
+   `cli.py`, `link.py`, both Nix modules and `nix/tests/dagu-service.nix`.
+2. **This item did not land, and the reason is a real bug it would have
+   introduced, not a preference:** `registryDir`'s default → `$HOME/.config/devman`
+   (item 1 of the original list here) collides with `overlayDir`, which already
+   defaults there. `project.py`'s `_sources()` reads a local workflow
+   override's AUTHORED source from `overlay/projects/<p>/workflows/<name>.yaml`;
+   `apply()` WRITES the rendered projection to the same relative path under
+   `registry/projects/<p>/workflows/`. With the two roots equal, both are one
+   file, and rendering it overwrites the tracked, hand-authored source with
+   generated output (a "do not edit" banner over the original body) on the
+   very next shell entry — devman's own repository has five such files under
+   `~/.config/devman/projects/devman/workflows/` and would have lost them
+   immediately. §6.1 names the shared path as the *intended end state*, but
+   only once §6.2a's render-to-link change removes the write side of the
+   collision. Stage 3 as originally scoped here moved `registryDir` without
+   also completing §6.2a, which is the gap.
+3. `paths.dags_dir` stays under `registryDir`, unmoved — no change needed
+   there since `registryDir` itself did not move.
+4. **§6.2a cannot land as a quick follow-on either — it is a real design gap,
+   not a small patch.** `render()` does not only add `working_dir`/`log_dir`
+   as convenience; its `env: DEVMAN_PROJECT_DIR: <path>` block is the *only*
+   way a **scheduled** (cron-fired) workflow gets its project directory. A
+   CLI-triggered run gets it from the triggering process's environment via
+   `env_passthrough_prefixes`; a scheduled run has no enqueuing process to pass
+   anything through (S9, S13). A plain symlink from `dags/` to a group's
+   Nix-store file or the overlay's file cannot carry a project-specific value,
+   because that source file is shared and invariant. §6.2a's own text already
+   says "revisit then, with evidence from having written workflows in two or
+   three repositories" — the mechanism for scheduled runs was never designed,
+   only deferred. Moving `registryDir` is gated on that design existing, not
+   merely on writing the symlink code.
+5. **Revised order:** `registryDir` moves to `$HOME/.config/devman` only after
+   a Stage 4 that includes a stated answer for scheduled-run correctness under
+   the link design, verified against `nix/tests/dagu-service.nix`'s scheduled
+   subtest before it replaces the rendering path. Until then `registryDir`
+   stays at `$HOME/.local/share/devman` and nothing under it is deleted.
 
-**Zero repository edits.** `grep -rn registryDir */devenv.nix` returns **0 hits**.
+**Zero repository edits, still true for what landed.** `grep -rn registryDir
+*/devenv.nix` returns **0 hits** — `stateDir`'s introduction needed none
+either, since it is additive with a default every repository already gets for
+free on rebuild.
 
-### Stage 4 — stop rendering workflows; link them (2 days)
+### Stage 4 — stop rendering workflows; link them (2 days, and a real design, not a patch)
 
 §6.2. Editing the repository's file then takes effect on the next run and on the
-next *scheduled* run, with no re-projection — both verified.
+next *scheduled* run, with no re-projection — both verified for the *manual*
+symlink case in §6.3. **Not yet verified for the SCHEDULED case under the
+actual renderer removal** — see Stage 3 item 4 above. Design that before
+touching `project.py`'s render path.
 
 ### Stage 5 — one toolchain (several weeks, and separable)
 

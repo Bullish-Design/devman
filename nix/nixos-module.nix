@@ -225,6 +225,7 @@ let
     } ''
     makeWrapper ${cliUnwrapped}/bin/devman $out/bin/devman \
       --add-flags "--registry ${home cfg.registryDir}" \
+      --add-flags "--state ${home cfg.stateDir}" \
       --add-flags "--dagu-home ${home cfg.dagHome}"
   '';
 
@@ -234,10 +235,11 @@ let
   installConfig = pkgs.writeShellScript "devman-dagu-install-config" ''
     set -eu
     registry="${cfg.registryDir}"
+    state="${cfg.stateDir}"
 
-    # The registry is the devenv module's to fill, but its two directories must
-    # exist before Dagu scans one of them.
-    "${pkgs.coreutils}/bin/mkdir" -p "$DAGU_HOME" "$registry/projects" "$registry/dags"
+    # The registry and the state root are the devenv module's to fill, but
+    # their directories must exist before Dagu scans one of them (§11 Stage 3).
+    "${pkgs.coreutils}/bin/mkdir" -p "$DAGU_HOME" "$registry/projects" "$registry/dags" "$state/projects"
 
     "${pkgs.gnused}/bin/sed" "s|${registryToken}|$registry|g" ${configFile} \
       > "$DAGU_HOME/.config.yaml.new"
@@ -333,9 +335,25 @@ in
       type = types.str;
       default = "$HOME/.local/share/devman";
       description = ''
-        The registry root (§9.2). `$HOME` is expanded by the unit's
-        ExecStartPre, not by Nix, because a user service has one home per user.
-        It must match `devman.registryDir` in every repository that registers.
+        The registry root (§9.2) — `dags/` and the `workflows/` projection.
+        `$HOME` is expanded by the unit's ExecStartPre, not by Nix, because a
+        user service has one home per user. It must match `devman.registryDir`
+        in every repository that registers.
+
+        **Not moved to `~/.config/devman` yet** — see `devman.registryDir`'s
+        description in `modules/devenv.nix` for why (§6.2a is the blocker).
+      '';
+    };
+
+    stateDir = mkOption {
+      type = types.str;
+      default = "$HOME/.local/state/devman";
+      description = ''
+        The state root (§11 Stage 3) — `metadata.json` and the kept copies of
+        each repository's own `.devman/triggers.toml` and `.devman/writes.toml`,
+        regenerated on every shell entry. `$HOME` is expanded by the unit's
+        ExecStartPre, not by Nix. It must match `devman.stateDir` in every
+        repository that registers.
       '';
     };
 

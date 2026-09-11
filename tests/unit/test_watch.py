@@ -352,6 +352,8 @@ def test_the_command_ends_with_the_dispatcher(plane):
         watch.self_binary(),
         "--registry",
         str(plane.root),
+        "--state",
+        str(plane.root),
         "--dagu-home",
         "/tmp/dagu",
         "watch",
