@@ -39,6 +39,7 @@ reconcile deterministic for shared canonical trees.
 
 `base:check` passed. `base:unit` passed with 519 tests. `devman doctor` showed
 seven findings already present before this closure and no new finding. The
-closure-path `base:test` attempt is preserved in the artifacts and failed only
-because Nix filters nested workspaces through the outer Git root; the hermetic
-check will run after this change is landed into the parent 032 workspace.
+nested-workspace `base:test` task hit the known outer Git-root filter. An
+equivalent `nix flake check` from a temporary copy outside that root passed all
+20 checks, including the Dagu service VM. Both results are in the dated local
+artifact logs.

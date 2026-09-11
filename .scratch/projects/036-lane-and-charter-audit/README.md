@@ -68,8 +68,8 @@ logs are in `artifacts/20260911T130000Z-final/`:
 - `devman doctor` returned the same seven pre-existing findings: two link-drift
   entries, one local-source pin, one path input, one daemon-shell notice, and
   the watcher report.
-- `base:test` was attempted and hit the known nested-workspace Nix filter:
-  Nix sees `closure/flake.nix` as untracked below the outer Git root. The
-  parent 032 workspace is the supported explicit-flake-check location; the
-  closure lane must be landed into that workspace before the hermetic check can
-  see it.
+- `base:test` was attempted in the nested workspace and hit the known Nix
+  filter. An equivalent `nix flake check` from a temporary copy outside the
+  outer Git root passed all 20 checks, including the Dagu service VM. The raw
+  task failure and the successful rerun are preserved in the dated local
+  artifacts.
