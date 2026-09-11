@@ -55,7 +55,7 @@
 
 python3Packages.buildPythonApplication {
   pname = "devman-project";
-  version = "0.5.1";
+  version = "0.5.2";
   pyproject = true;
 
   src = lib.fileset.toSource {

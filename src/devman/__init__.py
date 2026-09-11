@@ -5,4 +5,4 @@ local `dagu enqueue`. It executes nothing itself: every command the plane runs
 is a devenv task in the repository that owns it (§2, §6).
 """
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
