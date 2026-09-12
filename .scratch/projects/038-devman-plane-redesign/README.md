@@ -18,4 +18,8 @@ It replaces shell-entry projection with central generation reconciliation.
 [`CONCEPT.md`](CONCEPT.md) records the proposed architecture, trade-offs,
 invariants, migration path, and open decisions.
 
+[`FULL_REFACTOR_PROMPT.md`](FULL_REFACTOR_PROMPT.md) is a copy-ready prompt
+for a clean implementation session. It defines the work across Devman,
+Vendomat, and RepoMan.
+
 This project is a design document. It does not implement the redesign.
