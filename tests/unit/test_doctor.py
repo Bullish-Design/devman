@@ -403,6 +403,35 @@ def test_an_entry_from_a_newer_devman_is_reported(plane):
     assert "schema 99" in lines[0]
 
 
+def test_plane_projection_records_must_match_active_generation(plane):
+    project = plane.add("p", workflows={"check": ORDINARY})
+    (plane.root / "generation.json").write_text('{"generation": 4}\n')
+    (project.entry / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 3}\n'
+    )
+    report = doctor.Report()
+
+    doctor.check_generation(report, plane.reg)
+
+    assert report.sections[0][0:2] == ("generation", "!!")
+    assert "!= active 4" in report.sections[0][2][0]
+
+
+def test_plane_projection_records_can_match_active_generation(plane):
+    project = plane.add("p", workflows={"check": ORDINARY})
+    (plane.root / "generation.json").write_text('{"generation": 4}\n')
+    (project.entry / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 4}\n'
+    )
+    report = doctor.Report()
+
+    doctor.check_generation(report, plane.reg)
+
+    assert report.sections == [
+        ("generation", "ok", ["1 projections match generation 4"])
+    ]
+
+
 # ---------------------------------------------------------------------------
 # what the plane's only verb pays for (014)
 

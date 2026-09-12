@@ -1,9 +1,8 @@
 # Devman plane redesign — concept
 
-> **STATUS: PROPOSED (2026-09-12).** This document explores a new boundary for
-> Devman, Vendomat, RepoMan, and the repository contract. It does not change the
-> current implementation. It must become a charter amendment before code work
-> starts.
+> **STATUS: IMPLEMENTING (2026-09-12).** This document defines the new boundary
+> for Devman, Vendomat, RepoMan, and the repository contract. The implementation
+> log records the measurements and decisions that start the migration.
 
 ## 1. Decision summary
 
@@ -160,7 +159,8 @@ groups = ["base", "python"]
 policy = "stable"
 ```
 
-The exact filename is open. `.devman/project.toml` is the current proposal.
+The filename is `.devman/project.toml`. RepoMan creates it from the existing
+`devman` options during migration.
 
 The manifest contains project facts that remain true when another person
 clones the repository:
@@ -326,8 +326,9 @@ The system should support two policies:
 | `atomic` | activate only when every selected project passes |
 | `best-effort` | activate the plane and mark failed projects stale |
 
-The default needs a decision. `atomic` gives a simple state model. `best-effort`
-keeps one broken repository from blocking every other repository.
+The implementation chooses `atomic`. It gives one machine state and makes a
+failed project visible before activation. Best-effort activation remains a
+future option only if a measured fleet need outweighs its mixed-state cost.
 
 ### 8.5 Verify
 
@@ -664,12 +665,17 @@ semantics before implementation.
 
 Add a manifest schema and validation library.
 
-Add a migration command that reads the current `devman.project` and
+Add a RepoMan migration command that reads the current `devman.project` and
 `devman.groups` values.
 
 Do not remove the current Nix options.
 
 ### Stage 2 — dual projection
+
+The first implementation slice has started this stage with the new
+manifest-derived renderer. Vendomat can build and activate a temporary
+generation, but the old Nix path remains the default until comparison tests
+cover the full canary set.
 
 Render each project through both paths:
 
@@ -771,15 +777,15 @@ The redesign succeeds when:
 
 ## 19. Open decisions
 
-1. Should the manifest be `.devman/project.toml`, a Nix file, or another stable
-   text format?
-2. Should policy live in Devman, the central configuration repository, or a
-   separate policy artifact?
-3. Should the default activation mode be `atomic` or `best-effort`?
+1. **Resolved:** the manifest is `.devman/project.toml`.
+2. The first policy source is the central Devman policy checkout. A versioned
+   immutable policy artifact remains a later Vendomat packaging choice.
+3. **Resolved:** the default activation mode is `atomic`.
 4. How many prior contract schemas should the plane support?
 5. How should a project request an older plane generation?
 6. Should CI receive a full Vendomat generation or a smaller Devman-only plane?
-7. Should adoption remain a Devman command or become a RepoMan operation?
+7. **Resolved for migration:** RepoMan owns one repository's adoption and
+   manifest migration. Devman owns central reconciliation.
 8. Which generated files need atomic directory swaps?
 9. How should Dagu reload a new generation without losing active runs?
 10. Which policy changes require a GitMan lane instead of central activation?

@@ -861,6 +861,48 @@ def check_schema(rep: Report, reg: Registry) -> None:
         rep.add("schema", "ok", [f"every entry is schema {known} or older"])
 
 
+def check_generation(rep: Report, reg: Registry) -> None:
+    """Check generation identities when the registry is a plane projection."""
+
+    records = [
+        project.entry / "projection.json"
+        for project in reg.projects().values()
+        if project.entry is not None and (project.entry / "projection.json").is_file()
+    ]
+    if not records:
+        return
+    generation_path = reg.root / "generation.json"
+    try:
+        generation = json.loads(generation_path.read_text())
+        number = generation["generation"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        rep.add("generation", "!!", [f"cannot read {generation_path}: {exc}"])
+        return
+
+    stale: list[str] = []
+    for path in records:
+        try:
+            record = json.loads(path.read_text())
+        except (OSError, ValueError) as exc:
+            stale.append(f"{path.parent.name}: cannot read {path}: {exc}")
+            continue
+        if record.get("plane_generation") != number:
+            stale.append(
+                f"{record.get('project', path.parent.name)}: projection generation "
+                f"{record.get('plane_generation', '?')} != active {number}"
+            )
+    if stale:
+        rep.add(
+            "generation", "!!", stale + ["render the project through the active plane"]
+        )
+    else:
+        rep.add(
+            "generation",
+            "ok",
+            [f"{len(records)} projections match generation {number}"],
+        )
+
+
 def check_daemon_shell(rep: Report, dagu_home: Path) -> None:
     """`SHELL` in the running Dagu's own environment (009 P1-3, S13).
 
@@ -1495,6 +1537,7 @@ def main(args, reg: Registry) -> int:
     check_projection(rep, reg)
     check_dag_names(rep, reg)
     check_schema(rep, reg)
+    check_generation(rep, reg)
     check_handlers(rep, reg)
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)
