@@ -82,3 +82,48 @@ and Pytuin findings are gone. Three link-drift findings remain: Image-Gen's
 entry and generated central agent files; its overlay is backburner-disabled,
 and the generated files remain held in the central lane
 `037-central-settings-gate-2` for a later owner decision.
+
+## Deployment handoff — 2026-09-12
+
+PR #161 is merged at `73dcc41bbeccae88d3910850551ae3ddc005fedc`. The release
+object for the existing `v0.5.2` tag was created at
+https://github.com/Bullish-Design/devman/releases/tag/v0.5.2. The tag points to
+`ec6710aaa59cd1f73ccc78858623d401a20221e0`. The exact package build passed:
+
+```text
+devenv shell -- nix build --no-link \
+  'git+file:///home/andrew/Documents/Projects/devman?ref=v0.5.2#devman'
+```
+
+The machine pin was isolated in the `nix-meta` workspace lane
+`037-deploy-devman-0.5.2`. The full machine-flake check passed. The lane then
+landed and `nix-meta` `main` was pushed at
+`8422571f145a80782c22f9d97422d8d45c937fb1`.
+
+The normal switch command was:
+
+```text
+NO_SHELLIJ=1 devenv shell -- nixos-rebuild switch \
+  --flake path:/home/andrew/Documents/Projects/nix-meta/.worktrees/037-deploy-devman-0.5.2#server \
+  --no-write-lock-file --show-trace
+```
+
+It built the target but failed before activation while trying to update
+`/nix/var/nix/profiles/system`: the unprivileged session received
+`Permission denied`. `sudo -n true` confirmed that a password is required.
+The old system generation and devman 0.5.1 binary remain active. The dry
+activation also failed at its `systemd-run` authorization step. No
+`devman-resync` was run because the release is not active yet.
+
+The explicit pre-deployment doctor remained at 50 projects and 158 workflows.
+It retained the known Image-Gen `.claude/skills` drift and the pre-existing
+Repoman `.agents` and `.claude/skills` drift. The plain doctor saw the small
+pre-deployment state root at 3 projects and 16 workflows. It also reported a
+new `flora-037-part-e` workspace entry created by the held-lane shell
+inspection. That entry was not pruned because its workspace still exists.
+
+The original Flora checkout passed a fresh normal shell recheck in 424 ms. Its
+existing `73dcc41` devman input is already compatible with `devman.link`, so no
+new Flora fix was required. The unrelated lock-refresh lane
+`adopted-11ceb219` and the pre-existing promoted-file backup lane
+`adopted-53eb515c` remain held.
