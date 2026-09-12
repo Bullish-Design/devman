@@ -441,3 +441,81 @@ worked around. Scheduled Dagu runs remain ungated, as documented above. The
 §5.2 NixOS test additions beyond what already existed (proving generation 1
 stays retained and generation 2 becomes visible across the swap) were already
 present from Stage 5; this stage did not need to add them.
+
+## Stage 11 — RepoMan inventory, and explicit projection mode
+
+On 2026-09-12, a read-only inventory sweep ran RepoMan's migration proposal
+(`repoman devman migrate`, no `--apply`) against 46 registered repositories
+beyond the three canary repositories, which already carry a migrated
+manifest. Findings, for a human to review before any repository lane is
+opened:
+
+- 43 of 46 propose cleanly, almost all to a single `base` group;
+  `observantic` is the only one proposing `base, release`.
+- `copyroom`, `docman`, and `mypi-agent` cannot migrate mechanically: each
+  carries its `devman` option block in `dev/devenv.nix` rather than the
+  tracked root `devenv.nix`, which is a structural choice a human has to
+  resolve, not a tool gap.
+- Four repositories (`fornix`, `interplay`, `structured-agents-v2`, `talkee`)
+  carry nested `.git` checkouts, all inside vendor or scratch directories —
+  worth a glance before migrating, not necessarily a blocker.
+- Every one of the 46 already carries a `devenv.local.nix` machine-local
+  overlay, which the link-plane design (project 025) expects and is not
+  itself a finding.
+
+No repository outside the three canaries was written to. Applying any of
+these migrations is a separate, explicit decision this project has not been
+asked to make.
+
+Devman added an explicit `mode` line to `devman doctor` (§7): `plane` when
+the registry root carries a `generation.json` — written only by
+`GenerationStore.build` — and `compatibility` otherwise. Vendomat's
+`plane show` now states `projection mode: plane` for the same reason
+`plane show` states anything else about a generation: Vendomat only ever
+produces plane projections, and saying so removes the one implicit fact `git
+grep compatibility` found nowhere stated. Neither reads or infers anything
+from `PATH`.
+
+**Building this stage's VM-test proof surfaced a second, unrelated latent
+bug, and also a false lead worth recording so it is not re-chased.** Adding
+the `mode` check appeared to make the `dagu-service` VM test fail
+deterministically at the same subtest, four runs in a row — every symptom of
+a real regression. Isolating it by reverting just the `mode` change and
+forcing a fresh (non-cached) rebuild of that reverted version, under the same
+host load, reproduced the identical failure. **The `mode` check was never the
+cause.** The actual defect, latent since Stage 4, is in `check_queues`
+(`check_queues` docstring, S14): a queued item can read as "0 running" for
+longer than an instant before Dagu's own scheduler dispatches it, and under a
+sufficiently loaded host that window can exceed even a generous single
+re-check. `check_queues` now re-checks up to three times, one second apart,
+before it concludes a queue is genuinely wedged rather than merely
+mid-dispatch — bounding the added cost at three seconds, and only when a
+queue looks momentarily empty of runners. This is a production hardening as
+much as a test fix: an operator running `devman doctor` under machine load
+could hit the exact same false "!!" today.
+
+The proof ran in Devman and Vendomat:
+
+```sh
+devenv tasks run -v base:check
+devenv tasks run -v base:test
+devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link
+devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link --rebuild
+devenv shell -- devman doctor
+cd vendomat && devenv shell -- testee verify --mode quick
+```
+
+`base:check` and `base:test` passed. The `dagu-service` VM test passed twice
+in a row after the `check_queues` fix, including one `--rebuild` run that
+also verified output reproducibility — after having failed reproducibly
+four times running before it. The unit suite passed with 547 tests (545
+prior + 2 new, covering both `mode` states; `check_queues` itself stays
+untested by unit tests per this file's own stated policy — it belongs to the
+VM test, which now covers it under load). `devman doctor` reported the same
+three pre-existing findings as Stage 10, plus the new `mode` line. Vendomat
+quick verification passed: ruff, format, ty, and pytest.
+
+Not done in this stage: the fleet-wide RepoMan migration itself (applying
+any of the 46 proposals) — inventory only, by explicit instruction. The full
+§7 comparison sweep (eleven dimensions across every canary) has not run; it
+needs a live side-by-side environment this stage did not build.

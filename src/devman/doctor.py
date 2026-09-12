@@ -159,6 +159,15 @@ def check_queues(rep: Report, base_url: str) -> None:
       merely-queued item carries no conditions at all on 2.15.0; this stays
       because it is the path E5 measured and it is Dagu reporting, not devman
       guessing.
+
+    **A queued item can read as "0 running" for longer than an instant before
+    Dagu's own scheduler dispatches it** — measured against the NixOS service
+    test under a loaded host (project 038, §7): a `devman doctor` call landed
+    between a batch being queued and dispatched, and reported a plane draining
+    its own work as wedged, and a single half-second re-check was not always
+    enough to clear it. Up to three one-second re-checks, only while a queue
+    looks empty of runners, tell that dispatch delay from an actually wedged
+    queue at a bounded cost of at most three seconds.
     """
     try:
         data = _get(base_url, "/api/v1/queues")
@@ -173,6 +182,25 @@ def check_queues(rep: Report, base_url: str) -> None:
             "queues", "ok", [f"{len(queues)} queues, {running} running, none waiting"]
         )
         return
+
+    for _ in range(3):
+        if not any(q.get("runningCount", 0) == 0 for q in waiting):
+            break
+        time.sleep(1)
+        try:
+            data = _get(base_url, "/api/v1/queues")
+            queues = data.get("queues", [])
+            waiting = [q for q in queues if q.get("queuedCount")]
+        except (urllib.error.URLError, OSError, ValueError):
+            break
+        if not waiting:
+            running = sum(q.get("runningCount", 0) for q in queues)
+            rep.add(
+                "queues",
+                "ok",
+                [f"{len(queues)} queues, {running} running, none waiting"],
+            )
+            return
 
     lines = []
     wedged = False
@@ -859,6 +887,19 @@ def check_schema(rep: Report, reg: Registry) -> None:
         )
     else:
         rep.add("schema", "ok", [f"every entry is schema {known} or older"])
+
+
+def check_mode(rep: Report, reg: Registry) -> None:
+    """Which projection is authoritative for this registry root (§7, project 038).
+
+    Vendomat's plane always writes `generation.json` at the active root
+    (`GenerationStore.build`, vendomat); the compatibility shell-entry
+    projection never does. Its presence is the one fact the registry states on
+    disk, so this reads it rather than inferring the mode from which binary
+    happens to be first on PATH.
+    """
+    mode = "plane" if (reg.root / "generation.json").is_file() else "compatibility"
+    rep.add("mode", "ok", [mode])
 
 
 def check_generation(rep: Report, reg: Registry) -> None:
@@ -1562,6 +1603,7 @@ def main(args, reg: Registry) -> int:
     print()
 
     rep = Report()
+    check_mode(rep, reg)
     if check_plane(rep, base_url):
         check_queues(rep, base_url)
     check_faults(rep, reg)

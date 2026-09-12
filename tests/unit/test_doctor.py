@@ -453,6 +453,25 @@ def test_an_entry_from_a_newer_devman_is_reported(plane):
     assert "schema 99" in lines[0]
 
 
+def test_mode_reports_compatibility_with_no_generation_file(plane):
+    plane.add("p", workflows={"check": ORDINARY})
+    rep = doctor.Report()
+
+    doctor.check_mode(rep, plane.reg)
+
+    assert rep.sections[0] == ("mode", "ok", ["compatibility"])
+
+
+def test_mode_reports_plane_when_a_generation_file_is_active(plane):
+    plane.add("p", workflows={"check": ORDINARY})
+    (plane.root / "generation.json").write_text('{"generation": 1}\n')
+    rep = doctor.Report()
+
+    doctor.check_mode(rep, plane.reg)
+
+    assert rep.sections[0] == ("mode", "ok", ["plane"])
+
+
 def test_plane_projection_records_must_match_active_generation(plane):
     project = plane.add("p", workflows={"check": ORDINARY})
     (plane.root / "generation.json").write_text('{"generation": 4}\n')
