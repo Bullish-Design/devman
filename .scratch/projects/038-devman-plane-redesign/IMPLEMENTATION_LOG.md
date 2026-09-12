@@ -200,8 +200,7 @@ workflows, ran `demo.probe`, and wrote the expected run records and logs.
 The watcher stayed live. The service and doctor checks passed.
 
 The fixture changes only VM test data after activation. Production generation
-contents remain immutable. A pointer-swap test that proves reload without
-losing Dagu history, and automatic service reload, remain open.
+contents remain immutable. The pointer-swap canary follows in Stage 5.
 
 ## Stage 5 — active pointer swap
 
@@ -214,6 +213,21 @@ Generation 1 remained available. The previous successful run remained visible.
 The project `metadata.jsonl` line count did not change. This proves that stable
 Dagu state survives a generation swap.
 
-The service still needs an automatic reload path. The next test should swap the
-pointer while the service stays up and prove that Dagu reloads without a manual
-restart or loss of history.
+The service still needs a proof that the active pointer can change while the
+service stays up without a manual restart. The current test performs that
+pointer swap in Stage 5 with the automatic path enabled.
+
+## Stage 6 — automatic Dagu reload
+
+The NixOS module now installs a user-level systemd path unit. It watches the
+active registry pointer and starts a oneshot service when the pointer changes.
+That service runs `systemctl --user try-restart dagu.service`.
+
+The pointer-swap VM canary passed on 2026-09-12 without a manual restart. It
+observed a new Dagu process, confirmed generation 2, retained generation 1,
+rediscovered `demo.probe`, and preserved the prior run record. The stable Dagu
+home kept the run history across the restart.
+
+Dagu has no public reload endpoint or reload CLI. The path unit is the current
+reload adapter. An active-run test remains open for proving interruption and
+recovery semantics during the restart.

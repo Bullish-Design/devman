@@ -173,6 +173,7 @@
 
     with subtest("an active pointer swap keeps generation history and run history"):
         before_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
+        before_pid = tester("systemctl --user show dagu -p MainPID --value").strip()
         machine.succeed(f"su tester -c 'cp -a {GENERATION} {GENERATION2}'")
         generation2 = json.dumps({
             "generation": 2,
@@ -191,7 +192,10 @@
         )
         machine.succeed(f"su tester -c 'test \"$(readlink {REG})\" = generations/2'")
         machine.succeed(f"su tester -c 'test -f {GENERATION}/generation.json'")
-        tester("systemctl --user restart dagu")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test \"$(systemctl --user show dagu -p MainPID --value)\" != \"{before_pid}\"'",
+            timeout=60,
+        )
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
         )
