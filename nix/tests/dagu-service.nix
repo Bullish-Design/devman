@@ -57,6 +57,7 @@
     HOME = "/home/tester"
     PLANE = HOME + "/.local/state/vendomat/devman"
     GENERATION = PLANE + "/generations/1"
+    GENERATION2 = PLANE + "/generations/2"
     REG = PLANE + "/active"
     STATE = HOME + "/.local/state/devman"
     PROJ = HOME + "/work/demo"
@@ -169,6 +170,35 @@
         assert rec["status"] == "succeeded"
         assert rec["log"].startswith(PROJ + "/.devman/.runs/logs/")
         assert rec["run_id"] and rec["attempt"] and rec["started_at"]
+
+    with subtest("an active pointer swap keeps generation history and run history"):
+        before_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
+        machine.succeed(f"su tester -c 'cp -a {GENERATION} {GENERATION2}'")
+        generation2 = json.dumps({
+            "generation": 2,
+            "devman_runtime": "test",
+            "renderer_digest": "sha256:test",
+            "policy_digest": "sha256:test-v2",
+            "dagu_digest": "sha256:test",
+            "toolchain_digest": "sha256:test",
+        })
+        machine.succeed(
+            f"su tester -c \"printf '%s\\n' '{generation2}' > {GENERATION2}/generation.json\""
+        )
+        machine.succeed(
+            f"su tester -c 'ln -s generations/2 {PLANE}/.active-2.new && "
+            f"mv -Tf {PLANE}/.active-2.new {REG}'"
+        )
+        machine.succeed(f"su tester -c 'test \"$(readlink {REG})\" = generations/2'")
+        machine.succeed(f"su tester -c 'test -f {GENERATION}/generation.json'")
+        tester("systemctl --user restart dagu")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
+        )
+        assert "demo.probe" in tester("dagu ls")
+        assert "Succeeded" in tester("dagu status demo.probe")
+        after_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
+        assert after_lines == before_lines, (before_lines, after_lines)
 
     with subtest("the ports the module declares are the ports Dagu binds"):
         machine.succeed("ss -ltnp | grep 127.0.0.1:8080")

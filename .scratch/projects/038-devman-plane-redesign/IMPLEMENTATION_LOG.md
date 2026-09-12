@@ -202,3 +202,18 @@ The watcher stayed live. The service and doctor checks passed.
 The fixture changes only VM test data after activation. Production generation
 contents remain immutable. A pointer-swap test that proves reload without
 losing Dagu history, and automatic service reload, remain open.
+
+## Stage 5 — active pointer swap
+
+The Dagu service VM test now copies generation 1 to generation 2 and changes
+only the generation identity. It switches `active` with one atomic symlink
+replacement. The test restarts Dagu to load the new DAG root.
+
+The test passed on 2026-09-12. Dagu discovered `demo.probe` after the swap.
+Generation 1 remained available. The previous successful run remained visible.
+The project `metadata.jsonl` line count did not change. This proves that stable
+Dagu state survives a generation swap.
+
+The service still needs an automatic reload path. The next test should swap the
+pointer while the service stays up and prove that Dagu reloads without a manual
+restart or loss of history.
