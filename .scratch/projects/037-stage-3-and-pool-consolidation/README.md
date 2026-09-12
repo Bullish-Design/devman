@@ -231,3 +231,76 @@ workspace.
 
 PR #162 is merged at `888ff1d09f7ebbe28e1bdeec1867dbdb4653d98d`. PR #163 is
 merged at `67a0a0325343ee564f72f15358ccc11f8ac8b189`.
+
+## Part B deployment handoff — 2026-09-12
+
+### What was measured
+
+The `nix-meta` `main` checkout now carries the devman 0.5.2 pin at
+`8422571f145a80782c22f9d97422d8d45c937fb1`. After the system switch,
+`/run/current-system/sw/bin/devman` resolves to the 0.5.2 package. The
+`dagu.service` and `devman-watch.service` user services restarted at
+`2026-09-12 09:53:20 EDT` and are active.
+
+The released resync command was run from the devman checkout:
+
+```text
+NO_SHELLIJ=1 devenv shell -- devman-resync
+```
+
+It exited 1. The new state root has 4 projects and 19 workflows. The old
+registry still has 50 projects and 158 workflows, as reported by the explicit
+old-layout doctor:
+
+```text
+devman doctor — 4 projects, 19 workflows
+devman doctor — 50 projects, 158 workflows
+```
+
+Dagu reads `/home/andrew/.local/share/devman/dags`. It finds 164 symlink
+entries, 161 valid DAG names, and three broken `my-ai` links. The valid count
+is three above the normal 158 because the held `flora-037-part-e` workspace
+still has three projected links. Dagu reports those three broken links as
+warnings.
+
+### What was found
+
+The machine switch is correct. The fleet migration is not complete. Forty-five
+registered repositories still pin devman at `v0.5.1`, and
+`paloma-text-pipeline` and `talkee` use older pre-Stage-3 revisions. Their
+generated shell hooks do not know `stateDir`; they continue to write the old
+registry layout. The repositories already using the Stage-3 module account
+for the four new state entries: `devman`, `flora`, `pydantree`, and the held
+Flora workspace.
+
+The resync script re-entered the repositories, but it did not update their
+devman inputs. Several shells also exposed existing independent blockers:
+SecretSpec required an explicit access reason in `browsee`, `fornix`,
+`mypi-agent`, `templateer_v2`, `tyo3`, and `zelligate`; RepoMan reported an
+unset store toolchain in five repositories; and several old hooks reported
+that their project was absent from the new state root.
+
+### What was decided
+
+The old registry and its Dagu projection stay in place. Nothing was pruned or
+deleted. This keeps the existing 158-workflow projection live while the
+consumer inputs are migrated. The held Flora workspace was not pruned.
+
+The next concrete action is to refresh the registered consumer devman inputs
+to v0.5.2 in isolated gitman lanes, gate each normal `devenv shell -- true`,
+and then rerun `devman-resync`. This is a fleet-wide configuration change and
+has not been landed in this follow-up.
+
+### Verification
+
+The plain default command now uses the system package and the new state root:
+
+```text
+/run/current-system/sw/bin/devman doctor
+```
+
+It exits 1 because the migration is incomplete. Its actionable findings are
+the held `flora-037-part-e` link drift and the uncommitted `repoman`
+`git+file:` source consumed by two state-root projects. The watcher and daemon
+shell lines are informational. The old-layout doctor retains the three known
+link-drift findings and its existing local-source and watcher information.
