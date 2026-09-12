@@ -519,3 +519,70 @@ Not done in this stage: the fleet-wide RepoMan migration itself (applying
 any of the 46 proposals) — inventory only, by explicit instruction. The full
 §7 comparison sweep (eleven dimensions across every canary) has not run; it
 needs a live side-by-side environment this stage did not build.
+
+## Stage 12 — a live three-repository canary, and the measurements it forced
+
+On 2026-09-12, `vendomat plane plan/update/show/rollback` ran against Devman,
+RepoMan, and Vendomat's real checkouts — not fixtures — using a scratch
+`--state-dir` under `/tmp` so nothing touched the live machine plane or any
+tracked file in any of the three repositories. This is the canary set §8
+names first; the wider category list (local-overlay project, multi-group
+project, cross-repository workflow, scheduled workflow, a project with
+declared writes, an unusual path) is unstarted, per §8's own instruction to
+add those only after the small set passes.
+
+Proven, against the real renderer and the real three repositories:
+
+- one generation contained all three projects, correctly render-only where
+  changed and no-op where not;
+- all 16 generated DAGs (10 Devman, 3 RepoMan, 3 Vendomat) validated against
+  the pinned Dagu 2.15.0;
+- a no-op update reported itself and left the generation unchanged;
+- a target-version change rendered all three and activated a new generation,
+  retaining the old one on disk;
+- rollback returned the active pointer to the retained generation, with the
+  newer one still present;
+- a missing `--project-root` (pointed at a directory that does not exist)
+  produced a structured `unreadable project` result, exit code 2, and left
+  the active generation untouched — `resolve_projects` (Stage 9) doing
+  exactly what it was built for, against real infrastructure instead of a
+  fixture;
+- an invalid `--policy-root` (no `groups/` directory) produced a structured
+  failure for every project and left the active generation untouched.
+
+**That last canary caught a real classification bug the fixture-based tests
+never triggered.** Devman's policy-resolution error text ("group root is not
+a directory: ...") contains the same phrase `_project_failure` used to detect
+a missing *project* directory, and the missing-project check ran first — so
+every invalid-policy failure was reported as `unreadable project`, naming the
+wrong repair action to an operator. Reordered so `policy` is checked before
+the generic `not a directory` phrase; the `unreadable project` phrasing
+itself was never ambiguous, only the check order was. A regression test
+reproducing the exact message now guards it. Vendomat's unit suite (29
+tests: 28 prior + 1, including this regression) and quick verification
+(ruff, format, ty, pytest) both passed after the fix. No repository outside
+the scratch state directory was written to at any point; `git status` in all
+three repositories showed only the pre-existing protected changes throughout.
+
+Measured (§9), warm, all commands via `devenv shell -- vendomat plane ...`,
+three-project fleet, on this machine, 2026-09-12:
+
+| Measure | Time | Note |
+|---|---:|---|
+| full update (3 projects, all render) | 2.78s | includes `devenv shell` entry overhead |
+| no-op update (3 projects, none render) | 1.19s | lower than a full update, as required |
+| changed-target update (3 projects, all re-render) | 2.77s | a runtime version bump alone forces re-render |
+| rollback | 0.76s | pointer swap only, no rendering |
+| consumer lock changes | 0 | no repository's `devenv.lock` or `devenv.yaml` changed |
+| consumer shell entries | 0 | one `vendomat` invocation covered all three projects |
+
+Not remeasured: a genuinely cold plane build (this machine's Nix store is
+warm from this session's own builds, and clearing it to get a fair cold
+number was judged not worth the disruption); the 46-repository full-fleet
+staging time (no repository outside the three canaries has a manifest to
+render yet); interrupted-recovery timing (already covered qualitatively by
+Stage 4's fault-injection tests). The existing baselines this stage compares
+against: shell-entry about 8.42–8.76s per repository (Stage 0), and an older
+46-repository rollout at about 15.7 minutes (Stage 0) — three repositories
+under the old path would cost three separate shell entries, roughly 25–26s,
+against this stage's single 2.78s update covering the same three.
