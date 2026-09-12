@@ -133,11 +133,29 @@ workflow steps:
 | `devman watch` | run the machine-wide watcher service |
 | `devman agent` | invoke the Agentman adapter from an admitted workflow |
 | `devman project apply` | render one repository's registry projection |
+| `devman project render` | render one manifest into a machine-plane bundle |
+| `devman project inspect` | inspect one manifest's projection identities |
 | `devman link reconcile` | reconcile declared repository views |
 | `devman link status [--all]` | inspect declared link state |
 
 `watch`, `project`, and `link reconcile` are normally called by systemd or
 shell entry. `devman link status --all` is the broad link diagnostic.
+
+`devman project render` is the machine-plane boundary. It reads one
+`.devman/project.toml`, resolves the selected policy and central overlay, and
+prints or writes a bundle of generated files plus projection identities. It
+does not write the repository, start Dagu, or run a repository task. Vendomat
+stages and activates that bundle.
+
+`devman project inspect` reads the same inputs but does not render workflow
+files. Vendomat uses it to detect unchanged projects before it builds a new
+generation. It reports the manifest, policy, renderer, source, and overlay
+identities without starting Dagu or running a repository task.
+
+The compatibility `project apply` path remains active during migration. It is
+still the shell-entry path and still uses the Nix plan. The new renderer is
+selected only by a Vendomat plane generation until old and new output have
+passed the comparison phase.
 
 There is no top-level `list`, `status`, `register`, or `unregister` command.
 Registration is automatic and has no manual path; link status is available under

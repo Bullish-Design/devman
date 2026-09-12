@@ -1,0 +1,4 @@
+schema = 1
+project = "devman"
+groups = ["base", "format", "release"]
+policy = "stable"

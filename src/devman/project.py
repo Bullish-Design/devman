@@ -141,7 +141,13 @@ def entry_text(
 # the renderer
 
 
-def render(source: Path, root: Path, *, text: str | None = None) -> str:
+def render(
+    source: Path,
+    root: Path,
+    *,
+    text: str | None = None,
+    source_label: str | None = None,
+) -> str:
     """The generated file for one workflow: a header, then the body unchanged.
 
     | Source state | Emitted | Why |
@@ -226,7 +232,8 @@ def render(source: Path, root: Path, *, text: str | None = None) -> str:
     # _yaml[newline]`: a source path holding a newline put its second line at
     # column 0, and the generated file stopped being loadable YAML — the
     # renderer producing exactly the unloadable file it refuses in its input.
-    where = "\n".join(f"#   {line}" for line in str(source).splitlines() or [""])
+    display_source = str(source) if source_label is None else source_label
+    where = "\n".join(f"#   {line}" for line in display_source.splitlines() or [""])
     banner = (
         "# devman: generated projection — do not edit.\n"
         "# Edit the source and re-enter the shell:\n"
@@ -704,6 +711,11 @@ def _validate(binary: str, rendered: Path, source: Path) -> None:
 
 
 def main(args, reg) -> int:
+    project_command = getattr(args, "project_command", "apply")
+    if project_command == "render":
+        return render_main(args)
+    if project_command == "inspect":
+        return inspect_main(args)
     try:
         plan = Plan.read(args.plan)
         apply(
@@ -718,6 +730,106 @@ def main(args, reg) -> int:
         print(f"devman: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def render_main(args) -> int:
+    """Render one project for Vendomat without publishing or executing tasks."""
+
+    from .contract import ProjectManifest, digest_bytes
+    from .reconcile import (
+        ReconcileError,
+        render_project,
+        renderer_digest,
+        resolve_policy,
+        runtime_version,
+    )
+
+    try:
+        root = Path(args.root).expanduser().resolve()
+        policy_root = Path(args.policy_root).expanduser().resolve()
+        overlay_root = Path(args.overlay_root).expanduser().resolve()
+        manifest = ProjectManifest.from_root(root)
+        policy = resolve_policy(manifest, policy_root)
+        generation = _render_generation(
+            args, policy.digest, renderer_digest, runtime_version, digest_bytes
+        )
+        bundle = render_project(
+            root,
+            policy_root=policy_root,
+            overlay_root=overlay_root,
+            generation=generation,
+        )
+        output = getattr(args, "output", None)
+        if output:
+            target = Path(output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(f".{target.name}.new")
+            temporary.write_text(bundle.to_json())
+            os.replace(temporary, target)
+        else:
+            print(bundle.to_json(), end="")
+    except (ProjectionError, ReconcileError, OSError, ValueError, KeyError) as exc:
+        print(f"devman: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def inspect_main(args) -> int:
+    """Resolve one project and print its projection identities."""
+
+    from .contract import ProjectManifest, digest_bytes
+    from .reconcile import (
+        ReconcileError,
+        inspect_project,
+        renderer_digest,
+        resolve_policy,
+        runtime_version,
+    )
+
+    try:
+        root = Path(args.root).expanduser().resolve()
+        policy_root = Path(args.policy_root).expanduser().resolve()
+        overlay_root = Path(args.overlay_root).expanduser().resolve()
+        manifest = ProjectManifest.from_root(root)
+        policy = resolve_policy(manifest, policy_root)
+        generation = _render_generation(
+            args, policy.digest, renderer_digest, runtime_version, digest_bytes
+        )
+        inspection = inspect_project(
+            root,
+            policy_root=policy_root,
+            overlay_root=overlay_root,
+            generation=generation,
+        )
+        output = getattr(args, "output", None)
+        text = inspection.to_json()
+        if output:
+            target = Path(output)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(f".{target.name}.new")
+            temporary.write_text(text)
+            os.replace(temporary, target)
+        else:
+            print(text, end="")
+    except (ProjectionError, ReconcileError, OSError, ValueError, KeyError) as exc:
+        print(f"devman: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _render_generation(args, policy_digest, renderer, runtime, digest):
+    """Build one generation identity for render and inspect."""
+
+    from .contract import PlaneGeneration
+
+    return PlaneGeneration(
+        generation=args.generation,
+        devman_runtime=args.devman_runtime or runtime(),
+        renderer_digest=renderer(),
+        policy_digest=policy_digest,
+        dagu_digest=args.dagu_digest or digest(b"dagu:unspecified"),
+        toolchain_digest=args.toolchain_digest or digest(b"toolchain:unspecified"),
+    )
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -769,6 +881,33 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
         help="one workflow name from the .devman/workflows/ overlay view, in glob order",
     )
     p.add_argument("--dagu", help="the dagu binary to validate with")
+
+
+def add_render_arguments(p: argparse.ArgumentParser) -> None:
+    """Arguments for the public machine-plane renderer boundary."""
+
+    p.add_argument("--root", required=True, help="the repository root")
+    p.add_argument("--policy-root", required=True, help="the Devman policy checkout")
+    p.add_argument(
+        "--overlay-root",
+        default="~/.config/devman",
+        help="the central project overlay root",
+    )
+    p.add_argument(
+        "--generation", required=True, type=int, help="plane generation number"
+    )
+    p.add_argument(
+        "--devman-runtime", help="runtime identity recorded in the generation"
+    )
+    p.add_argument("--dagu-digest", help="the packaged Dagu digest")
+    p.add_argument("--toolchain-digest", help="the shared toolchain digest")
+    p.add_argument("--output", help="write the bundle to this file instead of stdout")
+
+
+def add_inspect_arguments(p: argparse.ArgumentParser) -> None:
+    """Add the identity-only renderer boundary arguments."""
+
+    add_render_arguments(p)
 
 
 # ---------------------------------------------------------------------------

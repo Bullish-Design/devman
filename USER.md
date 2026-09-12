@@ -158,7 +158,77 @@ For link diagnostics, use `devman link status --all` or
 `devman link reconcile`; it can promote a real view into the central store, so
 inspect status before using it when both sides may contain edits.
 
-### 2.7 What registration creates
+### 2.7 Prepare for the machine plane
+
+The machine-plane migration adds one portable, tracked manifest:
+
+```toml
+schema = 1
+project = "myproject"
+groups = ["base"]
+policy = "stable"
+```
+
+RepoMan derives this file from the existing `devman` block. In a repository
+with the new RepoMan command, inspect first and then apply the migration:
+
+```bash
+repoman devman status
+repoman devman migrate --apply
+```
+
+The command writes only `.devman/project.toml`. Review and commit it through
+the repository's normal lane. It does not update Devman, enter another shell,
+or create a machine generation.
+
+Vendomat owns the machine operation. The current migration slice supports one
+project or an explicit set of registered projects:
+
+```bash
+vendomat plane plan devman --to v0.6.0
+vendomat plane update devman --to v0.6.0
+vendomat plane show devman
+vendomat plane recover devman
+vendomat plane rollback --to 1
+```
+
+For a first canary across repositories, pass each root explicitly. The command
+reads each `.devman/project.toml` and puts all projections in one generation:
+
+```bash
+vendomat plane update devman --to v0.6.0 \
+  --project-root /path/to/devman \
+  --project-root /path/to/repoman \
+  --project-root /path/to/vendomat \
+  --policy-root /path/to/devman
+```
+
+The plan renders and validates without activating state. An update stages all
+generated Dagu files, validates them, and atomically moves the `active`
+pointer. Previous generations stay on disk. A failed render or validation
+leaves the active generation unchanged. The old shell-entry projection stays
+available until the comparison and canary phases are complete.
+
+The active generation is a complete registry root. It contains the projected
+workflows, Dagu links, and generation record under Vendomat's stable `active`
+symlink. A canary machine can point the Dagu service and machine CLI at it:
+
+```nix
+services.devman-dagu.registryDir = "$HOME/.local/state/vendomat/devman/active";
+services.devman-dagu.stateDir = "$HOME/.local/state/devman";
+```
+
+Point only `registryDir` at the active generation. Keep `stateDir` stable so
+project metadata and watcher state survive an active-generation swap.
+
+The module watches the active pointer and reloads Dagu after active runs end.
+The stable Dagu home keeps run history across that restart.
+
+Keep the consumer shell hook on the compatibility registry during this phase.
+The old hook still writes its own registry projection. It must not write into
+the immutable active generation.
+
+### 2.8 What registration creates
 
 ```
 <repo>/.devman/workflows/            symlink to the central per-repo overlay

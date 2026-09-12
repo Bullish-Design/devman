@@ -176,6 +176,16 @@ def parser() -> argparse.ArgumentParser:
     project.add_arguments(
         p_project_sub.add_parser("apply", help="rebuild this repository's projection")
     )
+    project.add_render_arguments(
+        p_project_sub.add_parser(
+            "render", help="render one project for a machine-plane generation"
+        )
+    )
+    project.add_inspect_arguments(
+        p_project_sub.add_parser(
+            "inspect", help="inspect one project for a machine-plane generation"
+        )
+    )
 
     p_link = sub.add_parser("link", help="reconcile this repository's links (§5)")
     p_link_sub = p_link.add_subparsers(dest="link_command", required=True)
