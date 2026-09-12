@@ -18,6 +18,10 @@ It replaces shell-entry projection with central generation reconciliation.
 [`CONCEPT.md`](CONCEPT.md) records the proposed architecture, trade-offs,
 invariants, migration path, and open decisions.
 
+[`IMPLEMENTATION_GUIDE.md`](IMPLEMENTATION_GUIDE.md) is the step-by-step
+runbook for the remaining package, migration, canary, cutover, and removal
+work.
+
 [`FULL_REFACTOR_PROMPT.md`](FULL_REFACTOR_PROMPT.md) is a copy-ready prompt
 for a clean implementation session. It defines the work across Devman,
 Vendomat, and RepoMan.
