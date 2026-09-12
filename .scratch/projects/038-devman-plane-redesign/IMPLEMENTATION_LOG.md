@@ -357,4 +357,87 @@ Remaining §4 work: the assertion set in §4.1 (reject a normal directory at
 the active path, a generation without `generation.json`, mixed project
 identities, a projection record naming a different generation, a
 post-activation file mutation, and a staging path outside the plane state
-root) is not yet added. The reload boundary in §5 is unstarted.
+root) is not yet added.
+
+## Stage 10 — the reload boundary, and a bug the VM test caught
+
+On 2026-09-12, Devman made the reload adapter's state visible and closed the
+`devman run` half of the run-start race (§5).
+
+`nix/nixos-module.nix` now writes `reload.pending` under
+`services.devman-dagu.stateDir` before it waits for `dagu ps` to empty, and
+`reload.blocked` if a new option, `reloadMaxWaitSec` (default 300, a stated
+bound and not a measurement — the same honesty `queues` states about `llm`),
+expires first. On timeout the old Dagu process and generation are left alone,
+and the script reports the repair action:
+`systemctl --user restart devman-dagu-reload.service`. `devman doctor` gained
+a `reload` check reading both markers: `ok` when neither exists, `..` (not a
+finding) while pending, `!!` (a finding, with the repair action) when
+blocked. `src/devman/run.py`'s `trigger()` refuses an enqueue while
+`reload.pending` exists, except for `--print`, which enqueues nothing.
+
+**This closes the race only for the `devman run` path.** Dagu's own scheduled
+enqueues and the watcher's do not pass through `trigger()`, so a run either
+of them starts can still race the restart. That limitation is documented in
+the module rather than claimed away, per §5.3's instruction not to assert an
+absolute guarantee from a polling loop. Closing it fully needs a daemon-side
+hook nothing in this design has built.
+
+**The NixOS `dagu-service` VM test caught two real, previously-latent bugs
+while proving this boundary — not new ones the markers introduced, ones the
+markers made visible for the first time:**
+
+1. `dagu ps` prints the literal line `No running processes` when idle; it is
+   never empty. `[ -n "$(dagu ps)" ]` was therefore true whether or not
+   anything was running, and the reload script's wait loop never terminated
+   on its own — a restart only ever happened when `dagu ps` itself
+   transiently failed and `2>/dev/null` emptied its output by accident. Fixed
+   by matching the exact idle string instead of emptiness.
+2. `dagu.service`'s own `ExecStartPre` (`installConfig`) creates
+   `registryDir` with `mkdir -p` the first time it starts on a machine with no
+   generation activated yet, and separately, a write inside an already-active
+   generation (the compatibility `project apply` path, or that same `mkdir
+   -p` populating a fresh generation's subdirectories) can retrigger the path
+   unit without the active pointer's target ever changing. Fixed with two
+   guards in the reload script: `readlink` on the registry path — empty means
+   a bootstrap placeholder, not a generation, so the script exits without
+   touching `reload.pending`; and a `reload.target` marker recording the last
+   successfully reloaded symlink target — unchanged means skip, because
+   restarting Dagu for a generation that is already active earns nothing and
+   only adds another run-start race window.
+
+Both bugs were invisible before this stage because a reload script that never
+finished, or that fired redundantly, had no previously-observed side effect —
+the pointer-swap VM canary in Stage 5/6 measured only that a *deliberate*
+swap eventually restarted Dagu, not that the script terminated promptly or
+fired exactly once per real change. `reload.pending` blocking every
+`devman run` on the machine for the marker's stuck lifetime is what surfaced
+both, and finding them here is themselves the failure-model work: property 4
+holds independent of whether the exposed failure was one this stage set out
+to fix.
+
+The proof ran in Devman:
+
+```sh
+devenv tasks run -v base:check
+devenv tasks run -v base:test
+devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link
+devenv shell -- devman doctor
+```
+
+`base:check` and `base:test` passed, including the `dagu-service` VM test,
+which now proves — beyond what Stage 5/6 proved — that a real activation
+triggers exactly one reload each, that a bootstrap placeholder and a
+same-generation rewrite trigger none, and that `devman doctor` reports the
+reload state throughout. The unit suite passed with 545 tests (538 prior + 7
+new, covering the refusal, the `--print` exemption, and all four `check_reload`
+report states). `devman doctor` reported the same three pre-existing findings
+as Stage 9 plus the new `reload` check reporting `ok`.
+
+Not done in this stage: the strict maintenance gate's remaining half (the
+watcher waiting on `reload.pending`) needs `src/devman/watch.py`, which this
+session's protected-file list forbids touching — recorded here rather than
+worked around. Scheduled Dagu runs remain ungated, as documented above. The
+§5.2 NixOS test additions beyond what already existed (proving generation 1
+stays retained and generation 2 becomes visible across the swap) were already
+present from Stage 5; this stage did not need to add them.

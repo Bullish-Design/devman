@@ -388,6 +388,55 @@ def test_a_clean_registry_says_so(plane):
     assert rep.sections[0][1] == "ok"
 
 
+def test_reload_reports_ok_with_no_markers(plane):
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("reload", "ok")
+
+
+def test_reload_reports_pending_without_a_finding(plane):
+    """Pending is expected transient state while an active run drains — it
+    must not fail `doctor`'s exit code the way a genuine fault does."""
+    plane.reg.state.mkdir(parents=True, exist_ok=True)
+    (plane.reg.state / "reload.pending").write_text("2026-09-12T00:00:00Z\n")
+
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("reload", "..")
+    assert "2026-09-12T00:00:00Z" in lines[0]
+    assert rep.findings == 0
+
+
+def test_reload_reports_blocked_as_a_finding_with_the_repair_action(plane):
+    plane.reg.state.mkdir(parents=True, exist_ok=True)
+    (plane.reg.state / "reload.blocked").write_text("2026-09-12T00:00:00Z\n")
+
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("reload", "!!")
+    assert any("restart devman-dagu-reload.service" in line for line in lines)
+    assert rep.findings == len(lines)
+
+
+def test_reload_blocked_takes_priority_over_pending(plane):
+    """A reload service that timed out leaves both markers behind — `blocked`
+    is the one that still matters, and it must not hide behind `pending`."""
+    plane.reg.state.mkdir(parents=True, exist_ok=True)
+    (plane.reg.state / "reload.pending").write_text("2026-09-12T00:00:00Z\n")
+    (plane.reg.state / "reload.blocked").write_text("2026-09-12T00:05:00Z\n")
+
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    assert rep.sections[0][1] == "!!"
+
+
 def test_an_entry_from_a_newer_devman_is_reported(plane):
     """Schema 4 changed what `plan` MEANS rather than adding a field, which is
     the shape of change a reader cannot detect by looking at the fields."""

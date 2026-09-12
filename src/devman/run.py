@@ -357,7 +357,22 @@ def trigger(
     child process's exit code used to say, and `tests/unit/test_run.py` is the
     specification for what that is — it was not modified to make this change
     pass.
+
+    **It refuses while a plane reload is pending, unless it only prints (§5,
+    project 038).** The reload adapter writes `reload.pending` before it waits
+    for `dagu ps` to empty, and removes it only after Dagu restarts on the new
+    generation. An enqueue that lands inside that window risks the restart
+    killing the very run it just started — refusing is louder than that, and
+    the caller can simply retry. `--print` performs no enqueue, so it is exempt.
     """
+    pending = reg.state / "reload.pending"
+    if pending.is_file() and not print_only:
+        raise RegistryError(
+            f"refusing to enqueue '{workflow}' in '{project.name}'\n"
+            f"  a plane reload has been pending since {pending.read_text().strip()}\n"
+            "  it clears once the active run(s) blocking it finish and Dagu"
+            " restarts — retry after it clears (§5, project 038)"
+        )
     dag, params, dir_var = resolve(reg, project, workflow, overrides)
     assert_target(project, params, dir_var)
     argv = command(reg, dagu_home, dag, params)

@@ -1337,6 +1337,40 @@ def check_trigger_targets(rep: Report, reg: Registry) -> None:
         rep.add("trigger target", "ok", ["no registered project declares a trigger"])
 
 
+def check_reload(rep: Report, reg: Registry) -> None:
+    """Whether the active-generation reload adapter is mid-flight or stuck (§5, project 038).
+
+    `reload.pending` and `reload.blocked` are the reload service's own markers,
+    written under the stable state root so they outlive whichever generation is
+    active. Their absence is the normal state — nothing is reloading, and
+    `devman run` enqueues freely.
+    """
+    pending = reg.state / "reload.pending"
+    blocked = reg.state / "reload.blocked"
+    if blocked.is_file():
+        rep.add(
+            "reload",
+            "!!",
+            [
+                f"blocked since {blocked.read_text().strip()} — an active run outlasted the max wait",
+                "Dagu was not restarted; the previous generation is still serving runs",
+                "operator action: once the run finishes, run"
+                " `systemctl --user restart devman-dagu-reload.service`",
+            ],
+        )
+        return
+    if pending.is_file():
+        rep.add(
+            "reload",
+            "..",
+            [
+                f"pending since {pending.read_text().strip()} — waiting for active runs to finish"
+            ],
+        )
+        return
+    rep.add("reload", "ok", ["no reload in progress"])
+
+
 def check_watcher(rep: Report, reg: Registry) -> None:
     """What the watcher is watching, and what it last fired (§8, stage 3).
 
@@ -1550,6 +1584,7 @@ def main(args, reg: Registry) -> int:
     check_local_sources(rep, reg)
     check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)
+    check_reload(rep, reg)
     check_watcher(rep, reg)
     rep.print()
 
