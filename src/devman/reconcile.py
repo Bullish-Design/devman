@@ -326,7 +326,7 @@ def render_project(
     source_blobs: dict[str, bytes] = {}
     sources: dict[str, str] = {}
     for name, workflow in sorted(workflows.items()):
-        body = render(workflow.source, root)
+        body = render(workflow.source, root, source_label=workflow.source_label)
         rendered[f"projects/{manifest.project}/workflows/{name}.yaml"] = body.encode()
         source_blobs[f"workflows/{name}.yaml"] = workflow.source.read_bytes()
         sources[name] = workflow.source_label

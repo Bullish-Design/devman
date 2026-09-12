@@ -132,7 +132,7 @@ That command proved the following:
 
 Verification evidence:
 
-- Devman unit suite: 534 passed;
+- Devman unit suite: 536 passed;
 - Devman `base:check` passed;
 - Devman `base:test` passed;
 - Vendomat `testee verify --mode quick`: ruff, format, ty, and pytest passed;
@@ -146,7 +146,13 @@ state findings or the pre-existing worktree edits. The new generation path is
 not yet the active compatibility registry, so the generation check has no
 active registry record to inspect.
 
+An old/new comparison then rendered the ten current Devman workflows through
+the new renderer and compared them with the compatibility registry after
+normalising only the generated source comment. All ten matched. The only
+byte-level difference before that normalisation was the source comment: the
+old path names a Nix store file, while the new renderer names the relative
+policy source. The new path is portable and does not change the YAML body.
+
 The active Dagu service still consumes the compatibility registry path. The
 next integration step is to make its registry root consume Vendomat's active
-generation, then run old/new projection comparisons before changing the
-default shell path.
+generation, while keeping the old path available for comparison and rollback.

@@ -141,7 +141,13 @@ def entry_text(
 # the renderer
 
 
-def render(source: Path, root: Path, *, text: str | None = None) -> str:
+def render(
+    source: Path,
+    root: Path,
+    *,
+    text: str | None = None,
+    source_label: str | None = None,
+) -> str:
     """The generated file for one workflow: a header, then the body unchanged.
 
     | Source state | Emitted | Why |
@@ -226,7 +232,8 @@ def render(source: Path, root: Path, *, text: str | None = None) -> str:
     # _yaml[newline]`: a source path holding a newline put its second line at
     # column 0, and the generated file stopped being loadable YAML — the
     # renderer producing exactly the unloadable file it refuses in its input.
-    where = "\n".join(f"#   {line}" for line in str(source).splitlines() or [""])
+    display_source = str(source) if source_label is None else source_label
+    where = "\n".join(f"#   {line}" for line in display_source.splitlines() or [""])
     banner = (
         "# devman: generated projection — do not edit.\n"
         "# Edit the source and re-enter the shell:\n"

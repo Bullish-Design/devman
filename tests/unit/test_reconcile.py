@@ -90,6 +90,8 @@ def test_render_project_resolves_overlay_and_emits_metadata(tmp_path):
     projected = bundle.files["projects/fixture/workflows/check.yaml"].decode()
     metadata = json.loads(bundle.files["projects/fixture/metadata.json"])
     assert projected.endswith("# overlay\n" + WORKFLOW)
+    assert "projects/fixture/workflows/check.yaml" in projected
+    assert f"#   {project_root}" not in projected
     assert set(bundle.sources) == {"check", "local"}
     assert metadata["local"] == ["check", "local"]
     assert bundle.record.overlay_digest is not None
