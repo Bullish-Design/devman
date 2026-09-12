@@ -586,3 +586,85 @@ against: shell-entry about 8.42–8.76s per repository (Stage 0), and an older
 46-repository rollout at about 15.7 minutes (Stage 0) — three repositories
 under the old path would cost three separate shell entries, roughly 25–26s,
 against this stage's single 2.78s update covering the same three.
+
+## Stage 13 — the RepoMan migration wave, a v0.6.0 release, and the cutover build
+
+On 2026-09-12, by explicit instruction, the fleet-wide RepoMan migration ran
+for real (§6), a release was cut, and the machine cutover (§10) was prepared
+and built — but not switched to, for a reason recorded below rather than
+worked around.
+
+**RepoMan migration wave.** `repoman devman migrate --apply` ran against 44
+of the 46 non-canary repositories (`copyroom` and `docman` excluded on
+purpose — the same `dev/devenv.nix` structural issue Stage 11's inventory
+found). Of those 44: 24 now carry a real `.devman/project.toml` on disk (the
+number that matters for rendering); of those, 14 are committed and pushed,
+7 are committed locally only because the repository was already on a
+detached HEAD before this sweep touched it (left as found, no branch
+created, no force-push); 20 failed to migrate, for three environmental
+reasons unrelated to the migration logic — a stale local `repoman` build
+missing the `devman` subcommand, `repoman` absent from the `devenv shell`
+entirely, or `secretspec` refusing to enter the shell without a `--reason`.
+None of these 20 were left partially modified; each failure was a clean
+skip. `mypi-agent` hit the `secretspec` gate before it ever reached its
+known structural issue.
+
+**Devman v0.6.0.** Version bumped in `pyproject.toml`, `nix/renderer.nix`,
+and `nix/devman-cli.nix` (three places forced to agree since S-6 of an
+earlier stage). PR #166 (`037-follow-up-results` → `main`, this project's
+entire Stage 4–12 history) merged clean, no CI configured on this repository
+so local verification stood in for it: `base:check`, `base:test` including
+the `dagu-service` VM test, and `devman doctor` all passed on `main` before
+tagging. Tagged `v0.6.0` (annotated, `devman 0.6.0`), pushed.
+
+**The real, live-state Vendomat generation.** Built at
+`$HOME/.local/state/vendomat/devman` (the real path, not a scratch
+directory) covering all 24 repositories with a manifest — the three
+canaries plus the 21 migrated ones with the file on disk regardless of push
+state. All 24 rendered successfully; all 80 generated DAGs validated
+against the pinned Dagu 2.15.0 in one pass. Generation 1 is active at that
+path right now.
+
+**The cutover itself, prepared and built but not applied.** The machine's
+actual system configuration lives in a fourth repository, `nix-meta`,
+applied via `sudo nixos-rebuild switch --flake .#server` — a detail this
+project's charter never named, discovered only when tracing where
+`services.devman-dagu` is actually imported. `nix-meta` repinned its
+`devman` flake input from tag `v0.5.2` to `v0.6.0`, and
+`profiles/devman.nix` now sets
+`registryDir = "$HOME/.local/state/vendomat/devman/active"`, `stateDir`
+left at devman's default. `nixos-rebuild build --flake .#server` produced a
+new system generation cleanly, and its generated
+`devman-dagu-install-config` script was read directly to confirm the
+registry path baked in correctly before anything further happened. The
+change was committed and pushed to `nix-meta`'s `main` (this repository's own
+convention — direct commits to `main`, no PR, matching its last three
+version-pin commits).
+
+**`sudo nixos-rebuild switch` did not run.** This session has no functional
+root: `sudo: /run/current-system/sw/bin/sudo must be owned by uid 0 and have
+the setuid bit set`. This is a sandbox constraint, not a policy decision —
+the built generation is real, verified, and sitting in the Nix store, and
+the operator needs only run:
+
+```sh
+cd ~/Documents/Projects/nix-meta
+sudo nixos-rebuild switch --flake .#server
+```
+
+Confirmed immediately before attempting this that `dagu ps` reported no
+running processes, so the moment for a switch (which restarts `dagu.service`
+directly, outside the reload adapter's drain-wait — that adapter only
+watches the active-generation pointer, not a service-config change applied
+by `switch-to-configuration`) was as safe as it gets. The current live
+system (`/run/current-system`) is untouched and serving the compatibility
+registry exactly as before this stage.
+
+**§11 (remove obsolete fan-out) did not start.** Its own gate says to
+remove old code only after an observation period once the new path is live
+for every supported consumer — and the cutover is not live yet, and 22 of 46
+non-canary repositories still have no manifest at all. Removing the
+compatibility fallback now would leave those repositories with no serving
+path at all. This is deferred, not skipped: the correct order is switch,
+observe, then remove, in that sequence, once a human has actually run the
+one command above.
