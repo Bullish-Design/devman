@@ -997,12 +997,15 @@ and the opt-out keeps working — now version-controlled and visible beside the 
 
 ## 13. What I could not determine
 
-1. **How Claude Code writes `.claude/settings.local.json`.** If it renames on save,
-   the link breaks on every permission approval and promote becomes hot rather than
-   occasional. *Settled by:* linking one repository's file, approving one
-   permission, running `test -L`. **Do this before Stage 2** — if it fails, hoist
-   the shared allowlists to `~/.claude/settings.json` and leave the per-repo files
-   alone.
+1. **How Claude Code writes `.claude/settings.local.json`.** **Settled on
+   2026-09-11:** lodestar's file was promoted by the normal `devman.link`
+   reconciler, `test -L /home/andrew/Documents/Projects/lodestar/.claude/settings.local.json`
+   was true, Claude Code was trusted and ran the controlled Bash permission test,
+   and the same `test -L` remained true. The SHA256 stayed
+   `22b20133f080318b7530e7e33128df7e16dbc290d178b89bbda14888379ac7f0`.
+   The six remaining per-repository files should therefore be centralized by
+   the same normal reconciler path, with one canonical file per project. Do not
+   merge them: their allowlists contain project-specific paths and commands.
 2. **Whether `cliProvider = "store"` works today.** The path exists and no
    repository uses it. *Settled by:* `nix build .#repoman-toolchain-core` in
    vendomat, then one repository entering a shell under `store` and running
