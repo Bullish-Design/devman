@@ -144,10 +144,16 @@
         )
         tester(f"ln -sfn {PROJ}/probe.yaml {REG}/projects/demo/workflows/probe.yaml")
         tester(f"ln -sfn ../projects/demo/workflows/probe.yaml {REG}/dags/demo.probe.yaml")
+        machine.succeed(
+            f"printf 'steps:\n  - name: hold\n    run: sleep 10\n' > {PROJ}/hold.yaml"
+        )
+        tester(f"ln -sfn {PROJ}/hold.yaml {REG}/projects/demo/workflows/hold.yaml")
+        tester(f"ln -sfn ../projects/demo/workflows/hold.yaml {REG}/dags/demo.hold.yaml")
         listed = tester("dagu ls")
         print(listed)
         assert "demo.check" in listed, "the chained group symlink was not discovered"
         assert "demo.probe" in listed
+        assert "demo.hold" in listed
         assert "example-" not in listed, "Dagu seeded its examples into the registry"
 
     with subtest("a run lands in the project that triggered it"):
@@ -172,6 +178,12 @@
         assert rec["run_id"] and rec["attempt"] and rec["started_at"]
 
     with subtest("an active pointer swap keeps generation history and run history"):
+        tester(
+            f"DEVMAN_PROJECT_DIR={PROJ} dagu enqueue demo.hold -- DEVMAN_PROJECT_DIR={PROJ}"
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}dagu ps | grep -q demo.hold'", timeout=60
+        )
         before_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
         before_pid = tester("systemctl --user show dagu -p MainPID --value").strip()
         machine.succeed(f"su tester -c 'cp -a {GENERATION} {GENERATION2}'")
@@ -192,6 +204,16 @@
         )
         machine.succeed(f"su tester -c 'test \"$(readlink {REG})\" = generations/2'")
         machine.succeed(f"su tester -c 'test -f {GENERATION}/generation.json'")
+        machine.sleep(2)
+        still_running_pid = tester("systemctl --user show dagu -p MainPID --value").strip()
+        assert still_running_pid == before_pid, (before_pid, still_running_pid)
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}dagu ps | grep -q demo.hold'", timeout=5
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test -z \"$(dagu ps | grep demo.hold || true)\"'",
+            timeout=60,
+        )
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}test \"$(systemctl --user show dagu -p MainPID --value)\" != \"{before_pid}\"'",
             timeout=60,
@@ -202,7 +224,7 @@
         assert "demo.probe" in tester("dagu ls")
         assert "Succeeded" in tester("dagu status demo.probe")
         after_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
-        assert after_lines == before_lines, (before_lines, after_lines)
+        assert after_lines == before_lines + 1, (before_lines, after_lines)
 
     with subtest("the ports the module declares are the ports Dagu binds"):
         machine.succeed("ss -ltnp | grep 127.0.0.1:8080")

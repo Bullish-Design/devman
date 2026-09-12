@@ -229,5 +229,10 @@ rediscovered `demo.probe`, and preserved the prior run record. The stable Dagu
 home kept the run history across the restart.
 
 Dagu has no public reload endpoint or reload CLI. The path unit is the current
-reload adapter. An active-run test remains open for proving interruption and
-recovery semantics during the restart.
+reload adapter. Its script waits for `dagu ps` to report no active runs before
+it restarts Dagu.
+
+The VM canary also covers the active-run rule. It held `demo.hold` open during
+the pointer swap. Dagu kept the same process until the run finished. The
+deferred restart then loaded generation 2. The run completed and its record was
+preserved.

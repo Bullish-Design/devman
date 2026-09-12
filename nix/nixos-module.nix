@@ -250,8 +250,15 @@ let
   '';
 
   # The active plane is an atomic symlink. A path unit turns its replacement
-  # into a Dagu restart, because Dagu has no public reload operation.
+  # into a deferred Dagu restart, because Dagu has no public reload operation.
   registryChangePath = lib.replaceStrings [ "$HOME" ] [ "%h" ] cfg.registryDir;
+  reloadScript = pkgs.writeShellScript "devman-dagu-reload" ''
+    set -eu
+    while [ -n "$(${lib.getExe cfg.package} ps 2>/dev/null || true)" ]; do
+      ${pkgs.coreutils}/bin/sleep 1
+    done
+    exec ${pkgs.systemd}/bin/systemctl --user try-restart dagu.service
+  '';
 in
 {
   options.services.devman-dagu = {
@@ -617,8 +624,9 @@ in
     };
 
     # Vendomat changes the active registry by replacing one symlink. Watch that
-    # pointer and restart Dagu after the replacement. The Dagu state directory
-    # stays outside the generation, so this restart does not lose run history.
+    # pointer and restart Dagu after the replacement. The reload script waits
+    # for active runs. The Dagu state directory stays outside the generation,
+    # so this restart does not lose run history.
     systemd.user.paths.devman-dagu-reload = {
       wantedBy = [ "paths.target" ];
       pathConfig = {
@@ -629,9 +637,11 @@ in
 
     systemd.user.services.devman-dagu-reload = {
       description = "reload Dagu after the active devman plane changes";
+      environment.DAGU_HOME = cfg.dagHome;
+      path = cfg.servicePath;
       serviceConfig = {
         Type = "oneshot";
-        ExecStart = "${pkgs.systemd}/bin/systemctl --user try-restart dagu.service";
+        ExecStart = reloadScript;
       };
     };
 
