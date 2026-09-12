@@ -153,6 +153,35 @@ byte-level difference before that normalisation was the source comment: the
 old path names a Nix store file, while the new renderer names the relative
 policy source. The new path is portable and does not change the YAML body.
 
-The active Dagu service still consumes the compatibility registry path. The
-next integration step is to make its registry root consume Vendomat's active
-generation, while keeping the old path available for comparison and rollback.
+## Stage 3 — identity-first reconciliation and active-root canary
+
+Devman now exposes `devman project inspect`. It resolves the same manifest,
+policy, overlay, and source identities as render, but it does not render files
+or write state. Vendomat uses this result before every update. It renders only
+changed projects and copies unchanged valid projections into the new immutable
+generation. The copy updates the projection generation record and the
+compatibility metadata marker.
+
+Vendomat serializes update, rollback, and recovery operations with a machine
+state lock. The plan operation remains read-only and does not create the plane
+state root. The lock closes the race where two updates choose the same next
+generation number.
+
+The second cross-repository proof used a temporary overlay. It activated
+generation 1, changed only Devman's `agent-review` overlay, and activated
+generation 2. Vendomat reported only `devman` as changed. A byte comparison
+proved that RepoMan's unchanged workflow was copied into generation 2.
+
+The active generation is self-contained. Its `active` root contains the
+registry `projects/` tree, the flat Dagu `dags/` tree, and `generation.json`.
+With both `registryDir` and `stateDir` pointed at that stable active symlink,
+the new Devman package successfully ran `show` and `doctor` against the active
+root. The canary doctor reported `generation: 3 projections match generation
+2`; its two findings were the expected dirty Vendomat source and absent
+watcher state for the temporary canary.
+
+The compatibility shell hook and registry remain the default. The next safe
+step is a Dagu-service canary that uses the active root while the old shell
+projection stays available for rollback. Vendomat still receives explicit
+renderer and Dagu paths. Package-closure reuse and automatic service reload
+remain open Phase 3 work.

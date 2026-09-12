@@ -36,6 +36,7 @@ from .project import (
 from .registry import identity_fault
 
 RECONCILIATION_SCHEMA = 1
+INSPECTION_SCHEMA = 1
 MANIFEST_RELATIVE = ".devman/project.toml"
 
 
@@ -101,6 +102,28 @@ class ProjectionBundle:
                 for name, body in sorted(self.files.items())
             },
             "links": dict(sorted(self.links.items())),
+            "sources": dict(sorted(self.sources.items())),
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_mapping(), sort_keys=True, indent=2) + "\n"
+
+
+@dataclass(frozen=True)
+class ProjectionInspection:
+    """The identities needed before a project needs a new render."""
+
+    project: str
+    generation: PlaneGeneration
+    record: ProjectionRecord
+    sources: dict[str, str]
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "schema": INSPECTION_SCHEMA,
+            "project": self.project,
+            "generation": self.generation.to_mapping(),
+            "record": self.record.to_mapping(),
             "sources": dict(sorted(self.sources.items())),
         }
 
@@ -301,50 +324,19 @@ def render_project(
 ) -> ProjectionBundle:
     """Resolve and render one project into a Vendomat-consumable bundle."""
 
-    resolved = resolve_project(
+    resolved, record, sources = _resolve_identity(
         root,
         policy_root=policy_root,
         overlay_root=overlay_root,
+        generation=generation,
     )
-    manifest, policy, workflows, overlay_digest, triggers, writes = resolved
-
-    if generation.policy_digest != policy.digest:
-        raise ReconcileError(
-            f"generation {generation.generation} does not match policy for '{manifest.project}'\n"
-            f"  generation: {generation.policy_digest}\n"
-            f"  resolved:   {policy.digest}"
-        )
-    current_renderer = renderer_digest()
-    if generation.renderer_digest != current_renderer:
-        raise ReconcileError(
-            f"generation {generation.generation} does not match the packaged renderer\n"
-            f"  generation: {generation.renderer_digest}\n"
-            f"  renderer:   {current_renderer}"
-        )
+    manifest, _policy, workflows, _overlay_digest, triggers, writes = resolved
 
     rendered: dict[str, bytes] = {}
-    source_blobs: dict[str, bytes] = {}
-    sources: dict[str, str] = {}
     for name, workflow in sorted(workflows.items()):
         body = render(workflow.source, root, source_label=workflow.source_label)
         rendered[f"projects/{manifest.project}/workflows/{name}.yaml"] = body.encode()
-        source_blobs[f"workflows/{name}.yaml"] = workflow.source.read_bytes()
-        sources[name] = workflow.source_label
 
-    source_digest = digest_blobs(source_blobs)
-    record = ProjectionRecord(
-        project=manifest.project,
-        manifest_digest=manifest.digest,
-        policy_digest=policy.digest,
-        plane_generation=generation.generation,
-        renderer_digest=generation.renderer_digest,
-        source_digest=source_digest,
-        overlay_digest=overlay_digest,
-    )
-
-    workflow_metadata = {
-        name: workflow.metadata() for name, workflow in sorted(workflows.items())
-    }
     local_names = sorted(
         name for name, workflow in workflows.items() if workflow.group == "overlay"
     )
@@ -354,7 +346,9 @@ def render_project(
         groups=list(manifest.groups),
         plan=f"plane:{generation.generation}",
         local=local_names,
-        workflows=workflow_metadata,
+        workflows={
+            name: workflow.metadata() for name, workflow in sorted(workflows.items())
+        },
         triggers=resolve_triggers(triggers, root),
         writes=resolve_writes(writes, root),
         overlay=str(overlay_root.expanduser().resolve()),
@@ -381,6 +375,90 @@ def render_project(
     )
 
 
+def inspect_project(
+    root: Path,
+    *,
+    policy_root: Path,
+    overlay_root: Path,
+    generation: PlaneGeneration,
+) -> ProjectionInspection:
+    """Resolve one project without rendering or writing files."""
+
+    _resolved, record, sources = _resolve_identity(
+        root,
+        policy_root=policy_root,
+        overlay_root=overlay_root,
+        generation=generation,
+    )
+    return ProjectionInspection(
+        project=record.project,
+        generation=generation,
+        record=record,
+        sources=sources,
+    )
+
+
+def _resolve_identity(
+    root: Path,
+    *,
+    policy_root: Path,
+    overlay_root: Path,
+    generation: PlaneGeneration,
+) -> tuple[
+    tuple[
+        ProjectManifest,
+        PolicyResolution,
+        dict[str, ResolvedWorkflow],
+        str | None,
+        object,
+        object,
+    ],
+    ProjectionRecord,
+    dict[str, str],
+]:
+    """Resolve the inputs shared by inspection and rendering."""
+
+    resolved = resolve_project(
+        root,
+        policy_root=policy_root,
+        overlay_root=overlay_root,
+    )
+    manifest, policy, workflows, overlay_digest, triggers, writes = resolved
+
+    if generation.policy_digest != policy.digest:
+        raise ReconcileError(
+            f"generation {generation.generation} does not match policy for '{manifest.project}'\n"
+            f"  generation: {generation.policy_digest}\n"
+            f"  resolved:   {policy.digest}"
+        )
+    current_renderer = renderer_digest()
+    if generation.renderer_digest != current_renderer:
+        raise ReconcileError(
+            f"generation {generation.generation} does not match the packaged renderer\n"
+            f"  generation: {generation.renderer_digest}\n"
+            f"  renderer:   {current_renderer}"
+        )
+
+    source_blobs: dict[str, bytes] = {}
+    sources: dict[str, str] = {}
+    for name, workflow in sorted(workflows.items()):
+        source_blobs[f"workflows/{name}.yaml"] = workflow.source.read_bytes()
+        sources[name] = workflow.source_label
+
+    source_digest = digest_blobs(source_blobs)
+    record = ProjectionRecord(
+        project=manifest.project,
+        manifest_digest=manifest.digest,
+        policy_digest=policy.digest,
+        plane_generation=generation.generation,
+        renderer_digest=generation.renderer_digest,
+        source_digest=source_digest,
+        overlay_digest=overlay_digest,
+    )
+
+    return resolved, record, sources
+
+
 def bundle_from_json(text: str) -> ProjectionBundle:
     """Decode a renderer bundle emitted by ``devman project render``."""
 
@@ -400,6 +478,32 @@ def bundle_from_json(text: str) -> ProjectionBundle:
         files=files,
         links=dict(raw.get("links", {})),
         sources=dict(raw.get("sources", {})),
+    )
+
+
+def inspection_from_json(text: str) -> ProjectionInspection:
+    """Decode a read-only inspection emitted by ``devman project inspect``."""
+
+    raw = json.loads(text)
+    if raw.get("schema") != INSPECTION_SCHEMA:
+        raise ReconcileError(
+            f"unsupported projection inspection schema: {raw.get('schema')!r}"
+        )
+    generation = PlaneGeneration.from_mapping(raw["generation"])
+    record = ProjectionRecord.from_mapping(raw["record"])
+    if raw.get("project") != record.project:
+        raise ReconcileError("projection inspection project does not match its record")
+    sources = raw.get("sources", {})
+    if not isinstance(sources, dict) or not all(
+        isinstance(name, str) and isinstance(source, str)
+        for name, source in sources.items()
+    ):
+        raise ReconcileError("projection inspection sources must map names to strings")
+    return ProjectionInspection(
+        project=record.project,
+        generation=generation,
+        record=record,
+        sources=dict(sources),
     )
 
 

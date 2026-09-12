@@ -209,6 +209,19 @@ pointer. Previous generations stay on disk. A failed render or validation
 leaves the active generation unchanged. The old shell-entry projection stays
 available until the comparison and canary phases are complete.
 
+The active generation is a complete registry root. It contains the projected
+workflows, Dagu links, and generation record under Vendomat's stable `active`
+symlink. A canary machine can point the Dagu service and machine CLI at it:
+
+```nix
+services.devman-dagu.registryDir = "$HOME/.local/state/vendomat/devman/active";
+services.devman-dagu.stateDir = "$HOME/.local/state/vendomat/devman/active";
+```
+
+Keep the consumer shell hook on the compatibility registry during this phase.
+The old hook still writes its own registry projection. It must not write into
+the immutable active generation.
+
 ### 2.8 What registration creates
 
 ```

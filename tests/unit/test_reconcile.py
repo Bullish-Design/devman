@@ -6,10 +6,11 @@ import json
 
 import pytest
 
-from devman.contract import PlaneGeneration, ProjectManifest, digest_bytes
+from devman.contract import PlaneGeneration, ProjectManifest, digest_blobs, digest_bytes
 from devman.reconcile import (
     ReconcileError,
     bundle_from_json,
+    inspect_project,
     render_project,
     renderer_digest,
     resolve_policy,
@@ -115,6 +116,26 @@ def test_renderer_bundle_round_trips_without_losing_bytes(tmp_path):
     assert restored.record == bundle.record
     assert restored.files == bundle.files
     assert restored.links == bundle.links
+
+
+def test_inspection_returns_identity_without_rendered_files(tmp_path):
+    policy_root = _policy_root(tmp_path)
+    project_root = tmp_path / "project"
+    _manifest(project_root)
+    policy = resolve_policy(ProjectManifest.from_root(project_root), policy_root)
+
+    inspection = inspect_project(
+        project_root,
+        policy_root=policy_root,
+        overlay_root=tmp_path / "overlay",
+        generation=_generation(policy.digest),
+    )
+
+    assert inspection.project == "fixture"
+    assert inspection.record.source_digest == digest_blobs(
+        {"workflows/check.yaml": WORKFLOW.encode()}
+    )
+    assert inspection.sources == {"check": "groups/base/workflows/check.yaml"}
 
 
 def test_renderer_rejects_a_generation_from_another_policy(tmp_path):

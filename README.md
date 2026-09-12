@@ -134,6 +134,7 @@ workflow steps:
 | `devman agent` | invoke the Agentman adapter from an admitted workflow |
 | `devman project apply` | render one repository's registry projection |
 | `devman project render` | render one manifest into a machine-plane bundle |
+| `devman project inspect` | inspect one manifest's projection identities |
 | `devman link reconcile` | reconcile declared repository views |
 | `devman link status [--all]` | inspect declared link state |
 
@@ -145,6 +146,11 @@ shell entry. `devman link status --all` is the broad link diagnostic.
 prints or writes a bundle of generated files plus projection identities. It
 does not write the repository, start Dagu, or run a repository task. Vendomat
 stages and activates that bundle.
+
+`devman project inspect` reads the same inputs but does not render workflow
+files. Vendomat uses it to detect unchanged projects before it builds a new
+generation. It reports the manifest, policy, renderer, source, and overlay
+identities without starting Dagu or running a repository task.
 
 The compatibility `project apply` path remains active during migration. It is
 still the shell-entry path and still uses the Nix plan. The new renderer is
