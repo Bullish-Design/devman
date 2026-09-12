@@ -127,3 +127,47 @@ existing `73dcc41` devman input is already compatible with `devman.link`, so no
 new Flora fix was required. The unrelated lock-refresh lane
 `adopted-11ceb219` and the pre-existing promoted-file backup lane
 `adopted-53eb515c` remain held.
+
+## Deployment handoff follow-up — 2026-09-12
+
+The `nix-meta` `main` checkout was moved back to its clean main content before
+the switch. Commit `8422571f145a80782c22f9d97422d8d45c937fb1` pins devman
+0.5.2. After the switch, the system binary resolved to
+`/nix/store/djih27x5rnik61zjyhr5zcfmsaq9amlc-devman-0.5.2/bin/devman`.
+`dagu.service` and `devman-watch.service` were active after restarting at
+09:53:20 EDT.
+
+The released script was run with:
+
+```text
+NO_SHELLIJ=1 devenv shell -- devman-resync
+```
+
+The command exited 1. It read the old registry's 50 metadata entries and
+re-entered their recorded repositories. The new state root ended with 4
+projects and 19 workflows. The explicit old-layout doctor remained at 50
+projects and 158 workflows.
+
+The state split exposed a compatibility condition that the pre-deployment
+plan did not measure. Forty-five registered projects still import devman
+`v0.5.1`. `paloma-text-pipeline` and `talkee` import still older revisions.
+Those modules generate shell hooks without the new `stateDir` argument, so a
+normal shell entry cannot populate `~/.local/state/devman`. The four projects
+that did populate it are `devman`, `flora`, `pydantree`, and the held
+`flora-037-part-e` workspace.
+
+The old Dagu projection remains safe and live. Its `dags/` directory contains
+164 symlinks. Dagu resolves 161 valid names and warns on three broken `my-ai`
+links. The held Flora workspace contributes three valid names above the normal
+158-workflow projection. No old registry entry or DAG link was deleted.
+
+The resync also recorded independent shell blockers. SecretSpec refused
+access without a reason in `browsee`, `fornix`, `mypi-agent`, `templateer_v2`,
+`tyo3`, and `zelligate`. RepoMan reported an unset store toolchain in
+`image-gen-pipeline`, `llgym`, `nix-desktop`, `nix-paseo`, and `talkee`.
+These blockers were not bypassed.
+
+The deployment handoff therefore remains open. The safe next step is to
+refresh the registered consumer devman inputs to v0.5.2 in isolated gitman
+lanes, with the normal `devenv shell -- true` gate for each lane. The old
+registry must remain until the new state-root counts match the old projection.
