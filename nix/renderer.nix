@@ -51,6 +51,7 @@
 , python3Packages
 , dagu
 , makeWrapper
+, bash
 }:
 
 python3Packages.buildPythonApplication {
@@ -68,6 +69,26 @@ python3Packages.buildPythonApplication {
 
   nativeBuildInputs = [ makeWrapper ];
 
+  # Vendomat calls the public machine-plane boundary (`devman project render`
+  # and `inspect`). The old narrow entry point only accepted `apply`, so it
+  # could not serve the immutable plane package.
+  postInstall = ''
+cat > $out/bin/devman-project <<EOF
+#!${bash}/bin/sh
+if [ "\$1" = apply ]; then
+  plan="\$3"
+  registry="\$5"
+  state="\$7"
+  root="\$9"
+  shift 9
+  exec "$out/bin/devman" --registry "\$registry" --state "\$state" project apply \
+    --plan "\$plan" --root "\$root" "\$@"
+fi
+exec "$out/bin/devman" "\$@"
+EOF
+chmod +x $out/bin/devman-project
+  '';
+
   # The renderer runs `dagu validate` on every file it is about to publish, so
   # it states its Dagu rather than inheriting one. A repository's shell has the
   # machine's `dagu` on PATH only when `installClient` is on, and the projection
@@ -81,7 +102,7 @@ python3Packages.buildPythonApplication {
   installCheckPhase = ''
     runHook preInstallCheck
     $out/bin/devman-project --help > /dev/null
-    $out/bin/devman-project apply --help > /dev/null
+    $out/bin/devman-project project render --help > /dev/null
     $out/bin/devman-link --help > /dev/null
     runHook postInstallCheck
   '';
