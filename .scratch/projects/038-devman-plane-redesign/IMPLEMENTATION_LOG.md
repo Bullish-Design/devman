@@ -298,3 +298,63 @@ devenv shell -- testee verify --mode quick
 The unit suite passed with 13 tests. Vendomat quick verification passed with
 ruff, format, ty, and pytest. The next failure-model work is fault injection
 at each generation boundary and the Dagu reload boundary.
+
+## Stage 9 — generation boundary fault injection
+
+On 2026-09-12, Vendomat added a `fault` test seam to `GenerationStore.build`,
+`_activate_number`, `rollback`, `render_project`, and `plan_or_update`. Each
+call site accepts an optional hook that a test can raise from at one named
+boundary: `renderer-start`, `project-render:<name>`, `staging-complete`,
+`after-temp-pointer`, `before-activate`, and `rollback`. Production callers
+never pass one; the CLI's default stays `None`.
+
+The audit also found a real gap the failure model needs closed: `_plane_operation`
+resolved every explicit `--project-root` or `--project` through a bare list
+comprehension. A missing repository among several raised immediately and lost
+the structured result for every other project in the same invocation — the
+CLI printed a bare error, not a per-project report. Vendomat added
+`resolve_projects`, which resolves every requested project independently and
+returns a structured `unreadable project` result for one that fails, leaving
+the rest resolved. `_plane_operation` now prints and fails closed on any
+discovery failure with the same structured report style as plan and update
+results, before it ever asks Devman to inspect or render.
+
+New tests in `tests/test_plane.py` proved:
+
+- `_project_failure` classifies every documented status: unreadable project,
+  missing manifest, invalid policy, invalid workflow, permission failure, and
+  failed render;
+- `resolve_projects` keeps a healthy project independent of a missing one;
+- a fault at `renderer-start` touches no plane state at all;
+- one failed project beside one healthy project blocks activation, reports
+  both projects by name, path, and operation, and leaves the active
+  generation unchanged;
+- a fault after staging completes cleans up the staging directory itself and
+  leaves nothing for `recover()`;
+- a fault after the temporary active pointer is created, and a fault before
+  the active pointer replacement, both leave an orphaned pointer that
+  `recover()` moves aside without touching the active generation;
+- a fault during rollback, and a fault mid-activation during rollback, both
+  leave the pre-rollback active generation in place and recoverable.
+
+The proof ran in Vendomat:
+
+```sh
+devenv shell -- pytest tests/test_plane.py
+devenv shell -- testee verify --mode quick
+```
+
+The unit suite passed with 28 tests (13 prior + 15 new). Vendomat quick
+verification passed: ruff, format, ty, and pytest.
+
+Devman `base:check` and `base:test` passed unchanged. `devman doctor` reported
+the same four pre-existing findings as Stage 8: the `flora-037-part-e` link
+drift and the unpinned RepoMan/Vendomat local sources. RepoMan `base:check`
+passed; `base:test` still fails only on the two pre-existing unformatted files
+recorded before this project began.
+
+Remaining §4 work: the assertion set in §4.1 (reject a normal directory at
+the active path, a generation without `generation.json`, mixed project
+identities, a projection record naming a different generation, a
+post-activation file mutation, and a staging path outside the plane state
+root) is not yet added. The reload boundary in §5 is unstarted.
