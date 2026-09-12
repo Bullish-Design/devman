@@ -236,3 +236,41 @@ The VM canary also covers the active-run rule. It held `demo.hold` open during
 the pointer swap. Dagu kept the same process until the run finished. The
 deferred restart then loaded generation 2. The run completed and its record was
 preserved.
+
+## Stage 7 — immutable package closure
+
+On 2026-09-12, Vendomat added a locked `devman` input and the `devman-plane`
+package. The package joins the Devman runtime, canonical renderer, Dagu 2.15.0,
+and the shared RepoMan toolchain. It writes one package manifest with known
+store paths. The Vendomat CLI reads that manifest for normal plane operations.
+Explicit renderer, Dagu, and toolchain flags remain development overrides.
+
+The Devman renderer package now supports both `devman project render` and the
+compatibility shell hook's `devman-project apply` entry point. Both paths call
+the same Devman CLI and source tree.
+
+The exact proof commands were:
+
+```sh
+cd /home/andrew/Documents/Projects/vendomat
+devenv shell -- nix build .#devman-plane --no-link --print-out-paths
+PATH=/usr/bin:/bin <vendomat-store>/bin/vendomat plane plan devman --to v0.6.0 \
+  --project-root /home/andrew/Documents/Projects/devman \
+  --policy-root /home/andrew/Documents/Projects/devman \
+  --overlay-root /tmp/devman-no-overlay \
+  --state-dir /tmp/vendomat-plane-package-test \
+  --devman-state /home/andrew/.local/state/devman
+devenv shell -- testee verify --mode quick
+```
+
+The package build passed. The plan printed one renderer store path, one Dagu
+store path, one runtime path, one toolchain path, and the toolchain digest. It
+completed with `PATH=/usr/bin:/bin`, which proves normal selection does not use
+PATH. Vendomat quick verification passed: ruff, format, ty, and pytest.
+
+One failed attempt found that the old narrow `devman-project` entry point did
+not accept `project render`. A second failed attempt found that a direct Python
+interpreter wrapper did not carry PyYAML. The final wrapper delegates to the
+installed Devman executable and keeps the compatibility `apply` argument
+translation. Devman checks passed after the fix: `base:check` and `base:test`
+both exited 0. The known doctor findings remain unchanged.
