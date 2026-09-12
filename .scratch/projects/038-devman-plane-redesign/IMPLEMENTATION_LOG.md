@@ -274,3 +274,27 @@ interpreter wrapper did not carry PyYAML. The final wrapper delegates to the
 installed Devman executable and keeps the compatibility `apply` argument
 translation. Devman checks passed after the fix: `base:check` and `base:test`
 both exited 0. The known doctor findings remain unchanged.
+
+## Stage 8 — project failure results
+
+On 2026-09-12, Vendomat added project-level results to plane plan and update.
+Each result names the project, path, operation, status, identity, and whether
+the old projection remains retained. Successful renders and unchanged projects
+are reported separately. Render, manifest, policy, workflow, project, and
+permission errors map to explicit result statuses.
+
+The operation inspects every project before it renders any project. A project
+failure returns results for the operation and skips generation staging and
+activation. The active pointer therefore remains usable. The CLI reports the
+failed project and tells the operator to repair and retry.
+
+The proof ran in Vendomat:
+
+```sh
+devenv shell -- pytest tests/test_plane.py
+devenv shell -- testee verify --mode quick
+```
+
+The unit suite passed with 13 tests. Vendomat quick verification passed with
+ruff, format, ty, and pytest. The next failure-model work is fault injection
+at each generation boundary and the Dagu reload boundary.
