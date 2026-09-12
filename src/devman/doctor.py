@@ -864,11 +864,14 @@ def check_schema(rep: Report, reg: Registry) -> None:
 def check_generation(rep: Report, reg: Registry) -> None:
     """Check generation identities when the registry is a plane projection."""
 
-    records = [
-        project.entry / "projection.json"
-        for project in reg.projects().values()
-        if project.entry is not None and (project.entry / "projection.json").is_file()
-    ]
+    records: list[Path] = []
+    for project in reg.projects().values():
+        active = reg.projects_dir / project.name / "projection.json"
+        state = project.entry / "projection.json" if project.entry else None
+        if active.is_file():
+            records.append(active)
+        elif state is not None and state.is_file():
+            records.append(state)
     if not records:
         return
     generation_path = reg.root / "generation.json"

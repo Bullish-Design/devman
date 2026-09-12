@@ -20,6 +20,7 @@ from helpers import ORDINARY
 
 from devman import doctor
 from devman.link import reconcile
+from devman.registry import Registry
 from devman.workflow import PROJECT_DIR
 
 pytestmark = pytest.mark.unit
@@ -426,6 +427,31 @@ def test_plane_projection_records_can_match_active_generation(plane):
     report = doctor.Report()
 
     doctor.check_generation(report, plane.reg)
+
+    assert report.sections == [
+        ("generation", "ok", ["1 projections match generation 4"])
+    ]
+
+
+def test_plane_reads_projection_records_from_active_registry_first(plane):
+    project = plane.add("p", workflows={"check": ORDINARY})
+    state = plane.root.parent / "state"
+    state_entry = state / "projects" / "p"
+    state_entry.mkdir(parents=True)
+    (state_entry / "metadata.json").write_text(
+        (project.entry / "metadata.json").read_text()
+    )
+    registry = Registry(plane.root, state)
+    (plane.root / "generation.json").write_text('{"generation": 4}\n')
+    (plane.root / "projects" / "p" / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 4}\n'
+    )
+    (state_entry / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 3}\n'
+    )
+    report = doctor.Report()
+
+    doctor.check_generation(report, registry)
 
     assert report.sections == [
         ("generation", "ok", ["1 projections match generation 4"])

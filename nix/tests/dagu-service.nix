@@ -23,6 +23,11 @@
     services.devman-dagu = {
       enable = true;
       lingerUsers = [ "tester" ];
+      # Canary the service against Vendomat's immutable registry pointer. Keep
+      # Devman's state root stable so watcher state and project metadata survive
+      # an active-generation swap.
+      registryDir = "$HOME/.local/state/vendomat/devman/active";
+      stateDir = "$HOME/.local/state/devman";
       # A queue set the test can recognise, so it can tell this config.yaml
       # from Dagu's own default.
       queues = { light = 4; exclusive = 1; };
@@ -50,7 +55,9 @@
     # published bytes, the link, the entry, and a run.
     PLAN = "${plan}"
     HOME = "/home/tester"
-    REG = HOME + "/.local/share/devman"
+    PLANE = HOME + "/.local/state/vendomat/devman"
+    GENERATION = PLANE + "/generations/1"
+    REG = PLANE + "/active"
     STATE = HOME + "/.local/state/devman"
     PROJ = HOME + "/work/demo"
     # DAGU_HOME matters: without it the CLI picks its own default home, reads a
@@ -63,6 +70,27 @@
 
     machine.start()
     machine.wait_for_unit("multi-user.target")
+
+    with subtest("the service starts from a prebuilt active registry root"):
+        # ExecStartPre creates configured directories. Remove that empty
+        # canary directory and replace it with the generation store shape
+        # before the service starts its real registry scan.
+        tester("systemctl --user stop devman-watch dagu || true")
+        machine.succeed(f"su tester -c 'rm -rf {PLANE}'")
+        machine.succeed(f"su tester -c 'mkdir -p {GENERATION}'")
+        generation = json.dumps({
+            "generation": 1,
+            "devman_runtime": "test",
+            "renderer_digest": "sha256:test",
+            "policy_digest": "sha256:test",
+            "dagu_digest": "sha256:test",
+            "toolchain_digest": "sha256:test",
+        })
+        machine.succeed(
+            f"su tester -c \"printf '%s\\n' '{generation}' > {GENERATION}/generation.json\""
+        )
+        machine.succeed(f"su tester -c 'ln -s generations/1 {REG}'")
+        tester("systemctl --user start dagu devman-watch")
 
     with subtest("linger is set declaratively, so the user manager runs unattended"):
         machine.succeed("loginctl show-user tester -p Linger | grep -x Linger=yes")
@@ -85,7 +113,10 @@
         assert "devman-record-run" in base
 
     with subtest("both registry directories exist before anything registers"):
-        tester(f"test -d {REG}/projects && test -d {REG}/dags && test -d {STATE}/projects")
+        tester(
+            f"test -L {REG} && test -d {REG}/projects && test -d {REG}/dags "
+            f"&& test -f {REG}/generation.json && test -d {STATE}/projects"
+        )
 
     with subtest("a projection in the devenv module's shape is discovered"):
         # The names are the codec's: `<project>.<workflow>` (§9.2, S-12). This

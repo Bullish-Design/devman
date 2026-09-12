@@ -132,7 +132,7 @@ That command proved the following:
 
 Verification evidence:
 
-- Devman unit suite: 536 passed;
+- Devman unit suite: 538 passed;
 - Devman `base:check` passed;
 - Devman `base:test` passed;
 - Vendomat `testee verify --mode quick`: ruff, format, ty, and pytest passed;
@@ -174,14 +174,31 @@ proved that RepoMan's unchanged workflow was copied into generation 2.
 
 The active generation is self-contained. Its `active` root contains the
 registry `projects/` tree, the flat Dagu `dags/` tree, and `generation.json`.
-With both `registryDir` and `stateDir` pointed at that stable active symlink,
-the new Devman package successfully ran `show` and `doctor` against the active
-root. The canary doctor reported `generation: 3 projections match generation
-2`; its two findings were the expected dirty Vendomat source and absent
-watcher state for the temporary canary.
+The first manual canary pointed both `registryDir` and `stateDir` at the active
+symlink. That proved the root was self-contained, but it also moved watcher
+state with every generation. The service canary keeps `stateDir` at the stable
+Devman state root and points only `registryDir` at the active symlink. Devman
+now reads active-root `projection.json` records before the compatibility state
+copy, so `doctor` can check the active generation without moving runtime state.
 
-The compatibility shell hook and registry remain the default. The next safe
-step is a Dagu-service canary that uses the active root while the old shell
-projection stays available for rollback. Vendomat still receives explicit
-renderer and Dagu paths. Package-closure reuse and automatic service reload
-remain open Phase 3 work.
+The compatibility shell hook and registry remain the default. Vendomat still
+receives explicit renderer and Dagu paths. Package-closure reuse and automatic
+service reload remain open Phase 3 work.
+
+## Stage 4 — Dagu active-registry service canary
+
+On 2026-09-12, the NixOS Dagu service check passed:
+
+```text
+devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link
+```
+
+The service used the active generation for `registryDir` and the stable
+`$HOME/.local/state/devman` root for `stateDir`. The test seeded generation 1,
+activated its symlink, and started the watcher. Dagu discovered the generated
+workflows, ran `demo.probe`, and wrote the expected run records and logs.
+The watcher stayed live. The service and doctor checks passed.
+
+The fixture changes only VM test data after activation. Production generation
+contents remain immutable. A pointer-swap test that proves reload without
+losing Dagu history, and automatic service reload, remain open.
