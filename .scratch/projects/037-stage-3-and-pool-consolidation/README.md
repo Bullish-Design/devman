@@ -92,6 +92,12 @@ that decision exists.
 
 Flora is no longer open. Its Part E lane landed as
 `56c3f4c9af0dc18d8dc8fd6e450575afbe9bc0c6` and was pushed to `origin/main`.
+The original checkout passed a fresh `devenv shell -- true` recheck on
+2026-09-12 in 424 ms. Its existing devman pin
+`73dcc41bbeccae88d3910850551ae3ddc005fedc` is already link-compatible, so no
+new Flora configuration change was needed. The held lock refresh remains in
+the unrelated lane `adopted-11ceb219`; a pre-existing promoted-file backup is
+held separately in `adopted-53eb515c`. Neither lane was landed.
 
 ## Part A — Claude settings survival
 
@@ -175,9 +181,9 @@ The devman repository checks completed after the edits:
 - `devenv tasks run -v base:unit` — 520 passed;
 - `devenv tasks run -v base:test` — pass, including the NixOS VM check.
 
-The plain local command `devman doctor` uses the unmerged Part B default
-state root and reports 1 project and 10 workflows. This is expected while
-Part B is not deployed. With the deployed layout selected explicitly,
+Before the deployment attempt, the plain local command `devman doctor` used
+the unmerged Part B default state root and reported 1 project and 10
+workflows. With the deployed layout selected explicitly,
 `devenv shell -- devman --state ~/.local/share/devman doctor` reports 50
 projects and 158 workflows. Flora drift and the Pytuin local-source pin are
 resolved. The local-source check now passes with six libraries feeding 59
@@ -191,10 +197,37 @@ is no lodestar residue. No registry directory move and no §6.2a change was
 made.
 
 PR #161 is merged at
-`73dcc41bbeccae88d3910850551ae3ddc005fedc`; the GitHub release list has no
-corresponding release. No system rebuild or switch was run because this session
-did not have explicit authority. PR #162 is merged at
-`888ff1d09f7ebbe28e1bdeec1867dbdb4653d98d`. The remaining deployment handoff
-is to release and deploy Part B, then run `devman-resync`, re-enter
-representative repositories, and compare the registry and Dagu workflow
-counts.
+`73dcc41bbeccae88d3910850551ae3ddc005fedc`. The Part B release is now
+available as [devman 0.5.2](https://github.com/Bullish-Design/devman/releases/tag/v0.5.2)
+at tag commit `ec6710aaa59cd1f73ccc78858623d401a20221e0`. The exact release
+build passed:
+
+```text
+devenv shell -- nix build --no-link \
+  'git+file:///home/andrew/Documents/Projects/devman?ref=v0.5.2#devman'
+```
+
+The machine pin used the isolated lane `037-deploy-devman-0.5.2`. That lane
+landed and was pushed in `nix-meta` as
+`8422571f145a80782c22f9d97422d8d45c937fb1`. Its full machine-flake check
+passed before activation.
+
+The system was still
+`v3lhkgv4r1lirf196sxm59nq5rpqyz86-nixos-system-server-26.11.20260705.d407951`
+with devman 0.5.1 before the switch. The normal switch command reached the
+system build but failed before activation because this session cannot elevate:
+`sudo -n true` reports that a password is required, and updating
+`/nix/var/nix/profiles/system` returned `Permission denied`. The dry activation
+also required system authorization. No system generation changed.
+
+The requested `devman-resync`, representative re-entry, plain doctor check,
+and Dagu post-deployment comparison remain pending until that switch is run
+with local administrator authentication. The deployed-layout doctor remains
+stable at 50 projects and 158 workflows with the same three known link-drift
+findings. The current pre-deployment state-root doctor sees 3 projects and 16
+workflows, including the temporary held `flora-037-part-e` workspace entry;
+that is not deployment evidence. Do not use `doctor --prune` on the held
+workspace.
+
+PR #162 is merged at `888ff1d09f7ebbe28e1bdeec1867dbdb4653d98d`. PR #163 is
+merged at `67a0a0325343ee564f72f15358ccc11f8ac8b189`.
