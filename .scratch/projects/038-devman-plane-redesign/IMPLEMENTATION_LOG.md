@@ -1392,3 +1392,65 @@ The next gate is to commit and pin this correction, rebuild nix-meta, and have
 the operator switch again. Only after
 `/run/current-system/sw/share/devman/link-module.nix` exists should the central
 Vendomat declaration change and the one-consumer removal probe begin.
+
+## Stage 19 — remove the Vendomat Devman consumer
+
+The operator switched the corrected nix-meta system. The live system now
+resolves `/run/current-system/sw/share/devman/link-module.nix` to the
+machine-installed adapter package, and both required Vendomat canaries return
+exit 0 with five `ok` states.
+
+The central Vendomat declaration now accepts the adapter's explicit `project`
+argument, imports the machine-owned link module, and reads
+`.devman/project.toml` during normal devenv evaluation. Its paths no longer
+read `config.devman.project`.
+
+Vendomat then removed its `devman` input, `devman/modules` import, and
+`devman` option block. Its lock file removes only the Devman node and root
+input; the existing devenv, nixpkgs, nixpkgs-python, and shellij pins remain
+unchanged. This pair is one transition: importing the link module centrally
+while the old consumer module was still present caused a duplicate
+`devman.link` option declaration. Removing both sides restored a single
+declaration source.
+
+`devenv shell -- true` succeeds without the Devman input. Vendomat's
+`devenv shell -- testee verify --mode quick` passes ruff, ruff-format, ty, and
+pytest. Both post-removal canaries pass. The active plane remains
+`generations/2`, with 46 project directories and 146 DAG files. The DAG digest
+remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines. Doctor returns
+exit 1 with the same four known findings.
+
+This is the first consumer migration under the new boundary. No other
+consumer changed. The remaining migration count is 42 non-canary repositories.
+The compatibility resolver, renderer, and registry remain in place for the
+remaining consumers. The next removal must use the same central-module and
+consumer transition shape, one repository at a time.
+
+## Stage 20 — remove the Atuout Devman consumer
+
+The operator clarified that `allium-env` is leaving the project lineup. It was
+not migrated or modified; its checkout is clean and remains on its prior
+configuration until a separate project-removal operation is requested.
+
+`atuout` was selected as the next clean, manifest-backed consumer. Its central
+declaration now accepts the explicit `project` argument, imports the
+machine-owned link module, and reads the manifest during normal devenv
+evaluation. Atuout removed its `devman` input, import, and option block. Its
+`devenv.lock` is ignored by the repository and was updated locally to remove
+the unused Devman node; no generated lock file was staged.
+
+`devenv shell -- true`, `base:check`, and `base:test` pass. The test task
+passes 103 tests with one skip; existing ResourceWarnings remain non-blocking.
+Both adapter canaries return exit 0 with five `ok` states. The active plane
+remains `generations/2`, with 46 project directories and 146 DAG files. The
+DAG digest remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines.
+
+The Atuout consumer commit is pushed as `26e05f9`. Its central declaration is
+stored in the local central checkout commit `605daba8`; that checkout has no
+remote. The migration now covers Vendomat and Atuout. The next selection must
+continue to exclude allium-env and avoid RepoMan while its protected lockfile
+and worktree are dirty.
