@@ -27,6 +27,10 @@ runbook for the agreed link-plane transition: keep Devman as the adapter now,
 make the central configuration contract stable, and defer extraction until the
 bridge is proven.
 
+[`LINK_ADAPTER_B_GUIDE.md`](LINK_ADAPTER_B_GUIDE.md) is the next-phase runbook
+for extracting the link adapter into a stable package without changing the
+central configuration interface.
+
 [`FULL_REFACTOR_PROMPT.md`](FULL_REFACTOR_PROMPT.md) is a copy-ready prompt
 for a clean implementation session. It defines the work across Devman,
 Vendomat, and RepoMan.
