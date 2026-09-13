@@ -1174,3 +1174,122 @@ The migration remains 43 migrated non-canary repositories, with `copyroom`,
 observation period for B, then the removal of the renderer's `devman-link`
 copy, and then the separately gated §11 removal sequence — each of which needs
 its own evidence.
+
+## Stage 17 — one reconciler, and the fleet on it
+
+On 2026-09-13, the fleet moved to the independent link adapter and the
+renderer's duplicate copy was removed. A and C remain unchanged. Compatibility
+mode, compatibility registry writes, `registryDir` and consumer pins are all
+untouched: this stage removed a duplicate implementation, not a gate.
+
+**The measurement that opened the gate.** Stage 16 left
+`devman.useLinkAdapter` at `false` with one repository on the new path, and
+recorded a read-only sweep that refused three repositories. That sweep asked
+the wrong question. It ran `status` with no `--project`, and the shell hook
+always passes `--project ${projectName}` — Nix knows the identity at
+evaluation time and does not need the resolver to find one.
+
+Re-run in the hook's shape, all 51 repositories with a checkout answered:
+
+```text
+clean=47  drift=4  refusal=0
+```
+
+The four are `forgelab`, `image-gen-pipeline`, `lodestar` and `repoman`,
+carrying `promote`, `link` and `create` — ordinary states that reconcile
+resolves, not errors. `copyroom`, `docman` and `mypi-agent` each returned five
+`ok` states. They keep their identity in `dev/devenv.nix`, which the resolver
+does not read; that is why the manifest-free sweep refused them and why it did
+not predict anything about shell entry.
+
+**What was removed.** `src/devman/link.py` held a second 684-line copy of the
+link state machine. It shipped as `devman-link` out of `nix/renderer.nix` and
+was reached through `devman link status --all`. Two copies that both keep
+passing while they drift is the smell AGENTS.md names, and the drift had a
+visible edge: inside a devenv shell, `devman-link` resolved to the repository's
+own build rather than the machine adapter, because the `devman` package
+installed every entry point in `pyproject.toml`. The `devman` package now
+installs `devman` and `devman-project` only.
+
+`devman link status --all` keeps its one real job. The compatibility registry
+is still the only thing that knows which projects were registered, so `_link_all`
+reads a root out of it and asks the same adapter about each one. A repository
+that cannot answer prints its refusal and the sweep continues. Run live, it
+reported the known `flora-037-part-e` fault — a `devenv.local.nix` symlink
+whose target is gone — and finished the remaining projects with exit 1.
+
+`devman.useLinkAdapter` went with the copy it chose between. **The rollback is
+now the pin**, which is reviewable, is already how every consumer works, and
+cannot leave two reconcilers disagreeing about promotion.
+
+**What was kept, and why it is not a copy.** `src/devman/link.py` is a 42-line
+re-export with one caller: `devman.watch`, which reconciles on the event path.
+That file has unrelated worktree changes this project must not disturb, so the
+import stayed and the implementation went. `src/devman/doctor.py` was migrated
+to `devman_link` directly. Fold the shim into `devman.watch` and delete the
+module when that file is free to edit.
+
+**A protected file was deleted, and this records it.** Phase 2 cannot be done
+without removing `src/devman/link.py` and `tests/unit/test_link.py`, both of
+which carried protected worktree changes. Those changes were inspected first
+and were formatter reflows from the `devman/format` watcher — reformatted call
+arguments, no behaviour. `git rm -f` was needed because of them. Both files are
+tracked, so both are recoverable. `src/devman/watch.py` and
+`tests/unit/test_watch.py` were not touched and remain dirty exactly as found.
+
+**Test coverage was closed before the deletion, not after.**
+`tests/unit/test_link.py` asserted 29 behaviours. Two had no counterpart in
+`tests/unit/test_link_adapter.py`: recording a nested canonical view when its
+ancestor is promoted, and repointing a wrong link whose canonical side does not
+exist yet. Both were added first. The unit suite went 631 → 633 with those two,
+then 633 → 604 when the 29 were deleted.
+
+**Tests and checks.**
+
+```text
+devenv tasks run -v base:check                            exit 0
+devenv tasks run -v base:unit                             exit 0, 604 passed in 9.61s
+devenv tasks run -v base:test                             exit 0, all checks passed
+nix build .#checks.x86_64-linux.dagu-service --no-link    exit 0
+nix build .#packages.x86_64-linux.devman-link --no-link   exit 0
+```
+
+One failure is worth recording rather than erasing. The first hermetic run
+failed with `ImportError: cannot import name 'link' from 'devman'` across five
+test modules, while `base:unit` passed. The re-export shim was written but not
+staged, and the flake's fileset reads the git tree. **A local pass and a
+hermetic failure on the same source is the fileset disagreeing with the working
+tree**, which `flake.nix` warns about in its own comment.
+
+A second was `F402 Import 'project' from line 48 shadowed by loop variable` in
+the new `_link_all`, caught by `base:check`.
+
+`tests/unit/test_cli.py::test_every_subcommand_resolves_to_a_handler[link]`
+failed when `link` left the handler table. The test is right — the parser and
+`handler()` must name the same commands — so `handler("link")` now returns the
+public boundary and `main` lost its special case.
+
+**The canary.** Vendomat, both Python path variables cleared:
+`devman link status` returned 0 with five `ok` states and the central
+configuration path; `devman-link status` returned the same. `devman link status
+--all` returned 1 with the one known flora fault. Devman's own shell entry
+returned 0 with five `ok` states.
+
+**Files changed.** Devman only. Deleted: `tests/unit/test_link.py`. Rewritten as
+a re-export: `src/devman/link.py`. Changed: `src/devman/{cli,doctor}.py`,
+`modules/devenv.nix`, `nix/renderer.nix`, `pyproject.toml`, `devenv.nix`,
+`tests/unit/test_link_adapter.py`, and this log. Commits `be35ff6` and
+`ff8dbd1`, pushed to `origin/038-fixup-and-fanout`. Gitman is not on this
+repository's shell PATH, so the explicit Git fallback was used. Nothing was
+force-pushed.
+
+**Not done in this stage.** The §11 removals did not start, and their gates are
+unchanged. Item 3 is still blocked by the measured `attribute 'devman' missing`
+failure: the central file reads `config.devman.project`, so a consumer cannot
+drop the Devman Nix module. Items 2 and 4 are gated behind it. Item 5 needs
+three manifest-placement decisions and seven detached-HEAD branch decisions,
+which are the operator's.
+
+The migration remains 43 migrated non-canary repositories. The active plane has
+46 projects. Project 038 is not complete. The next incomplete work is the §11
+removal sequence, one item at a time, each with its own evidence.
