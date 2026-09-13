@@ -1454,3 +1454,30 @@ stored in the local central checkout commit `605daba8`; that checkout has no
 remote. The migration now covers Vendomat and Atuout. The next selection must
 continue to exclude allium-env and avoid RepoMan while its protected lockfile
 and worktree are dirty.
+
+## Stage 21 — remove the Knappy Devman consumer
+
+On 2026-09-13, `knappy` crossed the same machine-module boundary as Vendomat
+and Atuout. Its central declaration now accepts the adapter's explicit
+`project` argument, imports the machine-owned link module, and reads the
+manifest during normal devenv evaluation. Knappy removed its `devman` input,
+`devman/modules` import, and `devman` option block. Its ignored lock file was
+updated locally to remove the unused Devman node and root edge; no generated
+lock file was staged.
+
+`devenv shell -- true`, `base:check`, and `base:test` pass. The test task passes
+218 tests with one existing Starlette deprecation warning. Both adapter
+canaries return exit 0 with five `ok` states. The active plane remains
+`generations/2`, with 46 project directories and 146 DAG files. The DAG digest
+remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines. Plane invariants
+pass. Doctor remains exit 1 with the existing link-drift and local-source
+findings; no new finding is caused by this removal.
+
+The Knappy consumer commit is pushed as `62698bf`. Its central declaration is
+stored in the local central checkout commit `bcd4bc62`; that checkout has no
+remote. `allium-env` remains deliberately excluded from migration and
+unchanged. Its checkout, manifest, central declaration, and active generated
+state remain in place. RepoMan remains deferred because its protected lock and
+worktree are dirty.
