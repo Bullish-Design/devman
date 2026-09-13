@@ -1697,3 +1697,15 @@ substantial unbookmarked application changes, plus an orphaned
 `fix/daemon-lock-and-identity-parity` lane after Gitman initialization. The
 consumer migration was not applied, committed, or published. It remains
 blocked until its existing work is resolved by its owner.
+
+## Stage 32 — eventic migration parked
+
+On 2026-09-13, the matched `eventic` transition was applied but not committed
+or published. Its shell and lint gate passed. The full test gate reported 234
+passed, 4 skipped, and 3 failures. The failures are existing conformance
+failures caused by missing `alembic`: migration tests fail with the
+repository's own missing-extra error, and the dependent CLI worker test cannot
+find `eventic_revision`. No application behavior was changed and no waiver
+was applied. The consumer and central edits remain parked.
+
+The next candidate is `grail`.
