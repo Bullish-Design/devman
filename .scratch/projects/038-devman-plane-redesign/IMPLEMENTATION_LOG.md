@@ -1580,4 +1580,45 @@ Dagu inventory count was 147. Doctor remained exit 1 with only the four known
 findings: the flora-037-part-e link drift, dirty unpinned Vendomat and RepoMan
 sources, and the unpinned `git+file:` advice. Argentic remains blocked, Allium-env
 remains excluded, compatibility mode remains enabled, and the protected watcher
-files remain untouched. The next candidate is `loci.nvim`.
+files remain untouched.
+
+## Stage 26 — nix-nvim consumer migration
+
+On 2026-09-13, `nix-nvim` completed the machine-owned link transition. Its
+identity is the manifest project name `nix-nvim`, with the explicit central
+`project` argument taking precedence over the manifest fallback.
+
+The consumer lane was published as commit
+`bfb78e6568525010d837d48576e5d9b27b01e97e` on
+`038-devman-consumer-nix-nvim`. The central declaration was committed locally
+as `16bb1285`. The consumer kept `.devman/project.toml` and its task
+definitions. It removed the Devman flake input, the `devman/modules` import,
+the old `devman` option block, the Devman lock node, and the root Devman edge.
+Existing `stray-devenv` work and unrelated lock changes were preserved.
+
+`NO_SHELLIJ=1 devenv shell -- true`, `base:check`, and `base:test` passed.
+Both link canaries returned five `ok` states and the same central path. The
+active pointer remained `generations/2`; the plane remained at 46 projects and
+146 DAG files; the DAG digest remained
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; and the
+Dagu inventory remained 147 lines. Doctor retained the four known findings:
+the `flora-037-part-e` link drift, dirty Vendomat and RepoMan sources, and the
+unpinned `git+file:` advice.
+
+Compatibility mode remains enabled. The next clean candidate is `pyllij` or
+`browsee`.
+
+## Stage 27 — loci.nvim migration parked
+
+On 2026-09-13, the matched `loci.nvim` transition was applied in the consumer
+lane `038-devman-consumer-loci.nvim`, but it was not committed or published.
+The consumer and central worktrees retain the edits for later completion.
+
+The shell canary and `base:check` passed. `base:test` failed in existing
+hermetic loci-core checks: walkthrough tests and skill conformance reported
+unknown binaries `copyroom`, `devenv`, and `repoman`. No application
+behavior was changed and no waiver was applied. Because the repository gate
+failed, post-transition link canaries and plane invariants were not accepted
+as proof.
+
+The candidate is parked. The next clean candidate is `pyllij` or `browsee`.
