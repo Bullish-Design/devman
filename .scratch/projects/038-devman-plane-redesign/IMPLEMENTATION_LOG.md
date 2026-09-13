@@ -1738,10 +1738,10 @@ failure and repair requirement in each consumer commit message:
 - `loci.nvim`: published lane commit recorded by Gitman; hermetic checks lack
   `copyroom`, `devenv`, and `repoman`.
 - `eventic`: published lane commit recorded by Gitman; three tests fail because
-  `alembic) is missing and schema setup does not run.
+  `alembic` is missing and schema setup does not run.
 - `grail`: published lane commit recorded by Gitman; 83 existing Ruff errors
   remain.
-- `poddantic`: published lane commit recorded by Gitman; `pytest) is absent
+- `poddantic`: published lane commit recorded by Gitman; `pytest` is absent
   from the declared test environment.
 
 The matching central declarations were committed locally as
@@ -1749,3 +1749,18 @@ The matching central declarations were committed locally as
 (`eventic`), `1dc6f188` (`grail`), and `0cb3b9b8` (`poddantic`).
 Compatibility mode remains enabled. The remaining supported inventory is still
 in progress.
+
+## Stage 36 — pytuin consumer migration
+
+On 2026-09-13, `pytuin` completed the matched consumer transition. Its
+consumer lane was published as `fe1a79402f3c18d33133797332126e030b7078e5`.
+The central declaration was committed locally as `5e33c501`. The consumer
+removed the Devman input, import, option, lock node, and root edge while
+preserving its manifest and tasks.
+
+The shell and both repository gates passed; the test task reported 302 passed.
+Both link canaries returned five `ok` states and the same central path. The
+active pointer remained `generations/2`, with 46 projects, 146 DAG files,
+digest `5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`,
+and Dagu inventory 147. Doctor was not rerun in this stage; its prior four
+known findings remain unchanged.
