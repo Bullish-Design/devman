@@ -776,3 +776,30 @@ and RepoMan sources consumed by unpinned inputs; and one Dagu process with
 `SHELL` set. Its independent old-state top line remains `4 projects, 16
 workflows`; `dagu ls` returned 146 workflows with exit 0. The shellij dirty
 source finding from the earlier canary disappeared after its migration commit.
+
+**§11 pin-removal probe.** A controlled removal probe was run against the
+Vendomat canary. It removed only the `devman` input, the `devman/modules`
+import, and the `devman` option block from `devenv.yaml` and `devenv.nix`.
+The exact verification command was:
+
+```sh
+cd /home/andrew/Documents/Projects/vendomat
+devenv shell -- testee verify --mode quick
+```
+
+The shell refused during Nix evaluation before Testee ran. The machine-local
+overlay at `~/.config/devman/projects/vendomat/devenv.local.nix` still reads
+`config.devman.project` to construct its link declarations. The failure was
+`attribute 'devman' missing`. The attempted source and lock edits were
+reverted. Vendomat's pre-existing worktree state is unchanged, including its
+pre-existing `DA`/`MM` paths and its original lock bytes.
+
+This prevents a partial item 3 or 4 removal that would break every shell entry
+before the central overlay has its own project-identity input. Items 2 through
+4 therefore remain gated: item 2 still has a compatibility resolver for
+unpinned and structural consumers, item 3 cannot remove consumer pins while
+the overlay requires the module, and item 4 cannot stop compatibility writes
+until those consumers have a supported replacement. Item 5 remains blocked by
+the three placement decisions, the seven detached-HEAD branch decisions, and
+the compatibility-only projects listed in the migration and comparison
+reports.
