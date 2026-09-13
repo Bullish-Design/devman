@@ -1664,3 +1664,36 @@ waiver was applied. Post-transition canaries and plane invariants were not
 accepted because the repository gate failed.
 
 The candidate is parked. The next clean candidate is `tyo3`.
+
+## Stage 30 — zelligate consumer migration
+
+On 2026-09-13, `zelligate` completed the matched consumer transition. Its
+identity is the manifest project name `zelligate`, with the explicit central
+`project` argument taking precedence over the manifest fallback.
+
+The consumer lane was published as commit
+`3432d450804469a478a57186dcd57aa84d1bff11` on
+`038-devman-consumer-zelligate`. The central declaration was committed locally
+as `5188968a`. The consumer kept its manifest and task definitions. It
+removed the Devman flake input, `devman/modules` import, old option block,
+Devman lock node, and root edge. Allium-env remained unchanged.
+
+The shell, `base:check`, and `base:test` gates passed; the test task reported
+273 passed. Both link canaries returned five `ok` states and the same central
+path. The active pointer remained `generations/2`; the plane remained at 46
+projects and 146 DAG files; the DAG digest remained
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; and the
+Dagu inventory remained 147 lines. Doctor retained the four known findings:
+the `flora-037-part-e` link drift, dirty Vendomat and RepoMan sources, and the
+unpinned `git+file:` advice.
+
+Compatibility mode remains enabled. The next candidate is selected by the
+remaining inventory preflight.
+
+## Stage 31 — tyo3 migration not started
+
+On 2026-09-13, `tyo3` was not modified. Its worktree contained 19 files of
+substantial unbookmarked application changes, plus an orphaned
+`fix/daemon-lock-and-identity-parity` lane after Gitman initialization. The
+consumer migration was not applied, committed, or published. It remains
+blocked until its existing work is resolved by its owner.
