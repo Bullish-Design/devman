@@ -1709,3 +1709,12 @@ find `eventic_revision`. No application behavior was changed and no waiver
 was applied. The consumer and central edits remain parked.
 
 The next candidate is `grail`.
+
+## Stage 33 — grail migration parked
+
+On 2026-09-13, the matched `grail` transition was applied but not committed
+or published. The shell started, but `base:check` failed in the existing
+source and test tree with 83 Ruff errors. No application behavior was changed
+and no waiver was applied. The consumer and central edits remain parked.
+
+The next candidate is `poddantic`.
