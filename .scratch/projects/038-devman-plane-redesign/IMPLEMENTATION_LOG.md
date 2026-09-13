@@ -1648,3 +1648,19 @@ the `flora-037-part-e` link drift, dirty Vendomat and RepoMan sources, and the
 unpinned `git+file:` advice.
 
 Compatibility mode remains enabled. The next clean candidate is `browsee`.
+
+## Stage 29 — browsee migration parked
+
+On 2026-09-13, the matched `browsee` transition was applied in
+`038-devman-consumer-browsee`, but it was not committed or published. The
+consumer and central worktrees retain the edits.
+
+The preflight canary returned five `ok` states. The shell entered successfully
+and `base:check` passed. `base:test` failed with one existing unit failure:
+`tests/test_dispatcher.py::test_dispatch_moderate_confidence_uses_fallback`
+expected `replay_with_fallback` but received `explore`. The suite reported
+489 passed and 2 skipped. No Browsee application behavior was changed and no
+waiver was applied. Post-transition canaries and plane invariants were not
+accepted because the repository gate failed.
+
+The candidate is parked. The next clean candidate is `tyo3`.
