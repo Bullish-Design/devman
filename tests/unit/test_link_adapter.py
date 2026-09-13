@@ -1001,3 +1001,57 @@ def test_a_central_file_that_is_not_a_function_is_refused(tmp_path: Path):
 
     assert "cannot evaluate central configuration" in str(caught.value)
     assert "repair:" in str(caught.value)
+
+
+def test_promoting_an_ancestor_records_a_nested_canonical_view(tmp_path: Path):
+    """A promoted parent carries its child's canonical content with it.
+
+    `.claude/skills` resolves below `.agents`, so promoting `.agents` first
+    creates the child's canonical side as a side effect. Without recording it,
+    the next run sees a canonical side it has no baseline for and refuses a
+    promotion that is safe.
+    """
+    overlay = tmp_path / "overlay"
+    root = tmp_path / "repo"
+    (root / ".agents/skills/shared").mkdir(parents=True)
+    (root / ".agents/skills/shared/one.md").write_text("one\n")
+    (root / ".claude/skills").mkdir(parents=True)
+    (root / ".claude/skills/two.md").write_text("two\n")
+
+    result = reconcile(
+        {
+            ".agents": central("projects/demo/agents"),
+            ".claude/skills": central("projects/demo/agents/skills"),
+        },
+        overlay=overlay,
+        root=root,
+        project="demo",
+    )
+
+    assert [item.state for item in result] == ["promote", "promote"]
+    assert (
+        overlay / "projects/demo/agents/skills/shared/one.md"
+    ).read_text() == "one\n"
+    assert (overlay / "projects/demo/agents/skills/two.md").read_text() == "two\n"
+    record = json.loads((overlay / STATE_FILE).read_text())
+    assert "demo:.claude/skills" in record
+
+
+def test_a_wrong_link_to_an_absent_canonical_is_repaired_deterministically(
+    tmp_path: Path,
+):
+    """Repointing must not depend on the canonical side existing first."""
+    overlay = tmp_path / "overlay"
+    root = tmp_path / "repo"
+    wrong = tmp_path / "wrong"
+    wrong.write_text("not the canonical file\n")
+    root.mkdir()
+    (root / ".envrc").symlink_to(wrong)
+
+    result = reconcile({".envrc": central()}, overlay=overlay, root=root, project="d")
+
+    canonical = overlay / "common/envrc"
+    assert result[0].state == "repoint"
+    assert canonical.read_text() == ""
+    assert (root / ".envrc").resolve() == canonical.resolve()
+    assert wrong.read_text() == "not the canonical file\n"

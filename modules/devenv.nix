@@ -601,7 +601,7 @@ in
 
     useLinkAdapter = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = ''
         Reconcile links with the independent `devman-link` component rather
         than the copy inside the workflow renderer (038 Stage 16, B).
@@ -611,11 +611,21 @@ in
         registry entry, and it reads no active workflow generation — so a plane
         generation update cannot change a link target.
 
-        **The default is `false` on purpose, and it is a rollout gate rather
-        than a preference.** Turning it on here switches every repository that
-        takes this module at its next shell entry, and Project 038's rollout
-        order says to switch one repository, observe it, and then widen. Flip
-        it per repository until the observation period closes.
+        **The default became `true` at Stage 17, and the measurement is why.**
+        It was `false` while one repository ran on the new path. Closing that
+        observation meant asking what the fleet would do, in the shape the shell
+        hook actually calls — `status` with an explicit `--project`, which is
+        what the hook passes. All 51 repositories with a checkout answered: 47
+        clean and 4 carrying ordinary drift that reconcile resolves. **No
+        repository refused.**
+
+        The earlier sweep without `--project` refused three, and that was the
+        question being asked rather than the fleet: `copyroom`, `docman` and
+        `mypi-agent` keep their identity in `dev/devenv.nix`, which the resolver
+        does not read, and the hook never relies on it finding one.
+
+        Setting this to `false` returns one repository to the
+        renderer-provided adapter while that copy still exists.
       '';
     };
 
