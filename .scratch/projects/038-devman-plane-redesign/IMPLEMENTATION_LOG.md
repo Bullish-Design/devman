@@ -1710,6 +1710,14 @@ was applied. The consumer and central edits remain parked.
 
 The next candidate is `grail`.
 
+## Stage 34 — poddantic migration parked
+
+On 2026-09-13, the matched `poddantic` transition was applied but not
+committed or published. Its shell and lint gate passed. Its declared test task
+failed immediately because `pytest` is absent from the configured environment.
+No application behavior was changed and no waiver was applied. The consumer
+and central edits remain parked.
+
 ## Stage 33 — grail migration parked
 
 On 2026-09-13, the matched `grail` transition was applied but not committed
