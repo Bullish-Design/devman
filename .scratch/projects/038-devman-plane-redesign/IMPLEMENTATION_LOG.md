@@ -756,3 +756,23 @@ known findings, so this removal did not hide or create a doctor finding. The
 change and this record were committed as `a960df4` and pushed to
 `origin/038-fixup-and-fanout`. Items 2 through 4 remain separate reviewed
 changes; item 5 remains blocked by the consumers named above.
+
+**Final Stage 14 verification.** The remaining 22 newly migrated manifests
+were committed and pushed. A repeat of `vendomat plane plan` proposed
+generation 3; the matching `plane update` was a no-op and retained generation
+2. One `devenv shell` invocation validated all 146 active DAGs. Vendomat's
+`devenv shell -- testee verify --mode quick` passed all four quick checks in
+34.2 seconds. RepoMan `base:check` passed; `base:test` still failed only on
+the two pre-existing unformatted files `src/repoman/cli.py` and
+`src/repoman/devman/migrate.py`. `nixos-rebuild build --flake .#server`
+passed in `nix-meta` and produced
+`/nix/store/n1qz7wzpzgm3wk7wn4czay5mxy6m2l60-nixos-system-server-26.11.20260705.d407951`.
+Devman `base:check`, `base:test`, and the separate `dagu-service` build all
+passed.
+
+The final environment-cleared live doctor remained in plane mode and returned
+exit 1 for four findings: `flora-037-part-e` link drift; uncommitted Vendomat
+and RepoMan sources consumed by unpinned inputs; and one Dagu process with
+`SHELL` set. Its independent old-state top line remains `4 projects, 16
+workflows`; `dagu ls` returned 146 workflows with exit 0. The shellij dirty
+source finding from the earlier canary disappeared after its migration commit.

@@ -68,3 +68,11 @@ input to RepoMan `main` at `57473ad` and selecting the machine venv provider:
 repositories without a shell RepoMan used the rebuilt machine binary directly.
 The six secretspec-gated shells received:
 `SECRETSPEC_REASON="devman migration (project 038)"`.
+
+All 22 newly migrated non-canary manifests were committed and pushed. The
+detached-at-`main` repositories received a `038-devman-migration` branch; no
+branch was invented for the seven earlier detached commits. `talkee` had an
+old `/.devman/` ignore rule, so its commit also narrows that rule to
+`/.devman/.runs/`, which keeps the manifest trackable. The RepoMan canary's
+manifest was committed separately on its own `038-devman-migration` branch;
+its protected `devenv.lock` and other existing changes were not staged.
