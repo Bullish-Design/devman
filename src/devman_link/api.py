@@ -22,11 +22,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import LinkConfiguration, validate_link_configuration
+from .config import LinkConfiguration, central_link_file, validate_link_configuration
 from .errors import LinkAdapterError, LinkError
 from .identity import ProjectIdentity, resolve_project_identity
 from .paths import user_path
-from .reconcile import LinkResult, reconcile, status
+from .reconcile import BOOTSTRAP_CENTRAL_FILE, LinkResult, reconcile, status
 
 DEFAULT_OVERLAY = "~/.config/devman"
 
@@ -62,6 +62,23 @@ class LinkOutcome:
         return 0
 
 
+def _bootstrap_central_file(overlay: Path, project: str) -> None:
+    """Create the central file for a repository that has never had one.
+
+    Reconciliation reads the central file, so a repository joining the plane
+    would have nothing to read. The bootstrap declaration is implicit for
+    exactly that reason (025 §5.5): Nix evaluates `devenv.local.nix` before any
+    hook runs, so the canonical file must exist before the link does.
+
+    Status does not do this. Status is read-only, and it refuses instead.
+    """
+    central = central_link_file(overlay, project)
+    if central.exists():
+        return
+    central.parent.mkdir(parents=True, exist_ok=True)
+    central.write_text(BOOTSTRAP_CENTRAL_FILE)
+
+
 def run(
     operation: str,
     *,
@@ -79,6 +96,8 @@ def run(
     repository = user_path(root)
     overlay_root = user_path(overlay)
     identity = resolve_project_identity(repository, project)
+    if operation == "reconcile":
+        _bootstrap_central_file(overlay_root, identity.project)
     configuration = validate_link_configuration(
         identity.root,
         overlay_root,

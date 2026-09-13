@@ -904,3 +904,54 @@ def test_status_helper_returns_one_result_per_view(tmp_path: Path):
     )
 
     assert [result.link.declaration.view for result in results] == [".envrc", ".agents"]
+
+
+def test_reconcile_bootstraps_a_repository_that_has_no_central_file(tmp_path: Path):
+    """A repository joining the plane has nothing to read yet.
+
+    The old shell-entry path created the central file from the implicit
+    bootstrap declaration. Reconcile keeps doing that, because Nix evaluates
+    `devenv.local.nix` before any hook runs (025 section 5.5).
+    """
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_manifest(root, "newcomer")
+    central_file = overlay / "projects/newcomer/devenv.local.nix"
+
+    outcome = devman_link.run(
+        "reconcile", root=root, overlay=overlay, evaluator=lambda *_: {}
+    )
+
+    assert central_file.is_file()
+    assert '".claude/skills"' in central_file.read_text()
+    assert (root / "devenv.local.nix").resolve() == central_file.resolve()
+    assert outcome.exit_code == 0
+
+
+def test_status_refuses_a_missing_central_file_instead_of_creating_one(tmp_path: Path):
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_manifest(root, "newcomer")
+
+    with pytest.raises(LinkConfigurationError, match="bootstrap central target"):
+        devman_link.run("status", root=root, overlay=overlay)
+
+    assert not overlay.exists()
+
+
+@pytest.mark.skipif(
+    shutil.which("nix-instantiate") is None, reason="needs a Nix evaluator"
+)
+def test_a_bootstrapped_central_file_is_valid_nix(tmp_path: Path):
+    """The file the adapter writes must be one the adapter can read back."""
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_manifest(root, "newcomer")
+
+    devman_link.run("reconcile", root=root, overlay=overlay)
+    configuration = devman_link.validate_link_configuration(root, overlay, "newcomer")
+
+    assert configuration.declarations[".agents"]["path"] == "projects/newcomer/agents"

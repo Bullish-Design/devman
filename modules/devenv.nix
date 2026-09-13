@@ -455,15 +455,52 @@ let
       "''${@:4}"
   '';
 
-  linkScript = pkgs.writeShellScript "devman-link-${projectName}" ''
-    exec ${renderer}/bin/devman-link \
-      --registry "$3" \
-      --state "$4" \
-      reconcile \
-      --overlay "$2" \
-      --root "$1" \
-      --project ${projectName}
-  '';
+  # THE SAME STALENESS TRAP `rendererSource` RECORDS, for the same reason (009
+  # stage 3). Interpolating a path copies it to the store, and devenv does not
+  # notice when the CONTENT of a copied path changes — so an edited adapter
+  # would keep producing the previous build's store path. Hashing every source
+  # file the adapter is built from is a read the cache tracks.
+  linkAdapterSource = lib.concatMapStrings
+    (directory: lib.concatMapStrings
+      (file: builtins.readFile (directory + "/${file}"))
+      (builtins.attrNames
+        (lib.filterAttrs
+          (file: kind: kind == "regular" && lib.hasSuffix ".py" file)
+          (builtins.readDir directory))))
+    [ ../src/devman_link ../src/devman_contract ];
+
+  linkAdapter = (pkgs.callPackage ../nix/link-adapter.nix { }).overrideAttrs (_: {
+    devmanSourceHash = builtins.hashString "sha256" linkAdapterSource;
+  });
+
+  # TWO PATHS, AND THE OLD ONE IS THE ROLLBACK (038 Stage 16, B).
+  #
+  # The new path calls the independent adapter, whose closure holds no Dagu, no
+  # watchexec and no workflow renderer, and which reads no compatibility
+  # registry entry. It is a store path rather than a name on PATH for the reason
+  # `nix/renderer.nix` states at length: a PATH lookup is a run-time fact, so
+  # nothing at evaluation time can observe which program actually ran.
+  #
+  # The old path stays until the observation gate passes. A rollback is then one
+  # reviewable option change, not an edit to a generated file.
+  linkScript =
+    if cfg.useLinkAdapter then
+      pkgs.writeShellScript "devman-link-${projectName}" ''
+        exec ${linkAdapter}/bin/devman-link reconcile \
+          --overlay "$2" \
+          --root "$1" \
+          --project ${projectName}
+      ''
+    else
+      pkgs.writeShellScript "devman-link-compat-${projectName}" ''
+        exec ${renderer}/bin/devman-link \
+          --registry "$3" \
+          --state "$4" \
+          reconcile \
+          --overlay "$2" \
+          --root "$1" \
+          --project ${projectName}
+      '';
 
   # The machine-local file is the bootstrap edge into the central config.  It
   # must be linked before the next shell evaluates its declarations, so keep
@@ -560,6 +597,26 @@ in
       });
       default = { };
       description = "Filesystem links reconciled at shell entry (§5).";
+    };
+
+    useLinkAdapter = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Reconcile links with the independent `devman-link` component rather
+        than the copy inside the workflow renderer (038 Stage 16, B).
+
+        The new path reads the central `devenv.local.nix` for its declarations
+        and the repository manifest for its identity. It needs no compatibility
+        registry entry, and it reads no active workflow generation — so a plane
+        generation update cannot change a link target.
+
+        **The default is `false` on purpose, and it is a rollout gate rather
+        than a preference.** Turning it on here switches every repository that
+        takes this module at its next shell entry, and Project 038's rollout
+        order says to switch one repository, observe it, and then widen. Flip
+        it per repository until the observation period closes.
+      '';
     };
 
     installClient = mkOption {
