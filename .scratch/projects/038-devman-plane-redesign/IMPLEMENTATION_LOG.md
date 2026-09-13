@@ -742,3 +742,17 @@ duplicate shell-entry helper, resolver duplication, routine consumer lock
 removal, and compatibility registry write removal still need separate reviewed
 changes with a complete proof after each one. No compatibility fallback was
 removed in this stage.
+
+**§11 item 1.** The obsolete `scripts.devman-resync.exec` helper was then
+removed from `devenv.nix`. It had re-entered every registered repository with
+`devenv shell -- true`, duplicating the projection work already performed by
+the active plane. The compatibility shell hook remains for repositories that
+still need it. `rg -n "devman-resync" devenv.nix modules src tests` found no
+remaining reference. After the removal, `devenv tasks run -v base:check`,
+`devenv tasks run -v base:test`, and
+`devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link`
+all passed. The environment-cleared live doctor still reported the same five
+known findings, so this removal did not hide or create a doctor finding. The
+change and this record were committed as `a960df4` and pushed to
+`origin/038-fixup-and-fanout`. Items 2 through 4 remain separate reviewed
+changes; item 5 remains blocked by the consumers named above.
