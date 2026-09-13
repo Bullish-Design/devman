@@ -892,10 +892,18 @@ registry in its old place and workflows still rendered.
    subtest before it replaces the rendering path. Until then `registryDir`
    stays at `$HOME/.local/share/devman` and nothing under it is deleted.
 
-**Zero repository edits, still true for what landed.** `grep -rn registryDir
-*/devenv.nix` returns **0 hits** — `stateDir`'s introduction needed none
-either, since it is additive with a default every repository already gets for
-free on rebuild.
+**Zero `devenv.nix` edits, still true for the implementation.**
+`grep -rn registryDir */devenv.nix` returns **0 hits**. `stateDir` is additive,
+but a repository only gets the new shell hook after its pinned devman input
+contains the Stage 3 module.
+
+**Deployment measured 2026-09-12.** Forty-five registered repositories still
+used `v0.5.1`, and two used older revisions. Re-entering them with
+`devman-resync` left the new state root at 4 projects and 19 workflows while
+the old projection remained at 50 projects and 158 workflows. A Stage 3
+deployment must therefore refresh the consumer inputs, or provide an
+equivalent compatibility bridge, before the old registry can be removed.
+The old registry remains live until that migration is complete.
 
 ### Stage 4 — stop rendering workflows; link them (2 days, and a real design, not a patch)
 

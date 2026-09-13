@@ -23,6 +23,11 @@
     services.devman-dagu = {
       enable = true;
       lingerUsers = [ "tester" ];
+      # Canary the service against Vendomat's immutable registry pointer. Keep
+      # Devman's state root stable so watcher state and project metadata survive
+      # an active-generation swap.
+      registryDir = "$HOME/.local/state/vendomat/devman/active";
+      stateDir = "$HOME/.local/state/devman";
       # A queue set the test can recognise, so it can tell this config.yaml
       # from Dagu's own default.
       queues = { light = 4; exclusive = 1; };
@@ -50,7 +55,10 @@
     # published bytes, the link, the entry, and a run.
     PLAN = "${plan}"
     HOME = "/home/tester"
-    REG = HOME + "/.local/share/devman"
+    PLANE = HOME + "/.local/state/vendomat/devman"
+    GENERATION = PLANE + "/generations/1"
+    GENERATION2 = PLANE + "/generations/2"
+    REG = PLANE + "/active"
     STATE = HOME + "/.local/state/devman"
     PROJ = HOME + "/work/demo"
     # DAGU_HOME matters: without it the CLI picks its own default home, reads a
@@ -63,6 +71,27 @@
 
     machine.start()
     machine.wait_for_unit("multi-user.target")
+
+    with subtest("the service starts from a prebuilt active registry root"):
+        # ExecStartPre creates configured directories. Remove that empty
+        # canary directory and replace it with the generation store shape
+        # before the service starts its real registry scan.
+        tester("systemctl --user stop devman-watch dagu || true")
+        machine.succeed(f"su tester -c 'rm -rf {PLANE}'")
+        machine.succeed(f"su tester -c 'mkdir -p {GENERATION}'")
+        generation = json.dumps({
+            "generation": 1,
+            "devman_runtime": "test",
+            "renderer_digest": "sha256:test",
+            "policy_digest": "sha256:test",
+            "dagu_digest": "sha256:test",
+            "toolchain_digest": "sha256:test",
+        })
+        machine.succeed(
+            f"su tester -c \"printf '%s\\n' '{generation}' > {GENERATION}/generation.json\""
+        )
+        machine.succeed(f"su tester -c 'ln -s generations/1 {REG}'")
+        tester("systemctl --user start dagu devman-watch")
 
     with subtest("linger is set declaratively, so the user manager runs unattended"):
         machine.succeed("loginctl show-user tester -p Linger | grep -x Linger=yes")
@@ -85,7 +114,10 @@
         assert "devman-record-run" in base
 
     with subtest("both registry directories exist before anything registers"):
-        tester(f"test -d {REG}/projects && test -d {REG}/dags && test -d {STATE}/projects")
+        tester(
+            f"test -L {REG} && test -d {REG}/projects && test -d {REG}/dags "
+            f"&& test -f {REG}/generation.json && test -d {STATE}/projects"
+        )
 
     with subtest("a projection in the devenv module's shape is discovered"):
         # The names are the codec's: `<project>.<workflow>` (§9.2, S-12). This
@@ -112,10 +144,16 @@
         )
         tester(f"ln -sfn {PROJ}/probe.yaml {REG}/projects/demo/workflows/probe.yaml")
         tester(f"ln -sfn ../projects/demo/workflows/probe.yaml {REG}/dags/demo.probe.yaml")
+        machine.succeed(
+            f"printf 'steps:\n  - name: hold\n    run: sleep 10\n' > {PROJ}/hold.yaml"
+        )
+        tester(f"ln -sfn {PROJ}/hold.yaml {REG}/projects/demo/workflows/hold.yaml")
+        tester(f"ln -sfn ../projects/demo/workflows/hold.yaml {REG}/dags/demo.hold.yaml")
         listed = tester("dagu ls")
         print(listed)
         assert "demo.check" in listed, "the chained group symlink was not discovered"
         assert "demo.probe" in listed
+        assert "demo.hold" in listed
         assert "example-" not in listed, "Dagu seeded its examples into the registry"
 
     with subtest("a run lands in the project that triggered it"):
@@ -138,6 +176,55 @@
         assert rec["status"] == "succeeded"
         assert rec["log"].startswith(PROJ + "/.devman/.runs/logs/")
         assert rec["run_id"] and rec["attempt"] and rec["started_at"]
+
+    with subtest("an active pointer swap keeps generation history and run history"):
+        tester(
+            f"DEVMAN_PROJECT_DIR={PROJ} dagu enqueue demo.hold -- DEVMAN_PROJECT_DIR={PROJ}"
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}dagu ps | grep -q demo.hold'", timeout=60
+        )
+        before_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
+        before_pid = tester("systemctl --user show dagu -p MainPID --value").strip()
+        machine.succeed(f"su tester -c 'cp -a {GENERATION} {GENERATION2}'")
+        generation2 = json.dumps({
+            "generation": 2,
+            "devman_runtime": "test",
+            "renderer_digest": "sha256:test",
+            "policy_digest": "sha256:test-v2",
+            "dagu_digest": "sha256:test",
+            "toolchain_digest": "sha256:test",
+        })
+        machine.succeed(
+            f"su tester -c \"printf '%s\\n' '{generation2}' > {GENERATION2}/generation.json\""
+        )
+        machine.succeed(
+            f"su tester -c 'ln -s generations/2 {PLANE}/.active-2.new && "
+            f"mv -Tf {PLANE}/.active-2.new {REG}'"
+        )
+        machine.succeed(f"su tester -c 'test \"$(readlink {REG})\" = generations/2'")
+        machine.succeed(f"su tester -c 'test -f {GENERATION}/generation.json'")
+        machine.sleep(2)
+        still_running_pid = tester("systemctl --user show dagu -p MainPID --value").strip()
+        assert still_running_pid == before_pid, (before_pid, still_running_pid)
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}dagu ps | grep -q demo.hold'", timeout=5
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test -z \"$(dagu ps | grep demo.hold || true)\"'",
+            timeout=60,
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test \"$(systemctl --user show dagu -p MainPID --value)\" != \"{before_pid}\"'",
+            timeout=60,
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
+        )
+        assert "demo.probe" in tester("dagu ls")
+        assert "Succeeded" in tester("dagu status demo.probe")
+        after_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
+        assert after_lines == before_lines + 1, (before_lines, after_lines)
 
     with subtest("the ports the module declares are the ports Dagu binds"):
         machine.succeed("ss -ltnp | grep 127.0.0.1:8080")

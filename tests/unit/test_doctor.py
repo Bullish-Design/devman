@@ -20,6 +20,7 @@ from helpers import ORDINARY
 
 from devman import doctor
 from devman.link import reconcile
+from devman.registry import Registry
 from devman.workflow import PROJECT_DIR
 
 pytestmark = pytest.mark.unit
@@ -387,6 +388,55 @@ def test_a_clean_registry_says_so(plane):
     assert rep.sections[0][1] == "ok"
 
 
+def test_reload_reports_ok_with_no_markers(plane):
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("reload", "ok")
+
+
+def test_reload_reports_pending_without_a_finding(plane):
+    """Pending is expected transient state while an active run drains — it
+    must not fail `doctor`'s exit code the way a genuine fault does."""
+    plane.reg.state.mkdir(parents=True, exist_ok=True)
+    (plane.reg.state / "reload.pending").write_text("2026-09-12T00:00:00Z\n")
+
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("reload", "..")
+    assert "2026-09-12T00:00:00Z" in lines[0]
+    assert rep.findings == 0
+
+
+def test_reload_reports_blocked_as_a_finding_with_the_repair_action(plane):
+    plane.reg.state.mkdir(parents=True, exist_ok=True)
+    (plane.reg.state / "reload.blocked").write_text("2026-09-12T00:00:00Z\n")
+
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("reload", "!!")
+    assert any("restart devman-dagu-reload.service" in line for line in lines)
+    assert rep.findings == len(lines)
+
+
+def test_reload_blocked_takes_priority_over_pending(plane):
+    """A reload service that timed out leaves both markers behind — `blocked`
+    is the one that still matters, and it must not hide behind `pending`."""
+    plane.reg.state.mkdir(parents=True, exist_ok=True)
+    (plane.reg.state / "reload.pending").write_text("2026-09-12T00:00:00Z\n")
+    (plane.reg.state / "reload.blocked").write_text("2026-09-12T00:05:00Z\n")
+
+    rep = doctor.Report()
+    doctor.check_reload(rep, plane.reg)
+
+    assert rep.sections[0][1] == "!!"
+
+
 def test_an_entry_from_a_newer_devman_is_reported(plane):
     """Schema 4 changed what `plan` MEANS rather than adding a field, which is
     the shape of change a reader cannot detect by looking at the fields."""
@@ -401,6 +451,79 @@ def test_an_entry_from_a_newer_devman_is_reported(plane):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("schema", "!!")
     assert "schema 99" in lines[0]
+
+
+def test_mode_reports_compatibility_with_no_generation_file(plane):
+    plane.add("p", workflows={"check": ORDINARY})
+    rep = doctor.Report()
+
+    doctor.check_mode(rep, plane.reg)
+
+    assert rep.sections[0] == ("mode", "ok", ["compatibility"])
+
+
+def test_mode_reports_plane_when_a_generation_file_is_active(plane):
+    plane.add("p", workflows={"check": ORDINARY})
+    (plane.root / "generation.json").write_text('{"generation": 1}\n')
+    rep = doctor.Report()
+
+    doctor.check_mode(rep, plane.reg)
+
+    assert rep.sections[0] == ("mode", "ok", ["plane"])
+
+
+def test_plane_projection_records_must_match_active_generation(plane):
+    project = plane.add("p", workflows={"check": ORDINARY})
+    (plane.root / "generation.json").write_text('{"generation": 4}\n')
+    (project.entry / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 3}\n'
+    )
+    report = doctor.Report()
+
+    doctor.check_generation(report, plane.reg)
+
+    assert report.sections[0][0:2] == ("generation", "!!")
+    assert "!= active 4" in report.sections[0][2][0]
+
+
+def test_plane_projection_records_can_match_active_generation(plane):
+    project = plane.add("p", workflows={"check": ORDINARY})
+    (plane.root / "generation.json").write_text('{"generation": 4}\n')
+    (project.entry / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 4}\n'
+    )
+    report = doctor.Report()
+
+    doctor.check_generation(report, plane.reg)
+
+    assert report.sections == [
+        ("generation", "ok", ["1 projections match generation 4"])
+    ]
+
+
+def test_plane_reads_projection_records_from_active_registry_first(plane):
+    project = plane.add("p", workflows={"check": ORDINARY})
+    state = plane.root.parent / "state"
+    state_entry = state / "projects" / "p"
+    state_entry.mkdir(parents=True)
+    (state_entry / "metadata.json").write_text(
+        (project.entry / "metadata.json").read_text()
+    )
+    registry = Registry(plane.root, state)
+    (plane.root / "generation.json").write_text('{"generation": 4}\n')
+    (plane.root / "projects" / "p" / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 4}\n'
+    )
+    (state_entry / "projection.json").write_text(
+        '{"project": "p", "plane_generation": 3}\n'
+    )
+    report = doctor.Report()
+
+    doctor.check_generation(report, registry)
+
+    assert report.sections == [
+        ("generation", "ok", ["1 projections match generation 4"])
+    ]
 
 
 # ---------------------------------------------------------------------------

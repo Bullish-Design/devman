@@ -48,7 +48,7 @@
 
 python3Packages.buildPythonApplication {
   pname = "devman";
-  version = "0.5.2";
+  version = "0.6.0";
   pyproject = true;
 
   # Only the CLI's own files. The repository also holds `.scratch/` (a quarter

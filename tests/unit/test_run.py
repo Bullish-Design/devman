@@ -446,6 +446,46 @@ def test_the_process_environment_is_not_mutated(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# the reload gate (§5, project 038)
+
+
+def test_a_pending_reload_refuses_the_enqueue(plane):
+    """The reload adapter writes `reload.pending` before it waits for active
+    runs to drain (`nix/nixos-module.nix`), and `trigger()` refuses while it
+    exists — an enqueue that landed in that window could be killed by the
+    restart it raced."""
+    proj = plane.add("p", workflows={"check": ORDINARY})
+    pending = plane.reg.state / "reload.pending"
+    pending.write_text("2026-09-12T00:00:00Z\n")
+
+    with pytest.raises(RegistryError, match="reload"):
+        run.trigger(plane.reg, proj, "check", {}, str(plane.root / "dagu-home"))
+
+
+def test_a_pending_reload_does_not_refuse_print_only(plane, capsys):
+    """`--print` enqueues nothing, so it stays available during a reload — an
+    operator can still see what a workflow would run."""
+    proj = plane.add("p", workflows={"check": ORDINARY})
+    pending = plane.reg.state / "reload.pending"
+    pending.write_text("2026-09-12T00:00:00Z\n")
+
+    code = run.trigger(
+        plane.reg, proj, "check", {}, str(plane.root / "dagu-home"), print_only=True
+    )
+
+    assert code == 0
+    assert capsys.readouterr().out.strip()
+
+
+def test_no_reload_marker_means_no_refusal(plane):
+    proj = plane.add("p", workflows={"check": ORDINARY})
+
+    assert not (plane.reg.state / "reload.pending").exists()
+    dag, params, dir_var = run.resolve(plane.reg, proj, "check", {})
+    assert dag and params and dir_var
+
+
+# ---------------------------------------------------------------------------
 # the codec, at the trigger (§9.2, S-12)
 
 
