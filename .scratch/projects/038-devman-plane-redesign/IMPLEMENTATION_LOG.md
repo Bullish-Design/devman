@@ -918,8 +918,20 @@ clean rebuild passed again. nix-meta Gitman status was desynchronized, so no
 reconcile was run there either. Both nix-meta commits were pushed to `main`.
 The requested `sudo nixos-rebuild switch --flake .#server` could not run
 because sudo requires an interactive password in this environment. The
-operator must run that command before the installed-binary canary can observe
-the bridge.
+operator must run that command before `/run/current-system/sw/bin/devman` can
+observe the bridge. Before the switch, the equivalent binary from the built
+system passed the canary with the same cleared environment:
+
+```sh
+env -u PYTHONPATH -u NIX_PYTHONPATH \
+  /nix/store/c9sab65xpi85rgcwhy7ayy1lvxz278b9-nixos-system-server-26.11.20260705.d407951/sw/bin/devman link status \
+  --project vendomat \
+  --root /home/andrew/Documents/Projects/vendomat \
+  --overlay "$HOME/.config/devman"
+```
+
+It returned 0 and the same five `ok` link states. The active system remains
+the old binary until the operator switches.
 
 Compatibility mode remains available. The migration remains 43 migrated
 non-canary repositories, with `copyroom`, `docman`, and `mypi-agent` blocked
