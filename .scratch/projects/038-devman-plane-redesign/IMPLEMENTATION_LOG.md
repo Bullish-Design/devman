@@ -901,11 +901,25 @@ process had `SHELL` unset, so daemon-shell was an `ok` result.
 
 **Files changed.** This slice changed `src/devman/identity.py`,
 `src/devman/cli.py`, `tests/unit/test_identity.py`, and this log. Vendomat,
-RepoMan, nix-meta, the central configuration checkout, and the four protected
-Devman files were not changed. The Devman Gitman status was read only and
-returned `OFF-CANONICAL` because lane `021-changelog` has a divergent
-change-id. The explicit Git fallback is therefore required for the Devman
-commit and push; no `gitman reconcile` was run.
+RepoMan, and the central configuration checkout were not changed. The
+four protected Devman files were not changed. The Devman Gitman status was
+read only and returned `OFF-CANONICAL` because lane `021-changelog` has a
+divergent change-id. The explicit Git fallback was therefore used for the
+Devman commit `0cc0257` and push; no `gitman reconcile` was run.
+
+The machine pin was then updated in nix-meta. `flake.nix` and `flake.lock`
+pin Devman commit `0cc025760f863741be3af689c364979b07183338`. The exact
+command `nixos-rebuild build --flake .#server` passed and produced
+`/nix/store/c9sab65xpi85rgcwhy7ayy1lvxz278b9-nixos-system-server-26.11.20260705.d407951`.
+The first pin commit briefly carried a stale Gitman-index copy of
+`profiles/devman.nix`; the error was caught before any switch, the correct
+Vendomat `registryDir` was restored in corrective commit `7e634d0`, and the
+clean rebuild passed again. nix-meta Gitman status was desynchronized, so no
+reconcile was run there either. Both nix-meta commits were pushed to `main`.
+The requested `sudo nixos-rebuild switch --flake .#server` could not run
+because sudo requires an interactive password in this environment. The
+operator must run that command before the installed-binary canary can observe
+the bridge.
 
 Compatibility mode remains available. The migration remains 43 migrated
 non-canary repositories, with `copyroom`, `docman`, and `mypi-agent` blocked
