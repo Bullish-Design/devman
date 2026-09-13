@@ -38,4 +38,7 @@ for starting the B implementation in a clean session.
 for a clean implementation session. It defines the work across Devman,
 Vendomat, and RepoMan.
 
+[CONSUMER_MIGRATION_GUIDE.md](CONSUMER_MIGRATION_GUIDE.md) is the detailed
+clean-session runbook for the remaining consumer migrations.
+
 This project is a design document. It does not implement the redesign.

@@ -1514,3 +1514,20 @@ The investigation is recorded in
 No application fix is justified by this migration. Preserve the uncommitted
 argentic edits and resume only after the live gate passes or the operator
 accepts a documented waiver. `allium-env` remains excluded and unchanged.
+
+## Stage 23 — clean-session consumer migration guide
+
+On 2026-09-13, the remaining consumer migration work was consolidated into
+CONSUMER_MIGRATION_GUIDE.md. The guide is a clean-session runbook. It records
+the live machine boundary, the completed consumer removals, the Argentic gate,
+the allium-env exclusion, the remaining consumer inventory, protected
+worktrees, the matched central and consumer transition, the layered proof, and
+the section 11 cleanup order.
+
+The guide keeps one consumer per lane and one consumer per commit. It requires
+fresh worktree and plane baselines, explicit link canaries, stable generation
+invariants, repository gates, narrow lock changes, and a dated implementation
+log entry after each migration. It preserves compatibility mode until the
+supported consumer fleet and the operator-owned exceptions are complete.
+
+No runtime or generated plane state changed in this stage.
