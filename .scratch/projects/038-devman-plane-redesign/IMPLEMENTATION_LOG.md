@@ -1373,3 +1373,22 @@ switched a system containing `/run/current-system/sw/share/devman/link-module.ni
 The migration remains 43 non-canary repositories, with `copyroom`, `docman`,
 and `mypi-agent` still blocked on manifest placement decisions and the
 detached-head decisions recorded above. Items 2 and 4 remain gated.
+
+## Stage 18 follow-up — expose the link module in the NixOS profile
+
+The first operator switch proved that `devman-link` was live, but the promised
+module path was absent from `/run/current-system/sw`. The package contained
+`share/devman/link-module.nix`; nix-meta's system path contained the package
+and its executable, but NixOS `environment.pathsToLink` selected individual
+share subtrees and did not include `share/devman`. A consumer could therefore
+not import the machine-owned module after dropping the full Devman input.
+
+The NixOS module now adds `/share/devman` to `environment.pathsToLink` when
+`installLinkAdapter` is enabled. The existing package build and install check
+still pass. The full unit suite passes with 606 tests. The protected watcher
+files remain unstaged. The central configuration checkout remains untouched.
+
+The next gate is to commit and pin this correction, rebuild nix-meta, and have
+the operator switch again. Only after
+`/run/current-system/sw/share/devman/link-module.nix` exists should the central
+Vendomat declaration change and the one-consumer removal probe begin.

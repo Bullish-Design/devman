@@ -679,6 +679,14 @@ in
       ++ lib.optional cfg.installCli cli
       ++ lib.optional cfg.installLinkAdapter linkAdapter;
 
+    # NixOS links selected `share` subtrees into the system profile rather
+    # than all of `/share`. The adapter package carries the link-only devenv
+    # module beside its executable, so expose that one subtree at the stable
+    # machine path promised by `installLinkAdapter`.
+    environment.pathsToLink = lib.mkIf cfg.installLinkAdapter [
+      "/share/devman"
+    ];
+
     systemd.user.services.dagu = {
       description = "Dagu — devman automation plane";
       wantedBy = [ "default.target" ];
