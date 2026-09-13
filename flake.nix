@@ -50,22 +50,10 @@
           # devenv module — see the note at the top of nix/devman-cli.nix.
           devman = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
           default = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
-
-          # The independent link adapter (038 Stage 16, B). A separate output
-          # because it is a separate component: it holds no Dagu, no watchexec
-          # and no workflow renderer, and its build cannot see `src/devman`.
-          # `nix/link-adapter.nix` carries the argument.
-          devman-link = pkgs.callPackage ./nix/link-adapter.nix { };
         });
 
       checks = forAllSystems (pkgs:
         {
-          # The independent link adapter's build IS its independence check: the
-          # derivation cannot see `src/devman`, and its install check runs a
-          # real `status` against a repository no registry has heard of (038
-          # Stage 16). Naming it here is what puts both in `base:test`.
-          link-adapter = pkgs.callPackage ./nix/link-adapter.nix { };
-
           # Every shipped workflow must load. Dagu rejects an unknown top-level
           # key outright and rejects a top-level `name:`, and neither failure is
           # visible until something tries to run the file (A5).

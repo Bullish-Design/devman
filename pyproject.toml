@@ -10,7 +10,7 @@
 
 [project]
 name = "devman"
-version = "0.6.0"
+version = "0.5.2"
 description = "The devman automation plane's CLI — run, show, doctor, watch"
 requires-python = ">=3.13"
 dependencies = ["pyyaml"]
@@ -22,18 +22,14 @@ devman = "devman.cli:main"
 # it as its own derivation so that its store path is an evaluation-time fact the
 # shell-entry guard can observe. See `src/devman/project.py`.
 devman-project = "devman.project:cli"
+devman-link = "devman.link:cli"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Three packages, and two of them are the independent link adapter (038 Stage
-# 16). `devman_contract` holds the identity grammar and the manifest records;
-# `devman_link` holds the link adapter. Neither imports `devman`, and
-# `nix/link-adapter.nix` builds those two alone — so an accidental import of the
-# plane fails that build rather than passing here unnoticed.
 [tool.hatch.build.targets.wheel]
-packages = ["src/devman", "src/devman_contract", "src/devman_link"]
+packages = ["src/devman"]
 
 [tool.ruff]
 target-version = "py313"

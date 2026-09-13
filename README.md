@@ -21,21 +21,19 @@ a cron expression  → the daemon ─┘
 |---|---|---|
 | **Dagu** | the run: order, queues, retries, history, the web UI | knows what a project is |
 | **devenv** | the implementation of one task in one repository | knows what a workflow is |
-| **devman** | workflow registration, projection, resolution, refusal | executes anything itself |
-| **the link component** | machine-local filesystem views | reads workflows or the registry |
+| **devman** | registration, projection, resolution, refusal | executes anything itself |
 
 **devman never parses a workflow to understand it.** A workflow is portable Dagu
 YAML with no devman-specific key in it. devman reads three bounded things: that
 the file loads, the `params:` a trigger must fill, and whether a file holds the
 directory variable it passes to its children.
 
-## The interfaces
+## The two interfaces
 
 | Interface | File | Serves |
 |---|---|---|
-| the machine | `nixosModules.default` | one Dagu user service, the queues, the state paths, the ports, the watcher, and the machine CLIs |
-| the workflow repository | `modules/devenv.nix` | compatibility project membership, registration, and workflow projection |
-| the link plane | installed `modules/link.nix` | `devman.link` and shell-entry reconciliation |
+| the machine | `nixosModules.default` | one Dagu user service, the queues, the state paths, the ports, the watcher, the `devman` CLI |
+| the repository | `modules/devenv.nix` | project membership, link declarations, registration, and §7.3's resolution |
 
 They share **text only** — the queue names, two variable names, and a path
 shape. Each takes `pkgs` from its own side, so one flake serves two nixpkgs
@@ -47,18 +45,6 @@ options, no absolute paths. Machine-local choices live in the central
 configuration repository (`devman.overlayDir`, default `~/.config/devman`) and
 reach each checkout through the link plane. That boundary is what everything
 else bends around.
-
-The long-term boundary is sharper. A repository that only needs machine-local
-views does not pin the Devman workflow module. Its central `devenv.local.nix`
-imports the machine-installed link module, and the adapter supplies the
-project identity explicitly. Normal devenv evaluation reads the same identity
-from `.devman/project.toml`. The link module owns no workflow, renderer,
-registry, or compatibility state.
-
-To join that link plane, run `devman-link reconcile --root "$PWD"` once from
-the repository. It creates the central bootstrap file and its repository view.
-After that, `devenv shell` evaluates the central declaration and reconciles it
-through the machine module.
 
 ## How a repository adopts it
 
@@ -92,23 +78,16 @@ machine-local links, including the per-repository workflow overlay:
 
 ```nix
 # ~/.config/devman/projects/myproject/devenv.local.nix
-{ config, project ? null, ... }:
-
-let
-  projectName = if project != null then project else
-    (builtins.fromTOML
-      (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;
-in
+{ config, ... }:
 {
-  imports = [ /run/current-system/sw/share/devman/link-module.nix ];
   devman.link = {
     ".devman/workflows" = {
       canonical = "central";
-      path = "projects/${projectName}/workflows";
+      path = "projects/${config.devman.project}/workflows";
     };
     ".agents" = {
       canonical = "central";
-      path = "projects/${projectName}/agents";
+      path = "projects/${config.devman.project}/agents";
     };
   };
 }
@@ -154,29 +133,11 @@ workflow steps:
 | `devman watch` | run the machine-wide watcher service |
 | `devman agent` | invoke the Agentman adapter from an admitted workflow |
 | `devman project apply` | render one repository's registry projection |
-| `devman project render` | render one manifest into a machine-plane bundle |
-| `devman project inspect` | inspect one manifest's projection identities |
 | `devman link reconcile` | reconcile declared repository views |
 | `devman link status [--all]` | inspect declared link state |
 
 `watch`, `project`, and `link reconcile` are normally called by systemd or
 shell entry. `devman link status --all` is the broad link diagnostic.
-
-`devman project render` is the machine-plane boundary. It reads one
-`.devman/project.toml`, resolves the selected policy and central overlay, and
-prints or writes a bundle of generated files plus projection identities. It
-does not write the repository, start Dagu, or run a repository task. Vendomat
-stages and activates that bundle.
-
-`devman project inspect` reads the same inputs but does not render workflow
-files. Vendomat uses it to detect unchanged projects before it builds a new
-generation. It reports the manifest, policy, renderer, source, and overlay
-identities without starting Dagu or running a repository task.
-
-The compatibility `project apply` path remains active during migration. It is
-still the shell-entry path and still uses the Nix plan. The new renderer is
-selected only by a Vendomat plane generation until old and new output have
-passed the comparison phase.
 
 There is no top-level `list`, `status`, `register`, or `unregister` command.
 Registration is automatic and has no manual path; link status is available under

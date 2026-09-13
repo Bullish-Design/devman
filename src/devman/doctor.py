@@ -59,9 +59,7 @@ from pathlib import Path
 
 import yaml
 
-import devman_link
-
-from . import project, watch
+from . import link, project, watch
 from .registry import Registry, dag_name_fault, identity_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
@@ -161,15 +159,6 @@ def check_queues(rep: Report, base_url: str) -> None:
       merely-queued item carries no conditions at all on 2.15.0; this stays
       because it is the path E5 measured and it is Dagu reporting, not devman
       guessing.
-
-    **A queued item can read as "0 running" for longer than an instant before
-    Dagu's own scheduler dispatches it** — measured against the NixOS service
-    test under a loaded host (project 038, §7): a `devman doctor` call landed
-    between a batch being queued and dispatched, and reported a plane draining
-    its own work as wedged, and a single half-second re-check was not always
-    enough to clear it. Up to three one-second re-checks, only while a queue
-    looks empty of runners, tell that dispatch delay from an actually wedged
-    queue at a bounded cost of at most three seconds.
     """
     try:
         data = _get(base_url, "/api/v1/queues")
@@ -184,25 +173,6 @@ def check_queues(rep: Report, base_url: str) -> None:
             "queues", "ok", [f"{len(queues)} queues, {running} running, none waiting"]
         )
         return
-
-    for _ in range(3):
-        if not any(q.get("runningCount", 0) == 0 for q in waiting):
-            break
-        time.sleep(1)
-        try:
-            data = _get(base_url, "/api/v1/queues")
-            queues = data.get("queues", [])
-            waiting = [q for q in queues if q.get("queuedCount")]
-        except (urllib.error.URLError, OSError, ValueError):
-            break
-        if not waiting:
-            running = sum(q.get("runningCount", 0) for q in queues)
-            rep.add(
-                "queues",
-                "ok",
-                [f"{len(queues)} queues, {running} running, none waiting"],
-            )
-            return
 
     lines = []
     wedged = False
@@ -891,64 +861,6 @@ def check_schema(rep: Report, reg: Registry) -> None:
         rep.add("schema", "ok", [f"every entry is schema {known} or older"])
 
 
-def check_mode(rep: Report, reg: Registry) -> None:
-    """Which projection is authoritative for this registry root (§7, project 038).
-
-    Vendomat's plane always writes `generation.json` at the active root
-    (`GenerationStore.build`, vendomat); the compatibility shell-entry
-    projection never does. Its presence is the one fact the registry states on
-    disk, so this reads it rather than inferring the mode from which binary
-    happens to be first on PATH.
-    """
-    mode = "plane" if (reg.root / "generation.json").is_file() else "compatibility"
-    rep.add("mode", "ok", [mode])
-
-
-def check_generation(rep: Report, reg: Registry) -> None:
-    """Check generation identities when the registry is a plane projection."""
-
-    records: list[Path] = []
-    for project_entry in reg.projects().values():
-        active = reg.projects_dir / project_entry.name / "projection.json"
-        state = project_entry.entry / "projection.json" if project_entry.entry else None
-        if active.is_file():
-            records.append(active)
-        elif state is not None and state.is_file():
-            records.append(state)
-    if not records:
-        return
-    generation_path = reg.root / "generation.json"
-    try:
-        generation = json.loads(generation_path.read_text())
-        number = generation["generation"]
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        rep.add("generation", "!!", [f"cannot read {generation_path}: {exc}"])
-        return
-
-    stale: list[str] = []
-    for path in records:
-        try:
-            record = json.loads(path.read_text())
-        except (OSError, ValueError) as exc:
-            stale.append(f"{path.parent.name}: cannot read {path}: {exc}")
-            continue
-        if record.get("plane_generation") != number:
-            stale.append(
-                f"{record.get('project', path.parent.name)}: projection generation "
-                f"{record.get('plane_generation', '?')} != active {number}"
-            )
-    if stale:
-        rep.add(
-            "generation", "!!", stale + ["render the project through the active plane"]
-        )
-    else:
-        rep.add(
-            "generation",
-            "ok",
-            [f"{len(records)} projections match generation {number}"],
-        )
-
-
 def check_daemon_shell(rep: Report, dagu_home: Path) -> None:
     """`SHELL` in the running Dagu's own environment (009 P1-3, S13).
 
@@ -1311,14 +1223,14 @@ def check_link_drift(rep: Report, reg: Registry) -> None:
         for view, raw in (proj.links or {}).items():
             checked += 1
             try:
-                resolved = devman_link.resolve(
-                    devman_link.Declaration.read(view, raw),
+                resolved = link.resolve(
+                    link.Declaration.read(view, raw),
                     overlay=Path(os.path.expandvars(proj.overlay)).expanduser(),
                     root=proj.path,
                     project=proj.name,
                 )
-                state = devman_link.inspect(resolved).state
-            except devman_link.LinkError as exc:
+                state = link.inspect(resolved).state
+            except link.LinkError as exc:
                 findings.append(f"{proj.name}:{view}: invalid declaration — {exc}")
                 continue
             if state != "ok":
@@ -1378,40 +1290,6 @@ def check_trigger_targets(rep: Report, reg: Registry) -> None:
         )
     else:
         rep.add("trigger target", "ok", ["no registered project declares a trigger"])
-
-
-def check_reload(rep: Report, reg: Registry) -> None:
-    """Whether the active-generation reload adapter is mid-flight or stuck (§5, project 038).
-
-    `reload.pending` and `reload.blocked` are the reload service's own markers,
-    written under the stable state root so they outlive whichever generation is
-    active. Their absence is the normal state — nothing is reloading, and
-    `devman run` enqueues freely.
-    """
-    pending = reg.state / "reload.pending"
-    blocked = reg.state / "reload.blocked"
-    if blocked.is_file():
-        rep.add(
-            "reload",
-            "!!",
-            [
-                f"blocked since {blocked.read_text().strip()} — an active run outlasted the max wait",
-                "Dagu was not restarted; the previous generation is still serving runs",
-                "operator action: once the run finishes, run"
-                " `systemctl --user restart devman-dagu-reload.service`",
-            ],
-        )
-        return
-    if pending.is_file():
-        rep.add(
-            "reload",
-            "..",
-            [
-                f"pending since {pending.read_text().strip()} — waiting for active runs to finish"
-            ],
-        )
-        return
-    rep.add("reload", "ok", ["no reload in progress"])
 
 
 def check_watcher(rep: Report, reg: Registry) -> None:
@@ -1605,7 +1483,6 @@ def main(args, reg: Registry) -> int:
     print()
 
     rep = Report()
-    check_mode(rep, reg)
     if check_plane(rep, base_url):
         check_queues(rep, base_url)
     check_faults(rep, reg)
@@ -1618,7 +1495,6 @@ def main(args, reg: Registry) -> int:
     check_projection(rep, reg)
     check_dag_names(rep, reg)
     check_schema(rep, reg)
-    check_generation(rep, reg)
     check_handlers(rep, reg)
     check_cross_repo(rep, reg)
     check_fanout(rep, reg)
@@ -1628,7 +1504,6 @@ def main(args, reg: Registry) -> int:
     check_local_sources(rep, reg)
     check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)
-    check_reload(rep, reg)
     check_watcher(rep, reg)
     rep.print()
 

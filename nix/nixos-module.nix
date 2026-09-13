@@ -229,11 +229,6 @@ let
       --add-flags "--dagu-home ${home cfg.dagHome}"
   '';
 
-  # The independent link adapter (038 Stage 16). It takes NO wrapper flags: a
-  # link operation reads no registry, no state root and no Dagu home, so there
-  # is nothing here for a machine to move. That absence is the point of B.
-  linkAdapter = pkgs.callPackage ./link-adapter.nix { };
-
   # Nix evaluation cannot write into $HOME, so the unit installs its two files
   # on every start. `install -m` rather than a symlink: Dagu reads these once at
   # startup, and a store symlink would hide which revision is live.
@@ -252,94 +247,6 @@ let
     "${pkgs.coreutils}/bin/rm" -f "$DAGU_HOME/.config.yaml.new"
 
     "${pkgs.coreutils}/bin/install" -m 0644 ${baseFile} "$DAGU_HOME/base.yaml"
-  '';
-
-  # The active plane is an atomic symlink. A path unit turns its replacement
-  # into a deferred Dagu restart, because Dagu has no public reload operation.
-  #
-  # THE MARKERS ARE THE MAINTENANCE GATE'S HALF THAT LIVES HERE (§5, project
-  # 038). `reload.pending` is written before the wait starts and removed only
-  # after Dagu restarts, so `devman run` (`src/devman/run.py`) can refuse an
-  # enqueue for the whole window rather than only the instant of the restart.
-  # `devman doctor` reads both markers to say why a reload has not finished.
-  #
-  # THIS CLOSES THE RACE ONLY FOR THE `devman run` PATH. Dagu's own scheduled
-  # enqueues, and the watcher's, do not pass through `devman run`'s Python
-  # entry point, so a scheduled or watcher-fired run can still start in the gap
-  # between the wait loop emptying and `systemctl try-restart` executing. That
-  # is an accepted, documented limitation (§5.3) rather than an absolute
-  # guarantee — nobody has built the daemon-side hook a full close would need.
-  registryChangePath = lib.replaceStrings [ "$HOME" ] [ "%h" ] cfg.registryDir;
-  reloadScript = pkgs.writeShellScript "devman-dagu-reload" ''
-    set -eu
-    registry="${cfg.registryDir}"
-    state="${cfg.stateDir}"
-    "${pkgs.coreutils}/bin/mkdir" -p "$state"
-    pending="$state/reload.pending"
-    blocked="$state/reload.blocked"
-    last="$state/reload.target"
-
-    # THE PLACEHOLDER GUARD. `installConfig`'s own `mkdir -p` (above) creates
-    # `$registry` as a bare directory the first time `dagu.service` starts on a
-    # machine with no generation activated yet, before Vendomat has ever
-    # activated one — and that creation is itself a change to the watched
-    # path, so the path unit fires for it. `readlink` on a bare directory
-    # fails, which is exactly how this tells a placeholder from a real
-    # activation: only Vendomat's atomic symlink replacement produces a target
-    # (`GenerationStore._activate_number`).
-    target="$(${pkgs.coreutils}/bin/readlink "$registry" 2>/dev/null || true)"
-    if [ -z "$target" ]; then
-      exit 0
-    fi
-
-    # THE SAME-GENERATION GUARD. A write inside the active generation that
-    # does not move the pointer — `installConfig`'s `mkdir -p` populating a
-    # fresh generation's `projects/` or `dags/` directory, or the
-    # compatibility `project apply` path writing a projection — can retrigger
-    # this path unit on its own (measured against the NixOS service test:
-    # three triggers from one activation, two of them from writes below the
-    # pointer rather than a pointer change). Restarting Dagu for a generation
-    # that is already active earns nothing and risks the run-start race for no
-    # reason, so skip the whole dance when the target has not changed.
-    if [ -f "$last" ] && [ "$(${pkgs.coreutils}/bin/cat "$last")" = "$target" ]; then
-      exit 0
-    fi
-
-    mark() {
-      "${pkgs.coreutils}/bin/date" -u +%FT%TZ > "$1.new"
-      "${pkgs.coreutils}/bin/mv" -f "$1.new" "$1"
-    }
-
-    mark "$pending"
-    "${pkgs.coreutils}/bin/rm" -f "$blocked"
-
-    waited=0
-    max=${toString cfg.reloadMaxWaitSec}
-
-    # MEASURED: `dagu ps` prints the literal line "No running processes" when
-    # idle — it is never empty (Dagu 2.15.0). `[ -n "$(dagu ps)" ]` is
-    # therefore true whether or not anything is running, and this loop never
-    # terminated on its own; a restart happened only when `dagu ps` itself
-    # transiently failed and `2>/dev/null` emptied its output by accident.
-    # Caught by the VM test once `reload.pending` made a stuck loop visible
-    # (project 038, §5) — matching every case not empty is what an idle Dagu
-    # actually prints, not the absence of output.
-    while [ "$(${lib.getExe cfg.package} ps 2>/dev/null || true)" != "No running processes" ]; do
-      if [ "$waited" -ge "$max" ]; then
-        mark "$blocked"
-        echo "devman-dagu-reload: gave up after ''${max}s waiting for dagu ps to empty" >&2
-        echo "devman-dagu-reload: Dagu was NOT restarted; the previous generation is still serving runs" >&2
-        echo "devman-dagu-reload: once the run finishes, run: systemctl --user restart devman-dagu-reload.service" >&2
-        exit 1
-      fi
-      ${pkgs.coreutils}/bin/sleep 1
-      waited=$((waited + 1))
-    done
-
-    ${pkgs.systemd}/bin/systemctl --user try-restart dagu.service
-    "${pkgs.coreutils}/bin/rm" -f "$pending"
-    printf '%s' "$target" > "$last.new"
-    "${pkgs.coreutils}/bin/mv" -f "$last.new" "$last"
   '';
 in
 {
@@ -372,26 +279,6 @@ in
         one PATH, resolved by profile order, which is the hazard §3.3 records
         against `devman 0.2.0`. A devenv shell inherits this profile's PATH, so
         one install reaches every repository shell on this machine.
-      '';
-    };
-
-    installLinkAdapter = mkOption {
-      type = types.bool;
-      default = true;
-      description = ''
-        Put the `devman-link` command on the system PATH and its link-only
-        devenv module at `/run/current-system/sw/share/devman/link-module.nix`
-        (038 Stage 16).
-
-        It is the independent link adapter, and it is a SEPARATE package from
-        `devman` on purpose: it holds no Dagu, no watchexec and no workflow
-        renderer, and it reads no compatibility registry entry and no active
-        workflow generation. An operator uses it to inspect one repository's
-        links without the plane being healthy.
-
-        The option is machine-level because the component is machine-local.
-        §7.1's shared environment contract stays closed: no `DEVMAN_*` name is
-        added for it.
       '';
     };
 
@@ -467,29 +354,6 @@ in
         regenerated on every shell entry. `$HOME` is expanded by the unit's
         ExecStartPre, not by Nix. It must match `devman.stateDir` in every
         repository that registers.
-      '';
-    };
-
-    reloadMaxWaitSec = mkOption {
-      type = types.ints.positive;
-      default = 300;
-      description = ''
-        How long the reload adapter waits for `dagu ps` to empty before it
-        gives up and leaves the running Dagu process alone (§5, project 038).
-
-        **5 minutes is a stated bound, not a measurement** — nobody has timed
-        the longest run this machine's workflows are expected to take (the
-        same honesty `queues` states about `llm`). Raise it for a machine that
-        runs long jobs; the cost of raising it is a later reload, not a lost
-        run.
-
-        On timeout the adapter writes `reload.blocked` under
-        `services.devman-dagu.stateDir` and exits non-zero, so
-        `systemctl --user status devman-dagu-reload.service` and
-        `devman doctor` both show it. The active Dagu process, and the
-        generation it is running, are both untouched. Restart the reload
-        service by hand once the run finishes:
-        `systemctl --user restart devman-dagu-reload.service`.
       '';
     };
 
@@ -676,16 +540,7 @@ in
 
     environment.systemPackages =
       lib.optional cfg.installClient cfg.package
-      ++ lib.optional cfg.installCli cli
-      ++ lib.optional cfg.installLinkAdapter linkAdapter;
-
-    # NixOS links selected `share` subtrees into the system profile rather
-    # than all of `/share`. The adapter package carries the link-only devenv
-    # module beside its executable, so expose that one subtree at the stable
-    # machine path promised by `installLinkAdapter`.
-    environment.pathsToLink = lib.mkIf cfg.installLinkAdapter [
-      "/share/devman"
-    ];
+      ++ lib.optional cfg.installCli cli;
 
     systemd.user.services.dagu = {
       description = "Dagu — devman automation plane";
@@ -755,28 +610,6 @@ in
       # A new DAG *file* needs no restart: discovery is a directory scan and the
       # running daemon picks one up immediately (A5).
       restartTriggers = [ configFile baseFile ];
-    };
-
-    # Vendomat changes the active registry by replacing one symlink. Watch that
-    # pointer and restart Dagu after the replacement. The reload script waits
-    # for active runs. The Dagu state directory stays outside the generation,
-    # so this restart does not lose run history.
-    systemd.user.paths.devman-dagu-reload = {
-      wantedBy = [ "paths.target" ];
-      pathConfig = {
-        PathChanged = registryChangePath;
-        Unit = "devman-dagu-reload.service";
-      };
-    };
-
-    systemd.user.services.devman-dagu-reload = {
-      description = "reload Dagu after the active devman plane changes";
-      environment.DAGU_HOME = cfg.dagHome;
-      path = cfg.servicePath;
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = reloadScript;
-      };
     };
 
     # §8: the watcher. One process for the machine, beside Dagu, from the same

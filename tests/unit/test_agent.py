@@ -332,18 +332,6 @@ def test_the_machine_declares_the_llm_queue_with_a_limit():
         assert f"{name} = " in module
 
 
-def test_the_machine_exposes_the_link_module_subtree():
-    """The adapter package is on PATH, but NixOS links only selected shares.
-
-    The central declaration imports this stable system path after the consumer
-    drops the full Devman module, so the subtree must be part of the profile.
-    """
-    root = Path(__file__).resolve().parents[2]
-    module = (root / "nix/nixos-module.nix").read_text()
-    assert "environment.pathsToLink = lib.mkIf cfg.installLinkAdapter" in module
-    assert '"/share/devman"' in module
-
-
 # --------------------------------------------------------------------------
 # Secrets
 # --------------------------------------------------------------------------
