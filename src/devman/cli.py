@@ -45,7 +45,7 @@ import sys
 
 import devman_link
 
-from . import agent, link, project, run, show, watch
+from . import agent, project, run, show, watch
 from .registry import (
     DEFAULT_DAGU_HOME,
     DEFAULT_REGISTRY,
@@ -191,14 +191,17 @@ def parser() -> argparse.ArgumentParser:
 
     p_link = sub.add_parser("link", help="reconcile this repository's links (§5)")
     p_link_sub = p_link.add_subparsers(dest="link_command", required=True)
-    link.add_arguments(
-        p_link_sub.add_parser("reconcile", help="make declared links match")
-    )
-    p_status = p_link_sub.add_parser("status", help="report declared link states")
-    link.add_arguments(p_status)
-    p_status.add_argument(
-        "--all", action="store_true", help="report every registered project"
-    )
+    for name in ("reconcile", "status"):
+        p_link_one = p_link_sub.add_parser(name)
+        p_link_one.add_argument(
+            "--project", help="project identity; the manifest is authoritative"
+        )
+        p_link_one.add_argument("--root", default=".", help="repository root")
+        p_link_one.add_argument("--overlay", help="config repository root")
+        if name == "status":
+            p_link_one.add_argument(
+                "--all", action="store_true", help="report every registered project"
+            )
 
     return ap
 
@@ -214,14 +217,41 @@ def handler(command: str):
         from . import doctor
 
         return doctor.main
+    if command == "link":
+        # The public identity boundary, not a module's `main`. It resolves the
+        # identity and then calls the independent adapter (038 Stage 16).
+        return _link_command
     return {
         "agent": agent.main,
         "run": run.main,
         "show": show.main,
         "watch": watch.main,
         "project": project.main,
-        "link": link.main,
     }[command]
+
+
+def _link_all(args, reg: Registry) -> int:
+    """Report every registered project, and keep going past a refusal.
+
+    One repository that cannot answer must not hide the other fifty. A refusal
+    is printed where it happened and the sweep continues, so the exit code says
+    whether anything needs attention and the output says what.
+    """
+    overlay = args.overlay or devman_link.DEFAULT_OVERLAY
+    worst = 0
+    for name, entry in sorted(reg.projects().items()):
+        try:
+            outcome = devman_link.run(
+                "status", root=entry.path, overlay=overlay, project=name
+            )
+        except devman_link.LinkAdapterError as exc:
+            report(exc)
+            worst = max(worst, 1)
+            continue
+        for line in devman_link.format_results(outcome):
+            print(line)
+        worst = max(worst, outcome.exit_code)
+    return worst
 
 
 def _link_command(args, reg: Registry) -> int:
@@ -231,11 +261,13 @@ def _link_command(args, reg: Registry) -> int:
     (038 Stage 16). The normal path does not enter `devman.link`, and it reads
     no compatibility registry entry and no active workflow generation.
 
-    `--all` is the one exception, and it stays where it is: only the
-    compatibility registry can enumerate the old registered projects.
+    `--all` is the one exception, and only in what it enumerates: the
+    compatibility registry is still the only thing that knows which projects
+    were registered. It reads a root out of the registry and then asks the same
+    adapter about it, so there is one reconciler and not two.
     """
     if getattr(args, "link_command", "") == "status" and getattr(args, "all", False):
-        return link.main(args, reg)
+        return _link_all(args, reg)
 
     root = args.root
     if root == "." and args.project is not None:
@@ -260,8 +292,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     reg = Registry(args.registry, args.state)
     try:
-        if args.command == "link":
-            return _link_command(args, reg)
         return handler(args.command)(args, reg)
     except (RegistryError, devman_link.LinkAdapterError) as exc:
         report(exc)

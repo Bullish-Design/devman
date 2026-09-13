@@ -473,34 +473,24 @@ let
     devmanSourceHash = builtins.hashString "sha256" linkAdapterSource;
   });
 
-  # TWO PATHS, AND THE OLD ONE IS THE ROLLBACK (038 Stage 16, B).
+  # ONE PATH (038 Stage 17). The renderer no longer ships a link adapter, so
+  # there is no second program this could choose.
   #
-  # The new path calls the independent adapter, whose closure holds no Dagu, no
-  # watchexec and no workflow renderer, and which reads no compatibility
-  # registry entry. It is a store path rather than a name on PATH for the reason
+  # It is a store path rather than a name on PATH, for the reason
   # `nix/renderer.nix` states at length: a PATH lookup is a run-time fact, so
   # nothing at evaluation time can observe which program actually ran.
   #
-  # The old path stays until the observation gate passes. A rollback is then one
-  # reviewable option change, not an edit to a generated file.
-  linkScript =
-    if cfg.useLinkAdapter then
-      pkgs.writeShellScript "devman-link-${projectName}" ''
-        exec ${linkAdapter}/bin/devman-link reconcile \
-          --overlay "$2" \
-          --root "$1" \
-          --project ${projectName}
-      ''
-    else
-      pkgs.writeShellScript "devman-link-compat-${projectName}" ''
-        exec ${renderer}/bin/devman-link \
-          --registry "$3" \
-          --state "$4" \
-          reconcile \
-          --overlay "$2" \
-          --root "$1" \
-          --project ${projectName}
-      '';
+  # **The rollback is the pin, not an option.** While both adapters existed,
+  # `devman.useLinkAdapter = false` returned one repository to the renderer's
+  # copy. That copy is gone, so a repository that needs the old behaviour pins
+  # the previous Devman revision — which is reviewable, is what every consumer
+  # already does, and cannot leave two reconcilers disagreeing about promotion.
+  linkScript = pkgs.writeShellScript "devman-link-${projectName}" ''
+    exec ${linkAdapter}/bin/devman-link reconcile \
+      --overlay "$2" \
+      --root "$1" \
+      --project ${projectName}
+  '';
 
   # The machine-local file is the bootstrap edge into the central config.  It
   # must be linked before the next shell evaluates its declarations, so keep
@@ -597,36 +587,6 @@ in
       });
       default = { };
       description = "Filesystem links reconciled at shell entry (§5).";
-    };
-
-    useLinkAdapter = mkOption {
-      type = types.bool;
-      default = true;
-      description = ''
-        Reconcile links with the independent `devman-link` component rather
-        than the copy inside the workflow renderer (038 Stage 16, B).
-
-        The new path reads the central `devenv.local.nix` for its declarations
-        and the repository manifest for its identity. It needs no compatibility
-        registry entry, and it reads no active workflow generation — so a plane
-        generation update cannot change a link target.
-
-        **The default became `true` at Stage 17, and the measurement is why.**
-        It was `false` while one repository ran on the new path. Closing that
-        observation meant asking what the fleet would do, in the shape the shell
-        hook actually calls — `status` with an explicit `--project`, which is
-        what the hook passes. All 51 repositories with a checkout answered: 47
-        clean and 4 carrying ordinary drift that reconcile resolves. **No
-        repository refused.**
-
-        The earlier sweep without `--project` refused three, and that was the
-        question being asked rather than the fleet: `copyroom`, `docman` and
-        `mypi-agent` keep their identity in `dev/devenv.nix`, which the resolver
-        does not read, and the hook never relies on it finding one.
-
-        Setting this to `false` returns one repository to the
-        renderer-provided adapter while that copy still exists.
-      '';
     };
 
     installClient = mkOption {
