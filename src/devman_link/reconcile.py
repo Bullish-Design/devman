@@ -36,16 +36,22 @@ STATES = ("ok", "repoint", "promote", "link", "create")
 # `devenv.local.nix` before any hook runs, so a dangling one fails shell entry
 # with a trace nothing can intercept.
 BOOTSTRAP_CENTRAL_FILE = (
-    "{ config, ... }:\n\n"
+    "{ config, project ? null, ... }:\n\n"
+    "let\n"
+    "  projectName = if project != null then project else\n"
+    "    (builtins.fromTOML\n"
+    '      (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;\n'
+    "in\n"
     "{\n"
+    "  imports = [ /run/current-system/sw/share/devman/link-module.nix ];\n"
     "  devman.link = {\n"
     '    ".envrc" = { canonical = "central"; path = "common/envrc"; };\n'
     '    ".loci" = { canonical = "external";'
-    ' path = "~/Notes/1_Projects/${config.devman.project}"; };\n'
+    ' path = "~/Notes/1_Projects/${projectName}"; };\n'
     '    ".agents" = { canonical = "central";'
-    ' path = "projects/${config.devman.project}/agents"; };\n'
+    ' path = "projects/${projectName}/agents"; };\n'
     '    ".claude/skills" = { canonical = "central";'
-    ' path = "projects/${config.devman.project}/agents/skills"; };\n'
+    ' path = "projects/${projectName}/agents/skills"; };\n'
     "  };\n"
     "}\n"
 )

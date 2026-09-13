@@ -325,6 +325,32 @@ def test_the_real_central_nix_file_evaluates_to_its_link_block(tmp_path: Path):
     assert configuration.declarations[".agents"]["path"] == "projects/demo/agents"
 
 
+@pytest.mark.skipif(
+    shutil.which("nix-instantiate") is None, reason="needs a Nix evaluator"
+)
+def test_a_central_file_receives_identity_as_an_explicit_argument(tmp_path: Path):
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_central_file(
+        overlay,
+        "demo",
+        "{ project ? null, ... }:\n\n"
+        "{\n"
+        "  devman.link = {\n"
+        '    ".agents" = {\n'
+        '      canonical = "central";\n'
+        '      path = "projects/${project}/agents";\n'
+        "    };\n"
+        "  };\n"
+        "}\n",
+    )
+
+    configuration = devman_link.validate_link_configuration(root, overlay, "demo")
+
+    assert configuration.declarations[".agents"]["path"] == "projects/demo/agents"
+
+
 def test_missing_central_file_is_refused_with_a_repair(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
@@ -954,6 +980,10 @@ def test_a_bootstrapped_central_file_is_valid_nix(tmp_path: Path):
     devman_link.run("reconcile", root=root, overlay=overlay)
     configuration = devman_link.validate_link_configuration(root, overlay, "newcomer")
 
+    body = (overlay / "projects/newcomer/devenv.local.nix").read_text()
+    assert "{ config, project ? null, ... }:" in body
+    assert "imports = [ /run/current-system/sw/share/devman/link-module.nix ];" in body
+    assert "config.devman.project" not in body
     assert configuration.declarations[".agents"]["path"] == "projects/newcomer/agents"
 
 

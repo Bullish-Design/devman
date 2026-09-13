@@ -2,10 +2,9 @@
 
 The one human-authored link declaration is
 ``$HOME/.config/devman/projects/<project>/devenv.local.nix``, holding one
-``devman.link`` attribute set.  B does not change that interface.  The adapter
-evaluates the file with the selected identity supplied as
-``config.devman.project``, reads ``devman.link`` and nothing else, and refuses
-every unsafe result by name.
+``devman.link`` attribute set. The adapter supplies the selected identity as
+the module's explicit ``project`` argument, reads ``devman.link`` and nothing
+else, and refuses every unsafe result by name.
 
 Evaluating one module is not evaluating the repository environment.  The
 adapter does not read a workflow, a generation, or the compatibility registry to
@@ -149,6 +148,7 @@ def _link_expression(path: Path, project: str) -> str:
         "  lib = if channel.success then channel.value else { };\n"
         f"  config = {{ devman = {{ project = {_nix_quote(project)}; }}; }};\n"
         "  supplied = { inherit config; }\n"
+        f"    // (if wanted ? project then {{ project = {_nix_quote(project)}; }} else {{ }})\n"
         "    // (if wanted ? lib then { inherit lib; } else { })\n"
         "    // (if wanted ? options then { options = { }; } else { })\n"
         "    // (if wanted ? pkgs then { pkgs = { }; } else { });\n"
@@ -244,8 +244,8 @@ def validate_link_configuration(
             f" identity {project!r}\n"
             f"  expected links: {json.dumps(expected, sort_keys=True)}\n"
             f"  actual links: {json.dumps(actual, sort_keys=True)}\n"
-            "repair: make devenv.local.nix use the manifest identity through"
-            " config.devman.project, then re-enter the shell"
+            "repair: make devenv.local.nix use the explicit project argument"
+            " or the repository manifest, then re-enter the shell"
         )
 
     if (

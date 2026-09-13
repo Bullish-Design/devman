@@ -379,7 +379,9 @@ in
       type = types.bool;
       default = true;
       description = ''
-        Put the `devman-link` command on the system PATH (038 Stage 16).
+        Put the `devman-link` command on the system PATH and its link-only
+        devenv module at `/run/current-system/sw/share/devman/link-module.nix`
+        (038 Stage 16).
 
         It is the independent link adapter, and it is a SEPARATE package from
         `devman` on purpose: it holds no Dagu, no watchexec and no workflow

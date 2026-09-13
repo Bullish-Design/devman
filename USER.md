@@ -77,8 +77,14 @@ devman = {
 The optional `registryDir` must match the machine's registry. `overlayDir`
 selects the central configuration root and normally stays at its default,
 `$HOME/.config/devman`. `installClient` puts the Dagu client on this shell's
-PATH and defaults to true. The `link` option belongs in the machine-local
-`devenv.local.nix` overlay described next.
+PATH and defaults to true. These options belong to the compatibility workflow
+module. The long-term link-only path is described below.
+
+For a repository that needs only machine-local views, do not add the Devman
+workflow input or module. Keep `.devman/project.toml` in the repository and run
+`devman-link reconcile --root "$PWD"` once. The machine-installed adapter then
+creates the central bootstrap view. Its central file imports the link-only
+module and receives the project identity as an explicit argument.
 
 ### 2.3 Define the task names your groups call
 
@@ -104,16 +110,23 @@ belongs in the central config repository, normally at `~/.config/devman`:
 
 ```nix
 # ~/.config/devman/projects/myproject/devenv.local.nix
-{ config, ... }:
+{ config, project ? null, ... }:
+
+let
+  projectName = if project != null then project else
+    (builtins.fromTOML
+      (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;
+in
 {
+  imports = [ /run/current-system/sw/share/devman/link-module.nix ];
   devman.link = {
     ".devman/workflows" = {
       canonical = "central";
-      path = "projects/${config.devman.project}/workflows";
+      path = "projects/${projectName}/workflows";
     };
     ".agents" = {
       canonical = "central";
-      path = "projects/${config.devman.project}/agents";
+      path = "projects/${projectName}/agents";
     };
   };
 }

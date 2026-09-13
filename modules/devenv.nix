@@ -455,43 +455,6 @@ let
       "''${@:4}"
   '';
 
-  # THE SAME STALENESS TRAP `rendererSource` RECORDS, for the same reason (009
-  # stage 3). Interpolating a path copies it to the store, and devenv does not
-  # notice when the CONTENT of a copied path changes — so an edited adapter
-  # would keep producing the previous build's store path. Hashing every source
-  # file the adapter is built from is a read the cache tracks.
-  linkAdapterSource = lib.concatMapStrings
-    (directory: lib.concatMapStrings
-      (file: builtins.readFile (directory + "/${file}"))
-      (builtins.attrNames
-        (lib.filterAttrs
-          (file: kind: kind == "regular" && lib.hasSuffix ".py" file)
-          (builtins.readDir directory))))
-    [ ../src/devman_link ../src/devman_contract ];
-
-  linkAdapter = (pkgs.callPackage ../nix/link-adapter.nix { }).overrideAttrs (_: {
-    devmanSourceHash = builtins.hashString "sha256" linkAdapterSource;
-  });
-
-  # ONE PATH (038 Stage 17). The renderer no longer ships a link adapter, so
-  # there is no second program this could choose.
-  #
-  # It is a store path rather than a name on PATH, for the reason
-  # `nix/renderer.nix` states at length: a PATH lookup is a run-time fact, so
-  # nothing at evaluation time can observe which program actually ran.
-  #
-  # **The rollback is the pin, not an option.** While both adapters existed,
-  # `devman.useLinkAdapter = false` returned one repository to the renderer's
-  # copy. That copy is gone, so a repository that needs the old behaviour pins
-  # the previous Devman revision — which is reviewable, is what every consumer
-  # already does, and cannot leave two reconcilers disagreeing about promotion.
-  linkScript = pkgs.writeShellScript "devman-link-${projectName}" ''
-    exec ${linkAdapter}/bin/devman-link reconcile \
-      --overlay "$2" \
-      --root "$1" \
-      --project ${projectName}
-  '';
-
   # The machine-local file is the bootstrap edge into the central config.  It
   # must be linked before the next shell evaluates its declarations, so keep
   # this one declaration implicit instead of asking every project to repeat it.
@@ -505,6 +468,8 @@ let
 
 in
 {
+  imports = [ ./link.nix ];
+
   options.devman = {
     enable = mkEnableOption "devman automation plane membership for this repository";
 
@@ -568,27 +533,6 @@ in
       description = "The config repository root. `$HOME` is expanded by the shell hook, not by Nix.";
     };
 
-    link = mkOption {
-      type = types.attrsOf (types.submodule {
-        options = {
-          canonical = mkOption {
-            type = types.enum [ "central" "repo" "external" ];
-            default = "central";
-          };
-          path = mkOption {
-            type = types.str;
-            default = "";
-          };
-          template = mkOption {
-            type = types.nullOr types.str;
-            default = null;
-          };
-        };
-      });
-      default = { };
-      description = "Filesystem links reconciled at shell entry (§5).";
-    };
-
     installClient = mkOption {
       type = types.bool;
       default = true;
@@ -627,7 +571,6 @@ in
       devman_root="$DEVENV_ROOT"
       devman_reg="${cfg.registryDir}"
       devman_state="${cfg.stateDir}"
-      devman_overlay="${cfg.overlayDir}"
       devman_meta="$devman_state/projects/${projectName}/metadata.json"
 
       # §15.2: `.devman/` IS THE REPOSITORY'S. devman reserves three names
@@ -902,16 +845,7 @@ in
         fi
       fi
 
-      # Link reconciliation is separate from registry projection. The Python
-      # reconciler owns the view, the central .local.gitignore file, and the
-      # .git/info/exclude symlink. The implicit bootstrap declaration remains
-      # active so it can create devenv.local.nix before the next shell entry.
-      if [ -n "$devman_overlay" ]; then
-        ${linkScript} "$devman_root" "$devman_overlay" "$devman_reg" "$devman_state"
-      fi
-
       unset devman_root devman_reg devman_state devman_meta devman_b devman_f \
-            devman_overlay \
             devman_disk devman_local devman_local_args devman_names devman_n \
             devman_relink devman_stale devman_proj devman_body devman_have \
             devman_recorded devman_plan devman_locals devman_badroot \

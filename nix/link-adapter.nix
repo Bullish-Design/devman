@@ -14,8 +14,9 @@
 #
 # THE BUILD IS THE INDEPENDENCE CHECK.
 #
-# The fileset holds `src/devman_link`, `src/devman_contract` and the adapter's
-# own `pyproject.toml`, and nothing else. `src/devman` is absent, so an
+# The fileset holds `src/devman_link`, `src/devman_contract`, the adapter's
+# own `pyproject.toml`, and the small machine module it installs. `src/devman`
+# is absent, so an
 # `import devman.registry` inside the component fails the install check below
 # rather than reaching a machine. `tests/unit/test_link_adapter.py` says the
 # same thing in the fast loop; this is the one that cannot be skipped.
@@ -43,6 +44,7 @@ let
       ../src/devman_link
       ../src/devman_contract
       ../packaging/devman-link/pyproject.toml
+      ../modules/link.nix
     ];
   };
 in
@@ -61,6 +63,10 @@ python3Packages.buildPythonApplication {
     rm -rf packaging
   '';
 
+  postInstall = ''
+    install -Dm644 modules/link.nix "$out/share/devman/link-module.nix"
+  '';
+
   build-system = [ python3Packages.hatchling ];
   dependencies = [ ];
 
@@ -68,15 +74,19 @@ python3Packages.buildPythonApplication {
   nativeInstallCheckInputs = [ nix ];
   installCheckPhase = ''
     runHook preInstallCheck
+    export HOME=$TMPDIR
 
     $out/bin/devman-link --help > /dev/null
     $out/bin/devman-link status --help > /dev/null
+    test -f "$out/share/devman/link-module.nix"
+    nix-instantiate --eval --strict --expr \
+      "builtins.functionArgs (import $out/share/devman/link-module.nix)" \
+      > /dev/null
 
     # THE NO-REGISTRY FIXTURE. A repository the compatibility registry has
     # never heard of, with its identity in the manifest and its links in the
     # central Nix file — which is exactly the shape that refused before Stage
     # 15, and exactly what B has to keep working without a registry.
-    export HOME=$TMPDIR
     fixture=$TMPDIR/fixture
     mkdir -p "$fixture/repo/.devman" "$fixture/overlay/projects/fixture-demo"
 
@@ -88,14 +98,14 @@ python3Packages.buildPythonApplication {
     MANIFEST
 
     cat > "$fixture/overlay/projects/fixture-demo/devenv.local.nix" <<'CENTRAL'
-    { config, ... }:
+    { config, project ? null, ... }:
 
     {
       devman.link = {
         ".envrc" = { canonical = "central"; path = "common/envrc"; };
         ".agents" = {
           canonical = "central";
-          path = "projects/''${config.devman.project}/agents";
+          path = "projects/''${project}/agents";
         };
       };
     }
