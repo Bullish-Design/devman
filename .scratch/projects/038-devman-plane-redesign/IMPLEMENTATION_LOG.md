@@ -668,3 +668,77 @@ compatibility fallback now would leave those repositories with no serving
 path at all. This is deferred, not skipped: the correct order is switch,
 observe, then remove, in that sequence, once a human has actually run the
 one command above.
+
+## Stage 14 — complete the migration wave, compare the fleet, and widen the canary
+
+On 2026-09-12, this session continued after the operator had switched the live
+system to the NixOS configuration recorded in Stage 13. The machine now uses
+the Vendomat active generation as its Devman registry. This stage records the
+remaining migration work and the checks that depend on that live state.
+
+**RepoMan migration wave.** The machine RepoMan was rebuilt with
+`devenv shell -- repoman-sync --machine`. The resulting machine binary exposed
+`repoman devman`, while the project shells that carried an older Vendomat
+toolchain still selected the old binary. Those 11 shells were fixed by updating
+their direct RepoMan input to `main` at `57473ad` and selecting the machine venv
+provider. Six shells had no usable RepoMan command; the rebuilt machine binary
+was invoked directly inside each shell. Six secretspec-gated shells received
+`SECRETSPEC_REASON="devman migration (project 038)"`.
+
+The exact result table is in
+`MIGRATION_2026-09-12.md`. Of the 46 non-canary repositories, 21 carried a
+manifest at the start of this session and 22 more now carry one. The remaining
+three are `copyroom`, `docman`, and `mypi-agent`; all three put the Devman
+option block in `dev/devenv.nix`, so the correct manifest placement needs a
+human decision. No placement was guessed.
+
+The live plane was rebuilt with one `--project-root` per manifest and:
+
+```sh
+vendomat plane update devman --to v0.6.0 \
+  --policy-root /home/andrew/Documents/Projects/devman \
+  --state-dir "$HOME/.local/state/vendomat/devman" \
+  --renderer devman --dagu dagu
+```
+
+The command rendered 46 projects and activated generation 2. A single shell
+loop validated all 146 generated DAGs with `dagu validate`; it returned
+`validated_dags=146`. The generation contains no seed examples.
+
+**§7 full comparison.** The comparison retained both projections. It compared
+all 46 projects in both roots and all 146 common DAGs. Project identity, path,
+groups, local workflow names, triggers, writes, workflow groups, parameters,
+working paths, log paths, queues, limits, schedules, and generated bodies
+matched. The only generated-file difference was the source-file comment, which
+was the one permitted normalization. The intentional metadata differences are
+the plane generation identity, portable source identities, the absolute
+resolved overlay path, the explicit plane representation of Devman's overlay
+workflows, and the absence of compatibility link records. The dated report is
+`COMPARISON_2026-09-12.md`; it records the five old-only projects and three
+broken `my-ai` compatibility links as outstanding state, not as unexplained
+common-project mismatches.
+
+**§8 wider canary.** Six real categories passed: a local overlay
+(`devman.agent-review`), multiple groups (`observantic.release`), a
+cross-repository workflow (`devman.stack-validate`), a scheduled workflow
+(`observantic.maintain`), declared writes (`devman.format`), and an unusual
+dotted path (`loci.nvim.check`). For each category, `plane plan` and `plane
+update` returned 0. Each update was a no-op and retained generation 2. The
+generation assertions passed. `dagu ls` returned 146 entries and exit 0.
+The environment-cleared live doctor reported `mode plane` and five known
+findings: one link drift, three dirty unpinned local-source findings, and one
+daemon-shell finding. The full result is in `CANARY_2026-09-12.md`.
+
+The wider canary did not enqueue tasks. The declared-write and agent workflows
+would write real repository state, and the cross-repository workflow would
+enqueue child runs. Existing VM tests cover run output and metadata recording;
+the dual projection comparison proves the run and log fields are unchanged.
+
+**§11 status.** Compatibility mode remains required by the three structural
+cases awaiting a placement decision, by the five old-only compatibility
+projects, and by existing consumers whose migration commits and branch choices
+are not yet complete. The removal order therefore stops before item 5. The
+duplicate shell-entry helper, resolver duplication, routine consumer lock
+removal, and compatibility registry write removal still need separate reviewed
+changes with a complete proof after each one. No compatibility fallback was
+removed in this stage.
