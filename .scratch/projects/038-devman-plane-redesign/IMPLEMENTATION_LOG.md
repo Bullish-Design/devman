@@ -1354,8 +1354,15 @@ consumed by one project, and the unpinned `git+file:` repair advice.
 `tests/unit/test_link_adapter.py`, `README.md`, `USER.md`,
 `AGENTS_GUIDE.md`, and this log. The protected `src/devman/watch.py` and
 `tests/unit/test_watch.py` remain unstaged and unchanged by this work. The
-central configuration checkout remains unmodified. No Vendomat, RepoMan, or
-nix-meta file changed.
+central configuration checkout remains unmodified. No Vendomat or RepoMan file
+changed.
+
+**Machine pin follow-up.** After this Devman commit was pushed, nix-meta pinned
+Devman at `edd0b62834d9c9d8ac61d44f56219b63afb60bdf` and was committed and
+pushed as `5bd1f10`. `nixos-rebuild build --flake .#server` passed, and the
+built system contains `devman`, `devman-link`, and
+`/share/devman/link-module.nix`. The live system is not switched in this
+session because that command needs the operator's interactive sudo password.
 
 **Rollback and next gate.** Rollback remains a Devman pin, not a second link
 adapter or a feature flag. This stage made no consumer migration, so the
