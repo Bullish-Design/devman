@@ -803,3 +803,112 @@ until those consumers have a supported replacement. Item 5 remains blocked by
 the three placement decisions, the seven detached-HEAD branch decisions, and
 the compatibility-only projects listed in the migration and comparison
 reports.
+
+## Stage 15 — manifest-first link bridge
+
+On 2026-09-13, the link-plane bridge moved project identity to the repository
+manifest at the public Python command boundary. A now remains unchanged:
+Vendomat owns the active workflow generation, and Devman remains the link
+adapter and compatibility projection. B remains later.
+
+**Risk prevented.** Before this bridge, public link status entered the protected
+`devman-link` implementation. That implementation required the compatibility
+registry. The active plane had 46 projects and 146 DAGs, while the Devman
+state-registration directory had only `devman`, `flora`, `flora-037-part-e`,
+and `pydantree`. The environment-cleared installed command therefore refused:
+
+```text
+devman: link reconciliation failed: no project named 'vendomat' in /home/andrew/.local/state/vendomat/devman/active
+  registered: devman, flora, flora-037-part-e, pydantree
+```
+
+The new public boundary reads `.devman/project.toml`, evaluates the existing
+central Nix module with that identity, and then calls the protected link
+adapter. It does not read the active generation or infer identity from the
+directory name. It refuses an identity mismatch and names the repository root,
+the conflicting fields, and a repair action. The central interface remains
+`$HOME/.config/devman/projects/<project>/devenv.local.nix` with one
+`devman.link` block. The central file is evaluated before link use. Existing
+view, root, promotion, conflict, bootstrap, and exclude-file safety rules stay
+in the protected adapter.
+
+The existing generation-based `doctor.check_mode` already supplied the two
+explicit modes, `plane` and `compatibility`. No second mode source was added.
+Compatibility mode, compatibility registry writes, `registryDir`, and the
+consumer Devman pins remain. No generated registry or Vendomat file was edited.
+
+**Tests and checks.** The following commands passed:
+
+```text
+devenv tasks run base:check                         exit 0
+devenv tasks run -v base:unit                       exit 0; 565 passed in 9.11s
+devenv tasks run -v base:test                       exit 0; all 21 flake checks passed
+devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link
+                                                       exit 0
+```
+
+The first direct `pytest` probe was not a test result: this shell has no
+standalone `pytest` command. `devenv tasks run base:unit` is the repository's
+test entry point and passed the full suite.
+
+The source-built canary command was:
+
+```sh
+devenv shell -- devman link status --project vendomat \
+  --root /home/andrew/Documents/Projects/vendomat \
+  --overlay "$HOME/.config/devman"
+```
+
+It returned 0 and reported:
+
+```text
+central config /home/andrew/.config/devman/projects/vendomat/devenv.local.nix
+ok vendomat:.agents
+ok vendomat:.claude/skills
+ok vendomat:.envrc
+ok vendomat:.loci
+ok vendomat:devenv.local.nix
+```
+
+The requested shell entry also returned 0:
+
+```sh
+cd /home/andrew/Documents/Projects/vendomat
+env -u PYTHONPATH -u NIX_PYTHONPATH devenv shell -- bash -c 'true'
+```
+
+Vendomat's branch and pre-existing worktree changes were unchanged. The
+environment-cleared installed binary was run before and after that shell
+entry. Both runs returned exit 2 with the compatibility-registry refusal
+shown above. The installed binary is the older published v0.6.0 revision and
+does not contain this bridge. This is a deployment blocker, not a Python-path
+shadowing difference: clearing `PYTHONPATH` and `NIX_PYTHONPATH` produced the
+same result.
+
+One loop validated the active generation and returned `validated_dags=146`.
+The active pointer remained `generations/2`; it still contains 46 project
+directories and 146 DAG files. `dagu --dagu-home "$HOME/.local/share/dagu"
+ls` returned 146 names and exit 0. Link status and the shell entry did not
+rewrite the active generation.
+
+The final environment-cleared live doctor returned exit 1 with the same
+machine findings. Its top line remained `4 projects, 16 workflows` because
+that summary reads the old Devman state directory. It reported four finding
+lines: `flora-037-part-e:devenv.local.nix: create`; dirty, unpinned Vendomat
+source; dirty, unpinned RepoMan source; and the unpinned `git+file:` repair
+advice. The active plane remained healthy in explicit `plane` mode. The Dagu
+process had `SHELL` unset, so daemon-shell was an `ok` result.
+
+**Files changed.** This slice changed `src/devman/identity.py`,
+`src/devman/cli.py`, `tests/unit/test_identity.py`, and this log. Vendomat,
+RepoMan, nix-meta, the central configuration checkout, and the four protected
+Devman files were not changed. The Devman Gitman status was read only and
+returned `OFF-CANONICAL` because lane `021-changelog` has a divergent
+change-id. The explicit Git fallback is therefore required for the Devman
+commit and push; no `gitman reconcile` was run.
+
+Compatibility mode remains available. The migration remains 43 migrated
+non-canary repositories, with `copyroom`, `docman`, and `mypi-agent` blocked
+on manifest placement. The active plane has 46 projects. The next incomplete
+phase is B, extraction of the link adapter behind the unchanged central Nix
+interface. The remaining §11 removals also need separate evidence.
