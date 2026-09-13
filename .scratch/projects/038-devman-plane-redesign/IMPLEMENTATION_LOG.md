@@ -1622,3 +1622,29 @@ failed, post-transition link canaries and plane invariants were not accepted
 as proof.
 
 The candidate is parked. The next clean candidate is `pyllij` or `browsee`.
+
+## Stage 28 — pyllij consumer migration
+
+On 2026-09-13, `pyllij` completed the matched consumer transition. Its
+identity is the manifest project name `pyllij`, with the explicit central
+`project` argument taking precedence over the manifest fallback.
+
+The consumer lane was published as commit
+`8102d4952d86ca844483b74d3384ad49bb714746` on
+`038-devman-consumer-pyllij`. The central declaration was committed locally
+as `68137c55`. The consumer kept `.devman/project.toml` and all task
+definitions. It removed the Devman flake input, the `devman/modules` import,
+the old `devman` option block, the Devman lock node, and the root Devman edge.
+Pre-existing RepoMan and toolchain changes were retained.
+
+`NO_SHELLIJ=1 devenv shell -- true`, `base:check`, and `base:test` passed.
+The test task reported 137 passed and 22 deselected. Both link canaries
+returned five `ok` states and the same central path. The active pointer
+remained `generations/2`; the plane remained at 46 projects and 146 DAG
+files; the DAG digest remained
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; and the
+Dagu inventory remained 147 lines. Doctor retained the four known findings:
+the `flora-037-part-e` link drift, dirty Vendomat and RepoMan sources, and the
+unpinned `git+file:` advice.
+
+Compatibility mode remains enabled. The next clean candidate is `browsee`.
