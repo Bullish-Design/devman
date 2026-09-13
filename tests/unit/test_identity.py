@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
+import devman_link.api
 from devman import cli
 from devman.identity import (
     IdentityError,
+    LinkConfiguration,
     LinkConfigurationError,
     resolve_project_identity,
     validate_link_configuration,
@@ -208,34 +210,30 @@ def test_central_link_configuration_refuses_missing_bootstrap(tmp_path: Path):
 
 
 def test_public_link_boundary_uses_manifest_identity(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ):
     write_manifest(tmp_path, "manifest-name")
+    overlay = tmp_path / "overlay"
+    central = overlay / "projects/manifest-name/devenv.local.nix"
     args = cli.parser().parse_args(
-        [
-            "link",
-            "status",
-            "--root",
-            str(tmp_path),
-            "--overlay",
-            str(tmp_path / "overlay"),
-        ]
+        ["link", "status", "--root", str(tmp_path), "--overlay", str(overlay)]
     )
+    seen: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        cli.identity,
-        "validate_link_configuration",
-        lambda *_args, **_kwargs: type(
-            "Configuration",
-            (),
-            {
-                "central_file": tmp_path
-                / "overlay/projects/manifest-name/devenv.local.nix",
-                "declarations": {},
-            },
-        )(),
-    )
+    def configuration(root, overlay_root, project, declarations=None, **_kwargs):
+        seen["project"] = project
+        return LinkConfiguration(
+            project=project,
+            root=Path(root),
+            overlay=Path(overlay_root),
+            central_file=central,
+            declarations={},
+        )
 
-    cli._link_command(args, object())
+    monkeypatch.setattr(devman_link.api, "validate_link_configuration", configuration)
 
-    assert args.project == "manifest-name"
+    assert cli._link_command(args, object()) == 0
+    assert seen["project"] == "manifest-name"
+    assert capsys.readouterr().out.splitlines() == [f"central config {central}"]

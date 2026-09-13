@@ -938,3 +938,42 @@ non-canary repositories, with `copyroom`, `docman`, and `mypi-agent` blocked
 on manifest placement. The active plane has 46 projects. The next incomplete
 phase is B, extraction of the link adapter behind the unchanged central Nix
 interface. The remaining §11 removals also need separate evidence.
+
+## Stage 16 — the independent link adapter
+
+On 2026-09-13, the machine-local link adapter moved to its own importable and
+packageable component. A and C remain unchanged: Vendomat owns the active
+workflow generation, Devman keeps compatibility mode and compatibility
+registry writes, and `.devman/project.toml` remains the repository identity
+source.
+
+**The B decision, recorded before the code.** The component is
+`src/devman_link/`. It stays source-owned by the Devman repository in this
+first slice, because no second source repository has an approved owner or
+remote. It is separately packageable: `nix/link-adapter.nix` builds it from a
+fileset that holds only `src/devman_link`, `src/devman_contract`, and its own
+`packaging/devman-link/pyproject.toml`. A stray `import devman` inside the
+component therefore fails that build rather than passing unnoticed.
+
+The identity parser is not duplicated. The pure contract code moves to a new
+`src/devman_contract/` package — the identity grammar from
+`src/devman/registry.py` and the manifest records from `src/devman/contract.py`
+— and both Devman modules keep compatibility imports, so every existing caller
+of `registry.identity_fault` and `devman.contract` is unchanged. The component
+depends on `devman_contract` and the standard library, and on nothing else.
+
+The stable component surface is two operations, `status` and `reconcile`; the
+five result states `ok`, `repoint`, `promote`, `link`, `create`; and the three
+exit meanings 0, 1, and 2. Status stays read-only and prints the central
+configuration path. Normal operation reads no compatibility registry entry, no
+`metadata.json`, and no `generation.json`.
+
+The central interface does not change. The one human-authored link declaration
+remains `$HOME/.config/devman/projects/<project>/devenv.local.nix` with one
+`devman.link` attribute set, evaluated with the selected identity supplied as
+`config.devman.project`. No TOML, YAML, JSON, or second link format is added.
+
+`--all` stays out of the component, because only the compatibility registry can
+enumerate the old registered projects. The protected `src/devman/link.py` is
+not edited and stays reachable as the explicit rollback path until its own
+removal gate passes.

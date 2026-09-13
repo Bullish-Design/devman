@@ -43,7 +43,9 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import agent, identity, link, project, run, show, watch
+import devman_link
+
+from . import agent, link, project, run, show, watch
 from .registry import (
     DEFAULT_DAGU_HOME,
     DEFAULT_REGISTRY,
@@ -223,60 +225,35 @@ def handler(command: str):
 
 
 def _link_command(args, reg: Registry) -> int:
-    """Resolve manifest identity before entering the protected link adapter."""
+    """The public link boundary — identity first, then the independent adapter.
+
+    The adapter is `devman_link`, its own importable and packageable component
+    (038 Stage 16). The normal path does not enter `devman.link`, and it reads
+    no compatibility registry entry and no active workflow generation.
+
+    `--all` is the one exception, and it stays where it is: only the
+    compatibility registry can enumerate the old registered projects.
+    """
     if getattr(args, "link_command", "") == "status" and getattr(args, "all", False):
         return link.main(args, reg)
 
-    requested_root = args.root
-    if requested_root == "." and args.project is not None:
+    root = args.root
+    if root == "." and args.project is not None:
+        # A named project the compatibility registry still knows may be
+        # somewhere other than the current directory.
         try:
-            root = reg.project(args.project).path
+            root = str(reg.project(args.project).path)
         except RegistryError:
-            root = requested_root
-    else:
-        root = requested_root
-    resolved = identity.resolve_project_identity(root, args.project)
-    args.project = resolved.project
-    if requested_root == ".":
-        root = resolved.root
-    overlay = args.overlay or "~/.config/devman"
-    configuration = identity.validate_link_configuration(
-        root,
-        overlay,
-        resolved.project,
+            root = args.root
+    outcome = devman_link.run(
+        args.link_command,
+        root=root,
+        overlay=args.overlay or devman_link.DEFAULT_OVERLAY,
+        project=args.project,
     )
-    declarations = configuration.declarations
-    try:
-        resolved_links = [
-            link.resolve(
-                link.Declaration.read(view, value),
-                overlay=configuration.overlay,
-                root=configuration.root,
-                project=configuration.project,
-            )
-            for view, value in declarations.items()
-        ]
-        if args.link_command == "status":
-            print(f"central config {configuration.central_file}")
-            results = [link.inspect(item) for item in resolved_links]
-        else:
-            results = link.reconcile(
-                declarations,
-                overlay=configuration.overlay,
-                root=configuration.root,
-                project=configuration.project,
-            )
-    except link.LinkError as exc:
-        print(f"devman: {exc}", file=sys.stderr)
-        return 1
-    for result in results:
-        print(f"{result.state:7} {result.link.key}  {result.link.view_path}")
-    return (
-        1
-        if args.link_command == "status"
-        and any(result.state != "ok" for result in results)
-        else 0
-    )
+    for line in devman_link.format_results(outcome):
+        print(line)
+    return outcome.exit_code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -286,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "link":
             return _link_command(args, reg)
         return handler(args.command)(args, reg)
-    except RegistryError as exc:
+    except (RegistryError, devman_link.LinkAdapterError) as exc:
         report(exc)
         return 1
     except BrokenPipeError:
