@@ -1481,3 +1481,36 @@ remote. `allium-env` remains deliberately excluded from migration and
 unchanged. Its checkout, manifest, central declaration, and active generated
 state remain in place. RepoMan remains deferred because its protected lock and
 worktree are dirty.
+
+## Stage 22 — Argentic gate blocked by the live runtime
+
+On 2026-09-13, the `argentic` consumer transition was applied but did not
+reach a commit. Its central declaration uses the machine-owned link module,
+and its consumer removed the Devman input, import, and option block. The lock
+diff was narrowed to the Devman node and root edge after devenv repeatedly
+normalised unrelated lock entries.
+
+`devenv shell -- true` and `base:check` pass. The full `base:test` gate fails
+with 11 live failures and 677 passes in 395.22 seconds. Three failures are in
+`tests/test_loop_live.py`; eight are in `tests/test_overlay_live.py`. The
+isolated deterministic suite passes 666 tests in 256.14 seconds.
+
+This is not a Devman boundary failure. The changed files contain no argentic
+source or test code. SilverBullet 2.10.0, its headless Chromium 150.0.7871.46
+runtime, and the argentic bridge all answer basic health probes. The failures
+occur later in live client/index/overlay behavior. The SilverBullet journal
+also records runtime parse errors and a runtime request timeout. The upstream
+2.10.0 report in [issue #2078](https://github.com/silverbulletmd/silverbullet/issues/2078)
+reports matching Runtime API and headless-client instability.
+
+The required argentic and Vendomat link canaries pass. The active plane remains
+`generations/2`, with 46 project directories and 146 DAG files. The DAG digest
+remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines.
+
+The investigation is recorded in
+`ARGENTIC_GATE_RESEARCH_REPORT.md`, with fresh runtime artifacts under `/tmp`.
+No application fix is justified by this migration. Preserve the uncommitted
+argentic edits and resume only after the live gate passes or the operator
+accepts a documented waiver. `allium-env` remains excluded and unchanged.
