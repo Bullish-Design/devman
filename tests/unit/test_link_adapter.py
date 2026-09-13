@@ -955,3 +955,49 @@ def test_a_bootstrapped_central_file_is_valid_nix(tmp_path: Path):
     configuration = devman_link.validate_link_configuration(root, overlay, "newcomer")
 
     assert configuration.declarations[".agents"]["path"] == "projects/newcomer/agents"
+
+
+@pytest.mark.skipif(
+    shutil.which("nix-instantiate") is None, reason="needs a Nix evaluator"
+)
+def test_a_central_file_that_declares_lib_still_evaluates(tmp_path: Path):
+    """Four real central files take `lib`, and the old evaluator refused them.
+
+    Nix refuses a function called without a required argument, so the refusal
+    fired before anything could read `devman.link` — and it named the central
+    file, sending a reader to repair a file that was correct.
+    """
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_central_file(
+        overlay,
+        "demo",
+        "{ config, lib, ... }:\n\n"
+        "{\n"
+        "  devman.enable = lib.mkForce false;\n"
+        "  devman.link = {\n"
+        '    ".envrc" = { canonical = "central"; path = "common/envrc"; };\n'
+        "  };\n"
+        "}\n",
+    )
+
+    configuration = devman_link.validate_link_configuration(root, overlay, "demo")
+
+    assert configuration.declarations[".envrc"]["path"] == "common/envrc"
+
+
+@pytest.mark.skipif(
+    shutil.which("nix-instantiate") is None, reason="needs a Nix evaluator"
+)
+def test_a_central_file_that_is_not_a_function_is_refused(tmp_path: Path):
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_central_file(overlay, "demo", "{ devman.link = { }; }\n")
+
+    with pytest.raises(LinkConfigurationError) as caught:
+        devman_link.validate_link_configuration(root, overlay, "demo")
+
+    assert "cannot evaluate central configuration" in str(caught.value)
+    assert "repair:" in str(caught.value)

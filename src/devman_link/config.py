@@ -125,6 +125,37 @@ def _nix_quote(value: str) -> str:
     return f'"{escaped}"'
 
 
+def _link_expression(path: Path, project: str) -> str:
+    """Build the expression that reads one central file's ``devman.link``.
+
+    **It supplies the arguments the module declares, and no others.** Passing a
+    fixed ``{ config }`` refused four real central files, because they take
+    ``lib`` to write ``lib.mkForce`` beside their link block — and Nix refuses a
+    function called without a required argument before anything can read
+    ``devman.link``. The refusal named the central file and said to fix the
+    expression, so it sent a reader to repair a file that was correct.
+
+    ``builtins.functionArgs`` is what the module system itself uses to decide
+    what to pass. ``lib`` comes from the channel when one is reachable, and
+    ``tryEval`` keeps an unreachable channel from becoming this error again: a
+    file that declares ``lib`` and never uses it still evaluates.
+    """
+
+    return (
+        "let\n"
+        f"  file = import {_nix_quote(str(path))};\n"
+        "  wanted = builtins.functionArgs file;\n"
+        "  channel = builtins.tryEval (import <nixpkgs/lib>);\n"
+        "  lib = if channel.success then channel.value else { };\n"
+        f"  config = {{ devman = {{ project = {_nix_quote(project)}; }}; }};\n"
+        "  supplied = { inherit config; }\n"
+        "    // (if wanted ? lib then { inherit lib; } else { })\n"
+        "    // (if wanted ? options then { options = { }; } else { })\n"
+        "    // (if wanted ? pkgs then { pkgs = { }; } else { });\n"
+        "in builtins.toJSON (file supplied).devman.link\n"
+    )
+
+
 def evaluate_central_file(path: Path, project: str) -> object:
     """Evaluate one central module and return its ``devman.link`` value."""
 
@@ -134,13 +165,7 @@ def evaluate_central_file(path: Path, project: str) -> object:
             f"cannot evaluate central configuration {path}: nix-instantiate is not on PATH\n"
             "repair: enter a Nix environment that provides nix-instantiate"
         )
-    expression = (
-        "let\n"
-        f"  module = import {_nix_quote(str(path))} {{\n"
-        f"    config = {{ devman = {{ project = {_nix_quote(project)}; }}; }};\n"
-        "  };\n"
-        "in builtins.toJSON module.devman.link\n"
-    )
+    expression = _link_expression(path, project)
     try:
         result = subprocess.run(
             [executable, "--eval", "--strict", "--raw", "--expr", expression],

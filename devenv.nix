@@ -141,6 +141,14 @@ in
     enable = true;
     project = projectName;
     groups = [ "base" "format" "release" ];
+
+    # THE FIRST REPOSITORY ON THE NEW LINK ADAPTER (038 Stage 16, B).
+    #
+    # The module default is `false`, because turning it on there switches every
+    # repository at its next shell entry. This repository goes first and is
+    # observed, which is criterion 16 doing its job: devman adopts itself, so
+    # the adapter's own shell entry is the canary.
+    useLinkAdapter = true;
   };
 
   # https://devenv.sh/tasks/
