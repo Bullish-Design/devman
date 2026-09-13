@@ -1726,3 +1726,26 @@ source and test tree with 83 Ruff errors. No application behavior was changed
 and no waiver was applied. The consumer and central edits remain parked.
 
 The next candidate is `poddantic`.
+
+## Stage 35 — publish failing consumer migrations
+
+On 2026-09-13, the operator authorized publishing migrations whose repository
+gates fail. The following matched transitions were saved and pushed with the
+failure and repair requirement in each consumer commit message:
+
+- `browsee`: published lane commit recorded by Gitman; one existing dispatcher
+  test failure remains.
+- `loci.nvim`: published lane commit recorded by Gitman; hermetic checks lack
+  `copyroom`, `devenv`, and `repoman`.
+- `eventic`: published lane commit recorded by Gitman; three tests fail because
+  `alembic) is missing and schema setup does not run.
+- `grail`: published lane commit recorded by Gitman; 83 existing Ruff errors
+  remain.
+- `poddantic`: published lane commit recorded by Gitman; `pytest) is absent
+  from the declared test environment.
+
+The matching central declarations were committed locally as
+`b02a4b2a` (`browsee`), `8af45dce` (`loci.nvim`), `7aa7e75f`
+(`eventic`), `1dc6f188` (`grail`), and `0cb3b9b8` (`poddantic`).
+Compatibility mode remains enabled. The remaining supported inventory is still
+in progress.
