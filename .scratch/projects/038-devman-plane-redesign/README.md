@@ -31,6 +31,9 @@ bridge is proven.
 for extracting the link adapter into a stable package without changing the
 central configuration interface.
 
+[`LINK_ADAPTER_B_PROMPT.md`](LINK_ADAPTER_B_PROMPT.md) is a copy-ready prompt
+for starting the B implementation in a clean session.
+
 [`FULL_REFACTOR_PROMPT.md`](FULL_REFACTOR_PROMPT.md) is a copy-ready prompt
 for a clean implementation session. It defines the work across Devman,
 Vendomat, and RepoMan.
