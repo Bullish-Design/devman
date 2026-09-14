@@ -884,7 +884,19 @@ registry in its old place and workflows still rendered.
    `rsplit` rule. The path convention holds for 45 of 45 active projects.
    This is not yet proof under renderer removal. Stage 4 must run the VM
    prototype before it changes `project.py`'s render path.
-5. **Revised order:** `registryDir` moves to `$HOME/.config/devman` only after
+5. **Scheduled-run race accepted — measured 2026-09-14.** Scheduled runs
+   reached a maximum of 20 s over 550 records; `maintain` reached a maximum of
+   5 s over 551 records. Forty-five DAGs fire together at 00:05 each day.
+   Dagu 2.15.0 has no primitive that defers a scheduled run: queue admission is
+   bypassed, while suspend and preconditions drop runs. The existing restart
+   policy therefore accepts a small once-daily overlap window. This is a
+   limitation, not a strict maintenance guarantee.
+
+   A future strict option is a scheduled parent whose single step runs
+   `devman run <workflow>`. That step inherits the existing marker gate through
+   `run.trigger`. The one-step delegation shape is already used by
+   `groups/agent/`, which documents its boundary and failure policy.
+6. **Revised order:** `registryDir` moves to `$HOME/.config/devman` only after
    a Stage 4 that includes a stated answer for scheduled-run correctness under
    the link design, verified against `nix/tests/dagu-service.nix`'s scheduled
    subtest before it replaces the rendering path. Until then `registryDir`

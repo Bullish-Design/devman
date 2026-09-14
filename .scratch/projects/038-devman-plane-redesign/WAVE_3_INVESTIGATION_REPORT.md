@@ -193,7 +193,7 @@ Kind: **gate** (hard safety property) · **design** · **operator** · **limitat
 | 4 | A failed reload leaves a structured marker and a clear operator action | gate | `reload.blocked` plus three stderr lines; `doctor` prints the repair | Experiment E6 (§6.1) | **proven** | — |
 | 5 | Manual `devman run` has defined behaviour in every reload state | gate | `run.trigger` refuses unless `--print` (`run.py:352-359`) | Experiments E3, E4 | **proven** | — |
 | 6 | Watcher-fired runs have defined behaviour in every reload state | gate | `watch.dispatch` → `run.trigger`; refusal caught per entry, logged `refused (1)` | Experiment E2 | **proven** — the record denying it is wrong (R1) | — |
-| 7 | Scheduled Dagu runs have defined behaviour in every reload state | gate | **None.** The daemon enqueues in-process and executes no Python | Source read; Dagu capability survey §6.3 | **blocking gap** | Decision A3 |
+| 7 | Scheduled Dagu runs have defined behaviour in every reload state | limitation | Dagu enqueues in-process; its scheduler bypasses the queue and the marker gate | 20 s maximum over 550 scheduled-run records; `maintain` maximum 5 s over 551; 45 DAGs fire at 00:05; no deferring Dagu primitive | **accepted limitation** | §2.6, §2.7; 025/CONCEPT.md Stage 3 item 5 |
 | 8 | A crashed reload or stale marker is detectable and recoverable | gate | `doctor` detects; nothing recovers | Source read | **blocking gap** | See D1 below |
 | 9 | Watcher events have an explicit loss, retry, coalescing and duplicate policy | design | Coalesced per batch at `watch.py:560`; **no retry**; a refusal drops the event | Source read; experiment E2 | **accepted limitation**, undocumented | Decision A2 |
 | 10 | Run history and run metadata survive generation changes | gate | Dagu home is outside the generation | `~/.local/share/dagu` is stable; VM subtest at `dagu-service.nix:176` | **proven** | — |
@@ -348,16 +348,17 @@ system being enabled.
 |---|---|---|---|---|---|---|
 | A3-1 Dagu pause or drain | — | — | — | — | — | **Closed negative** (§6) |
 | A3-2 Gate the queue | — | Queue admission would defer work | Scheduled runs bypass the queue; no runtime queue close or drain exists | It cannot gate the scheduled path | — | **Closed negative** — S-1; §6 |
-| **A3-3 Wrap the scheduled entry point** | 7 | Covers the only uncovered producer; reuses the marker already proven | Every scheduled DAG's step must call the wrapper; a missed file is silently ungated | A wrapper that refuses turns a nightly run into a failed run unless it exits 0 with a skip | remove the wrapper | — |
+| A3-3 Wrap the scheduled entry point | 7 | Covers the only uncovered producer; reuses the marker already proven | Every scheduled DAG's step must call the wrapper; a missed file is silently ungated | A wrapper that refuses turns a nightly run into a failed run unless it exits 0 with a skip | remove the wrapper | — |
 | A3-4 Generate a per-project wrapper | 7, 11 | Carries project context too | Re-introduces generation, which B wants to remove | conflicts with B1 | — | — |
-| **A3-5 Accept and document the race** | none | free; the measured exposure is small | leaves req 7 open | 45 DAGs start at 00:05; a reload in that second can kill one | none | §2.6, §2.7 |
+| **A3-5 Accept and document the race** | 7 as a limitation | free; the measured exposure is small | a scheduled run can overlap a reload | 45 DAGs start at 00:05; a reload in that second can kill one | none | §2.6, §2.7; 025/CONCEPT.md Stage 3 item 5 |
 | A3-6 Remove schedules | 7 | closes it absolutely | loses `maintain` on 45 repositories | operator loss | restore | §2.7 |
 
 **The measured risk is smaller than the records imply.** Scheduled runs on this
 machine max at **20 s** and `maintain` maxes at **5 s**. The exposure is a reload
 landing inside a window of a few seconds, once a day, at 00:05 — and a killed
-`maintain` run costs one day of cache pruning. A3-5 is defensible *if it is stated
-with this measurement*. A3-3 is the only option that actually closes it.
+`maintain` run costs one day of cache pruning. A3-5 is the selected option because
+the exposure is measured and documented. A3-3 remains a future strict option,
+not Wave 3 work.
 
 #### A4 — wait and failure policy
 
@@ -574,7 +575,7 @@ new finding" is weak until this lands.
 
 ### D5 — Group A: keep markers, add a scheduler-side reader, raise the deadline
 
-Adopt **A1-1 + A3-3 + A4 measured deadline**, and keep **A2-2**.
+Adopt **A1-1 + A3-5 + A4 measured deadline**, and keep **A2-2**.
 
 - The marker stays the contract. It already covers two of three producers.
 - Add a DAG-level `preconditions:` entry to the one shared `maintain` source that
@@ -644,7 +645,7 @@ Each item is one commit with its own evidence directory under
 | 5 | **Watcher unit test** — the dispatcher refuses under `reload.pending` (§5.1 E2 is the specification), and a reload refusal is distinguishable in `fired.jsonl` | 3 |
 | 6 | **VM reload subtest** — the nine assertions of guide §5.2, plus timeout, blocked, stale marker and `try-restart` failure | 3, 5 |
 | 7 | **Set `reloadMaxWaitSec` to 600 s**, citing the measured 279 s maximum and p99 of 61 s | §2.6; A4 |
-| 8 | **Resolve the scheduled-run race** — implement the selected A3 path and prove scheduled behaviour in the VM | §6; §7.1 A3; guide §5.3 item 4 |
+| 8 | **Record the accepted scheduled-run race** — document the measured limitation; do not build a gate | §6; §7.1 A3; 025/CONCEPT.md Stage 3 item 5; guide §5.3 item 4 |
 | 9 | **Adopt `<projectsRoot>/<project>` as a machine contract** and run the B1-2 prototype | Experiment L; §7.2 B1-2 |
 | 10 | **Requirement 16 refusal** — a missing `DEVMAN_PROJECT_DIR` must not report success | 9 |
 | 11 | **B2-3** — split authored and generated roots | 9, 10 |
