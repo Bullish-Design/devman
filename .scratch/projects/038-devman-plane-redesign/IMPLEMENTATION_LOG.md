@@ -2033,3 +2033,72 @@ the backburner pair is the group to ask about first. Items 2 and 4 sit behind
 item 3 and did not start. Item 5 remains blocked on the operator decisions the
 prompt lists: the three manifest placements, the seven detached-HEAD branches,
 and the compatibility-only projects.
+
+## Stage 40 — §11 item 3 lands for the two live consumers
+
+On 2026-09-14, the operator scoped the rest of item 3. **`allium-env`,
+`forgelab` and `lodestar` leave the plane and will be archived**, joining
+`fleetman` and `my-ai` in the `TODO(038-archive)` set. That left `tyo3` and
+`repoman` as the only live targets, and both are done.
+
+`devman` itself keeps the module by criterion 16 and was never item 3 work.
+
+### tyo3
+
+Removed the Devman input, the `devman/modules` import and the option block. Its
+central declaration was already the migrated header, so nothing central changed.
+No `devenv.lock` is tracked, so there was no lock node or root edge to commit;
+the untracked lock re-locked itself and dropped the node.
+
+**A prior attempt already existed and had never landed.** `a1c4c87` on
+`038-devman-consumer-tyo3-followup` made the same edit on 2026-09-13, but the
+checkout sat detached on `origin/main` without it, which is why the module still
+appeared present. The replacement also removes the option block's comment, which
+`a1c4c87` left orphaned. Landed as `Bullish-Design/tyo3#17`, merge `6ad0708`.
+
+Shell entry needed `SECRETSPEC_REASON`. That is the SecretSpec reason policy
+Stage 38 met in `mypi-agent`, not a Devman refusal.
+
+### repoman
+
+Removed the same three things. RepoMan's own meta-module under `modules/` never
+referenced Devman, so its self-hosting `path:./modules` import is unaffected.
+
+**Its central declaration needed migrating too**, unlike tyo3's — it was still
+shape B. It now takes `project` as an argument and falls back to the manifest.
+Central commit `19565bd2`, local because the central checkout has no remote.
+
+**That removed a standing finding.** The fleet sweep went from 47 clean / 4
+drift to 48 clean / 3 drift. RepoMan's link drift is gone; `forgelab`,
+`image-gen-pipeline` and `lodestar` remain, and two of those three are in the
+archive set.
+
+Landed as `Bullish-Design/repoman#22`. The PR also carried `64936f2`, the
+manifest commit the migration depends on, which had not reached `main`.
+
+`base:test` fails there, and **the failure is pre-existing**: `ruff-format`
+reports `src/repoman/cli.py` and `src/repoman/devman/migrate.py`, both part of
+the 23 uncommitted files already on that tree. This change touches two Nix and
+YAML files, which `ruff-format` does not read. The commit is path-limited to
+those two files, so the tree's in-progress work and its re-locked `devenv.lock`
+stay uncommitted.
+
+A stale staged deletion of `.devman/project.toml` was repaired in RepoMan's
+index. It is the same `git add -A` corruption the Stage 38 repair found here.
+
+### Evidence
+
+`.scratch/projects/038-devman-plane-redesign/artifacts/20260914T142109Z-s11-item3-tyo3-repoman/`
+
+### Where item 3 stands now
+
+Every live consumer is off the Devman Nix module. What remains is not consumer
+migration:
+
+- the three archive removals the operator authorized — `allium-env`,
+  `forgelab`, `lodestar` — plus the four overlay directories with no checkout,
+  `fleetman`, `foreman`, `my-ai` and `siteman`;
+- `devman` itself, which keeps the module on purpose.
+
+**Items 2 and 4 sat behind item 3 and are now unblocked.** Item 5 remains
+blocked on the operator decisions the removal prompt lists.

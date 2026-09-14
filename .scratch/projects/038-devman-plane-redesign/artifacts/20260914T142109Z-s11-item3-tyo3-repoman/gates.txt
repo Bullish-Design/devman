@@ -1,0 +1,6 @@
+tyo3   shell 0 (five ok), base:check 0, base:test 0, canaries 0
+repoman shell 0 (five ok), base:check 0, canaries 0, base:test FAILS pre-existing (ruff-format on cli.py + devman/migrate.py, both uncommitted tree work)
+
+plane after both: generations/2, 46 projects, 146 dags, digest 5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b, dagu ls 147
+fleet sweep before: 47 clean / 4 drift (forgelab, image-gen-pipeline, lodestar, repoman)
+fleet sweep after:  48 clean / 3 drift (forgelab, image-gen-pipeline, lodestar)
