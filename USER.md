@@ -262,10 +262,11 @@ repository-owned `triggers.toml` stay in the checkout. `workflows/` is normally
 the view of the central per-repository overlay. devman reserves these three
 names and never reads, writes or inspects anything else there.
 
-The generated machine registry is still under `~/.local/share/devman/`. The
-planned link-plane Stage 3 moves generated registry and runtime state to
-`~/.local/state/devman/`; that split is not implemented yet, and the state
-directory is absent on the current machine.
+The generated machine registry remains under `~/.local/share/devman/`. Link-plane
+Stage 3 item 1 is deployed: generated metadata and kept trigger/write copies
+live under `~/.local/state/devman/`. Stage 3 item 2 did not move `registryDir` to
+`~/.config/devman`; the overlay collision and scheduled-run gate remain in
+`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a.
 
 **One restriction on where a repository may live.** Its path may not hold a
 double quote, a backslash, a tab or a newline. Spaces, `: `, `#` and every

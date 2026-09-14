@@ -75,9 +75,12 @@ keeps a change from re-learning something the plane already paid for.**
    canonical. Read the registry freely; write to it through the projection, or
    through `doctor --prune`.
 
-   **Current state:** the registry remains under `~/.local/share/devman/`.
-   Link-plane Stage 3 plans to move generated registry and runtime state to
-   `~/.local/state/devman/`; that directory does not exist yet.
+   **Current state:** `~/.local/share/devman/` remains the registry root for
+   `dags/` and projected workflows. Stage 3 item 1 is deployed: generated
+   metadata and kept trigger/write copies live under `~/.local/state/devman/`.
+   Stage 3 item 2 did not move `registryDir` to `~/.config/devman`; the
+   overlay collision and scheduled-run gate remain in
+   `.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a.
 7. **Python for core logic; shell stays a thin wrapper.** Shell that grows past a
    wrapper is shell nobody can test.
 8. **Secrets are declared, never held.** A workflow names a secret through Dagu's

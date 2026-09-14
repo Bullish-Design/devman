@@ -251,9 +251,13 @@ Current live behavior:
 
 ~~~text
 ~/.config/devman/                 authored central content
-~/.local/share/devman/            registry, generated workflows, and runtime data
-~/.local/state/devman/            does not exist yet
+~/.local/share/devman/            registry, generated workflows, and Dagu links
+~/.local/state/devman/            generated metadata and kept trigger/write copies
 ~~~
+
+Stage 3 item 1 landed and is deployed. Stage 3 item 2 did not move
+`registryDir` to `~/.config/devman`; the overlay collision and scheduled-run
+gate remain in §6.2a of this project's concept.
 
 The target behavior is:
 

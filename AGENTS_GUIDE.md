@@ -145,10 +145,12 @@ passes 30 s the answer is a `--project` scope, not a heavier queue.
   + `b-check` render the same name. `registry.dag_link_fault` is what catches it.
 - **The registry is derived.** Group sources and central per-project overlay files
   are canonical; everything in the registry is reconstructable by re-entering
-  every registered repository's shell. The current registry remains under
-  `~/.local/share/devman/`. Link-plane Stage 3 plans to put generated registry
-  and runtime state under `~/.local/state/devman/`; that directory is not current
-  and does not exist on this machine.
+  every registered repository's shell. The registry remains under
+  `~/.local/share/devman/`. Stage 3 item 1 is deployed: generated metadata and
+  kept trigger/write copies live under `~/.local/state/devman/`. Stage 3 item 2
+  did not move `registryDir` to `~/.config/devman`; the overlay collision and
+  scheduled-run gate remain in `.scratch/projects/025-the-link-plane/CONCEPT.md`
+  §6.2a.
 - **Nothing walks the disk looking for repositories.** §15.1 forbids it. Reading
   devman's own registry is not scanning.
 

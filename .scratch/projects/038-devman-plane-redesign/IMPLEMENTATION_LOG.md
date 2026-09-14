@@ -2177,3 +2177,18 @@ Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260914T143358
    the projection is the remaining action. The registry is derived, so this is
    cheap — but it is a hand-edit of derived state, and worth doing knowingly.
 2. **`lodestar`'s overlay removal**, which waits on that checkout's index.
+
+## Wave 1A — correct the state-root documentation
+
+On 2026-09-14, the live-plane check confirmed the Stage 3 split. The active
+pointer was `generations/2`; it held 45 projects and 143 DAG files after the
+operator removed `allium-env`. The registry root remained
+`~/.local/share/devman/`, and the state root was
+`~/.local/state/devman/`. `devman doctor` still returned exit 1 with only the
+four known findings.
+
+Stage 3 item 1 is therefore deployed. It moved generated metadata and kept
+copies of repository-owned `triggers.toml` and `writes.toml` to the state root.
+Stage 3 item 2 did not move `registryDir` to `~/.config/devman`; the overlay
+collision and scheduled-run gate remain documented in
+`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a.
