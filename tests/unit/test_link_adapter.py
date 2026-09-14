@@ -6,8 +6,8 @@ registry entry, no `metadata.json`, and no `generation.json`. Second, the safety
 behaviour did not weaken when the adapter moved: every root check, promotion
 rule, conflict refusal and exclude-file rule still refuses what it refused.
 
-`tests/unit/test_link.py` covers the older `devman.link` implementation and is
-not changed by this file.
+The retired `devman.link` implementation had separate coverage before this
+component became the only link implementation.
 """
 
 from __future__ import annotations

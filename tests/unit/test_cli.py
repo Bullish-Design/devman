@@ -30,9 +30,11 @@ def test_every_subcommand_module_imports(command):
     `from . import doctor` at the top of `cli.py` meant `devman --help` proved
     that `doctor.py` at least imports. Deferring it moved that proof here, where
     it is stated rather than incidental — and where it covers all five rather
-    than the four that happen to be spelled in one line.
+    than the four that happen to be spelled in one line. The public `link`
+    command uses the independent `devman_link` component.
     """
-    assert importlib.import_module(f"devman.{command}") is not None
+    module = "devman_link" if command == "link" else f"devman.{command}"
+    assert importlib.import_module(module) is not None
 
 
 @pytest.mark.parametrize("command", SUBCOMMANDS)

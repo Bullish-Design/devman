@@ -19,9 +19,9 @@ import yaml
 from helpers import ORDINARY
 
 from devman import doctor
-from devman.link import reconcile
 from devman.registry import Registry
 from devman.workflow import PROJECT_DIR
+from devman_link import reconcile
 
 pytestmark = pytest.mark.unit
 

@@ -2223,3 +2223,11 @@ only the completed migration: `test_an_unmigrated_project_falls_back_and_says_so
 `test_a_workflow_with_no_link_at_all_is_not_unmigrated`, and
 `test_a_legacy_link_pointing_elsewhere_is_not_a_migration`. Tests for the
 current link target guard remain.
+
+## Wave 2D — remove the obsolete link shim
+
+On 2026-09-14, the watcher source was free to edit, so the temporary
+`src/devman/link.py` re-export could be removed. `src/devman.watch` now imports
+`reconcile` and `LinkError` directly from `devman_link`, and the doctor test
+uses the same public component surface. The shipped `devman link` command still
+resolves through `src/devman/cli.py` and does not depend on the deleted shim.

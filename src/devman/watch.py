@@ -55,7 +55,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
-from . import link, run
+from devman_link import LinkError, reconcile
+
+from . import run
 from .registry import Project, Registry, RegistryError, deepest, report
 
 # The watcher's own state, under the state root (§11 Stage 3) rather than the
@@ -601,7 +603,7 @@ def dispatch(args, reg: Registry) -> int:
             # Link reconciliation is the same state machine used by shell
             # entry. The watcher owns the event path, but it must not create a
             # second interpretation of canonical, view, or promotion state.
-            link.reconcile(
+            reconcile(
                 project.links or {},
                 overlay=Path(os.path.expandvars(os.path.expanduser(project.overlay))),
                 root=project.path,
@@ -617,7 +619,7 @@ def dispatch(args, reg: Registry) -> int:
         except RegistryError as exc:
             report(exc)
             code = 1
-        except link.LinkError as exc:
+        except LinkError as exc:
             print(
                 f"devman: refusing to reconcile links for '{entry.project}'",
                 file=sys.stderr,
