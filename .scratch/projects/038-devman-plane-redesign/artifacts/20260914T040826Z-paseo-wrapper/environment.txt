@@ -1,0 +1,2 @@
+date_utc=2026-09-14T04:08:26Z
+command=/nix/store/8lrv7ndkb1nq84ly3bmyyr70zkxx2fvd-paseo-agent-shell/bin/paseo-agent-shell claude --version

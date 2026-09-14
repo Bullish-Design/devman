@@ -1,0 +1,6 @@
+date_utc=2026-09-14T04:00:26Z
+cwd=/home/andrew/Documents/Projects/devman
+wrapper=/nix/store/8lrv7ndkb1nq84ly3bmyyr70zkxx2fvd-paseo-agent-shell/bin/paseo-agent-shell
+source_snapshot=/nix/store/zsp1zjxjddkwp0dcy028v73glhnf0ynk-source
+installed_module=/nix/store/zjzp1hxfwgc323dbrq01acq54x5vcqc6-devman-link-0.6.0/share/devman/link-module.nix
+installed_module_sha256=40e9398a3e463e2c14853d992d91da0a905fba373eabc83834ec655b3524924e

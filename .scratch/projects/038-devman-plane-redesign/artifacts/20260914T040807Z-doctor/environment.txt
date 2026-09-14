@@ -1,0 +1,2 @@
+date_utc=2026-09-14T04:08:07Z
+command=devenv shell -- devman doctor

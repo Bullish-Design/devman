@@ -603,9 +603,7 @@ def dispatch(args, reg: Registry) -> int:
             # second interpretation of canonical, view, or promotion state.
             link.reconcile(
                 project.links or {},
-                overlay=Path(
-                    os.path.expandvars(os.path.expanduser(project.overlay))
-                ),
+                overlay=Path(os.path.expandvars(os.path.expanduser(project.overlay))),
                 root=project.path,
                 project=project.name,
             )

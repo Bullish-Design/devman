@@ -1882,3 +1882,34 @@ RepoMan protected files were changed.
 The supported consumer transition is complete. Compatibility mode remains
 enabled. §11 cleanup is still deferred until the archive review and the
 compatibility-only project disposition are performed.
+
+## Stage 38 repair — restore the machine-owned link source
+
+On 2026-09-14, the repository stopped evaluating because `modules/devenv.nix`
+imports `modules/link.nix`, but that file was absent. This was not the planned
+§11 cleanup. Stage 17 names `src/devman/link.py` as the temporary watcher
+re-export. Stage 18 names `modules/link.nix` as the permanent machine-owned
+devenv interface.
+
+The exact deletion happened on 2026-09-13 at 18:34:13 EDT. A prior Codex
+session ran `git restore --source='stash@{0}' --worktree -- .`. The stash
+predated the files added on `038-fixup-and-fanout`, so Git removed them. That
+session restored the two protected watcher files eight seconds later, but it
+did not restore the 25 link-plane source and test files.
+
+This repair restored those 25 files from the verified Stage 18 follow-up Nix
+source snapshot. It preserved `src/devman/watch.py` and
+`tests/unit/test_watch.py`. The restored `modules/link.nix` matches
+`/run/current-system/sw/share/devman/link-module.nix` byte for byte, with
+SHA-256 `40e9398a3e463e2c14853d992d91da0a905fba373eabc83834ec655b3524924e`.
+
+The repository shell now evaluates. `base:unit` passed with 606 tests,
+`base:check` passed, and `base:test` passed all flake checks. The exact Paseo
+override returned exit 0 from `claude --version`. Doctor reached the plane and
+returned only the four known findings from Stage 38. It still exits 1, as
+expected until that planned follow-up lands.
+
+Gitman still reports the pre-existing off-canonical state: the divergent
+`021-changelog` lane and the leftover raw Git `038-fixup-and-fanout` ref. This
+repair did not reconcile that state because Project 038 defers it. The full
+cause, evidence, file set, and proof are in `RESEARCH_REPORT.md`.
