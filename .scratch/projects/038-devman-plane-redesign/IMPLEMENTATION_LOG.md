@@ -2425,3 +2425,30 @@ manifest-less compatibility entries such as `fleetman` and
 `flora-037-part-e` remain outside this sweep. Compatibility mode and its
 rollback by pinning a pre-adapter Devman revision remain in place. Wave 3 is
 the next incomplete phase and still needs its own design or operator decisions.
+
+## Stage 41 — separate authored and generated roots
+
+On 2026-09-14, Wave 3 made the authored/generated root boundary explicit before
+the future `registryDir` move. `overlayDir` is authored configuration; the
+compatibility registry is generated projection output. They must not resolve to
+the same directory.
+
+**The failure avoided.** If both roots are `~/.config/devman`,
+`reconcile.py` reads the hand-authored `projects/<project>/workflows/<name>.yaml`
+and then writes generated output to that same path. The write adds a generated
+header and can delete an authored file that is absent from the current render.
+The five Devman workflow files under that path are the measured protected set
+(Wave 3 item 10; R9).
+
+**The change.** `compatibility_apply` now resolves both roots and refuses before
+rendering or writing when they are equal. The default roots remain separate, and
+`registryDir` does not move in this wave. The refusal keeps the split explicit
+until the render-to-link prototype proves the later migration.
+
+**The proof.** `tests/unit/test_reconcile.py` now asserts that equal roots return
+the refusal and create no generated `projects/` directory. Existing compatibility
+publishing remains covered by its canonical-render test.
+
+**Status.** No authored overlay, generated registry, active generation or state
+entry was changed by this stage. The next incomplete phase is item 11: land the
+ten Stage 37 branches.

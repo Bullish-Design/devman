@@ -202,6 +202,26 @@ def test_compatibility_apply_validates_before_publishing(tmp_path):
     assert not (state / "projects" / "fixture" / "metadata.json").exists()
 
 
+def test_compatibility_apply_refuses_shared_authored_and_generated_roots(tmp_path):
+    policy_root = _policy_root(tmp_path)
+    project_root = tmp_path / "project"
+    _manifest(project_root)
+    shared = tmp_path / "shared"
+
+    with pytest.raises(ReconcileError, match="must be different roots"):
+        compatibility_apply(
+            project_root,
+            policy_root=policy_root,
+            overlay_root=shared,
+            registry=shared,
+            state=tmp_path / "state",
+            plan="compatibility-plan",
+            dagu="true",
+        )
+
+    assert not (shared / "projects").exists()
+
+
 def test_compatibility_apply_skips_unchanged_validation(tmp_path):
     policy_root = _policy_root(tmp_path)
     project_root = tmp_path / "project"

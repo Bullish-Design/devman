@@ -394,6 +394,15 @@ def compatibility_apply(
     """Publish one canonical render into the temporary compatibility registry."""
 
     project_root = root.expanduser().resolve()
+    authored_root = overlay_root.expanduser().resolve()
+    generated_root = registry.expanduser().resolve()
+    if authored_root == generated_root:
+        raise ReconcileError(
+            "refusing to publish a compatibility projection: authored overlay "
+            "and generated registry must be different roots\n"
+            f"  authored: {authored_root}\n"
+            f"  generated: {generated_root}"
+        )
     manifest = ProjectManifest.from_root(project_root)
     policy = resolve_policy(manifest, policy_root)
     binary = dagu or shutil.which("dagu") or "dagu"
