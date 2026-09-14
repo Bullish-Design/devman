@@ -323,9 +323,24 @@ let
     # transiently failed and `2>/dev/null` emptied its output by accident.
     # The VM test does not cover reload yet. Unit tests write the markers by
     # hand. Add the reload subtest before relying on this loop in the VM.
-    while [ "$(${lib.getExe cfg.package} ps 2>/dev/null || true)" != "No running processes" ]; do
+    while :; do
+      # A stopped Dagu has no active runs. Its `ps` command may also fail
+      # while the service is stopping. Both states are already drained.
+      if ! ${pkgs.systemd}/bin/systemctl --user is-active --quiet dagu.service 2>/dev/null; then
+        break
+      fi
+      if ! ps_output="$(${lib.getExe cfg.package} ps 2>/dev/null)"; then
+        break
+      fi
+      if [ "$ps_output" = "No running processes" ]; then
+        break
+      fi
       if [ "$waited" -ge "$max" ]; then
         mark "$blocked"
+        # The old generation is still serving runs. Keep the blocked marker
+        # for doctor, but clear pending so manual and watcher runs remain
+        # usable while the operator repairs the reload.
+        "${pkgs.coreutils}/bin/rm" -f "$pending"
         echo "devman-dagu-reload: gave up after ''${max}s waiting for dagu ps to empty" >&2
         echo "devman-dagu-reload: Dagu was NOT restarted; the previous generation is still serving runs" >&2
         echo "devman-dagu-reload: once the run finishes, run: systemctl --user restart devman-dagu-reload.service" >&2

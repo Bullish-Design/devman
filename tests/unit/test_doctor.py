@@ -407,8 +407,7 @@ def test_reload_reports_blocked_as_a_finding_with_the_repair_action(plane):
 
 
 def test_reload_blocked_takes_priority_over_pending(plane):
-    """A reload service that timed out leaves both markers behind — `blocked`
-    is the one that still matters, and it must not hide behind `pending`."""
+    """A blocked reload reports both markers, with the blocked state first."""
     plane.reg.state.mkdir(parents=True, exist_ok=True)
     (plane.reg.state / "reload.pending").write_text("2026-09-12T00:00:00Z\n")
     (plane.reg.state / "reload.blocked").write_text("2026-09-12T00:05:00Z\n")
@@ -416,7 +415,10 @@ def test_reload_blocked_takes_priority_over_pending(plane):
     rep = doctor.Report()
     doctor.check_reload(rep, plane.reg)
 
-    assert rep.sections[0][1] == "!!"
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("reload", "!!")
+    assert "blocked since 2026-09-12T00:05:00Z" in lines[0]
+    assert "pending since 2026-09-12T00:00:00Z" in lines[-1]
 
 
 def test_an_entry_from_a_newer_devman_is_reported(plane):

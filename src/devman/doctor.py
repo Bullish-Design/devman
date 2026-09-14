@@ -1368,16 +1368,21 @@ def check_reload(rep: Report, reg: Registry) -> None:
     pending = reg.state / "reload.pending"
     blocked = reg.state / "reload.blocked"
     if blocked.is_file():
+        blocked_at = blocked.read_text().strip()
         rep.add(
             "reload",
             "!!",
             [
-                f"blocked since {blocked.read_text().strip()} — an active run outlasted the max wait",
+                f"blocked since {blocked_at} — an active run outlasted the max wait",
                 "Dagu was not restarted; the previous generation is still serving runs",
                 "operator action: once the run finishes, run"
                 " `systemctl --user restart devman-dagu-reload.service`",
             ],
         )
+        if pending.is_file():
+            rep.sections[-1][2].append(
+                f"pending since {pending.read_text().strip()} — the reload gate remains open"
+            )
         return
     if pending.is_file():
         rep.add(
