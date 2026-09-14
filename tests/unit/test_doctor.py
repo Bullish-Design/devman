@@ -510,6 +510,22 @@ def test_plane_reads_projection_records_from_active_registry_first(plane):
     ]
 
 
+def test_plane_registry_view_reads_projects_from_the_active_generation(plane):
+    plane.add("active", workflows={"check": ORDINARY})
+    state = plane.root.parent / "state"
+    state_entry = state / "projects" / "stale-state"
+    state_entry.mkdir(parents=True)
+    (state_entry / "metadata.json").write_text(
+        (plane.root / "projects" / "active" / "metadata.json")
+        .read_text()
+        .replace('"active"', '"stale-state"')
+    )
+
+    registry = Registry(plane.root, state).for_active_generation()
+
+    assert sorted(registry.projects()) == ["active"]
+
+
 # ---------------------------------------------------------------------------
 # what the plane's only verb pays for (014)
 

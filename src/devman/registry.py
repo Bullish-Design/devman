@@ -306,9 +306,30 @@ class Registry:
         self,
         root: str | os.PathLike[str] = DEFAULT_REGISTRY,
         state: str | os.PathLike[str] = DEFAULT_STATE,
+        *,
+        project_source: str | os.PathLike[str] | None = None,
     ) -> None:
         self.root = Path(os.path.expanduser(str(root)))
         self.state = Path(os.path.expanduser(str(state)))
+        self.project_source = (
+            Path(os.path.expanduser(str(project_source)))
+            if project_source is not None
+            else None
+        )
+
+    def for_active_generation(self) -> Registry:
+        """Read project metadata from the active generation.
+
+        Plane projections keep the complete project set beside their workflow
+        files. The stable state root can lag behind a generation, so doctor
+        uses this view when the active root proves plane mode. Other commands
+        keep the state-root view and do not change their source of truth.
+        """
+        return Registry(
+            self.root,
+            self.state,
+            project_source=self.projects_dir,
+        )
 
     @property
     def projects_dir(self) -> Path:
@@ -349,9 +370,10 @@ class Registry:
         """
         out: dict[str, Project] = {}
         faults: list[RegistryFault] = []
-        if not self.state_projects_dir.is_dir():
+        projects_dir = self.project_source or self.state_projects_dir
+        if not projects_dir.is_dir():
             return out, faults
-        for entry in sorted(self.state_projects_dir.iterdir()):
+        for entry in sorted(projects_dir.iterdir()):
             if not entry.is_dir():
                 continue
             meta = entry / "metadata.json"
