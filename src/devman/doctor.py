@@ -59,7 +59,9 @@ from pathlib import Path
 
 import yaml
 
-from . import link, project, watch
+import devman_link
+
+from . import project, watch
 from .registry import Registry, dag_name_fault, identity_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
@@ -1309,14 +1311,14 @@ def check_link_drift(rep: Report, reg: Registry) -> None:
         for view, raw in (proj.links or {}).items():
             checked += 1
             try:
-                resolved = link.resolve(
-                    link.Declaration.read(view, raw),
+                resolved = devman_link.resolve(
+                    devman_link.Declaration.read(view, raw),
                     overlay=Path(os.path.expandvars(proj.overlay)).expanduser(),
                     root=proj.path,
                     project=proj.name,
                 )
-                state = link.inspect(resolved).state
-            except link.LinkError as exc:
+                state = devman_link.inspect(resolved).state
+            except devman_link.LinkError as exc:
                 findings.append(f"{proj.name}:{view}: invalid declaration — {exc}")
                 continue
             if state != "ok":

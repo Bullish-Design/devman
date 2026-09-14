@@ -668,3 +668,1248 @@ compatibility fallback now would leave those repositories with no serving
 path at all. This is deferred, not skipped: the correct order is switch,
 observe, then remove, in that sequence, once a human has actually run the
 one command above.
+
+## Stage 14 — complete the migration wave, compare the fleet, and widen the canary
+
+On 2026-09-12, this session continued after the operator had switched the live
+system to the NixOS configuration recorded in Stage 13. The machine now uses
+the Vendomat active generation as its Devman registry. This stage records the
+remaining migration work and the checks that depend on that live state.
+
+**RepoMan migration wave.** The machine RepoMan was rebuilt with
+`devenv shell -- repoman-sync --machine`. The resulting machine binary exposed
+`repoman devman`, while the project shells that carried an older Vendomat
+toolchain still selected the old binary. Those 11 shells were fixed by updating
+their direct RepoMan input to `main` at `57473ad` and selecting the machine venv
+provider. Six shells had no usable RepoMan command; the rebuilt machine binary
+was invoked directly inside each shell. Six secretspec-gated shells received
+`SECRETSPEC_REASON="devman migration (project 038)"`.
+
+The exact result table is in
+`MIGRATION_2026-09-12.md`. Of the 46 non-canary repositories, 21 carried a
+manifest at the start of this session and 22 more now carry one. The remaining
+three are `copyroom`, `docman`, and `mypi-agent`; all three put the Devman
+option block in `dev/devenv.nix`, so the correct manifest placement needs a
+human decision. No placement was guessed.
+
+The live plane was rebuilt with one `--project-root` per manifest and:
+
+```sh
+vendomat plane update devman --to v0.6.0 \
+  --policy-root /home/andrew/Documents/Projects/devman \
+  --state-dir "$HOME/.local/state/vendomat/devman" \
+  --renderer devman --dagu dagu
+```
+
+The command rendered 46 projects and activated generation 2. A single shell
+loop validated all 146 generated DAGs with `dagu validate`; it returned
+`validated_dags=146`. The generation contains no seed examples.
+
+**§7 full comparison.** The comparison retained both projections. It compared
+all 46 projects in both roots and all 146 common DAGs. Project identity, path,
+groups, local workflow names, triggers, writes, workflow groups, parameters,
+working paths, log paths, queues, limits, schedules, and generated bodies
+matched. The only generated-file difference was the source-file comment, which
+was the one permitted normalization. The intentional metadata differences are
+the plane generation identity, portable source identities, the absolute
+resolved overlay path, the explicit plane representation of Devman's overlay
+workflows, and the absence of compatibility link records. The dated report is
+`COMPARISON_2026-09-12.md`; it records the five old-only projects and three
+broken `my-ai` compatibility links as outstanding state, not as unexplained
+common-project mismatches.
+
+**§8 wider canary.** Six real categories passed: a local overlay
+(`devman.agent-review`), multiple groups (`observantic.release`), a
+cross-repository workflow (`devman.stack-validate`), a scheduled workflow
+(`observantic.maintain`), declared writes (`devman.format`), and an unusual
+dotted path (`loci.nvim.check`). For each category, `plane plan` and `plane
+update` returned 0. Each update was a no-op and retained generation 2. The
+generation assertions passed. `dagu ls` returned 146 entries and exit 0.
+The environment-cleared live doctor reported `mode plane` and five known
+findings: one link drift, three dirty unpinned local-source findings, and one
+daemon-shell finding. The full result is in `CANARY_2026-09-12.md`.
+
+The wider canary did not enqueue tasks. The declared-write and agent workflows
+would write real repository state, and the cross-repository workflow would
+enqueue child runs. Existing VM tests cover run output and metadata recording;
+the dual projection comparison proves the run and log fields are unchanged.
+
+**§11 status.** Compatibility mode remains required by the three structural
+cases awaiting a placement decision, by the five old-only compatibility
+projects, and by existing consumers whose migration commits and branch choices
+are not yet complete. The removal order therefore stops before item 5. The
+duplicate shell-entry helper, resolver duplication, routine consumer lock
+removal, and compatibility registry write removal still need separate reviewed
+changes with a complete proof after each one. No compatibility fallback was
+removed in this stage.
+
+**§11 item 1.** The obsolete `scripts.devman-resync.exec` helper was then
+removed from `devenv.nix`. It had re-entered every registered repository with
+`devenv shell -- true`, duplicating the projection work already performed by
+the active plane. The compatibility shell hook remains for repositories that
+still need it. `rg -n "devman-resync" devenv.nix modules src tests` found no
+remaining reference. After the removal, `devenv tasks run -v base:check`,
+`devenv tasks run -v base:test`, and
+`devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link`
+all passed. The environment-cleared live doctor still reported the same five
+known findings, so this removal did not hide or create a doctor finding. The
+change and this record were committed as `a960df4` and pushed to
+`origin/038-fixup-and-fanout`. Items 2 through 4 remain separate reviewed
+changes; item 5 remains blocked by the consumers named above.
+
+**Final Stage 14 verification.** The remaining 22 newly migrated manifests
+were committed and pushed. A repeat of `vendomat plane plan` proposed
+generation 3; the matching `plane update` was a no-op and retained generation
+2. One `devenv shell` invocation validated all 146 active DAGs. Vendomat's
+`devenv shell -- testee verify --mode quick` passed all four quick checks in
+34.2 seconds. RepoMan `base:check` passed; `base:test` still failed only on
+the two pre-existing unformatted files `src/repoman/cli.py` and
+`src/repoman/devman/migrate.py`. `nixos-rebuild build --flake .#server`
+passed in `nix-meta` and produced
+`/nix/store/n1qz7wzpzgm3wk7wn4czay5mxy6m2l60-nixos-system-server-26.11.20260705.d407951`.
+Devman `base:check`, `base:test`, and the separate `dagu-service` build all
+passed.
+
+The final environment-cleared live doctor remained in plane mode and returned
+exit 1 for four findings: `flora-037-part-e` link drift; uncommitted Vendomat
+and RepoMan sources consumed by unpinned inputs; and one Dagu process with
+`SHELL` set. Its independent old-state top line remains `4 projects, 16
+workflows`; `dagu ls` returned 146 workflows with exit 0. The shellij dirty
+source finding from the earlier canary disappeared after its migration commit.
+
+**§11 pin-removal probe.** A controlled removal probe was run against the
+Vendomat canary. It removed only the `devman` input, the `devman/modules`
+import, and the `devman` option block from `devenv.yaml` and `devenv.nix`.
+The exact verification command was:
+
+```sh
+cd /home/andrew/Documents/Projects/vendomat
+devenv shell -- testee verify --mode quick
+```
+
+The shell refused during Nix evaluation before Testee ran. The machine-local
+overlay at `~/.config/devman/projects/vendomat/devenv.local.nix` still reads
+`config.devman.project` to construct its link declarations. The failure was
+`attribute 'devman' missing`. The attempted source and lock edits were
+reverted. Vendomat's pre-existing worktree state is unchanged, including its
+pre-existing `DA`/`MM` paths and its original lock bytes.
+
+This prevents a partial item 3 or 4 removal that would break every shell entry
+before the central overlay has its own project-identity input. Items 2 through
+4 therefore remain gated: item 2 still has a compatibility resolver for
+unpinned and structural consumers, item 3 cannot remove consumer pins while
+the overlay requires the module, and item 4 cannot stop compatibility writes
+until those consumers have a supported replacement. Item 5 remains blocked by
+the three placement decisions, the seven detached-HEAD branch decisions, and
+the compatibility-only projects listed in the migration and comparison
+reports.
+
+## Stage 15 — manifest-first link bridge
+
+On 2026-09-13, the link-plane bridge moved project identity to the repository
+manifest at the public Python command boundary. A now remains unchanged:
+Vendomat owns the active workflow generation, and Devman remains the link
+adapter and compatibility projection. B remains later.
+
+**Risk prevented.** Before this bridge, public link status entered the protected
+`devman-link` implementation. That implementation required the compatibility
+registry. The active plane had 46 projects and 146 DAGs, while the Devman
+state-registration directory had only `devman`, `flora`, `flora-037-part-e`,
+and `pydantree`. The environment-cleared installed command therefore refused:
+
+```text
+devman: link reconciliation failed: no project named 'vendomat' in /home/andrew/.local/state/vendomat/devman/active
+  registered: devman, flora, flora-037-part-e, pydantree
+```
+
+The new public boundary reads `.devman/project.toml`, evaluates the existing
+central Nix module with that identity, and then calls the protected link
+adapter. It does not read the active generation or infer identity from the
+directory name. It refuses an identity mismatch and names the repository root,
+the conflicting fields, and a repair action. The central interface remains
+`$HOME/.config/devman/projects/<project>/devenv.local.nix` with one
+`devman.link` block. The central file is evaluated before link use. Existing
+view, root, promotion, conflict, bootstrap, and exclude-file safety rules stay
+in the protected adapter.
+
+The existing generation-based `doctor.check_mode` already supplied the two
+explicit modes, `plane` and `compatibility`. No second mode source was added.
+Compatibility mode, compatibility registry writes, `registryDir`, and the
+consumer Devman pins remain. No generated registry or Vendomat file was edited.
+
+**Tests and checks.** The following commands passed:
+
+```text
+devenv tasks run base:check                         exit 0
+devenv tasks run -v base:unit                       exit 0; 565 passed in 9.11s
+devenv tasks run -v base:test                       exit 0; all 21 flake checks passed
+devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link
+                                                       exit 0
+```
+
+The first direct `pytest` probe was not a test result: this shell has no
+standalone `pytest` command. `devenv tasks run base:unit` is the repository's
+test entry point and passed the full suite.
+
+The source-built canary command was:
+
+```sh
+devenv shell -- devman link status --project vendomat \
+  --root /home/andrew/Documents/Projects/vendomat \
+  --overlay "$HOME/.config/devman"
+```
+
+It returned 0 and reported:
+
+```text
+central config /home/andrew/.config/devman/projects/vendomat/devenv.local.nix
+ok vendomat:.agents
+ok vendomat:.claude/skills
+ok vendomat:.envrc
+ok vendomat:.loci
+ok vendomat:devenv.local.nix
+```
+
+The requested shell entry also returned 0:
+
+```sh
+cd /home/andrew/Documents/Projects/vendomat
+env -u PYTHONPATH -u NIX_PYTHONPATH devenv shell -- bash -c 'true'
+```
+
+Vendomat's branch and pre-existing worktree changes were unchanged. The
+environment-cleared installed binary was run before and after that shell
+entry. Both runs returned exit 2 with the compatibility-registry refusal
+shown above. The installed binary is the older published v0.6.0 revision and
+does not contain this bridge. This is a deployment blocker, not a Python-path
+shadowing difference: clearing `PYTHONPATH` and `NIX_PYTHONPATH` produced the
+same result.
+
+One loop validated the active generation and returned `validated_dags=146`.
+The active pointer remained `generations/2`; it still contains 46 project
+directories and 146 DAG files. `dagu --dagu-home "$HOME/.local/share/dagu"
+ls` returned 146 names and exit 0. Link status and the shell entry did not
+rewrite the active generation.
+
+The final environment-cleared live doctor returned exit 1 with the same
+machine findings. Its top line remained `4 projects, 16 workflows` because
+that summary reads the old Devman state directory. It reported four finding
+lines: `flora-037-part-e:devenv.local.nix: create`; dirty, unpinned Vendomat
+source; dirty, unpinned RepoMan source; and the unpinned `git+file:` repair
+advice. The active plane remained healthy in explicit `plane` mode. The Dagu
+process had `SHELL` unset, so daemon-shell was an `ok` result.
+
+**Files changed.** This slice changed `src/devman/identity.py`,
+`src/devman/cli.py`, `tests/unit/test_identity.py`, and this log. Vendomat,
+RepoMan, and the central configuration checkout were not changed. The
+four protected Devman files were not changed. The Devman Gitman status was
+read only and returned `OFF-CANONICAL` because lane `021-changelog` has a
+divergent change-id. The explicit Git fallback was therefore used for the
+Devman commit `0cc0257` and push; no `gitman reconcile` was run.
+
+The machine pin was then updated in nix-meta. `flake.nix` and `flake.lock`
+pin Devman commit `0cc025760f863741be3af689c364979b07183338`. The exact
+command `nixos-rebuild build --flake .#server` passed and produced
+`/nix/store/c9sab65xpi85rgcwhy7ayy1lvxz278b9-nixos-system-server-26.11.20260705.d407951`.
+The first pin commit briefly carried a stale Gitman-index copy of
+`profiles/devman.nix`; the error was caught before any switch, the correct
+Vendomat `registryDir` was restored in corrective commit `7e634d0`, and the
+clean rebuild passed again. nix-meta Gitman status was desynchronized, so no
+reconcile was run there either. Both nix-meta commits were pushed to `main`.
+The requested `sudo nixos-rebuild switch --flake .#server` could not run
+because sudo requires an interactive password in this environment. The
+operator must run that command before `/run/current-system/sw/bin/devman` can
+observe the bridge. Before the switch, the equivalent binary from the built
+system passed the canary with the same cleared environment:
+
+```sh
+env -u PYTHONPATH -u NIX_PYTHONPATH \
+  /nix/store/c9sab65xpi85rgcwhy7ayy1lvxz278b9-nixos-system-server-26.11.20260705.d407951/sw/bin/devman link status \
+  --project vendomat \
+  --root /home/andrew/Documents/Projects/vendomat \
+  --overlay "$HOME/.config/devman"
+```
+
+It returned 0 and the same five `ok` link states. The active system remains
+the old binary until the operator switches.
+
+Compatibility mode remains available. The migration remains 43 migrated
+non-canary repositories, with `copyroom`, `docman`, and `mypi-agent` blocked
+on manifest placement. The active plane has 46 projects. The next incomplete
+phase is B, extraction of the link adapter behind the unchanged central Nix
+interface. The remaining §11 removals also need separate evidence.
+
+## Stage 16 — the independent link adapter
+
+On 2026-09-13, the machine-local link adapter moved to its own importable and
+packageable component. A and C remain unchanged: Vendomat owns the active
+workflow generation, Devman keeps compatibility mode and compatibility
+registry writes, and `.devman/project.toml` remains the repository identity
+source.
+
+**The B decision, recorded before the code.** The component is
+`src/devman_link/`. It stays source-owned by the Devman repository in this
+first slice, because no second source repository has an approved owner or
+remote. It is separately packageable: `nix/link-adapter.nix` builds it from a
+fileset that holds only `src/devman_link`, `src/devman_contract`, and its own
+`packaging/devman-link/pyproject.toml`. A stray `import devman` inside the
+component therefore fails that build rather than passing unnoticed.
+
+The identity parser is not duplicated. The pure contract code moves to a new
+`src/devman_contract/` package — the identity grammar from
+`src/devman/registry.py` and the manifest records from `src/devman/contract.py`
+— and both Devman modules keep compatibility imports, so every existing caller
+of `registry.identity_fault` and `devman.contract` is unchanged. The component
+depends on `devman_contract` and the standard library, and on nothing else.
+
+The stable component surface is two operations, `status` and `reconcile`; the
+five result states `ok`, `repoint`, `promote`, `link`, `create`; and the three
+exit meanings 0, 1, and 2. Status stays read-only and prints the central
+configuration path. Normal operation reads no compatibility registry entry, no
+`metadata.json`, and no `generation.json`.
+
+The central interface does not change. The one human-authored link declaration
+remains `$HOME/.config/devman/projects/<project>/devenv.local.nix` with one
+`devman.link` attribute set, evaluated with the selected identity supplied as
+`config.devman.project`. No TOML, YAML, JSON, or second link format is added.
+
+`--all` stays out of the component, because only the compatibility registry can
+enumerate the old registered projects. The protected `src/devman/link.py` is
+not edited and stays reachable as the explicit rollback path until its own
+removal gate passes.
+
+**Risk prevented.** Before B, reconciling a link meant taking the workflow
+renderer. `modules/devenv.nix` called `devman-link` out of
+`nix/renderer.nix`, whose closure carries Dagu because the projection
+validates every file it publishes. So a repository that wanted a symlink took
+the renderer, its Dagu, and the compatibility registry the old command read
+through `--registry` and `--state`. None of those is needed to make a symlink,
+and the registry dependency is the one that refused a real repository in
+Stage 15.
+
+The component now depends on `devman_contract` and the standard library. Its
+package holds no Dagu, no watchexec and no renderer. `nix/link-adapter.nix`
+builds `src/devman_link` and `src/devman_contract` from a fileset that cannot
+see `src/devman`, so a coupling back to the plane fails that build instead of
+reaching a machine.
+
+**The contract seam, and why no parser was copied.** `src/devman_contract/`
+took the identity grammar out of `src/devman/registry.py` and the manifest
+records out of `src/devman/contract.py`, both unchanged. `devman.registry` and
+`devman.contract` re-export every name, so all eight existing callers of
+`identity_fault` are untouched. `src/devman/identity.py` became a re-export of
+the component. There is one manifest parser and one identity resolver.
+
+**The stable surface.** Two operations, `status` and `reconcile`; five result
+states `ok`, `repoint`, `promote`, `link`, `create`; three exit meanings 0, 1
+and 2. Status prints the central configuration path and writes nothing.
+`devman-link` refuses `--registry` and `--state` with a repair action rather
+than accepting and ignoring them. `--all` stayed with the compatibility
+registry, which is the only thing that can enumerate the old registered
+projects.
+
+**The central interface did not change.** One `devman.link` attribute set in
+`$HOME/.config/devman/projects/<project>/devenv.local.nix`, evaluated with the
+selected identity supplied as `config.devman.project`. No TOML, YAML or JSON
+link format was added.
+
+**A refusal that fired for the wrong reason.** A read-only sweep of every
+central project with a repository checkout found three repositories whose
+central file could not be evaluated at all:
+
+```text
+error: function 'anonymous lambda' called without required argument 'lib'
+  at /home/andrew/.config/devman/projects/forgelab/devenv.local.nix:1:1
+```
+
+Four central files take `lib`, to write `lib.mkForce` beside their link block.
+The evaluator passed a fixed `{ config }`, and Nix refuses a function called
+without a required argument before anything can read `devman.link`. The
+refusal named the central file and said to fix it, so it sent a reader to
+repair a file that was correct. This is a Stage 15 defect, not a B regression:
+the installed `devman link status` fails the same way on the same file.
+
+The fix asks `builtins.functionArgs` what the module declares and supplies
+that, which is what the module system itself does. `lib` comes from the
+channel when one is reachable, and `builtins.tryEval` keeps an unreachable
+channel from becoming the same error.
+
+**Tests and checks.** All run inside the repository's own devenv.
+
+```text
+devenv tasks run -v base:check                               exit 0
+devenv tasks run -v base:unit                                exit 0, 631 passed in 8.73s
+devenv tasks run -v base:test                                exit 0, all checks passed
+nix build .#checks.x86_64-linux.dagu-service --no-link       exit 0
+nix build .#packages.x86_64-linux.devman-link --no-link      exit 0
+```
+
+The unit suite went from 565 to 631; the 66 new tests are all in
+`tests/unit/test_link_adapter.py`. `checks.x86_64-linux.link-adapter` is the
+package build, so `base:test` covers it. Its install check is not only
+`--help`: it runs a real `status` against a temporary repository and overlay
+that no registry has heard of, evaluates the central file with
+`nix-instantiate`, and asserts exit 1 with the project-expanded declaration
+resolved. A component that quietly re-grew a registry dependency fails there.
+
+**The canary.** Vendomat, with both Python path variables cleared, against the
+component's own store path and with no registry flag:
+
+```sh
+env -u PYTHONPATH -u NIX_PYTHONPATH \
+  /nix/store/.../devman-link-0.6.0/bin/devman-link status \
+  --project vendomat \
+  --root /home/andrew/Documents/Projects/vendomat \
+  --overlay "$HOME/.config/devman"
+```
+
+It returned 0 with five `ok` states and the central configuration path. The
+public `devman link status` built from this branch returned the same five
+states and the same exit code. A deliberately wrong `--project wrong-name`
+returned 1 and named the repository root, both identities and the repair. No
+view resolves below the compatibility registry: `.envrc`, `.agents` and
+`.claude/skills` point into `~/.config/devman`, `.loci` into `~/Notes`.
+
+**The observed shell entry.** `devman` switched its own hook first, with
+`devman.useLinkAdapter = true` in its `devenv.nix`. The realized script is:
+
+```text
+exec /nix/store/.../devman-link-0.6.0/bin/devman-link reconcile \
+  --overlay "$2" --root "$1" --project devman
+```
+
+No `--registry` and no `--state`. Shell entry returned 0 with five `ok`
+states, including the one `canonical = "repo"` link. A deliberately repointed
+`.envrc` was reported `repoint` and repaired, and the run still exited 0.
+
+One measurement was misread first. A shell entry after breaking the link
+printed `ok`, which looked like the adapter reporting a state it had not
+found. Running the hook's own script directly printed `repoint`. Direnv had
+already re-entered the shell and repaired the link before the explicit entry
+ran, so the explicit entry found it correct. The adapter was right both times.
+
+**The fleet sweep, read-only.** 51 central projects have a repository
+checkout. 44 returned exit 0. Seven returned findings, and every one is a real
+repository state:
+
+```text
+copyroom, docman, mypi-agent   no manifest and no literal devman.project
+forgelab                       .agents and .claude/skills are real, not linked
+image-gen-pipeline, lodestar   .claude/skills is real, not linked
+repoman                        .agents and .claude/skills absent on both sides
+```
+
+The three blocked repositories are the ones Stage 14 named, and they refuse
+with their repair rather than guessing a directory name. The four drifted ones
+were not repaired: this stage records drift and does not fix unrelated state.
+Before the evaluator fix, three of these seven were the `lib` fault instead.
+
+**The active plane did not move.** Before and after the canary, the pointer is
+`generations/2`, with 46 project directories and 146 DAG files. The DAG tree
+digest is `5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`
+both times, and `generation.json` is byte-identical. `dagu --dagu-home
+"$HOME/.local/share/dagu" ls` returned 147 lines both times. Link
+reconciliation read no generation file and wrote none.
+
+**Doctor.** `env -u PYTHONPATH -u NIX_PYTHONPATH
+/run/current-system/sw/bin/devman doctor` returned exit 1 with four findings,
+before and after, and the set is unchanged: `flora-037-part-e:devenv.local.nix:
+create`; dirty, unpinned Vendomat source; dirty, unpinned RepoMan source; and
+the unpinned `git+file:` repair advice. Mode is `plane`. The summary line is
+still `4 projects, 16 workflows`, because it reads the old Devman
+state-registration directory. No finding is new and none was hidden. Results
+did not change when the two Python path variables were cleared.
+
+The operator has switched since Stage 15: the installed
+`/run/current-system/sw/bin/devman link status` for Vendomat now returns 0 with
+five `ok` states, where Stage 15 recorded a refusal. The Stage 15 deployment
+blocker is closed.
+
+**Compatibility is intact.** Compatibility mode remains, and `doctor` still
+reports the two mode values. Compatibility registry writes remain. `registryDir`
+did not move. Consumer Devman pins were not touched. `src/devman/link.py` was
+not edited and stays reachable as the rollback: setting
+`devman.useLinkAdapter = false` returns a repository to the renderer-provided
+adapter in one reviewable option change.
+
+**Files changed.** Devman only. New: `src/devman_contract/{__init__,identity,
+manifest}.py`; `src/devman_link/{__init__,api,cli,config,declarations,errors,
+excludes,identity,paths,reconcile,state}.py`; `nix/link-adapter.nix`;
+`packaging/devman-link/pyproject.toml`; `tests/unit/test_link_adapter.py`.
+Changed: `src/devman/{cli,contract,identity,registry}.py`, `modules/devenv.nix`,
+`nix/nixos-module.nix`, `flake.nix`, `pyproject.toml`, `devenv.nix`,
+`tests/unit/test_identity.py`, and this log. Vendomat, RepoMan, nix-meta and
+the central configuration checkout were not changed.
+
+The four protected Devman files — `src/devman/link.py`, `src/devman/watch.py`,
+`tests/unit/test_link.py`, `tests/unit/test_watch.py` — were not staged and not
+edited; `git diff --cached --name-status` was read before each commit. RepoMan
+was not touched, so its protected `devenv.lock` was not staged. Gitman is not
+on this repository's shell PATH, so the documented explicit Git fallback was
+used for all three commits: `227bd24`, `ab35741` and `d3e3e13`, each pushed to
+`origin/038-fixup-and-fanout`. No `gitman reconcile` was run and nothing was
+force-pushed.
+
+**Not done in this stage.** The machine package is built and offered, but
+`services.devman-dagu.installLinkAdapter` only reaches the machine after
+`sudo nixos-rebuild switch --flake .#server` in nix-meta, which needs an
+interactive password this session cannot supply. nix-meta was not changed, so
+no new pin is waiting; the option arrives with the next Devman repin. Until
+then `devman-link` is not on the system PATH, and the canary used the
+component's store path directly.
+
+A second repository was not switched. Every other consumer pins Devman by
+revision, so `devman.useLinkAdapter` does not exist in their pinned module yet,
+and switching one means a repin — a fleet action this stage's rollout order
+puts after observation, not inside it. The read-only sweep above is what stands
+in for it: 51 repositories evaluated against the new component with no writes.
+
+`devman-link` still names `devman.link:cli` in the root `pyproject.toml`, and
+`nix/renderer.nix` still builds that copy. Removing either belongs to the
+commit after the observation period, as the B guide's four-commit order says.
+
+The migration remains 43 migrated non-canary repositories, with `copyroom`,
+`docman` and `mypi-agent` blocked on manifest placement. The active plane has
+46 projects. Project 038 is not complete. The next incomplete work is the
+observation period for B, then the removal of the renderer's `devman-link`
+copy, and then the separately gated §11 removal sequence — each of which needs
+its own evidence.
+
+## Stage 17 — one reconciler, and the fleet on it
+
+On 2026-09-13, the fleet moved to the independent link adapter and the
+renderer's duplicate copy was removed. A and C remain unchanged. Compatibility
+mode, compatibility registry writes, `registryDir` and consumer pins are all
+untouched: this stage removed a duplicate implementation, not a gate.
+
+**The measurement that opened the gate.** Stage 16 left
+`devman.useLinkAdapter` at `false` with one repository on the new path, and
+recorded a read-only sweep that refused three repositories. That sweep asked
+the wrong question. It ran `status` with no `--project`, and the shell hook
+always passes `--project ${projectName}` — Nix knows the identity at
+evaluation time and does not need the resolver to find one.
+
+Re-run in the hook's shape, all 51 repositories with a checkout answered:
+
+```text
+clean=47  drift=4  refusal=0
+```
+
+The four are `forgelab`, `image-gen-pipeline`, `lodestar` and `repoman`,
+carrying `promote`, `link` and `create` — ordinary states that reconcile
+resolves, not errors. `copyroom`, `docman` and `mypi-agent` each returned five
+`ok` states. They keep their identity in `dev/devenv.nix`, which the resolver
+does not read; that is why the manifest-free sweep refused them and why it did
+not predict anything about shell entry.
+
+**What was removed.** `src/devman/link.py` held a second 684-line copy of the
+link state machine. It shipped as `devman-link` out of `nix/renderer.nix` and
+was reached through `devman link status --all`. Two copies that both keep
+passing while they drift is the smell AGENTS.md names, and the drift had a
+visible edge: inside a devenv shell, `devman-link` resolved to the repository's
+own build rather than the machine adapter, because the `devman` package
+installed every entry point in `pyproject.toml`. The `devman` package now
+installs `devman` and `devman-project` only.
+
+`devman link status --all` keeps its one real job. The compatibility registry
+is still the only thing that knows which projects were registered, so `_link_all`
+reads a root out of it and asks the same adapter about each one. A repository
+that cannot answer prints its refusal and the sweep continues. Run live, it
+reported the known `flora-037-part-e` fault — a `devenv.local.nix` symlink
+whose target is gone — and finished the remaining projects with exit 1.
+
+`devman.useLinkAdapter` went with the copy it chose between. **The rollback is
+now the pin**, which is reviewable, is already how every consumer works, and
+cannot leave two reconcilers disagreeing about promotion.
+
+**What was kept, and why it is not a copy.** `src/devman/link.py` is a 42-line
+re-export with one caller: `devman.watch`, which reconciles on the event path.
+That file has unrelated worktree changes this project must not disturb, so the
+import stayed and the implementation went. `src/devman/doctor.py` was migrated
+to `devman_link` directly. Fold the shim into `devman.watch` and delete the
+module when that file is free to edit.
+
+**A protected file was deleted, and this records it.** Phase 2 cannot be done
+without removing `src/devman/link.py` and `tests/unit/test_link.py`, both of
+which carried protected worktree changes. Those changes were inspected first
+and were formatter reflows from the `devman/format` watcher — reformatted call
+arguments, no behaviour. `git rm -f` was needed because of them. Both files are
+tracked, so both are recoverable. `src/devman/watch.py` and
+`tests/unit/test_watch.py` were not touched and remain dirty exactly as found.
+
+**Test coverage was closed before the deletion, not after.**
+`tests/unit/test_link.py` asserted 29 behaviours. Two had no counterpart in
+`tests/unit/test_link_adapter.py`: recording a nested canonical view when its
+ancestor is promoted, and repointing a wrong link whose canonical side does not
+exist yet. Both were added first. The unit suite went 631 → 633 with those two,
+then 633 → 604 when the 29 were deleted.
+
+**Tests and checks.**
+
+```text
+devenv tasks run -v base:check                            exit 0
+devenv tasks run -v base:unit                             exit 0, 604 passed in 9.61s
+devenv tasks run -v base:test                             exit 0, all checks passed
+nix build .#checks.x86_64-linux.dagu-service --no-link    exit 0
+nix build .#packages.x86_64-linux.devman-link --no-link   exit 0
+```
+
+One failure is worth recording rather than erasing. The first hermetic run
+failed with `ImportError: cannot import name 'link' from 'devman'` across five
+test modules, while `base:unit` passed. The re-export shim was written but not
+staged, and the flake's fileset reads the git tree. **A local pass and a
+hermetic failure on the same source is the fileset disagreeing with the working
+tree**, which `flake.nix` warns about in its own comment.
+
+A second was `F402 Import 'project' from line 48 shadowed by loop variable` in
+the new `_link_all`, caught by `base:check`.
+
+`tests/unit/test_cli.py::test_every_subcommand_resolves_to_a_handler[link]`
+failed when `link` left the handler table. The test is right — the parser and
+`handler()` must name the same commands — so `handler("link")` now returns the
+public boundary and `main` lost its special case.
+
+**The canary.** Vendomat, both Python path variables cleared:
+`devman link status` returned 0 with five `ok` states and the central
+configuration path; `devman-link status` returned the same. `devman link status
+--all` returned 1 with the one known flora fault. Devman's own shell entry
+returned 0 with five `ok` states.
+
+**Files changed.** Devman only. Deleted: `tests/unit/test_link.py`. Rewritten as
+a re-export: `src/devman/link.py`. Changed: `src/devman/{cli,doctor}.py`,
+`modules/devenv.nix`, `nix/renderer.nix`, `pyproject.toml`, `devenv.nix`,
+`tests/unit/test_link_adapter.py`, and this log. Commits `be35ff6` and
+`ff8dbd1`, pushed to `origin/038-fixup-and-fanout`. Gitman is not on this
+repository's shell PATH, so the explicit Git fallback was used. Nothing was
+force-pushed.
+
+**Not done in this stage.** The §11 removals did not start, and their gates are
+unchanged. Item 3 is still blocked by the measured `attribute 'devman' missing`
+failure: the central file reads `config.devman.project`, so a consumer cannot
+drop the Devman Nix module. Items 2 and 4 are gated behind it. Item 5 needs
+three manifest-placement decisions and seven detached-HEAD branch decisions,
+which are the operator's.
+
+The migration remains 43 migrated non-canary repositories. The active plane has
+46 projects. Project 038 is not complete. The next incomplete work is the §11
+removal sequence, one item at a time, each with its own evidence.
+
+## Stage 18 — establish the machine-owned link boundary
+
+On 2026-09-13, the approved design for §11 item 3 was implemented in Devman
+without changing a consumer or the central configuration checkout.
+
+**The design.** `modules/link.nix` is now the link-only devenv interface. It
+declares the typed `devman.link` option and one shell hook. The hook calls the
+machine-installed `/run/current-system/sw/bin/devman-link` with the checkout
+root, central overlay, and explicit project identity. The module reads identity
+from `.devman/project.toml` when no compatibility `devman.project` option is
+present. `modules/devenv.nix` imports this module for old adopters, but no
+longer builds or calls its own adapter. Compatibility adopters may still use
+their existing `project` and `overlayDir` options while they migrate.
+
+The adapter package now installs the module at
+`/share/devman/link-module.nix`. The NixOS module already installs the adapter
+package by default, so the stable system path is available after the next
+machine switch. A central file can therefore remain one Nix declaration while
+importing the link module; it does not need `config.devman.project`.
+
+`devman-link` now supplies a central function's explicit `project` argument
+when that argument is declared. The bootstrap central file generated by the
+adapter accepts that argument and falls back to the repository manifest during
+normal devenv evaluation. Its link paths no longer read `config.devman.project`.
+
+**The failure this avoids.** Stage 14's Vendomat probe removed the Devman
+input, module import, and option block, then failed at Nix evaluation with
+`attribute 'devman' missing`: the live central file read
+`config.devman.project`. This stage supplies the missing machine boundary. It
+does not edit the live central file because the removal sequence explicitly
+protects `$HOME/.config/devman`; the central checkout must receive its
+corresponding declaration in a separate, approved change before a consumer can
+drop the old input.
+
+**Tests and measurements.** The adapter package build passed after one
+install-check failure was corrected. The first check invoked `nix-instantiate`
+before setting `HOME` and received permission denied for `/nix/var/nix/profiles`.
+Moving `export HOME=$TMPDIR` before all evaluator calls made the package build
+pass. The build also verified the installed module exists and imports as a Nix
+function. An isolated `lib.evalModules` probe passed with the Devman module
+absent: it resolved project `devman` from this checkout's manifest and emitted
+the link hook. The unit suite passed with `605 passed in 9.18s`.
+
+The live canary, run outside every project shell with both Python path variables
+cleared, returned exit 0 from both `devman-link status` and `devman link status`
+for Vendomat, with five `ok` states and the central configuration path. The
+active pointer stayed `generations/2`, with 46 project directories and 146 DAG
+files. The DAG tree digest stayed
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu ls` stayed at 147 lines. Doctor returned exit 1 with only the four known
+findings: `flora-037-part-e:devenv.local.nix: create`, dirty and unpinned
+Vendomat source consumed by two projects, dirty and unpinned RepoMan source
+consumed by one project, and the unpinned `git+file:` repair advice.
+
+**Files and protection.** Devman changed `modules/link.nix`,
+`modules/devenv.nix`, `nix/link-adapter.nix`, `nix/nixos-module.nix`,
+`src/devman_link/config.py`, `src/devman_link/reconcile.py`,
+`tests/unit/test_link_adapter.py`, `README.md`, `USER.md`,
+`AGENTS_GUIDE.md`, and this log. The protected `src/devman/watch.py` and
+`tests/unit/test_watch.py` remain unstaged and unchanged by this work. The
+central configuration checkout remains unmodified. No Vendomat or RepoMan file
+changed.
+
+**Machine pin follow-up.** After this Devman commit was pushed, nix-meta pinned
+Devman at `edd0b62834d9c9d8ac61d44f56219b63afb60bdf` and was committed and
+pushed as `5bd1f10`. `nixos-rebuild build --flake .#server` passed, and the
+built system contains `devman`, `devman-link`, and
+`/share/devman/link-module.nix`. The live system is not switched in this
+session because that command needs the operator's interactive sudo password.
+
+**Rollback and next gate.** Rollback remains a Devman pin, not a second link
+adapter or a feature flag. This stage made no consumer migration, so the
+compatibility resolver and registry remain in place. The next step is the
+central declaration change, followed by one Vendomat probe. It must happen
+only after the protected central checkout can be changed and the machine has
+switched a system containing `/run/current-system/sw/share/devman/link-module.nix`.
+The migration remains 43 non-canary repositories, with `copyroom`, `docman`,
+and `mypi-agent` still blocked on manifest placement decisions and the
+detached-head decisions recorded above. Items 2 and 4 remain gated.
+
+## Stage 18 follow-up — expose the link module in the NixOS profile
+
+The first operator switch proved that `devman-link` was live, but the promised
+module path was absent from `/run/current-system/sw`. The package contained
+`share/devman/link-module.nix`; nix-meta's system path contained the package
+and its executable, but NixOS `environment.pathsToLink` selected individual
+share subtrees and did not include `share/devman`. A consumer could therefore
+not import the machine-owned module after dropping the full Devman input.
+
+The NixOS module now adds `/share/devman` to `environment.pathsToLink` when
+`installLinkAdapter` is enabled. The existing package build and install check
+still pass. The full unit suite passes with 606 tests. The protected watcher
+files remain unstaged. The central configuration checkout remains untouched.
+
+The next gate is to commit and pin this correction, rebuild nix-meta, and have
+the operator switch again. Only after
+`/run/current-system/sw/share/devman/link-module.nix` exists should the central
+Vendomat declaration change and the one-consumer removal probe begin.
+
+## Stage 19 — remove the Vendomat Devman consumer
+
+The operator switched the corrected nix-meta system. The live system now
+resolves `/run/current-system/sw/share/devman/link-module.nix` to the
+machine-installed adapter package, and both required Vendomat canaries return
+exit 0 with five `ok` states.
+
+The central Vendomat declaration now accepts the adapter's explicit `project`
+argument, imports the machine-owned link module, and reads
+`.devman/project.toml` during normal devenv evaluation. Its paths no longer
+read `config.devman.project`.
+
+Vendomat then removed its `devman` input, `devman/modules` import, and
+`devman` option block. Its lock file removes only the Devman node and root
+input; the existing devenv, nixpkgs, nixpkgs-python, and shellij pins remain
+unchanged. This pair is one transition: importing the link module centrally
+while the old consumer module was still present caused a duplicate
+`devman.link` option declaration. Removing both sides restored a single
+declaration source.
+
+`devenv shell -- true` succeeds without the Devman input. Vendomat's
+`devenv shell -- testee verify --mode quick` passes ruff, ruff-format, ty, and
+pytest. Both post-removal canaries pass. The active plane remains
+`generations/2`, with 46 project directories and 146 DAG files. The DAG digest
+remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines. Doctor returns
+exit 1 with the same four known findings.
+
+This is the first consumer migration under the new boundary. No other
+consumer changed. The remaining migration count is 42 non-canary repositories.
+The compatibility resolver, renderer, and registry remain in place for the
+remaining consumers. The next removal must use the same central-module and
+consumer transition shape, one repository at a time.
+
+## Stage 20 — remove the Atuout Devman consumer
+
+The operator clarified that `allium-env` is leaving the project lineup. It was
+not migrated or modified; its checkout is clean and remains on its prior
+configuration until a separate project-removal operation is requested.
+
+`atuout` was selected as the next clean, manifest-backed consumer. Its central
+declaration now accepts the explicit `project` argument, imports the
+machine-owned link module, and reads the manifest during normal devenv
+evaluation. Atuout removed its `devman` input, import, and option block. Its
+`devenv.lock` is ignored by the repository and was updated locally to remove
+the unused Devman node; no generated lock file was staged.
+
+`devenv shell -- true`, `base:check`, and `base:test` pass. The test task
+passes 103 tests with one skip; existing ResourceWarnings remain non-blocking.
+Both adapter canaries return exit 0 with five `ok` states. The active plane
+remains `generations/2`, with 46 project directories and 146 DAG files. The
+DAG digest remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines.
+
+The Atuout consumer commit is pushed as `26e05f9`. Its central declaration is
+stored in the local central checkout commit `605daba8`; that checkout has no
+remote. The migration now covers Vendomat and Atuout. The next selection must
+continue to exclude allium-env and avoid RepoMan while its protected lockfile
+and worktree are dirty.
+
+## Stage 21 — remove the Knappy Devman consumer
+
+On 2026-09-13, `knappy` crossed the same machine-module boundary as Vendomat
+and Atuout. Its central declaration now accepts the adapter's explicit
+`project` argument, imports the machine-owned link module, and reads the
+manifest during normal devenv evaluation. Knappy removed its `devman` input,
+`devman/modules` import, and `devman` option block. Its ignored lock file was
+updated locally to remove the unused Devman node and root edge; no generated
+lock file was staged.
+
+`devenv shell -- true`, `base:check`, and `base:test` pass. The test task passes
+218 tests with one existing Starlette deprecation warning. Both adapter
+canaries return exit 0 with five `ok` states. The active plane remains
+`generations/2`, with 46 project directories and 146 DAG files. The DAG digest
+remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines. Plane invariants
+pass. Doctor remains exit 1 with the existing link-drift and local-source
+findings; no new finding is caused by this removal.
+
+The Knappy consumer commit is pushed as `62698bf`. Its central declaration is
+stored in the local central checkout commit `bcd4bc62`; that checkout has no
+remote. `allium-env` remains deliberately excluded from migration and
+unchanged. Its checkout, manifest, central declaration, and active generated
+state remain in place. RepoMan remains deferred because its protected lock and
+worktree are dirty.
+
+## Stage 22 — Argentic gate blocked by the live runtime
+
+On 2026-09-13, the `argentic` consumer transition was applied but did not
+reach a commit. Its central declaration uses the machine-owned link module,
+and its consumer removed the Devman input, import, and option block. The lock
+diff was narrowed to the Devman node and root edge after devenv repeatedly
+normalised unrelated lock entries.
+
+`devenv shell -- true` and `base:check` pass. The full `base:test` gate fails
+with 11 live failures and 677 passes in 395.22 seconds. Three failures are in
+`tests/test_loop_live.py`; eight are in `tests/test_overlay_live.py`. The
+isolated deterministic suite passes 666 tests in 256.14 seconds.
+
+This is not a Devman boundary failure. The changed files contain no argentic
+source or test code. SilverBullet 2.10.0, its headless Chromium 150.0.7871.46
+runtime, and the argentic bridge all answer basic health probes. The failures
+occur later in live client/index/overlay behavior. The SilverBullet journal
+also records runtime parse errors and a runtime request timeout. The upstream
+2.10.0 report in [issue #2078](https://github.com/silverbulletmd/silverbullet/issues/2078)
+reports matching Runtime API and headless-client instability.
+
+The required argentic and Vendomat link canaries pass. The active plane remains
+`generations/2`, with 46 project directories and 146 DAG files. The DAG digest
+remains
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`.
+`dagu --dagu-home ~/.local/share/dagu ls` remains 147 lines.
+
+The investigation is recorded in
+`ARGENTIC_GATE_RESEARCH_REPORT.md`, with fresh runtime artifacts under `/tmp`.
+No application fix is justified by this migration. Preserve the uncommitted
+argentic edits and resume only after the live gate passes or the operator
+accepts a documented waiver. `allium-env` remains excluded and unchanged.
+
+## Stage 23 — clean-session consumer migration guide
+
+On 2026-09-13, the remaining consumer migration work was consolidated into
+CONSUMER_MIGRATION_GUIDE.md. The guide is a clean-session runbook. It records
+the live machine boundary, the completed consumer removals, the Argentic gate,
+the allium-env exclusion, the remaining consumer inventory, protected
+worktrees, the matched central and consumer transition, the layered proof, and
+the section 11 cleanup order.
+
+The guide keeps one consumer per lane and one consumer per commit. It requires
+fresh worktree and plane baselines, explicit link canaries, stable generation
+invariants, repository gates, narrow lock changes, and a dated implementation
+log entry after each migration. It preserves compatibility mode until the
+supported consumer fleet and the operator-owned exceptions are complete.
+
+No runtime or generated plane state changed in this stage.
+
+## Stage 24 — argentic remains blocked by live SilverBullet behavior
+
+On 2026-09-13, Argentic's consumer transition was rechecked without changing its
+existing worktree edits. `devenv tasks run -v base:check` passed. The full
+`base:test` gate returned exit 1 with 8 failures and 680 passes in 446.93s.
+All failures remain in `tests/test_overlay_live.py` and cover modal layout,
+editing keys, touch routing, agent tool events, write cards, and transcript
+content. The isolated command
+`NO_SHELLIJ=1 devenv shell -- pytest --ignore=tests/test_loop_live.py
+--ignore=tests/test_overlay_live.py` returned exit 0 with 666 passed in 250.36s.
+`NO_SHELLIJ=1` only suppresses Argentic's interactive Shellij hook for scripted
+commands; the task and diagnostic commands stayed unchanged.
+
+**Classification.** The failure remains after basic SilverBullet and bridge
+health checks, in live client and overlay behavior. It matches the recorded
+SilverBullet 2.10.0 runtime instability. No Argentic application code changed.
+The consumer edits remain uncommitted and parked. No waiver was granted.
+
+## Stage 25 — remove the flora-qc Devman consumer
+
+On 2026-09-13, `flora-qc` completed the matched consumer transition. Its
+manifest identity is `flora-qc`. The central declaration commit is `66b76657`.
+The published consumer lane is `038-devman-consumer-flora-qc`, commit
+`3feebe3017c78193cc22e51e2cbdd183c4803177`.
+
+**Changed files.** The consumer changed `.devman/project.toml` was preserved,
+and `devenv.yaml`, `devenv.nix`, and `devenv.lock` removed the Devman input,
+`devman/modules`, the old option block, the Devman lock node, and its root edge.
+The lock retained all other inputs and pins. Pre-existing RepoMan and toolchain
+edits stayed in the separate Gitman lane `preexisting-flora-qc`.
+
+**Central declaration.** `projects/flora-qc/devenv.local.nix` now imports
+`/run/current-system/sw/share/devman/link-module.nix`, accepts `project ? null`,
+falls back to the manifest, and uses `projectName` for every project path.
+
+**Gates.** `NO_SHELLIJ=1 devenv shell -- true` passed. `base:check` passed.
+`base:test` passed with 174 tests and 5 skips in 156s. Both public link status
+commands passed with five `ok` states and the same central path. The first
+probe failed with `attribute 'devman' missing` because the central import was
+omitted; adding the required machine-module import fixed that boundary error.
+
+**Plane proof.** Before and after, the active pointer was `generations/2`, the
+project count was 46, the DAG count was 146, the digest was
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`, and the
+Dagu inventory count was 147. Doctor remained exit 1 with only the four known
+findings: the flora-037-part-e link drift, dirty unpinned Vendomat and RepoMan
+sources, and the unpinned `git+file:` advice. Argentic remains blocked, Allium-env
+remains excluded, compatibility mode remains enabled, and the protected watcher
+files remain untouched.
+
+## Stage 26 — nix-nvim consumer migration
+
+On 2026-09-13, `nix-nvim` completed the machine-owned link transition. Its
+identity is the manifest project name `nix-nvim`, with the explicit central
+`project` argument taking precedence over the manifest fallback.
+
+The consumer lane was published as commit
+`bfb78e6568525010d837d48576e5d9b27b01e97e` on
+`038-devman-consumer-nix-nvim`. The central declaration was committed locally
+as `16bb1285`. The consumer kept `.devman/project.toml` and its task
+definitions. It removed the Devman flake input, the `devman/modules` import,
+the old `devman` option block, the Devman lock node, and the root Devman edge.
+Existing `stray-devenv` work and unrelated lock changes were preserved.
+
+`NO_SHELLIJ=1 devenv shell -- true`, `base:check`, and `base:test` passed.
+Both link canaries returned five `ok` states and the same central path. The
+active pointer remained `generations/2`; the plane remained at 46 projects and
+146 DAG files; the DAG digest remained
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; and the
+Dagu inventory remained 147 lines. Doctor retained the four known findings:
+the `flora-037-part-e` link drift, dirty Vendomat and RepoMan sources, and the
+unpinned `git+file:` advice.
+
+Compatibility mode remains enabled. The next clean candidate is `pyllij` or
+`browsee`.
+
+## Stage 27 — loci.nvim migration parked
+
+On 2026-09-13, the matched `loci.nvim` transition was applied in the consumer
+lane `038-devman-consumer-loci.nvim`, but it was not committed or published.
+The consumer and central worktrees retain the edits for later completion.
+
+The shell canary and `base:check` passed. `base:test` failed in existing
+hermetic loci-core checks: walkthrough tests and skill conformance reported
+unknown binaries `copyroom`, `devenv`, and `repoman`. No application
+behavior was changed and no waiver was applied. Because the repository gate
+failed, post-transition link canaries and plane invariants were not accepted
+as proof.
+
+The candidate is parked. The next clean candidate is `pyllij` or `browsee`.
+
+## Stage 28 — pyllij consumer migration
+
+On 2026-09-13, `pyllij` completed the matched consumer transition. Its
+identity is the manifest project name `pyllij`, with the explicit central
+`project` argument taking precedence over the manifest fallback.
+
+The consumer lane was published as commit
+`8102d4952d86ca844483b74d3384ad49bb714746` on
+`038-devman-consumer-pyllij`. The central declaration was committed locally
+as `68137c55`. The consumer kept `.devman/project.toml` and all task
+definitions. It removed the Devman flake input, the `devman/modules` import,
+the old `devman` option block, the Devman lock node, and the root Devman edge.
+Pre-existing RepoMan and toolchain changes were retained.
+
+`NO_SHELLIJ=1 devenv shell -- true`, `base:check`, and `base:test` passed.
+The test task reported 137 passed and 22 deselected. Both link canaries
+returned five `ok` states and the same central path. The active pointer
+remained `generations/2`; the plane remained at 46 projects and 146 DAG
+files; the DAG digest remained
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; and the
+Dagu inventory remained 147 lines. Doctor retained the four known findings:
+the `flora-037-part-e` link drift, dirty Vendomat and RepoMan sources, and the
+unpinned `git+file:` advice.
+
+Compatibility mode remains enabled. The next clean candidate is `browsee`.
+
+## Stage 29 — browsee migration parked
+
+On 2026-09-13, the matched `browsee` transition was applied in
+`038-devman-consumer-browsee`, but it was not committed or published. The
+consumer and central worktrees retain the edits.
+
+The preflight canary returned five `ok` states. The shell entered successfully
+and `base:check` passed. `base:test` failed with one existing unit failure:
+`tests/test_dispatcher.py::test_dispatch_moderate_confidence_uses_fallback`
+expected `replay_with_fallback` but received `explore`. The suite reported
+489 passed and 2 skipped. No Browsee application behavior was changed and no
+waiver was applied. Post-transition canaries and plane invariants were not
+accepted because the repository gate failed.
+
+The candidate is parked. The next clean candidate is `tyo3`.
+
+## Stage 30 — zelligate consumer migration
+
+On 2026-09-13, `zelligate` completed the matched consumer transition. Its
+identity is the manifest project name `zelligate`, with the explicit central
+`project` argument taking precedence over the manifest fallback.
+
+The consumer lane was published as commit
+`3432d450804469a478a57186dcd57aa84d1bff11` on
+`038-devman-consumer-zelligate`. The central declaration was committed locally
+as `5188968a`. The consumer kept its manifest and task definitions. It
+removed the Devman flake input, `devman/modules` import, old option block,
+Devman lock node, and root edge. Allium-env remained unchanged.
+
+The shell, `base:check`, and `base:test` gates passed; the test task reported
+273 passed. Both link canaries returned five `ok` states and the same central
+path. The active pointer remained `generations/2`; the plane remained at 46
+projects and 146 DAG files; the DAG digest remained
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; and the
+Dagu inventory remained 147 lines. Doctor retained the four known findings:
+the `flora-037-part-e` link drift, dirty Vendomat and RepoMan sources, and the
+unpinned `git+file:` advice.
+
+Compatibility mode remains enabled. The next candidate is selected by the
+remaining inventory preflight.
+
+## Stage 31 — tyo3 migration not started
+
+On 2026-09-13, `tyo3` was not modified. Its worktree contained 19 files of
+substantial unbookmarked application changes, plus an orphaned
+`fix/daemon-lock-and-identity-parity` lane after Gitman initialization. The
+consumer migration was not applied, committed, or published. It remains
+blocked until its existing work is resolved by its owner.
+
+## Stage 32 — eventic migration parked
+
+On 2026-09-13, the matched `eventic` transition was applied but not committed
+or published. Its shell and lint gate passed. The full test gate reported 234
+passed, 4 skipped, and 3 failures. The failures are existing conformance
+failures caused by missing `alembic`: migration tests fail with the
+repository's own missing-extra error, and the dependent CLI worker test cannot
+find `eventic_revision`. No application behavior was changed and no waiver
+was applied. The consumer and central edits remain parked.
+
+The next candidate is `grail`.
+
+## Stage 34 — poddantic migration parked
+
+On 2026-09-13, the matched `poddantic` transition was applied but not
+committed or published. Its shell and lint gate passed. Its declared test task
+failed immediately because `pytest` is absent from the configured environment.
+No application behavior was changed and no waiver was applied. The consumer
+and central edits remain parked.
+
+## Stage 33 — grail migration parked
+
+On 2026-09-13, the matched `grail` transition was applied but not committed
+or published. The shell started, but `base:check` failed in the existing
+source and test tree with 83 Ruff errors. No application behavior was changed
+and no waiver was applied. The consumer and central edits remain parked.
+
+The next candidate is `poddantic`.
+
+## Stage 35 — publish failing consumer migrations
+
+On 2026-09-13, the operator authorized publishing migrations whose repository
+gates fail. The following matched transitions were saved and pushed with the
+failure and repair requirement in each consumer commit message:
+
+- `browsee`: published lane commit recorded by Gitman; one existing dispatcher
+  test failure remains.
+- `loci.nvim`: published lane commit recorded by Gitman; hermetic checks lack
+  `copyroom`, `devenv`, and `repoman`.
+- `eventic`: published lane commit recorded by Gitman; three tests fail because
+  `alembic` is missing and schema setup does not run.
+- `grail`: published lane commit recorded by Gitman; 83 existing Ruff errors
+  remain.
+- `poddantic`: published lane commit recorded by Gitman; `pytest` is absent
+  from the declared test environment.
+
+The matching central declarations were committed locally as
+`b02a4b2a` (`browsee`), `8af45dce` (`loci.nvim`), `7aa7e75f`
+(`eventic`), `1dc6f188` (`grail`), and `0cb3b9b8` (`poddantic`).
+Compatibility mode remains enabled. The remaining supported inventory is still
+in progress.
+
+## Stage 36 — pytuin consumer migration
+
+On 2026-09-13, `pytuin` completed the matched consumer transition. Its
+consumer lane was published as `fe1a79402f3c18d33133797332126e030b7078e5`.
+The central declaration was committed locally as `5e33c501`. The consumer
+removed the Devman input, import, option, lock node, and root edge while
+preserving its manifest and tasks.
+
+The shell and both repository gates passed; the test task reported 302 passed.
+Both link canaries returned five `ok` states and the same central path. The
+active pointer remained `generations/2`, with 46 projects, 146 DAG files,
+digest `5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`,
+and Dagu inventory 147. Doctor was not rerun in this stage; its prior four
+known findings remain unchanged.
+
+## Stage 37 — approved detached and development-layer migrations
+
+On 2026-09-13, the operator approved the mapped destination branches for all
+seven previously detached repositories:
+
+- `gitman`: `e0f706cb16eda474d7d16e9070cc8585360bb86e`
+- `image-gen-pipeline`: `df9b0eedae562f46abd307d18538b02f9bd20b83`
+- `llgym`: `d74ecb7aa56b77bfa5071fa90457c32e0bc4cb86`
+- `loci-core`: `1be8d8db6eb984c34837b1d07dbb8c3c7760cbd7`
+- `nix-paseo`: `6d63f171f3433592ea1eadbca2484d6b4fc9a8fa`
+- `pydantree`: `c1ea76e1e43b13d02f526c9d00f2459630bca264`
+- `pyjutsu`: `f58935c5390303a007fef227a4620b09f6aa8710`
+
+The matching central declarations were committed locally as `64eb0bb9`
+(`gitman`), `b6bafa19` (`image-gen-pipeline`), `71c88366`
+(`llgym`), `ea93a362` (`loci-core`), `ce7d7846` (`nix-paseo`),
+`baca5ecc` (`pydantree`), and `167ab1e3` (`pyjutsu`).
+
+The operator also approved the three development-layer consumers. New
+manifests were added for `copyroom`, `docman`, and `mypi-agent`; their
+Devman declarations under `dev/devenv.nix` were removed; and their matching
+central declarations were committed locally as `6501fed6`, `79f983fd`,
+and `bf9293db`. Published consumer commits are
+`a0e922e54bb6020c4389c881154ea4bc0182efbe`,
+`660d6790f40ca76d98fea845107d44d822c1bb11`, and
+`3a45c14e435ef48ab18d38c111e2313a5b39f8c6`.
+
+Passing gates: `gitman` 314 tests, `nix-paseo`, `pydantree` (379
+passed, 1 expected failure), `pyjutsu`, and `copyroom` (603 tests).
+Published failures: `image-gen-pipeline` 4 failed / 647 passed;
+`llgym` 14 failed / 196 passed; `loci-core` 16 Ruff errors plus one
+promoted-skill link failure; `docman` one Ruff error with 18 tests passing;
+and `mypi-agent`, which initially hit the SecretSpec reason policy and then
+failed `base:check` on 16 existing Ruff findings when rerun with a reason. All
+failures are recorded in the corresponding consumer commit messages. The link
+canary passed for every edited central declaration.
+
+### Archive TODO
+
+TODO(038-archive): review and remove active references to `fleetman`,
+`flora-037-part-e`, and the `my-ai` project when those libraries are
+archived. They are intentionally excluded from this migration. Historical
+design records, generated registry state, and the shared `my-ai` skill remain
+untouched. The active trigger inventory comments out `fleetman` and
+`my-ai` until that review.
+
+## Stage 38 — complete the remaining consumer fanout
+
+On 2026-09-13, the operator authorized publishing the remaining consumer
+migrations even when their repository gates fail. The central declarations were
+updated in one local commit, `327f9259ffb43216a9c9ea73f1309742f4d612ae`.
+The commit is local because the central configuration checkout has no remote.
+Each declaration now accepts `project ? null`, reads the manifest when the
+argument is absent, imports the machine-owned link module, and keeps its prior
+link map.
+
+The following consumer lanes were saved and pushed. Each commit message records
+its gate result and required repair:
+
+- `boomtube`: `38cd0f12688d854a4a3e5947d0eac491a3ff88d5`
+- `cairn`: `43e4d45ced643d523a82f81d4f14d43bcd919235`
+- `embeddy`: `7db39f152b1065570f2a1918878796aee8ba11ae`
+- `flora`: `ba45ba65640c4a50ec2d19f46679bb5498cb603b` on
+  `adopted-53eb515c/038-devman-consumer-flora`
+- `flora-core`: `1fbb612cd37da0d6345aa79a13ab2e3a977a368c`
+- `fornix`: `be52eef077f94e1ae1fb4d6cfc55d367d5ad70fa`
+- `interplay`: `66fe75bae07bc84037ea87340b9a5a0a8b037960`
+- `nix-desktop`: `65138c4c239597d6297e5650c868269241a82440`
+- `nix-secrets`: `fc79388b8c11ef9a63b2d2e65560c478830f690c`
+- `nixbuild`: `f31073921f8724d8b56ca2714fada0374d2836c1`
+- `nixvim`: `74034c2fabda97a634a1325cf00e9a111a674da2`
+- `observantic`: `4971460ad0c4b3aa5c9d1329ab6bf8205abf9651`
+- `paloma-text-pipeline`: `3c46ac9f43fcf6b935ad7f89230e009c643a7899` on
+  `adopted-9fcbe454/038-devman-consumer-paloma-text-pipeline`
+- `parsedantic`: `b6b92f442002bfce42f7f9b906006c97646040ab`
+- `shellij`: `aea0099d1ca61053f66a19aa3eaab2c54bbf66a1`
+- `structured-agents-v2`: `2ae2cc0adb7291769ffa836eb2d4a6efbaf715c9`
+- `talkee`: `56a6eba7e9902c0b4b9a1f7fc1e3816d4ed9f166` on
+  `adopted-f716d590/038-devman-consumer-talkee`
+- `templateer_v2`: `86cee5dedb8d31e460332e0efdc805d70d722d52`
+- `terminal-state`: `19dc8c0c50f34ad86f755915ac649cce80a5d08e`
+- `testee`: `ac3a0e052cb2a149453bf0cec2ed7ab8a7527233`
+- `webdantic`: `582ed91806f4804e167472356526cdf99c48a45f`
+- `tyo3`: `b7ad8167e47d10275d5a9e7ac9f61ba45b20e0e4` on
+  `038-devman-consumer-tyo3-followup`, using the path-limited raw-Git
+  fallback because Gitman is blocked by jj/Git desynchronization. No tracked
+  `devenv.lock` exists in tyo3.
+- `argentic`: `937122bb176f48fdccfb21348409b9fbcb37a50e`
+
+The gates passed for `boomtube`, `cairn`, `embeddy`, `interplay`, `nix-desktop`,
+`nix-secrets`, `nixbuild`, `nixvim`, `observantic`, `shellij`, `talkee`,
+`testee`, and `tyo3`. `flora` failed two test collection imports because
+`psycopg` is absent. `flora-core` failed one Ruff import-order check. `fornix`
+failed one Btrfs test with `Operation not permitted`. `paloma-text-pipeline`
+has no `base:check` or `base:test` task. `parsedantic` has 79 Ruff findings and
+13 collection errors reporting `TypeError: function() argument 'code' must be
+code, not str`. `structured-agents-v2` has 12 Ruff findings. `templateer_v2`
+has one version-help assertion failure. `terminal-state` has one existing lint
+finding. `webdantic` has 273 Ruff findings. Argentic passed shell and check but
+failed its eight known SilverBullet live tests after 680 passing tests. All
+failures and repairs are recorded in the consumer commit messages.
+
+Both link canaries passed for every target. The active pointer stayed at
+`generations/2`. The plane stayed at 46 projects and 146 DAG files, with digest
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; Dagu
+inventory stayed at 147. Doctor returned exit 1 with only the four known
+findings: flora-037-part-e link drift, dirty and unpinned Vendomat, dirty and
+unpinned RepoMan, and unpinned `git+file:` advice.
+
+Pre-existing large work was kept separate where it was generated or unrelated:
+Nixvim `.devenv`, Structured Agents `.scratch`, and Terminal State test output
+fixtures each have a draft Gitman lane. No protected Devman watcher files or
+RepoMan protected files were changed.
+
+The supported consumer transition is complete. Compatibility mode remains
+enabled. §11 cleanup is still deferred until the archive review and the
+compatibility-only project disposition are performed.
+
+## Stage 38 repair — restore the machine-owned link source
+
+On 2026-09-14, the repository stopped evaluating because `modules/devenv.nix`
+imports `modules/link.nix`, but that file was absent. This was not the planned
+§11 cleanup. Stage 17 names `src/devman/link.py` as the temporary watcher
+re-export. Stage 18 names `modules/link.nix` as the permanent machine-owned
+devenv interface.
+
+The exact deletion happened on 2026-09-13 at 18:34:13 EDT. A prior Codex
+session ran `git restore --source='stash@{0}' --worktree -- .`. The stash
+predated the files added on `038-fixup-and-fanout`, so Git removed them. That
+session restored the two protected watcher files eight seconds later, but it
+did not restore the 25 link-plane source and test files.
+
+This repair restored those 25 files from the verified Stage 18 follow-up Nix
+source snapshot. It preserved `src/devman/watch.py` and
+`tests/unit/test_watch.py`. The restored `modules/link.nix` matches
+`/run/current-system/sw/share/devman/link-module.nix` byte for byte, with
+SHA-256 `40e9398a3e463e2c14853d992d91da0a905fba373eabc83834ec655b3524924e`.
+
+The repository shell now evaluates. `base:unit` passed with 606 tests,
+`base:check` passed, and `base:test` passed all flake checks. The exact Paseo
+override returned exit 0 from `claude --version`. Doctor reached the plane and
+returned only the four known findings from Stage 38. It still exits 1, as
+expected until that planned follow-up lands.
+
+Gitman still reports the pre-existing off-canonical state: the divergent
+`021-changelog` lane and the leftover raw Git `038-fixup-and-fanout` ref. This
+repair did not reconcile that state because Project 038 defers it. The full
+cause, evidence, file set, and proof are in `RESEARCH_REPORT.md`.

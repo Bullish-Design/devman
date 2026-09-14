@@ -229,6 +229,11 @@ let
       --add-flags "--dagu-home ${home cfg.dagHome}"
   '';
 
+  # The independent link adapter (038 Stage 16). It takes NO wrapper flags: a
+  # link operation reads no registry, no state root and no Dagu home, so there
+  # is nothing here for a machine to move. That absence is the point of B.
+  linkAdapter = pkgs.callPackage ./link-adapter.nix { };
+
   # Nix evaluation cannot write into $HOME, so the unit installs its two files
   # on every start. `install -m` rather than a symlink: Dagu reads these once at
   # startup, and a store symlink would hide which revision is live.
@@ -367,6 +372,26 @@ in
         one PATH, resolved by profile order, which is the hazard §3.3 records
         against `devman 0.2.0`. A devenv shell inherits this profile's PATH, so
         one install reaches every repository shell on this machine.
+      '';
+    };
+
+    installLinkAdapter = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Put the `devman-link` command on the system PATH and its link-only
+        devenv module at `/run/current-system/sw/share/devman/link-module.nix`
+        (038 Stage 16).
+
+        It is the independent link adapter, and it is a SEPARATE package from
+        `devman` on purpose: it holds no Dagu, no watchexec and no workflow
+        renderer, and it reads no compatibility registry entry and no active
+        workflow generation. An operator uses it to inspect one repository's
+        links without the plane being healthy.
+
+        The option is machine-level because the component is machine-local.
+        §7.1's shared environment contract stays closed: no `DEVMAN_*` name is
+        added for it.
       '';
     };
 
@@ -651,7 +676,16 @@ in
 
     environment.systemPackages =
       lib.optional cfg.installClient cfg.package
-      ++ lib.optional cfg.installCli cli;
+      ++ lib.optional cfg.installCli cli
+      ++ lib.optional cfg.installLinkAdapter linkAdapter;
+
+    # NixOS links selected `share` subtrees into the system profile rather
+    # than all of `/share`. The adapter package carries the link-only devenv
+    # module beside its executable, so expose that one subtree at the stable
+    # machine path promised by `installLinkAdapter`.
+    environment.pathsToLink = lib.mkIf cfg.installLinkAdapter [
+      "/share/devman"
+    ];
 
     systemd.user.services.dagu = {
       description = "Dagu — devman automation plane";

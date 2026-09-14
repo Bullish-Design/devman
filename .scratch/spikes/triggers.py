@@ -20,7 +20,10 @@ def keywords(p):
     except Exception:
         return name, re.findall(r'"([^"]+)"', kw.group(1))
 
-REPOS = ["testee", "gitman", "docman", "copyroom", "my-ai", "shellij", "repoman", "fleetman"]
+# TODO(038-archive): review and remove archived libraries from this spike.
+REPOS = ["testee", "gitman", "docman", "copyroom", # "my-ai",
+         "shellij", "repoman", # "fleetman",
+]
 grand = 0
 for repo in REPOS:
     root = pathlib.Path(f"/home/andrew/Documents/Projects/{repo}/.agents/skills")

@@ -103,7 +103,6 @@ chmod +x $out/bin/devman-project
     runHook preInstallCheck
     $out/bin/devman-project --help > /dev/null
     $out/bin/devman-project project render --help > /dev/null
-    $out/bin/devman-link --help > /dev/null
     runHook postInstallCheck
   '';
 

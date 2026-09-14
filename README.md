@@ -21,19 +21,21 @@ a cron expression  → the daemon ─┘
 |---|---|---|
 | **Dagu** | the run: order, queues, retries, history, the web UI | knows what a project is |
 | **devenv** | the implementation of one task in one repository | knows what a workflow is |
-| **devman** | registration, projection, resolution, refusal | executes anything itself |
+| **devman** | workflow registration, projection, resolution, refusal | executes anything itself |
+| **the link component** | machine-local filesystem views | reads workflows or the registry |
 
 **devman never parses a workflow to understand it.** A workflow is portable Dagu
 YAML with no devman-specific key in it. devman reads three bounded things: that
 the file loads, the `params:` a trigger must fill, and whether a file holds the
 directory variable it passes to its children.
 
-## The two interfaces
+## The interfaces
 
 | Interface | File | Serves |
 |---|---|---|
-| the machine | `nixosModules.default` | one Dagu user service, the queues, the state paths, the ports, the watcher, the `devman` CLI |
-| the repository | `modules/devenv.nix` | project membership, link declarations, registration, and §7.3's resolution |
+| the machine | `nixosModules.default` | one Dagu user service, the queues, the state paths, the ports, the watcher, and the machine CLIs |
+| the workflow repository | `modules/devenv.nix` | compatibility project membership, registration, and workflow projection |
+| the link plane | installed `modules/link.nix` | `devman.link` and shell-entry reconciliation |
 
 They share **text only** — the queue names, two variable names, and a path
 shape. Each takes `pkgs` from its own side, so one flake serves two nixpkgs
@@ -45,6 +47,18 @@ options, no absolute paths. Machine-local choices live in the central
 configuration repository (`devman.overlayDir`, default `~/.config/devman`) and
 reach each checkout through the link plane. That boundary is what everything
 else bends around.
+
+The long-term boundary is sharper. A repository that only needs machine-local
+views does not pin the Devman workflow module. Its central `devenv.local.nix`
+imports the machine-installed link module, and the adapter supplies the
+project identity explicitly. Normal devenv evaluation reads the same identity
+from `.devman/project.toml`. The link module owns no workflow, renderer,
+registry, or compatibility state.
+
+To join that link plane, run `devman-link reconcile --root "$PWD"` once from
+the repository. It creates the central bootstrap file and its repository view.
+After that, `devenv shell` evaluates the central declaration and reconciles it
+through the machine module.
 
 ## How a repository adopts it
 
@@ -78,16 +92,23 @@ machine-local links, including the per-repository workflow overlay:
 
 ```nix
 # ~/.config/devman/projects/myproject/devenv.local.nix
-{ config, ... }:
+{ config, project ? null, ... }:
+
+let
+  projectName = if project != null then project else
+    (builtins.fromTOML
+      (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;
+in
 {
+  imports = [ /run/current-system/sw/share/devman/link-module.nix ];
   devman.link = {
     ".devman/workflows" = {
       canonical = "central";
-      path = "projects/${config.devman.project}/workflows";
+      path = "projects/${projectName}/workflows";
     };
     ".agents" = {
       canonical = "central";
-      path = "projects/${config.devman.project}/agents";
+      path = "projects/${projectName}/agents";
     };
   };
 }

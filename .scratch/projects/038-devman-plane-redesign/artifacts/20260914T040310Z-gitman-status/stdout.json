@@ -1,0 +1,413 @@
+ok      devman:.agents  /home/andrew/Documents/Projects/devman/.agents
+ok      devman:.claude/skills  /home/andrew/Documents/Projects/devman/.claude/skills
+ok      devman:.devman/workflows  /home/andrew/Documents/Projects/devman/.devman/workflows
+ok      devman:.envrc  /home/andrew/Documents/Projects/devman/.envrc
+ok      devman:devenv.local.nix  /home/andrew/Documents/Projects/devman/devenv.local.nix
+hello from devenv
+git version 2.54.0
+{
+  "repo_root": "/home/andrew/Documents/Projects/devman",
+  "colocated_git": true,
+  "canonical": false,
+  "off_canonical": "lane(s) 021-changelog have a divergent change-id (one change \u2192 multiple commits) \u2014 run `gitman reconcile`.",
+  "trunk": {
+    "name": "main",
+    "change_id": "lovwmynmmxvoyoutlptrtorkvzqoxkox",
+    "commit_id": "0724b88a4df4d902f1d616576ad8d24bb38bc2d7",
+    "remote": "origin",
+    "relation": "in-sync",
+    "behind_remote": 0,
+    "ahead_remote": 0
+  },
+  "current_lane": null,
+  "lanes": [
+    {
+      "name": "015-what-the-plane-should-do",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "wsrtytyrlknnryvmwuoyyzrwuuptmxvm",
+        "commit_id": "5cd09752b24b65aac1088dacb28133f7186861ec",
+        "description": "docs: amend \u00a712 rule 3 \u2014 writing is tiered, and the lane is the review step\n\nCHARTER AMENDMENT, decided by the charter owner on 2026-09-05.\n\nWHAT THE RULE WAS. \"Anything that writes tracked source without a person\npresent. Dependency updates, code generation, autofix beyond formatting. The\nwrite is a change nobody reviewed, and the plane has no review step.\"\n\nWHY IT WENT. Its stated reason had expired. \"The plane has no review step\" was\ntrue when written; gitman is now in 26 of the 54 registered repositories and is\nexactly that step \u2014 a lane is a named review queue, it cannot reach trunk except\nthrough `land`, and `gitman undo` reverts a whole intent through jj's op-log.\n011 \u00a78.2 named review, output ownership and audit as the machinery an amendment\nwould need, and left the decision to the charter owner: \"no measurement in this\ndocument makes it.\"\n\nAND 015 MEASURED WHAT THE RULE COST. It is the binding constraint on this\nplane's content: 83 % of every run the plane has ever made is one repository's\nformatter and one nightly janitor, there is one trigger, and rule 3 killed more\n015 candidates than any other rule. A rule that forbids dependency updates, code\ngeneration and autofix forbids most of what an agentic development plane is for.\n\nWHAT IT IS NOW. Three tiers, by where the write lands.\n  A \u2014 free: a file that did not exist, and agent surface (.agents/**, docs/**,\n      notes, a tool's hidden directory).\n  B \u2014 on a lane: every edit to an existing tracked source file. A gitman lane or\n      branch, for a person to merge. Writing the working tree directly instead\n      is breaking this rule, not complying with it.\n  C \u2014 refused: an unattended write to trunk. That invariant replaces the rule.\n\nWHAT DID NOT MOVE. Rule 2 stands and the lane stays local \u2014 no publish, no push,\nno land; creating a lane is reversible on this machine, pushing it is not. Rule\n4 stands and is the likeliest way a generator dies. \u00a78's watcher argument stands\nand was never rule 3's job: `.devman/.runs/` is watcher-ignored, A LANE IS NOT,\nso a tier-B workflow writing `**/*.py` under `format` will fire `format`.\n\nWHAT IS OWED AND NOT BUILT. The amendment is deliberately weaker than a flat\nrefusal, so it needs three things that do not exist: output ownership (a\nworkflow states its paths and tier), a doctor audit for a writer that states\nnone, and lane hygiene (a scheduled tier-B workflow makes 54 lanes a night).\nNo tier-B workflow should ship before the first two.\n\nALSO: the 015 disk-allocation guard is WITHDRAWN. It was chosen by frequency in\nthe human's shell history, which is the wrong signal for a plane that serves\nagentic workflows, and it was machine-scope in a project about 54 repositories.\nRESULT.md \u00a75.1 keeps the error on the record.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "015-what-the-plane-should-do"
+        ],
+        "files_changed": 7,
+        "insertions": 199,
+        "deletions": 170
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 70,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    },
+    {
+      "name": "016-output-ownership",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "uzytlykrorozzszlmtskovuqmqwsssyx",
+        "commit_id": "bc09a64348eeec9b9a2dfe6b70e00d1d1f87680a",
+        "description": "feat: output ownership, and doctor audits it \u2014 the debt \u00a712 rule 3's amendment owed\n\n015 amended \u00a712 rule 3 from a flat refusal into three tiers and recorded that\nthe amendment owed three things it did not have. This pays the first two: a\nworkflow can now declare what it writes, and `doctor` checks the declaration.\n\nWHY A DECLARATION IS NEEDED AT ALL. A flat refusal needs no audit \u2014 nothing was\npermitted, so nothing could be wrong. A tier is a CLAIM, and an unchecked claim\nis weaker than the refusal it replaced.\n\nWHERE IT LIVES, AND WHY NOT IN THE WORKFLOW. The same measurement that put the\ntrigger map in its own file (A5), re-verified here:\n  - a top-level `writes:` key fails `dagu validate` outright;\n  - `tags:` IS accepted and is useless \u2014 a label map charset of `a-zA-Z0-9-_.`,\n    so `devman:writes=lane` dies on the `:`, and no glob with `/` or `*` can be\n    written at all.\nBoth alternative homes are closed, so this takes the third: `writes.toml`, group\nlayer resolved in Nix, repository layer resolved in Python, into the registry\nentry \u2014 exactly the shape `triggers.toml` already has.\n\nIT MERGES PER WORKFLOW, WHICH IS THE ONE PLACE IT DIFFERS from \u00a77.3 and from\n`triggers`. Those replace whole-file because a partial result is unpredictable\nfrom either file alone. Here the unit is already one workflow, so a later group\ndeclaring [regen] must not silently drop an earlier group's [format] \u2014 a dropped\ndeclaration is worse than a surprising one, because the audit then reports\nnothing.\n\nA THIRD TIER, `insitu`, BECAUSE THE FIRST DRAFT OF THE AMENDMENT LOST FORMAT'S\nEXCEPTION. Writing `groups/format/writes.toml` is what exposed it: with only\n`free` and `lane`, `format` \u2014 the one writer the charter blesses \u2014 became a\nfinding against itself. The rule it replaced ended \"format is the single\nexception and it is bounded three ways: one glob, a content hash, and its own\ngroup\", and `insitu` keeps that sentence enforceable instead of deleting it.\nWhat separates it from `lane` is the KIND of write: an idempotent normalisation\nof a file the trigger already watched. It adds no content and a second run\nchanges nothing. Code generation, dependency updates and autofix are none of\nthose, and they are `lane`.\n\nWHAT `doctor` DECIDES, and it is set membership rather than heuristic, so \u00a715.7\ndoes not reach it: an unknown tier, a declaration naming a workflow the project\ndoes not project, and \u2014 the one that matters \u2014 a `tier = \"free\"` claim over a\npath outside agent surface. A free-tier write lands in the working tree with\nnobody present, so claiming it for `src/**` is claiming to edit code unattended,\nwhich is what the lane exists to prevent.\n\nWHAT IT REFUSES TO PRETEND. A project that declares nothing is reported\n\"unaudited, not proven silent\". `doctor` reads YAML and a TOML table; it does\nnot run the step.\n\nNO SCHEMA BUMP, DELIBERATELY. Schema 2 added `workflows` and 3 added `triggers`,\nand both bumped because a RUN-TIME reader depends on them \u2014 `run.resolve()` and\nthe watcher. `writes` has no run-time reader: the projection writes it and\n`doctor` reads it, same binary. An older doctor ignores the key and loses a\ncheck it never had. Bumping would instead make every projected entry on this\nmachine report \"a newer devman wrote these entries\" until every shell is\nre-entered, for a field nothing at run time reads.\n\nAlso corrected: 015 RESULT.md \u00a70 claimed `doctor` does not exit 1 on `daemon\nshell`. That was measured against the INSTALLED 0.3.0 build, which does not\ncarry the check. From source it does exit 1, exactly as the kickoff said. The\nbinary on PATH is not the code in the tree \u2014 014's lesson in a new place.\n\nStill owed: lane hygiene. A scheduled tier-B workflow makes a lane per run per\nrepository, and 54 lanes a night is rule 7 in a new hat. No tier-B workflow\nshould ship until that is answered.\n\nGates: base:check 0, base:test 0, pytest 414 passed (398 + 16 new).\n`doctor` from source reports only the pre-existing `daemon shell` finding.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "016-output-ownership"
+        ],
+        "files_changed": 14,
+        "insertions": 569,
+        "deletions": 14
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 68,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    },
+    {
+      "name": "017-writes-guard",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "kkyxpyupywqpxnnpvnrutwurqmsooukz",
+        "commit_id": "520b6b190faddeb91ac6a132533459c85a8548ff",
+        "description": "fix: the shell-entry guard notices .devman/writes.toml \u2014 the local layer was inert\n\nFOUND BY TESTING IT, NOT BY A UNIT TEST, and the reason is worth recording: both\nhalves were individually correct.\n\n`resolve_writes()` read `.devman/writes.toml` and merged it over the group's\ndeclaration exactly as designed \u2014 verified directly, the function returns the\nright answer. But the registry entry never changed, because NOTHING MARKED THE\nPROJECTION STALE when that file was edited. The renderer was never asked to run.\n\nWHY `plan` EQUALITY CANNOT COVER IT. Which files are in a working tree is a\nrun-time fact, so the local layer is read by the renderer rather than by Nix \u2014\nthe same reason `.devman/workflows/` and `.devman/triggers.toml` are. The guard\nnotices an edit to a local file the only way it can: by comparing the\nrepository's copy against the verbatim copy the last projection kept beside the\nentry (S-5a). 015 shipped the layer with neither half of that.\n\nSo this adds both, mirroring the trigger layer exactly:\n  - `apply()` keeps `.devman/writes.toml` beside the entry, and removes the kept\n    copy when the source goes;\n  - the guard compares the two, and marks the projection stale on any\n    difference, including appearance and disappearance.\n\nMEASURED END TO END, ON THE LIVE PLANE, after the rebuild that deployed 0.4.0:\n  - declare `[format] tier = \"free\", paths = [\"src/**\"]` in `.devman/writes.toml`\n  - enter the shell -> entry becomes {\"format\": {\"tier\": \"free\", ...}}\n  - `devman doctor` -> \"!! writes  devman/format: tier free over src/** \u2014\n    outside agent surface\", exit 1\n  - remove the file, enter the shell -> entry back to the group's insitu\n    declaration, kept copy gone, doctor exit 0\n\nBefore this commit every step of that sequence was a no-op.\n\nThree regression tests, covering the two halves and the property they exist for:\nthe kept copy is written, it is removed with its source, and what the repository\ndeclares is what the registry records.\n\nGates: base:check 0, base:test 0, doctor 0, pytest 417 passed.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "017-writes-guard"
+        ],
+        "files_changed": 3,
+        "insertions": 84,
+        "deletions": 6
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 66,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    },
+    {
+      "name": "018-local-sources",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "zmrznwuymxpyplkrkkyqrmmsurwstnlu",
+        "commit_id": "d51d86d4a736ec1aebb198ff1f75854b8ac301b0",
+        "description": "feat: doctor sees what local libraries actually resolve to \u2014 and it is not a pin\n\nFOUR INVESTIGATIONS, THREE DEAD CANDIDATES, ONE CHECK. This commit is the\nsurvivor, and the three deaths are the more useful half.\n\nWHAT WAS PROPOSED: a workflow that updates a repository's stale local-library\ninputs and leaves the result on a lane for review \u2014 the first tier-B writer\nunder \u00a712 rule 3 as amended.\n\nWHY IT WAS NOT BUILT. `devenv.lock` records a local `git+file:` input as\n`{type, url}` with NO rev and NO narHash. devenv's generated resolver hands that\nattrset straight to `builtins.fetchTree`, which resolves it LIVE. Proven twice:\n`nix eval` on fetchTree returns the source repo's HEAD exactly, and `devenv\nupdate shellij` on a throwaway copy produced a BYTE-IDENTICAL lockfile. 91 of 93\nlocal inputs on this machine are that shape; the other 2 are real flake.lock\npins. An update workflow would therefore have opened 52 empty branches \u2014 \u00a712\nrule 4, success indistinguishable from doing nothing, the rule that killed\nfull-test.\n\nTHE EXPOSURE UNDERNEATH IT IS THE REAL FINDING, and it is the inverse of the\npremise. An unpinned input follows its source's WORKING TREE, not its HEAD. A\nsource with uncommitted changes is consumed as those uncommitted changes:\nfetchTree returns `rev: NONE` and a `-dirty` marker. Measured now: shellij holds\n15 uncommitted files INCLUDING devenv.nix \u2014 the module it exports \u2014 and 51 of\nthe 54 registered repositories consume it. Nothing said so. This check says so.\n\nALSO KILLED, AND WORTH RECORDING. A fan-out that verifies a library's consumers\nwhen its HEAD moves: 51 consumers x ~70 s measured floor = ~66 min of serial\nwork per fire, on ~24 days a month. It has no legal shape either \u2014 \u00a712 rule 9,\n`dag.run` bypasses every queue and `dag.enqueue` never tells the parent the\nchild failed, so a fan-out can respect the queue or learn the result, never\nboth. The cheap version is this check: record the state, verify nothing.\n\nIT IS CHEAP BECAUSE IT READS SOURCES, NOT CONSUMERS. 54 consumers, 8 distinct\nsources: two git calls per SOURCE and none per consumer. Measured 104 ms, best\nof 3, over the live 54-project registry. That arithmetic is what makes it a\ncheck and not a fan-out.\n\nWHAT IT CANNOT SEE, stated in the docstring: it reads lockfiles, not\nevaluations. An input named but never used is counted; a library reached some\nother way is not.\n\nTESTS ARE HERMETIC ON PURPOSE. The first version shelled out to real git and\npassed in the devenv shell, then failed `base:test` \u2014 `nix flake check` runs the\nsuite in a sandbox with no git on PATH. `_source_state` is stubbed instead; the\ncheck's logic is what is under test, not git's behaviour.\n\nALSO: groups/base/README.md stopped teaching a retracted rule. It still stated\n\"one workflow, one step\" as law with criterion 14 holding BY CONSTRUCTION. 013\nretracted that (e1c227f) and release.yaml has had three steps since stage 4. The\nsurviving argument is the arithmetic \u2014 one devenv invocation is 1.44 s and three\nare 4.3 s. Steps are cheap; devenv calls are not.\n\nGates: base:check 0, base:test 0, doctor 0, pytest 422 passed (+5).\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "018-local-sources"
+        ],
+        "files_changed": 3,
+        "insertions": 249,
+        "deletions": 8
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 64,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    },
+    {
+      "name": "021-changelog",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "wopywmwxvwlnuymnpkrzkmvywpstnlwt",
+        "commit_id": "1a55a680cbcd65acd858b453d67ccb54115f6efb",
+        "description": "fix(changelog): the summary workflow crosses no import boundary\n\n`groups/changelog/workflows/changelog.yaml` could not run. Two steps imported\npyjutsu inside `devenv shell -- python3`, and a third reached templateer\nthrough an interpreter search-path variable at an absolute sibling checkout.\n\nA console script is a property of the machine; a library import is a property\nof the interpreter that imports it. The shared toolchain venv lends `gitman`\nand `templateer` through PATH, and PATH cannot lend a library through\n`sys.path`. Measured: `devenv shell -- python3 -c 'import pyjutsu'` fails and\n`devenv shell -- gitman` works, while both repoman doctor and gitman doctor\nreport pyjutsu green \u2014 each asks its own interpreter, neither asks the step's\n(023-toolchain P1, P2).\n\n- gate and write call `gitman log --revset <a>..<b> --json` (023 phase 2a).\n  The remaining python3 is standard library only.\n- summarize calls `templateer` by name off PATH.\n- the gate probes for both tools first, inside the same `devenv shell --`\n  every later command uses.\n- TEMPLATEER_TEMPLATE_PATH is repository-relative; groups/README.md forbids a\n  group workflow from holding an absolute path. 022's open question 2 stays\n  open and is now stated where an adopter reads it.\n- the generation is read as a structured result and a failed one is refused.\n  templateer does not forward finish_reason, and its own validator forbids a\n  success carrying no artifact, so P6's truncation surfaces as failure_reason.\n  A second check refuses a whitespace-only artifact, which the schema permits.\n- `--model openai:$GPU_LLM_MODEL`. Measured: `--model gemma` returns\n  failure_reason config_error, 'Unknown model: gemma'.\n- one `devenv shell --` per step, not four across two (M2: 0.755 s warm).\n\nAlso repairs two files that held a raw unified diff body rather than its\nresult, adds the writes.toml the group README already promised, and records\nrevision 5 in DESIGN.md.\n\nchangelog-entries.yaml is NOT converted: it needs diffs and gitman has no diff\nverb. The post-land chain does not run. Stated in the group README.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "021-changelog"
+        ],
+        "files_changed": 51,
+        "insertions": 3763,
+        "deletions": 15
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": true,
+      "ahead": 2,
+      "behind": 54,
+      "change_count": 2,
+      "insertions": 3763,
+      "deletions": 15,
+      "files_changed": 56,
+      "pr": null
+    },
+    {
+      "name": "037-deployment-handoff-results",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "pktxkuulyukulumlsonwqxrpkspxkxnz",
+        "commit_id": "dfb52c17034f45ef5149c3de7ba7afa87aaf46f5",
+        "description": "docs: record deployment handoff",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "037-deployment-handoff-results"
+        ],
+        "files_changed": 2,
+        "insertions": 88,
+        "deletions": 10
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 1,
+      "behind": 23,
+      "change_count": 1,
+      "insertions": 88,
+      "deletions": 10,
+      "files_changed": 2,
+      "pr": null
+    },
+    {
+      "name": "037-follow-up-results",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "kuluyxzloluymvorzktvskvqkyvtmrku",
+        "commit_id": "a7adfe44af1b628f92fe26f01d2b8a7d7048a7af",
+        "description": "fix: align Nix package version with release\n\nBump to 0.6.0 for project 038's generation failure hardening, reload\nboundary hardening, and explicit projection mode.",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "037-follow-up-results"
+        ],
+        "files_changed": 3,
+        "insertions": 3,
+        "deletions": 3
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 6,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    },
+    {
+      "name": "037-part-a-e-results",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "draft",
+      "head": {
+        "change_id": "wommzptvwsummtosxttlslyutuzulrqr",
+        "commit_id": "c7f2c3fd1917a0a6a87e7664ed6bbaec2650bbdc",
+        "description": "docs: record Part E and Claude settings test",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "037-part-a-e-results"
+        ],
+        "files_changed": 3,
+        "insertions": 186,
+        "deletions": 6
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 26,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    },
+    {
+      "name": "dagu-devenv-automation-eli5",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "published",
+      "head": {
+        "change_id": "wptnlmqnztnulqlvyyxkluznswomnszx",
+        "commit_id": "f95f7bed40e3bdce30a7f4882797a36039b7365c",
+        "description": "docs(stage-7): the atuout reconciler branch \u2014 salvaged, and the stale entry measured\n\nOption A, executed. The 427-line out-of-process reconciler suite is on atuout\nmain; the branch, its remote and the worktree are gone; devman doctor --prune\nremoved the registry entry.\n\nThe salvage found a bug. On main the suite fails 7 of 22 runs, and the cause is\nnot the test: run() starts two threads that each call store.connect(), and\nPRAGMA journal_mode=WAL races on a DB that does not exist yet. When the tail\nthread loses, the reconciler removes its pidfile and exits on first boot.\nMeasured 37/200 fresh, 0/200 existing. Fixed on atuout (6046f4f); 15/15 after.\n\nThe registry lifecycle is now measured, not assumed: the entry does not\nself-remove, a sibling's shell entry does not clear it, and the 00:05 maintain\nstays scheduled until doctor --prune unprojects it. CONCEPT \u00a79.3 predicted all\nthree.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "dagu-devenv-automation-eli5"
+        ],
+        "files_changed": 2,
+        "insertions": 411,
+        "deletions": 0
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 154,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    },
+    {
+      "name": "stage-3-registry-state-split",
+      "base": null,
+      "depth": 0,
+      "orphaned": false,
+      "state": "draft",
+      "head": {
+        "change_id": "xtxzlpkmtmplxkvyplkosrwzlxysqpqt",
+        "commit_id": "4b8b2a2f6959e8470c1edf7582f475b6bf570464",
+        "description": "feat: add devman-resync script for bulk re-registration\n\nA charter migration that touches registration needs every repository\nto re-enter its shell once, and 48 by hand does not scale. devenv\nshell -- true fires the same enterShell hook a real shell would, so a\nloop over the registry's own metadata.json path is a non-interactive\nsubstitute. First use: Stage 3's stateDir split.\n\nCo-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>",
+        "empty": false,
+        "conflict": false,
+        "bookmarks": [
+          "stage-3-registry-state-split"
+        ],
+        "files_changed": 1,
+        "insertions": 43,
+        "deletions": 0
+      },
+      "workspace": null,
+      "conflict": false,
+      "non_linear": false,
+      "divergent": false,
+      "ahead": 0,
+      "behind": 36,
+      "change_count": 1,
+      "insertions": 0,
+      "deletions": 0,
+      "files_changed": 0,
+      "pr": null
+    }
+  ],
+  "conflicts": [],
+  "recent_ops": [
+    {
+      "op_id": "b1ad766a999e2297234037b0e5e3ce2d5e979e8a67d047dfd0b132cad138fb4b9146a9c2f3b22ce68740bf4494edf82a9c1fcc74b4f631cdfd5ecc595f7056b4",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-14T00:03:18.340000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "ba359fdca2c8ecce0f9ce750f3865d0fef225677dbb792d7a53e4614fce86532bbf0dcdd478ceb1c1caeb30f89c8bcb440e9a775cd18d3a12f00fac0a72c5f8e",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T22:44:18.264000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "d1ffbfb0fee190cd2b003e820189867af58a13ff9904f10cb18ce152ee7dbe668d806ab8aeb8780f601a8114a85e110e98d31e43f1b5c1c637fb1c2d902a737c",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T22:03:15.690000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "749c031d92133690373069c453200e8f5b7c0090844d587afa59d3fba62ba8645cba8aa27188b73762ec21f07bcca0692539900df98f6048c8768e6885848af5",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T20:16:05.651000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "ef4760b503500931e939262dda49128686bc4ec702dc613c7391f1beb4eec7f5aba920c1ad92250d79ffe25a6319e717a0920a3655955d31a94b8f55ee1b129b",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T19:09:52.980000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "dded2aa74be28a84dbf7cfa867212f61c44e074c785b5c93c343ee7520082ee58b5a892cd870c4d14abaf445cfa9d6f61224e81d327fdfbfb375cf6d6bf2645d",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T18:57:00.180000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "c7bf470cbbdce000cd0715fe027375b22bbf5e809f1197d8b3c47c9057ca085d5bd6df4b9f1da430a024d763faa1b75b86abbb080cb2177344ded99966d5f1c6",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T17:29:00.420000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "c926f586abe1b4070c4c36a4f0c046a37b6602de9df76a45592c5a4071cd77aed600dba06844176ea1631090c382e1930b89b04dc391783dc37fe3c1bfc12c2c",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T17:26:56.450000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "9660f2ae0830fcdb5b1e8e3af349f657aab181df4559c8c0111506a072207fa8b3cbb15d59e86d6d9f3f55326f053b5bcce9b509aab82c4d09b139c373cee284",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T17:14:54.341000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    },
+    {
+      "op_id": "eb7683a18008037a533c9145b90c0fb16318005249feec168dfe1465a12e1681fa640feb2281544f08c1e2aaacd0f4c0796ed3cec528bbdfc9a2943a6e7fcb29",
+      "description": "snapshot working copy",
+      "timestamp": "2026-09-13T10:33:12.190000-04:00",
+      "is_snapshot": true,
+      "undoable": false
+    }
+  ],
+  "notes": [
+    "gitman.toml: [version] is ignored \u2014 gitman reads and writes the version through uv (`uv version`). Delete the table; it becomes an error in 0.7.0.",
+    "tracked but gitignored: .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T190104Z-baseline/baseline.log, .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T190406Z-baseline-retry/baseline.log, .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T190758Z-templateer-static/ruff-check.log, .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T190758Z-templateer-static/ruff-format.log, .scratch/spikes/agent-factory-preimplementation/artifacts/20260820T190835Z-templateer-static-retry/ruff-check.log \u2026 \u2014 `gitman untrack <path>` to stop tracking (kills the churn).",
+    "working copy @ has unbookmarked work \u2014 `gitman start <name>` to adopt it into a lane."
+  ]
+}

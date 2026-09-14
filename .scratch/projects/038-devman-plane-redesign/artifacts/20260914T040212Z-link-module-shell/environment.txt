@@ -1,0 +1,2 @@
+date_utc=2026-09-14T04:02:12Z
+command=devenv shell -- true

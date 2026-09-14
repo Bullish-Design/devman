@@ -67,7 +67,8 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `nix/devman-cli.nix` | the CLI package. Ships from the NixOS module **only** |
 | `nix/renderer.nix` | the projection renderer, `devman-project`. The same source, built under the **consuming repository's** nixpkgs so the shell-entry guard can see its store path (§3.1's second exception) |
 | `nix/tests/dagu-service.nix` | a NixOS VM test: the unit starts, a projected DAG is discovered, a run lands its logs in the right project |
-| `modules/devenv.nix` | the **repo** interface — three options, the `enterShell` guard, §7.3 resolution at evaluation time, and `planFile`. **The projection itself is `src/devman/project.py`**, not shell: it was shell until project 009 stage 3, and four findings were symptoms of that one duplication |
+| `modules/devenv.nix` | the **compatibility workflow** interface — project options, the `enterShell` guard, §7.3 resolution at evaluation time, and `planFile`. **The projection itself is `src/devman/project.py`**, not shell: it was shell until project 009 stage 3, and four findings were symptoms of that one duplication |
+| `modules/link.nix` | the **link-only** interface — typed `devman.link`, manifest identity resolution, and one shell hook that calls the machine-installed adapter |
 | `groups/` | workflow **content**, one directory per group. `groups/README.md` is the mechanism and the index; each group's own README says what taking it costs |
 | `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `agent`, `registry`, `workflow`, and `project` — the projection, which the devenv module runs at shell entry |
 | `tests/` | the Python test layer. `tests/README.md` says what it protects and what it refuses to test |

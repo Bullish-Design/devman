@@ -101,51 +101,6 @@ in
     echo hello from $GREET
   '';
 
-  # Re-enters every registered repository's shell, non-interactively.
-  #
-  # A charter migration that touches registration (§11 Stage 3's stateDir
-  # split is the first; there will be more) needs every repository to run its
-  # `enterShell` hook once, so it re-projects under the new shape. Opening 48
-  # interactive shells by hand does not scale and nobody remembers to do it
-  # for the 49th. `devenv shell -- true` fires the same hook a real shell
-  # would — it is guarded by a content hash and forks nothing when a
-  # repository already matches (§5.2), so a repeat run is cheap.
-  #
-  # Reads paths from the CURRENT on-disk registry directly, not through
-  # `devman doctor` or `Registry()`: right after a rebuild that moves where
-  # metadata lives, the new location is still empty, and this script's whole
-  # job is to fill it. `~/.local/share/devman/projects/*/metadata.json` is the
-  # one location every devman version to date has agreed metadata already
-  # exists at, so it is what this script reads regardless of which stage a
-  # given machine is on.
-  scripts.devman-resync.exec = ''
-    set -euo pipefail
-    registry="''${1:-$HOME/.local/share/devman}"
-    shopt -s nullglob
-    metas=("$registry"/projects/*/metadata.json)
-    if [ ''${#metas[@]} -eq 0 ]; then
-      echo "devman-resync: no metadata.json found under $registry/projects" >&2
-      exit 1
-    fi
-    fail=0
-    for meta in "''${metas[@]}"; do
-      name="$(basename "$(dirname "$meta")")"
-      path="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("path",""))' "$meta")"
-      if [ -z "$path" ] || [ ! -d "$path" ]; then
-        echo "skip $name: $path (gone)"
-        continue
-      fi
-      echo "== $name  $path =="
-      if ! (cd "$path" && devenv shell -- true); then
-        echo "FAILED: $name at $path" >&2
-        fail=1
-      fi
-    done
-    exit "$fail"
-  '';
-
-  
-
   enterShell = ''
     hello
     git --version

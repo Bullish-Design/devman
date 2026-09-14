@@ -611,23 +611,18 @@ def test_a_link_refusal_is_reported_and_does_not_hide_other_projects(
         triggers=PY_TRIGGERS,
         links={".envrc": {"canonical": "central", "path": "../escape"}},
     )
-    healthy = plane.add(
-        "b", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS
-    )
+    healthy = plane.add("b", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
     triggered = []
     monkeypatch.setattr(
         watch.run,
         "trigger",
-        lambda reg, project, workflow, overrides, dagu_home: triggered.append(
-            (project.name, workflow)
-        )
-        or 0,
+        lambda reg, project, workflow, overrides, dagu_home: (
+            triggered.append((project.name, workflow)) or 0
+        ),
     )
     monkeypatch.setattr(
         "sys.stdin",
-        io.StringIO(
-            event(str(broken.path / "a.py"), str(healthy.path / "b.py"))
-        ),
+        io.StringIO(event(str(broken.path / "a.py"), str(healthy.path / "b.py"))),
     )
 
     assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 1
