@@ -2238,3 +2238,11 @@ On 2026-09-14, the public `devman link` surface audit found no CLI import of
 `devman.identity`. The only repository caller was
 `tests/unit/test_identity.py`; it now imports the same names from
 `devman_link`. The old `src/devman/identity.py` re-export is deleted.
+
+## Wave 2F — remove the obsolete contract shim
+
+On 2026-09-14, the fleet audit found no consumer importing `devman.contract`.
+The only callers were inside Devman: the compatibility project renderer, the
+machine-plane reconciler, and two unit-test modules. They now import the
+canonical `devman_contract` package. The old `src/devman/contract.py` re-export
+is deleted.

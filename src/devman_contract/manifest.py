@@ -8,7 +8,7 @@ This module has no Dagu, Nix, registry, or repository-task dependency. Vendomat
 can use the records while it builds and activates a plane, and `devman_link`
 can read a manifest without importing the Devman CLI (038 Stage 16).
 
-`devman.contract` re-exports every name here.
+The contract records are public through the `devman_contract` package.
 """
 
 from __future__ import annotations

@@ -19,12 +19,13 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .contract import (
+from devman_contract import (
     PlaneGeneration,
     ProjectionRecord,
     ProjectManifest,
     digest_blobs,
 )
+
 from .project import (
     DAG_SEPARATOR,
     ProjectionError,

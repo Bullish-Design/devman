@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from devman.contract import (
+from devman_contract import (
     CONTRACT_SCHEMA,
     ContractError,
     PlaneGeneration,

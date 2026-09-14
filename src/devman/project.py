@@ -720,7 +720,8 @@ def main(args, reg) -> int:
 def render_main(args) -> int:
     """Render one project for Vendomat without publishing or executing tasks."""
 
-    from .contract import ProjectManifest, digest_bytes
+    from devman_contract import ProjectManifest, digest_bytes
+
     from .reconcile import (
         ReconcileError,
         render_project,
@@ -762,7 +763,8 @@ def render_main(args) -> int:
 def inspect_main(args) -> int:
     """Resolve one project and print its projection identities."""
 
-    from .contract import ProjectManifest, digest_bytes
+    from devman_contract import ProjectManifest, digest_bytes
+
     from .reconcile import (
         ReconcileError,
         inspect_project,
@@ -805,7 +807,7 @@ def inspect_main(args) -> int:
 def _render_generation(args, policy_digest, renderer, runtime, digest):
     """Build one generation identity for render and inspect."""
 
-    from .contract import PlaneGeneration
+    from devman_contract import PlaneGeneration
 
     return PlaneGeneration(
         generation=args.generation,

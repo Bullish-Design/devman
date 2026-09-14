@@ -5,8 +5,8 @@ Two independent components read these records: the `devman` command and the
 or repository-task dependency, so a component can take the identity grammar and
 the manifest without taking the plane.
 
-`devman.registry` and `devman.contract` re-export every name here, so the older
-import paths keep working.
+`devman.registry` re-exports the identity names for compatibility. New code
+should import the contract records from this package.
 """
 
 from .identity import IDENTITY_GRAMMAR, IDENTITY_PATTERN, identity_fault

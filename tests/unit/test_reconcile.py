@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-from devman.contract import PlaneGeneration, ProjectManifest, digest_blobs, digest_bytes
 from devman.reconcile import (
     ReconcileError,
     bundle_from_json,
@@ -15,6 +14,7 @@ from devman.reconcile import (
     renderer_digest,
     resolve_policy,
 )
+from devman_contract import PlaneGeneration, ProjectManifest, digest_blobs, digest_bytes
 
 WORKFLOW = """steps:
   - name: check
