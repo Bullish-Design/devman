@@ -43,8 +43,10 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 import devman_link
+from devman_contract import ContractError, ProjectManifest
 
 from . import agent, project, run, show, watch
 from .registry import (
@@ -201,7 +203,16 @@ def parser() -> argparse.ArgumentParser:
         p_link_one.add_argument("--overlay", help="config repository root")
         if name == "status":
             p_link_one.add_argument(
-                "--all", action="store_true", help="report every registered project"
+                "--all",
+                action="store_true",
+                help="report every manifest-backed project",
+            )
+            p_link_one.add_argument(
+                "--projects-root",
+                action="append",
+                default=[],
+                metavar="DIR",
+                help="explicit inventory root for --all; repeat for more roots",
             )
 
     return ap
@@ -231,19 +242,105 @@ def handler(command: str):
     }[command]
 
 
-def _link_all(args, reg: Registry) -> int:
-    """Report every registered project, and keep going past a refusal.
+def _manifest_candidates(
+    projects_roots: list[str],
+) -> tuple[dict[str, Path], list[tuple[Path, str]]]:
+    """Find direct child checkouts with manifests under explicit roots."""
+    if not projects_roots:
+        raise RegistryError(
+            "link status --all needs an explicit --projects-root"
+            "\n  pass the directory that contains the project checkouts"
+        )
 
-    One repository that cannot answer must not hide the other fifty. A refusal
-    is printed where it happened and the sweep continues, so the exit code says
-    whether anything needs attention and the output says what.
-    """
-    overlay = args.overlay or devman_link.DEFAULT_OVERLAY
+    candidates: dict[str, Path] = {}
+    seen_checkouts: set[Path] = set()
+    owners: dict[str, Path] = {}
+    blocked: set[str] = set()
+    errors: list[tuple[Path, str]] = []
+    for raw_root in projects_roots:
+        inventory = Path(raw_root).expanduser().resolve()
+        if not inventory.is_dir():
+            raise RegistryError(
+                f"cannot sweep project manifests under {inventory}"
+                f"\n  it is not a directory"
+            )
+        try:
+            children = sorted(inventory.iterdir())
+        except OSError as exc:
+            raise RegistryError(
+                f"cannot sweep project manifests under {inventory}\n  {exc}"
+            ) from exc
+        for child in children:
+            if not child.is_dir():
+                continue
+            checkout = child.resolve()
+            if checkout in seen_checkouts:
+                continue
+            seen_checkouts.add(checkout)
+            manifest_path = checkout / ".devman" / "project.toml"
+            if not manifest_path.is_file():
+                continue
+            try:
+                manifest = ProjectManifest.from_file(manifest_path)
+            except (ContractError, UnicodeError) as exc:
+                errors.append((checkout, f"cannot read its manifest\n  {exc}"))
+                continue
+            if manifest.project in blocked:
+                errors.append(
+                    (
+                        checkout,
+                        f"duplicate manifest identity {manifest.project!r}"
+                        f"\n  also declared by {owners[manifest.project]}",
+                    )
+                )
+                continue
+            previous = owners.get(manifest.project)
+            if previous is not None and previous != checkout:
+                candidates.pop(manifest.project, None)
+                errors.append(
+                    (
+                        checkout,
+                        f"duplicate manifest identity {manifest.project!r}"
+                        f"\n  also declared by {previous}",
+                    )
+                )
+                errors.append(
+                    (
+                        previous,
+                        f"duplicate manifest identity {manifest.project!r}"
+                        f"\n  also declared by {checkout}",
+                    )
+                )
+                blocked.add(manifest.project)
+                continue
+            owners[manifest.project] = checkout
+            candidates[manifest.project] = checkout
+
+    if not candidates and not errors:
+        raise RegistryError(
+            "the project manifest inventory is empty"
+            "\n  each direct child checkout must contain .devman/project.toml"
+        )
+    return candidates, errors
+
+
+def _link_all(args) -> int:
+    """Report every manifest-backed project, and keep going past a refusal."""
+    candidates, errors = _manifest_candidates(args.projects_root)
     worst = 0
-    for name, entry in sorted(reg.projects().items()):
+    for root, detail in errors:
+        report(
+            RegistryError(
+                f"cannot inspect manifest-backed project at {root}\n  {detail}"
+            )
+        )
+        worst = 1
+
+    overlay = args.overlay or devman_link.DEFAULT_OVERLAY
+    for _project, root in sorted(candidates.items()):
         try:
             outcome = devman_link.run(
-                "status", root=entry.path, overlay=overlay, project=name
+                "status", root=root, overlay=overlay, project=None
             )
         except devman_link.LinkAdapterError as exc:
             report(exc)
@@ -255,29 +352,26 @@ def _link_all(args, reg: Registry) -> int:
     return worst
 
 
-def _link_command(args, reg: Registry) -> int:
+def _link_command(args, _reg: Registry) -> int:
     """The public link boundary — identity first, then the independent adapter.
 
     The adapter is `devman_link`, its own importable and packageable component
     (038 Stage 16). The normal path does not enter `devman.link`, and it reads
     no compatibility registry entry and no active workflow generation.
 
-    `--all` is the one exception, and only in what it enumerates: the
-    compatibility registry is still the only thing that knows which projects
-    were registered. It reads a root out of the registry and then asks the same
-    adapter about it, so there is one reconciler and not two.
+    `--all` is the one exception, and it scans explicit project-inventory roots
+    for the manifests that now state registration. It asks the same adapter
+    about every manifest-backed checkout, so there is one identity source and
+    one reconciler.
     """
     if getattr(args, "link_command", "") == "status" and getattr(args, "all", False):
-        return _link_all(args, reg)
+        if args.project is not None:
+            raise RegistryError(
+                "link status --all and --project are mutually exclusive"
+            )
+        return _link_all(args)
 
     root = args.root
-    if root == "." and args.project is not None:
-        # A named project the compatibility registry still knows may be
-        # somewhere other than the current directory.
-        try:
-            root = str(reg.project(args.project).path)
-        except RegistryError:
-            root = args.root
     outcome = devman_link.run(
         args.link_command,
         root=root,

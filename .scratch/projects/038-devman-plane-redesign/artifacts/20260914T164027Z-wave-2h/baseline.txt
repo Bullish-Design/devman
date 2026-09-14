@@ -1,0 +1,28 @@
+Wave 2H baseline — 2026-09-14
+
+Repository:
+  HEAD: 7f5443a (main, synced with origin/main)
+  worktree: clean
+
+Compatibility enumeration:
+  ~/.local/share/devman/projects directories: 50
+  ~/.local/state/devman/projects directories: 4
+  active Vendomat generation directories: 45
+  direct checkout manifests: 48
+  manifest-backed but absent from the active generation: copyroom, docman, mypi-agent
+  compatibility entries without a manifest: fleetman, flora-037-part-e
+
+Old command:
+  env -u PYTHONPATH -u NIX_PYTHONPATH /run/current-system/sw/bin/devman link status --all
+  exit: 1
+  result: one flora-037-part-e refusal; the state-side reader exposed only four projects
+
+Manifest adapter sweep before the CLI change:
+  48 manifests, 47 clean, 1 ordinary promote drift (image-gen-pipeline), 0 refusals
+
+Active plane:
+  pointer: generations/2
+  projects: 45
+  DAG files: 143
+  digest: 5a06aca3a93a8bd8030a8becc42dc57f0560452b04940518b31f8e7f696fe2b9
+  dagu ls lines: 144

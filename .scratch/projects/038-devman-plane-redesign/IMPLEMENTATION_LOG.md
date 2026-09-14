@@ -2328,3 +2328,89 @@ and the unpinned `git+file:` advice.
 Nothing outside this wave was repaired. The compatibility registry writer and
 item 4 remain open. Wave 2G is complete; Wave 2H and Wave 3 still require
 their own design and evidence.
+
+## Wave 2H — replace compatibility registry enumeration
+
+On 2026-09-14, the manifest inventory found 48 checkout manifests. Forty-seven
+link-status checks were clean, one reported ordinary promote drift for
+`image-gen-pipeline`, and none refused. The old compatibility registry held 50
+project directories, including the stale `fleetman` and `flora-037-part-e`
+entries; its state-side reader exposed only four projects after the state split.
+
+**The replacement.** `devman link status --all` will take one or more explicit
+`--projects-root` directories. It will inspect only their immediate child
+directories for `.devman/project.toml`, parse each manifest for the project
+identity, and call the independent `devman_link` adapter without a registry
+argument. It will report an invalid or duplicate manifest and continue with the
+other candidates. A missing inventory root or an empty inventory is a refusal,
+not an empty successful sweep. The explicit root keeps the operation portable
+and avoids a machine-specific path or a general disk walk.
+
+**The failure avoided.** Keeping `Registry.projects()` would make link status
+depend on compatibility metadata that no longer represents all manifest-backed
+repositories. Replacing it with a silent scan of one guessed directory would
+repeat Stage 16's coverage failure. An explicit inventory root makes the scan
+boundary visible, while the manifest remains the one identity source.
+
+### Wave 2H — measured and deployed
+
+On 2026-09-14, the replacement passed its gates and the live manifest sweep
+covered all 48 checkout manifests. The active plane remained unchanged at
+`generations/2`, with 45 projects, 143 DAG files, digest
+`5a06aca3a93a8bd8030a8becc42dc57f0560452b04940518b31f8e7f696fe2b9`, and 144
+`dagu ls` lines.
+
+**What changed.** `devman link status --all` now requires one or more explicit
+`--projects-root` directories. It reads immediate child checkouts, validates
+their `.devman/project.toml` manifests, detects duplicate identities, and
+passes each checkout to `devman_link` without a compatibility registry read.
+The named-project path also no longer looks up a root in the registry; callers
+pass `--root` when they are outside the current checkout. README and USER
+describe the new diagnostic command. Tests cover valid, malformed, duplicate,
+empty and mutually exclusive inputs.
+
+**The evidence.** Before the change, the compatibility registry held 50 project
+directories, while its state-side reader exposed only four. The old
+`devman link status --all` returned exit 1 after one stale
+`flora-037-part-e` refusal. The manifest inventory found 48 checkout manifests:
+47 clean, one ordinary `image-gen-pipeline` promote drift, and zero refusals.
+After the change, this command returned exit 1 for the same one ordinary drift:
+
+    devenv shell -- env -u PYTHONPATH -u NIX_PYTHONPATH devman link status --all --projects-root /home/andrew/Documents/Projects
+
+It reported 48 project status blocks, 246 clean link states, one promote state,
+and zero refusal states. The hook-shaped adapter sweep from `/tmp` returned 47
+clean, one drift, and zero refusals.
+
+The repository gates returned success: `devenv tasks run -v base:check` exit 0;
+`devenv tasks run -v base:unit` exit 0 with 591 passed;
+`devenv tasks run -v base:test` exit 0 with all checks passed; and explicit
+builds of `.#checks.x86_64-linux.dagu-service` and
+`.#packages.x86_64-linux.devman-link` exit 0. The unit count rose from 585 to
+591. No test was removed.
+
+The two canaries from `/tmp` both returned exit 0 with five `ok` states and the
+central configuration path:
+
+    env -u PYTHONPATH -u NIX_PYTHONPATH /run/current-system/sw/bin/devman-link status --project vendomat --root /home/andrew/Documents/Projects/vendomat --overlay $HOME/.config/devman
+    env -u PYTHONPATH -u NIX_PYTHONPATH /run/current-system/sw/bin/devman link status --project vendomat --root /home/andrew/Documents/Projects/vendomat --overlay $HOME/.config/devman
+
+`devman doctor` returned exit 1 with exactly the four known findings:
+`flora-037-part-e:devenv.local.nix: create`; dirty and unpinned Vendomat;
+dirty and unpinned RepoMan; and unpinned `git+file:` advice. The Python path
+variables were cleared for the live checks.
+
+**Scope.** Only Devman changed: `src/devman/cli.py`,
+`tests/unit/test_cli.py`, `README.md`, `USER.md`, this log, and the Wave 2H
+evidence directory. Vendomat, RepoMan, nix-meta and the central configuration
+checkout did not change. `src/devman/watch.py` and `tests/unit/test_watch.py`
+were unchanged and not staged. No generated registry, active generation, DAG
+file or state file was edited.
+
+**Status.** No repository migration was needed. The supported inventory covered
+48 repositories and blocked zero repositories. `copyroom`, `docman` and
+`mypi-agent` are now visible because their manifests are authoritative;
+manifest-less compatibility entries such as `fleetman` and
+`flora-037-part-e` remain outside this sweep. Compatibility mode and its
+rollback by pinning a pre-adapter Devman revision remain in place. Wave 3 is
+the next incomplete phase and still needs its own design or operator decisions.

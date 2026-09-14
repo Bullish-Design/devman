@@ -160,7 +160,8 @@ workflow steps:
 | `devman link status [--all]` | inspect declared link state |
 
 `watch`, `project`, and `link reconcile` are normally called by systemd or
-shell entry. `devman link status --all` is the broad link diagnostic.
+shell entry. `devman link status --all --projects-root DIR` is the broad link
+diagnostic. Repeat `--projects-root` for more than one checkout inventory.
 
 `devman project render` is the machine-plane boundary. It reads one
 `.devman/project.toml`, resolves the selected policy and central overlay, and

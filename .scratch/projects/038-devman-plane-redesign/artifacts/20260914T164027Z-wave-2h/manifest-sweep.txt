@@ -1,0 +1,24 @@
+Wave 2H manifest sweep — 2026-09-14
+
+Command:
+  devenv shell -- env -u PYTHONPATH -u NIX_PYTHONPATH devman link status --all --projects-root /home/andrew/Documents/Projects
+
+Exit: 1
+
+The non-zero result is the known ordinary drift in image-gen-pipeline. The
+command inspected 48 manifest-backed checkouts, including copyroom, docman and
+mypi-agent, which the old state-side registry enumeration did not expose.
+
+Observed output:
+  project status blocks: 48 (counted by `central config` lines)
+  clean link states: 246
+  promote states: 1 (image-gen-pipeline:.claude/skills)
+  refusal states: 0
+
+The hook-shaped adapter sweep was also run from /tmp:
+
+  47 clean, 1 drift (image-gen-pipeline), 0 refusals
+
+The implementation reads only immediate child checkouts of each explicit
+`--projects-root`, parses `.devman/project.toml`, rejects duplicate identities,
+and calls `devman_link` without a registry argument.

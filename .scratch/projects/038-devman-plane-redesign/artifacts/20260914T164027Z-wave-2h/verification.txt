@@ -1,0 +1,39 @@
+Wave 2H verification — 2026-09-14
+
+Repository gates:
+  devenv tasks run -v base:check: exit 0, All checks passed
+  devenv tasks run -v base:unit: exit 0, 591 passed
+  devenv tasks run -v base:test: exit 0, all checks passed
+  devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link: exit 0
+  devenv shell -- nix build .#packages.x86_64-linux.devman-link --no-link: exit 0
+
+Focused tests cover explicit inventory roots, multiple root arguments, malformed
+manifests, duplicate identities, empty inventories, and --all/--project
+exclusion. The test count increased from 585 to 591; no tests were removed.
+
+Canaries from /tmp:
+  devman-link status --project vendomat: exit 0, five ok states and central config path
+  devman link status --project vendomat: exit 0, five ok states and central config path
+
+Live plane after the change:
+  pointer: generations/2
+  projects: 45
+  DAG files: 143
+  digest: 5a06aca3a93a8bd8030a8becc42dc57f0560452b04940518b31f8e7f696fe2b9
+  dagu ls lines: 144
+
+Doctor:
+  command: env -u PYTHONPATH -u NIX_PYTHONPATH /run/current-system/sw/bin/devman doctor
+  exit: 1, exactly four known findings
+  findings: flora-037-part-e:devenv.local.nix: create; dirty and unpinned
+    Vendomat; dirty and unpinned RepoMan; unpinned git+file: advice
+
+Protected-file check:
+  src/devman/watch.py: unchanged and not staged
+  tests/unit/test_watch.py: unchanged and not staged
+  RepoMan protected devenv.lock: not in this repository's change
+
+Compatibility mode remains. No generated registry, generation or active DAG
+state was edited. The rollback is the existing Devman revision pin before the
+link-adapter migration. Wave 3 remains incomplete and needs its own design or
+operator decisions.

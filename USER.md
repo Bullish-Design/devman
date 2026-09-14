@@ -166,8 +166,9 @@ devman run <workflow>
 devman doctor        # the plane's own health
 ```
 
-For link diagnostics, use `devman link status --all` or
-`devman link status --project <name>`. Shell entry invokes
+For link diagnostics, use `devman link status --all --projects-root DIR` or
+`devman link status --project <name> --root DIR`. The `--all` form reads each
+direct child manifest under the explicit inventory root. Shell entry invokes
 `devman link reconcile`; it can promote a real view into the central store, so
 inspect status before using it when both sides may contain edits.
 
@@ -685,7 +686,7 @@ time that repository's shell is entered.
 | `its path holds a double quote` | this checkout's path holds `"`, `\`, a tab or a newline | move or rename the directory (§2.6) |
 | `these names are the plane's, not the caller's` | you passed `DEVMAN_PROJECT_DIR=` or `DEVMAN_SELF_DIR=` | drop it, and pass `--project NAME` instead (§3) |
 | `these overrides name no declared parameter` | a misspelled parameter name | use a name from the list the refusal prints |
-| `cannot determine project identity` | link status cannot find a literal `devman.project` declaration | pass `--project NAME`, or use `devman link status --all` |
+| `cannot determine project identity` | link status cannot find a manifest or literal `devman.project` declaration | pass `--project NAME --root DIR`, or use `devman link status --all --projects-root DIR` |
 | `so it names a project` | you gave a path to a parameter that defaults to a project name | pass a registered project's name instead (§3) |
 | `devman: group 'X' does not exist` | a group name that is not in `groups/` | fix the name; a deleted group leaves a tombstone that does **not** throw |
 | `× Invalid task name: check` | devenv requires `namespace:name` | write `<group>:<name>` |
