@@ -2426,6 +2426,45 @@ manifest-less compatibility entries such as `fleetman` and
 rollback by pinning a pre-adapter Devman revision remain in place. Wave 3 is
 the next incomplete phase and still needs its own design or operator decisions.
 
+## Stage 42 — land the Stage 37 branches
+
+On 2026-09-14, the seven orphan checkout manifests matched their published
+Stage 37 branch manifests byte for byte. The orphan checkout state was left
+untouched and its recommendation is **abandon**: rely on the published branch
+and do not move or force-push the orphan HEAD.
+
+**The landing method.** For each repository, a clean temporary worktree started
+from `origin/main`. The published `origin/038-devman-consumer-<project>` branch
+was merged with `--no-ff`, pushed as `wave3-land-<project>-20260914`, opened as
+one pull request, and merged with a merge commit. The dirty detached checkout
+was never staged.
+
+**The result.** All ten PRs merged successfully:
+
+| Repository | PR | Merge commit |
+|---|---:|---|
+| `gitman` | [30](https://github.com/Bullish-Design/gitman/pull/30) | `e558b51a0f1cb8f03aba36a0db59e03d20b988af` |
+| `copyroom` | [2](https://github.com/Bullish-Design/copyroom/pull/2) | `19992a825e04e909446ce194be61e7e97cab93fa` |
+| `docman` | [1](https://github.com/Bullish-Design/docman/pull/1) | `5f5b3472256a38151578775ef18649f6335132ce` |
+| `mypi-agent` | [1](https://github.com/Bullish-Design/mypi-agent/pull/1) | `45e7b81c00f7e11764907236595c338eae80f1f4` |
+| `image-gen-pipeline` | [1](https://github.com/Bullish-Design/image-gen-pipeline/pull/1) | `a0193791b660f0d5b7b611a4b16aba8df3128c86` |
+| `llgym` | [1](https://github.com/Bullish-Design/llgym/pull/1) | `875523ea0d01623de6461eef4587c231b3fa6879` |
+| `loci-core` | [1](https://github.com/Bullish-Design/loci-core/pull/1) | `b6a9f4807e08b11801e8268bde35f07558e45276` |
+| `nix-paseo` | [1](https://github.com/Bullish-Design/nix-paseo/pull/1) | `33030931ccb7f8a69229ec7f6f28ea8975223b46` |
+| `pydantree` | [25](https://github.com/Bullish-Design/pydantree/pull/25) | `e51bc6ce2dbdee1454c477d1a4546d9a641e645a` |
+| `pyjutsu` | [2](https://github.com/Bullish-Design/Pyjutsu/pull/2) | `3c636ce23c873a6fa3bf4f9f6f09b985f1021f44` |
+
+**The proof.** After each merge, `git fetch origin main` succeeded and
+`git cat-file -e origin/main:.devman/project.toml` returned 0 for all ten
+repositories. A post-landing status sweep returned no `D`, `DA` or `AD` status
+for `.devman/project.toml`; existing dirty changes remain in the original
+checkouts. No force-push or branch move was used.
+
+**Status.** The ten manifests now exist on every remote `main`. The local
+checkouts remain intentionally dirty and detached where they were before this
+stage. The next incomplete phase is item 12: review and archive
+`flora-037-part-e` and `fleetman`.
+
 ## Stage 41 — separate authored and generated roots
 
 On 2026-09-14, Wave 3 made the authored/generated root boundary explicit before
