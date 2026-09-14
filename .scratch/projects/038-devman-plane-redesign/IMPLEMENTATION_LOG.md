@@ -376,12 +376,17 @@ finding) while pending, `!!` (a finding, with the repair action) when
 blocked. `src/devman/run.py`'s `trigger()` refuses an enqueue while
 `reload.pending` exists, except for `--print`, which enqueues nothing.
 
-**This closes the race only for the `devman run` path.** Dagu's own scheduled
-enqueues and the watcher's do not pass through `trigger()`, so a run either
-of them starts can still race the restart. That limitation is documented in
-the module rather than claimed away, per §5.3's instruction not to assert an
-absolute guarantee from a polling loop. Closing it fully needs a daemon-side
-hook nothing in this design has built.
+**This closes the race for the `devman run` and watcher paths.** The watcher
+calls `trigger()`, so it observes `reload.pending`. Dagu's own scheduled
+enqueues do not pass through `trigger()`, so a scheduled run can still race the
+restart. That limitation is documented in the module rather than claimed away,
+per §5.3's instruction not to assert an absolute guarantee from a polling loop.
+Closing it fully needs a daemon-side hook nothing in this design has built.
+
+**Correction recorded 2026-09-14.** The original statement that the watcher
+bypassed `trigger()` was false. Experiment E2 proved that the watcher refuses
+while `reload.pending` exists. The VM test still has no reload subtest; the
+earlier claim that it caught the loop remains false and is corrected above.
 
 **The NixOS `dagu-service` VM test caught two real, previously-latent bugs
 while proving this boundary — not new ones the markers introduced, ones the
@@ -1787,10 +1792,16 @@ The operator also approved the three development-layer consumers. New
 manifests were added for `copyroom`, `docman`, and `mypi-agent`; their
 Devman declarations under `dev/devenv.nix` were removed; and their matching
 central declarations were committed locally as `6501fed6`, `79f983fd`,
-and `bf9293db`. Published consumer commits are
+and `bf9293db`. The following consumer commits are published to consumer
+branches, not to `main`:
 `a0e922e54bb6020c4389c881154ea4bc0182efbe`,
 `660d6790f40ca76d98fea845107d44d822c1bb11`, and
 `3a45c14e435ef48ab18d38c111e2313a5b39f8c6`.
+
+**Correction recorded 2026-09-14.** Stage 37's use of "published" did not mean
+merged to trunk. For all ten repositories, `git merge-base --is-ancestor
+<commit> origin/main` returned `NO`, and `origin/main:.devman/project.toml` was
+absent. The remaining action is to land the ten published branches on `main`.
 
 Passing gates: `gitman` 314 tests, `nix-paseo`, `pydantree` (379
 passed, 1 expected failure), `pyjutsu`, and `copyroom` (603 tests).

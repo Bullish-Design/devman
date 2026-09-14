@@ -198,16 +198,12 @@ A change here changes that VM test. `nix/renderer.nix:84` is the packaged entry.
 
 ### H. Remove the compatibility registry read (item 4)
 
-`src/devman/cli.py:262-275`. `devman link status --all` reads the compatibility
-registry, because *"the compatibility registry is still the only thing that knows
-which projects were registered."*
-
-Item 4's gate is "a supported replacement for the remaining consumers." The
-manifest is the registration now, so the replacement is likely a manifest sweep
-rather than a registry read. **State the replacement before removing the read.**
-A sweep that silently covers fewer repositories than the registry did is the
-Stage 16 failure repeated — it swept without `--project`, three repositories
-refused, and it predicted nothing.
+`src/devman/cli.py:262-275`. `devman link status --all` no longer reads the
+compatibility registry. Commit `976d14e` replaced that read with a manifest sweep
+over the explicit `--projects-root`; `--all` refuses without that scope. The
+replacement is therefore stated and the item H gate is closed. This avoids
+repeating the Stage 16 failure, where an unscoped sweep silently covered fewer
+repositories than the registry.
 
 ---
 

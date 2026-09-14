@@ -263,12 +263,12 @@ let
   # enqueue for the whole window rather than only the instant of the restart.
   # `devman doctor` reads both markers to say why a reload has not finished.
   #
-  # THIS CLOSES THE RACE ONLY FOR THE `devman run` PATH. Dagu's own scheduled
-  # enqueues, and the watcher's, do not pass through `devman run`'s Python
-  # entry point, so a scheduled or watcher-fired run can still start in the gap
-  # between the wait loop emptying and `systemctl try-restart` executing. That
-  # is an accepted, documented limitation (§5.3) rather than an absolute
-  # guarantee — nobody has built the daemon-side hook a full close would need.
+  # THIS CLOSES THE RACE FOR THE `devman run` AND WATCHER PATHS. The watcher
+  # calls `run.trigger`, so it observes `reload.pending` too. Dagu's own
+  # scheduled enqueues do not pass through `devman run`'s Python entry point,
+  # so a scheduled run can still start in the gap between the wait loop
+  # emptying and `systemctl try-restart` executing. That is an accepted,
+  # documented limitation (§5.3), not an absolute guarantee.
   registryChangePath = lib.replaceStrings [ "$HOME" ] [ "%h" ] cfg.registryDir;
   reloadScript = pkgs.writeShellScript "devman-dagu-reload" ''
     set -eu
@@ -321,9 +321,8 @@ let
     # therefore true whether or not anything is running, and this loop never
     # terminated on its own; a restart happened only when `dagu ps` itself
     # transiently failed and `2>/dev/null` emptied its output by accident.
-    # Caught by the VM test once `reload.pending` made a stuck loop visible
-    # (project 038, §5) — matching every case not empty is what an idle Dagu
-    # actually prints, not the absence of output.
+    # The VM test does not cover reload yet. Unit tests write the markers by
+    # hand. Add the reload subtest before relying on this loop in the VM.
     while [ "$(${lib.getExe cfg.package} ps 2>/dev/null || true)" != "No running processes" ]; do
       if [ "$waited" -ge "$max" ]; then
         mark "$blocked"

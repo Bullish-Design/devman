@@ -873,19 +873,17 @@ registry in its old place and workflows still rendered.
    also completing §6.2a, which is the gap.
 3. `paths.dags_dir` stays under `registryDir`, unmoved — no change needed
    there since `registryDir` itself did not move.
-4. **§6.2a cannot land as a quick follow-on either — it is a real design gap,
-   not a small patch.** `render()` does not only add `working_dir`/`log_dir`
-   as convenience; its `env: DEVMAN_PROJECT_DIR: <path>` block is the *only*
-   way a **scheduled** (cron-fired) workflow gets its project directory. A
-   CLI-triggered run gets it from the triggering process's environment via
-   `env_passthrough_prefixes`; a scheduled run has no enqueuing process to pass
-   anything through (S9, S13). A plain symlink from `dags/` to a group's
-   Nix-store file or the overlay's file cannot carry a project-specific value,
-   because that source file is shared and invariant. §6.2a's own text already
-   says "revisit then, with evidence from having written workflows in two or
-   three repositories" — the mechanism for scheduled runs was never designed,
-   only deferred. Moving `registryDir` is gated on that design existing, not
-   merely on writing the symlink code.
+4. **§6.2a now has a designed mechanism and isolated proof.** `render()`'s
+   `env: DEVMAN_PROJECT_DIR: <path>` block was the only way a **scheduled**
+   workflow got its project directory. A plain symlink cannot carry a
+   project-specific value because its source file is shared and invariant. The
+   isolated Dagu 2.15.0 experiment now proves the replacement: one shared source
+   linked as `projA.check` and `loci.nvim.check` expanded
+   `${DAG_NAME%.*}` to two correct project directories for scheduled runs. `%`,
+   not `%%`, preserves the dotted project name, matching `registry.py`'s
+   `rsplit` rule. The path convention holds for 45 of 45 active projects.
+   This is not yet proof under renderer removal. Stage 4 must run the VM
+   prototype before it changes `project.py`'s render path.
 5. **Revised order:** `registryDir` moves to `$HOME/.config/devman` only after
    a Stage 4 that includes a stated answer for scheduled-run correctness under
    the link design, verified against `nix/tests/dagu-service.nix`'s scheduled
