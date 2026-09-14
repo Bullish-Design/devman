@@ -1797,9 +1797,10 @@ passed, 1 expected failure), `pyjutsu`, and `copyroom` (603 tests).
 Published failures: `image-gen-pipeline` 4 failed / 647 passed;
 `llgym` 14 failed / 196 passed; `loci-core` 16 Ruff errors plus one
 promoted-skill link failure; `docman` one Ruff error with 18 tests passing;
-and `mypi-agent`, whose gates were blocked by the existing SecretSpec reason
-policy. All failures are recorded in the corresponding consumer commit
-messages. The link canary passed for every edited central declaration.
+and `mypi-agent`, which initially hit the SecretSpec reason policy and then
+failed `base:check` on 16 existing Ruff findings when rerun with a reason. All
+failures are recorded in the corresponding consumer commit messages. The link
+canary passed for every edited central declaration.
 
 ### Archive TODO
 
@@ -1809,3 +1810,75 @@ archived. They are intentionally excluded from this migration. Historical
 design records, generated registry state, and the shared `my-ai` skill remain
 untouched. The active trigger inventory comments out `fleetman` and
 `my-ai` until that review.
+
+## Stage 38 — complete the remaining consumer fanout
+
+On 2026-09-13, the operator authorized publishing the remaining consumer
+migrations even when their repository gates fail. The central declarations were
+updated in one local commit, `327f9259ffb43216a9c9ea73f1309742f4d612ae`.
+The commit is local because the central configuration checkout has no remote.
+Each declaration now accepts `project ? null`, reads the manifest when the
+argument is absent, imports the machine-owned link module, and keeps its prior
+link map.
+
+The following consumer lanes were saved and pushed. Each commit message records
+its gate result and required repair:
+
+- `boomtube`: `38cd0f12688d854a4a3e5947d0eac491a3ff88d5`
+- `cairn`: `43e4d45ced643d523a82f81d4f14d43bcd919235`
+- `embeddy`: `7db39f152b1065570f2a1918878796aee8ba11ae`
+- `flora`: `ba45ba65640c4a50ec2d19f46679bb5498cb603b` on
+  `adopted-53eb515c/038-devman-consumer-flora`
+- `flora-core`: `1fbb612cd37da0d6345aa79a13ab2e3a977a368c`
+- `fornix`: `be52eef077f94e1ae1fb4d6cfc55d367d5ad70fa`
+- `interplay`: `66fe75bae07bc84037ea87340b9a5a0a8b037960`
+- `nix-desktop`: `65138c4c239597d6297e5650c868269241a82440`
+- `nix-secrets`: `fc79388b8c11ef9a63b2d2e65560c478830f690c`
+- `nixbuild`: `f31073921f8724d8b56ca2714fada0374d2836c1`
+- `nixvim`: `74034c2fabda97a634a1325cf00e9a111a674da2`
+- `observantic`: `4971460ad0c4b3aa5c9d1329ab6bf8205abf9651`
+- `paloma-text-pipeline`: `3c46ac9f43fcf6b935ad7f89230e009c643a7899` on
+  `adopted-9fcbe454/038-devman-consumer-paloma-text-pipeline`
+- `parsedantic`: `b6b92f442002bfce42f7f9b906006c97646040ab`
+- `shellij`: `aea0099d1ca61053f66a19aa3eaab2c54bbf66a1`
+- `structured-agents-v2`: `2ae2cc0adb7291769ffa836eb2d4a6efbaf715c9`
+- `talkee`: `56a6eba7e9902c0b4b9a1f7fc1e3816d4ed9f166` on
+  `adopted-f716d590/038-devman-consumer-talkee`
+- `templateer_v2`: `86cee5dedb8d31e460332e0efdc805d70d722d52`
+- `terminal-state`: `19dc8c0c50f34ad86f755915ac649cce80a5d08e`
+- `testee`: `ac3a0e052cb2a149453bf0cec2ed7ab8a7527233`
+- `webdantic`: `582ed91806f4804e167472356526cdf99c48a45f`
+- `tyo3`: `b7ad8167e47d10275d5a9e7ac9f61ba45b20e0e4` on
+  `038-devman-consumer-tyo3-followup`, using the path-limited raw-Git
+  fallback because Gitman is blocked by jj/Git desynchronization. No tracked
+  `devenv.lock` exists in tyo3.
+- `argentic`: `937122bb176f48fdccfb21348409b9fbcb37a50e`
+
+The gates passed for `boomtube`, `cairn`, `embeddy`, `interplay`, `nix-desktop`,
+`nix-secrets`, `nixbuild`, `nixvim`, `observantic`, `shellij`, `talkee`,
+`testee`, and `tyo3`. `flora` failed two test collection imports because
+`psycopg` is absent. `flora-core` failed one Ruff import-order check. `fornix`
+failed one Btrfs test with `Operation not permitted`. `paloma-text-pipeline`
+has no `base:check` or `base:test` task. `parsedantic` has 79 Ruff findings and
+13 collection errors reporting `TypeError: function() argument 'code' must be
+code, not str`. `structured-agents-v2` has 12 Ruff findings. `templateer_v2`
+has one version-help assertion failure. `terminal-state` has one existing lint
+finding. `webdantic` has 273 Ruff findings. Argentic passed shell and check but
+failed its eight known SilverBullet live tests after 680 passing tests. All
+failures and repairs are recorded in the consumer commit messages.
+
+Both link canaries passed for every target. The active pointer stayed at
+`generations/2`. The plane stayed at 46 projects and 146 DAG files, with digest
+`5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`; Dagu
+inventory stayed at 147. Doctor returned exit 1 with only the four known
+findings: flora-037-part-e link drift, dirty and unpinned Vendomat, dirty and
+unpinned RepoMan, and unpinned `git+file:` advice.
+
+Pre-existing large work was kept separate where it was generated or unrelated:
+Nixvim `.devenv`, Structured Agents `.scratch`, and Terminal State test output
+fixtures each have a draft Gitman lane. No protected Devman watcher files or
+RepoMan protected files were changed.
+
+The supported consumer transition is complete. Compatibility mode remains
+enabled. §11 cleanup is still deferred until the archive review and the
+compatibility-only project disposition are performed.
