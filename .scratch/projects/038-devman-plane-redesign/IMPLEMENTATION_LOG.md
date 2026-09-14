@@ -2102,3 +2102,78 @@ migration:
 
 **Items 2 and 4 sat behind item 3 and are now unblocked.** Item 5 remains
 blocked on the operator decisions the removal prompt lists.
+
+## Stage 41 — the archive set leaves the plane
+
+The operator set two rules for the archive set on 2026-09-14. **Remove them from
+the registry**, and **move their central agent files into the repositories
+themselves** rather than deleting that content. The set is `allium-env`,
+`forgelab` and `lodestar`, plus the existing `fleetman` and `my-ai`.
+
+The second rule matters because of the boundary test. `.agents/` goes central,
+so for these repositories the central overlay was the **only** home for 42
+allium-env files and 27 lodestar files. Deleting the overlay first would have
+destroyed them.
+
+### allium-env — done
+
+It was the only one still registered: a registry entry, three DAGs, and the 46th
+project. Removing `.devman/project.toml` is what takes a repository out, because
+the manifest is the registration.
+
+Its 42 agent files — 6 authored prompts and 22 skills — are now tracked in the
+repository. `.claude/skills` became a repository-relative symlink to
+`.agents/skills`, so there is still one copy.
+
+**Its `.gitignore` would have dropped the prompts silently.** The agent-files
+convention there tracks `.agents/skills/` and ignores the rest of `.agents/` as
+runtime state. The six `allium-*` prompts are authored content, so the rule
+gained an exception. Without it, `git add -A` staged 36 of 42 files and reported
+success — the shape §4 of AGENTS.md exists to prevent.
+
+Landed as `Bullish-Design/allium-env#1`, merge `11e6181`. Gates: shell 0,
+`base:check` 0, `base:test` 0.
+
+### forgelab — done
+
+Nothing to move. Its `.agents/` and `.claude/skills` were already real files in
+the checkout, and it had no `devenv.local.nix`. The overlay held one declaration.
+
+### lodestar — its content is moved, its overlay is not removed
+
+Its 26 agent files and `settings.local.json` are materialized in the checkout,
+and the dangling `devenv.local.nix` symlink is gone. **The central overlay stays
+until someone commits them there.**
+
+**That checkout is not in a state to commit into.** It sits detached with a
+corrupted index: 23 stray staged adds, 13 modifications and 14 renames,
+including `.envrc` and `.loci` symlinks staged for tracking although
+`.git/info/exclude` covers them. This is the same `git add -A` corruption the
+Stage 38 repair found here and in RepoMan. It also now holds two agent trees —
+the restored `.agents/` and the older `.agents.devman-promoted/`. Reconciling
+that is the operator's call, not a side effect of this stage.
+
+### Measured
+
+```text
+fleet sweep before  48 clean / 3 drift (forgelab, image-gen-pipeline, lodestar)
+fleet sweep after   47 clean / 2 drift (image-gen-pipeline, lodestar)
+doctor              exit 1, the same four findings
+projection          still 46 projects, 146 DAG files
+```
+
+Central commit `75f1b6cd` removed the allium-env and forgelab declarations. It is
+local, because the central checkout has no remote.
+
+Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260914T143358Z-archive-set-removal/`
+
+### Two steps this stage did not take
+
+1. **`allium-env`'s registry entry is still there**, so the projection still
+   reads 46 projects and 146 DAG files. `doctor --prune` cannot remove it,
+   because prune only takes entries whose path is gone, and the checkout is
+   still on disk. There is no supported command to unregister a live checkout.
+   Removing `~/.local/share/devman/projects/allium-env` by hand and rebuilding
+   the projection is the remaining action. The registry is derived, so this is
+   cheap — but it is a hand-edit of derived state, and worth doing knowingly.
+2. **`lodestar`'s overlay removal**, which waits on that checkout's index.
