@@ -8,7 +8,7 @@ import pytest
 
 import devman_link.api
 from devman import cli
-from devman.identity import (
+from devman_link import (
     IdentityError,
     LinkConfiguration,
     LinkConfigurationError,

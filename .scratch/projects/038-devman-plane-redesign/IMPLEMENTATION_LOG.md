@@ -2231,3 +2231,10 @@ On 2026-09-14, the watcher source was free to edit, so the temporary
 `reconcile` and `LinkError` directly from `devman_link`, and the doctor test
 uses the same public component surface. The shipped `devman link` command still
 resolves through `src/devman/cli.py` and does not depend on the deleted shim.
+
+## Wave 2E — remove the obsolete identity shim
+
+On 2026-09-14, the public `devman link` surface audit found no CLI import of
+`devman.identity`. The only repository caller was
+`tests/unit/test_identity.py`; it now imports the same names from
+`devman_link`. The old `src/devman/identity.py` re-export is deleted.

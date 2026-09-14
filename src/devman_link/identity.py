@@ -6,7 +6,8 @@ not have the manifest yet.  This module does not infer identity from a path or
 write any repository or machine state.
 
 It moved here from ``devman.identity`` at 038 Stage 16 so that the adapter owns
-one identity resolver and copies no parser.  ``devman.identity`` re-exports it.
+one identity resolver and copies no parser.  The old ``devman.identity`` shim
+is removed after all callers move to this component.
 """
 
 from __future__ import annotations
