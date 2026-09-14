@@ -2246,3 +2246,85 @@ The only callers were inside Devman: the compatibility project renderer, the
 machine-plane reconciler, and two unit-test modules. They now import the
 canonical `devman_contract` package. The old `src/devman/contract.py` re-export
 is deleted.
+
+## Wave 2G — collapse the duplicate resolver design
+
+The 2026-09-14 gate sweep found 47 clean checkouts and one ordinary drift
+decision (`image-gen-pipeline` must promote `.claude/skills`). It found no link
+adapter refusal. The live caller audit found `modules/devenv.nix` as the only
+active `project apply` caller. `devman/devenv.yaml` is the only live consumer of
+that module; `lodestar` and `forgelab` remain in the archive set. The Dagu VM
+checks call the old command as test coverage, not as a live consumer.
+
+The design is to keep the compatibility registry writer until item 4 has a
+replacement, but remove its second resolver. `devman project apply` will become
+a thin compatibility publisher: it will call the canonical
+`devman.reconcile` resolver and renderer, validate the returned workflow bytes,
+then publish those bytes and compatibility metadata to the old registry and
+state roots. `modules/devenv.nix` will stop resolving workflow, trigger, and
+write outcomes in Nix. It will keep only a small policy-source identity and the
+runtime checks needed to repair local overlays and DAG links, then invoke the
+packaged canonical renderer at shell entry.
+
+This keeps devman's self-adoption path. It also keeps scheduled workflows in
+the compatibility registry until item 4 is solved. The failure avoided is a
+split result: a group or overlay change could otherwise make the Nix `Plan` and
+the machine-plane bundle select different files, headers, or validation
+results. One resolver now decides all three, while the old writer remains only
+as a temporary publication boundary.
+
+### Wave 2G — measured and deployed
+
+The first VM run found one test-only path error: `groups/..` resolves to
+`/nix/store/groups`, not to the policy checkout. The test now passes an
+explicit policy source root. The VM also showed that the canonical resolver
+reads every central overlay file. The test removes `env-only.yaml` after its
+expected refusal before it asks for the next projection.
+
+The implementation removed the Nix `Plan` resolver. `modules/devenv.nix` now
+keeps a policy-source digest and workflow-name guard, then calls the packaged
+canonical renderer at shell entry. `project apply` delegates resolution and
+rendering to `reconcile.compatibility_apply`; its old registry and state
+writer remains only for the temporary compatibility boundary. The machine
+plane and compatibility path now share one resolver and one renderer.
+
+The unit suite changed from 599 to 585 tests. These 16 compatibility-path
+tests were removed because they exercised the deleted `Plan` resolver,
+`_sources()` helper, or old publication writer:
+`test_local_workflow_sources_are_read_from_the_overlay`,
+`test_apply_publishes_a_file_a_link_and_an_entry`,
+`test_an_invalid_project_identity_is_refused_before_any_path_is_built`,
+`test_a_workflow_name_holding_a_dot_is_refused`,
+`test_a_file_dagu_refuses_is_not_published`,
+`test_a_local_override_shadows_the_group_file`,
+`test_the_entry_is_written_last`,
+`test_a_stale_link_and_file_are_swept`,
+`test_an_unchanged_file_is_not_revalidated`,
+`test_a_changed_file_is_revalidated`,
+`test_a_new_plan_revalidates_everything`,
+`test_a_refusal_leaves_the_previous_projection_intact`,
+`test_the_local_file_is_kept_beside_the_entry_for_the_guard`,
+`test_removing_the_local_file_removes_the_kept_copy`,
+`test_the_local_writes_file_is_kept_beside_the_entry_for_the_guard`, and
+`test_removing_the_local_writes_file_removes_the_kept_copy`.
+Three canonical publisher tests now live in `test_reconcile.py` and cover
+publication, refusal before publication, and unchanged validation. The
+remaining count reflects the compatibility-only test removal and its
+replacement at the canonical boundary.
+
+Evidence: `artifacts/20260914T161008Z-wave-2g/`.
+
+The gates passed: `base:check`, `base:unit` with 585 tests, `base:test` with
+all 24 flake checks, and explicit builds of the Dagu service check and
+`devman-link`. Both canaries returned 0 with five `ok` states. The fleet sweep
+returned 47 clean projects, one ordinary promote drift for
+`image-gen-pipeline`, and no refusal. The active plane stayed at
+`generations/2`, with 45 projects, 143 DAG files, digest
+`5a06aca3a93a8bd8030a8becc42dc57f0560452b04940518b31f8e7f696fe2b9`, and 144
+`dagu ls` lines. `devman doctor` returned 1 with only its four known findings:
+the flora devenv-local drift, dirty unpinned Vendomat, dirty unpinned RepoMan,
+and the unpinned `git+file:` advice.
+
+Nothing outside this wave was repaired. The compatibility registry writer and
+item 4 remain open. Wave 2G is complete; Wave 2H and Wave 3 still require
+their own design and evidence.

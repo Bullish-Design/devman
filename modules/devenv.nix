@@ -74,295 +74,63 @@ let
         + "the name becomes a registry directory and a DAG file name (§9.2). "
         + "Set devman.project to a name that matches, and enter the shell again.");
 
-  # ---------------------------------------------------------------------------
-  # §7.3 resolution, at evaluation time
-  #
-  # Groups resolve in the order the repo lists them, each shadowing the last.
-  # Shadowing is whole-file, never a field merge. The central per-project
-  # workflow overlay is the final layer and is applied by the projection script
-  # below through the repository's `.devman/workflows/` view.
+  # The canonical machine-plane resolver reads these sources at shell entry.
+  # Nix keeps only a content identity for the selected policy and the workflow
+  # names needed by the forkless repair guard below. It does not select winners,
+  # merge triggers, or merge writes.
+  policyRoot = ../.;
   groupsRoot = ../groups;
 
-  # One group's workflows, as `<name> -> <store file>`.
-  #
-  # `builtins.readFile` rather than the path itself, and the reason is devenv's
-  # evaluation cache. Interpolating a path copies the file to the store, and
-  # devenv does not notice when that file's CONTENT changes: the projection then
-  # keeps pointing at the previous store path, shell entry after shell entry.
-  # `readFile` is a read the cache tracks, so an edited group file re-evaluates.
-  #
-  # A repository pinning a `git+https` rev never meets this, because a changed
-  # group file is a changed rev. A repository importing `./modules` — this one,
-  # adopting itself (criterion 16) — meets it on every edit.
-  groupFiles = group:
+  groupPolicy = group:
     let
-      dir = groupsRoot + "/${group}/workflows";
+      dir = groupsRoot + "/${group}";
+      workflowsDir = dir + "/workflows";
+      workflowFiles =
+        if builtins.pathExists workflowsDir then
+          lib.filterAttrs
+            (file: kind: kind == "regular" && lib.hasSuffix ".yaml" file)
+            (builtins.readDir workflowsDir)
+        else
+          { };
     in
-    if !builtins.pathExists (groupsRoot + "/${group}") then
-      throw "devman: group '${group}' does not exist. There is no ${toString (groupsRoot + "/${group}")}."
-    else if !builtins.pathExists dir then
-    # A group may ship no workflows at all. Two shapes use this branch, and the
-    # second was measured at stage 7.
-    #
-    # A TRIGGERS-ONLY GROUP is how a repository opts into reactivity without
-    # also inheriting somebody's workflows, which is what keeps §7.4's "an
-    # inherited workflow you never trigger costs nothing" true — a *triggered*
-    # workflow costs plenty (§8).
-    #
-    # A TOMBSTONE is a group that has been deleted. The throw above is an
-    # EVALUATION failure, so a repository that re-pins to a rev where its group
-    # is gone cannot enter its shell at all — a flag day rather than a
-    # migration. A directory that ships no `workflows/` evaluates and projects
-    # nothing, so a stale pin keeps working and the repository renames its group
-    # when it is next edited (STAGE_7_LOG.md, I-6 and S-3).
-    #
-    # A tombstone MUST hold at least one file, because git cannot carry an empty
-    # directory, and MUST NOT hold a `triggers.toml`, because the mapping would
-    # keep firing a workflow the repository no longer projects.
-      { }
-    else
-      lib.mapAttrs'
-        (file: _:
-          let name = lib.removeSuffix ".yaml" file; in
-          # The codec's one refusal, at evaluation time (§9.2, S-12). A dot in a
-          # workflow name would make the last dot of `<project>.<workflow>`
-          # ambiguous, and the DAG name no longer injective. A group ships to
-          # every repository that takes it, so this is the cheapest place to
-          # find it: the group author sees it, once, instead of every taker.
-          if lib.hasInfix "." name then
-            throw ("devman: group '${group}' ships '${file}', and a workflow name may not hold a '.'. "
-              + "A DAG name is <project>.<workflow>, and the last '.' is the separator (§9.2). "
-              + "A project name may hold dots; a workflow name may not.")
-          else
-            lib.nameValuePair
-              name
-              (pkgs.writeText "devman-${group}-${file}" (builtins.readFile (dir + "/${file}"))))
-        (lib.filterAttrs
-          (file: kind: kind == "regular" && lib.hasSuffix ".yaml" file)
-          (builtins.readDir dir));
+    if !builtins.pathExists dir then
+      throw "devman: group '${group}' does not exist. There is no ${toString dir}."
+    else {
+      inherit group;
+      workflows = lib.mapAttrs
+        (file: _: builtins.readFile (workflowsDir + "/${file}"))
+        workflowFiles;
+      triggers =
+        if builtins.pathExists (dir + "/triggers.toml") then
+          builtins.readFile (dir + "/triggers.toml")
+        else
+          null;
+      writes =
+        if builtins.pathExists (dir + "/writes.toml") then
+          builtins.readFile (dir + "/writes.toml")
+        else
+          null;
+    };
 
-  # The whole of §7.3's group resolution, as `<name> -> { group; file; shadows; }`.
-  #
-  # `shadows` is the groups this name displaced, in the order the repo listed
-  # them. It costs nothing at evaluation time and it is what makes the registry
-  # record the resolution rather than only its result: `devman show` prints
-  # which group a file came from, and `doctor` diffs a repo's own override
-  # against the group version it shadows (§10 check 4, §15.6). The same field is
-  # what §12.4's measurement reads.
-  resolved = lib.foldl'
-    (acc: group:
-      acc // lib.mapAttrs
-        (name: file: {
-          inherit group file;
-          shadows =
-            if acc ? ${name}
-            then acc.${name}.shadows ++ [ acc.${name}.group ]
-            else [ ];
-        })
-        (groupFiles group))
-    { }
-    cfg.groups;
+  groupPolicies = map groupPolicy cfg.groups;
+  policyDigest = builtins.hashString "sha256" (builtins.toJSON {
+    groups = cfg.groups;
+    sources = groupPolicies;
+  });
+  workflowNames = lib.sort builtins.lessThan (lib.unique (lib.concatLists
+    (map
+      (policy: map (lib.removeSuffix ".yaml") (lib.attrNames policy.workflows))
+      groupPolicies)));
 
-  # ---------------------------------------------------------------------------
-  # Reactivity — which glob fires which workflow (§8)
-  #
-  # `groups/<group>/triggers.toml` is a table of `<glob> = <workflow>`.
-  # It is GROUP CONTENT, and where it sits was the sharpest design question in
-  # stage 3, because three obvious homes are all closed:
-  #
-  #   * not in the workflow file — Dagu rejects an unknown top-level key
-  #     outright, and §7.2 says a workflow is Dagu configuration from the first
-  #     line to the last (A5).
-  #   * not a Nix option here — that would make the machine learn a project fact
-  #     (§4), and §7.4 says there is no per-workflow Nix option.
-  #   * not a second file the watcher reads at run time — the watcher would then
-  #     need §7.3's resolution too, and there would be two implementations of it.
-  #
-  # So it is resolved here, at evaluation time, exactly as workflows are, and
-  # recorded in the registry entry. The watcher reads the entry and nothing else.
-  #
-  # Resolution is WHOLE-FILE, like §7.3's: the last group the repository lists
-  # that ships a `triggers.toml` wins outright. There is no merge, for the same
-  # reason §7.3 refuses one — the result would be hard to predict from either
-  # file alone.
-  #
-  # TOML READ WITH `readFile`, FOR TWO REASONS, AND NOT FOR A THIRD.
-  #
-  #   1. It is the construct stage 1's S8 measured as tracked by devenv's
-  #      evaluation cache. `import` is untested there, and this file's content
-  #      decides what the machine does when a developer saves — it must not go
-  #      stale silently.
-  #   2. A mapping is DATA. A `.nix` file would let a group evaluate arbitrary
-  #      Nix, including an import from a derivation, in every repository that
-  #      takes it. Workflows are inert YAML for the same reason (§7.2).
-  #
-  # The reason it is NOT: a first draft of S7 blamed `import` for a stale
-  # mapping, and the cause was elsewhere — a group file inside a `path:` flake
-  # input is invisible to devenv's evaluation cache whatever construct reads it,
-  # until `.devenv/nix-eval-cache.db` is deleted. Both constructs behave the same
-  # there, and the entry says so.
-  groupTriggers = group:
-    let
-      file = groupsRoot + "/${group}/triggers.toml";
-    in
-    if builtins.pathExists file
-    then { inherit group; map = builtins.fromTOML (builtins.readFile file); }
-    else null;
-
-  triggers = lib.foldl'
-    (acc: group: let t = groupTriggers group; in if t == null then acc else t)
-    null
-    cfg.groups;
-
-  # ---------------------------------------------------------------------------
-  # Output ownership — what each workflow writes, and under which tier (015)
-  #
-  # `groups/<group>/writes.toml` is one table per workflow: `tier` (`free` or
-  # `lane`) and `paths`. §12 rule 3 refused every unattended write to tracked
-  # source until 015 amended it into tiers, and a tier is a CLAIM — this is
-  # where the claim is recorded so `doctor` can audit it.
-  #
-  # IT SITS HERE FOR THE SAME REASON THE TRIGGER MAP DOES, re-measured in 015:
-  # a top-level `writes:` key fails `dagu validate` outright, and `tags:` — the
-  # one extension point Dagu does accept — is a label map restricted to
-  # `a-zA-Z0-9-_.`, so it can hold neither a `:` nor a `/` nor a `*`. Both homes
-  # are closed, so this takes the third, exactly as A5 forced for triggers.
-  #
-  # RESOLUTION MERGES PER WORKFLOW, WHICH IS THE ONE PLACE THIS DIFFERS FROM
-  # §7.3 AND FROM `triggers`. Those replace whole-file because a partial result
-  # is hard to predict from either file alone. Here the unit is already one
-  # workflow, so a later group declaring `[regen]` does not silently drop an
-  # earlier group's `[format]` — and a dropped declaration is worse than a
-  # surprising one, because the audit would then report nothing at all.
-  groupWrites = group:
-    let
-      file = groupsRoot + "/${group}/writes.toml";
-    in
-    if builtins.pathExists file
-    then builtins.fromTOML (builtins.readFile file)
-    else { };
-
-  writes =
-    let merged = lib.foldl' (acc: group: acc // (groupWrites group)) { } cfg.groups;
-    in if merged == { } then null else merged;
-
-  # ---------------------------------------------------------------------------
-  # The projection (§9.2, §11 Stage 3), and the rare path that performs it
-  #
-  #   <state>/projects/<project>/metadata.json
-  #   <registry>/projects/<project>/workflows/<workflow>.yaml -> the winner
-  #   <registry>/dags/<project>.<workflow>.yaml               -> the line above
-  #
-  # `dags/` is Dagu's flat view of `projects/`. A DAG is keyed by its file's
-  # base name, so two projects both projecting `check.yaml` are reported as a
-  # duplicate and both vanish from `dagu ls`, from the web UI and from the
-  # scheduler. See nix/nixos-module.nix, which points `dags_dir` at the
-  # registry root. `metadata.json` moved to the state root at Stage 3, because
-  # it is regenerated on every shell entry rather than authored.
-  #
-  # THE SEPARATOR IS A DOT, AND THIS IS ONE OF TWO PLACES THAT RENDERS IT.
-  #
-  # The other is `Registry.dag_name()` in `src/devman/registry.py`, which is the
-  # codec's home and carries the measurement. The two must agree byte for byte:
-  # this side writes the link and the CLI side reads it, so a disagreement makes
-  # every trigger in every repository refuse. There is no shared text layer for
-  # a Python function and a shell script, which is why the rule lives in a
-  # comment on both sides rather than in a file neither can import (§3.1).
-  #
-  #   join with `.`;  a dot is REFUSED in the workflow half, never the project
-  #
-  # `<project>-<workflow>` was not injective — `devman-b` + `check` and `devman`
-  # + `b-check` render one name (S6, S-12).
-  #
-  # STAGE 6: THE PER-PROJECT FILE IS GENERATED, NOT SYMLINKED, AND THE REASON IS
-  # THE SCHEDULE.
-  #
-  # `projects/<p>/workflows/<w>.yaml` used to be a symlink to the group file, so
-  # every projected DAG inherited `working_dir: ${DEVMAN_PROJECT_DIR}` and
-  # `log_dir: ${DEVMAN_PROJECT_DIR}/…` from the machine's `base.yaml`. Both
-  # interpolate from **whoever enqueues**, which is fine for `devman run` and
-  # impossible for Dagu's own scheduler: under `schedule:` the enqueueing process
-  # is the daemon, which has one environment for the whole machine, so both
-  # fields stayed literal and the run worked in a directory named
-  # `${DEVMAN_PROJECT_DIR}` (`STAGE_4_LOG.md`, S2).
-  #
-  # Measured on a throwaway carrying a byte copy of the installed `base.yaml`: a
-  # per-project file that STATES the three values schedules correctly — the
-  # daemon dispatched on the minute, `working_dir` and the variable resolved, the
-  # logs landed under the project, and the machine's inherited exit handler
-  # appended to that project's `metadata.jsonl` (`STAGE_5_LOG.md` S12,
-  # `STAGE_6_LOG.md` S2).
-  #
-  # So the generated file is a HEADER plus the source body, byte for byte:
-  #
-  #     env:
-  #       - DEVMAN_PROJECT_DIR: /home/you/project      # or DEVMAN_SELF_DIR (§11)
-  #     working_dir: /home/you/project
-  #     log_dir: /home/you/project/.devman/.runs/logs
-  #     <the group file, or this repository's own override, unchanged>
-  #
-  # `env:` rather than `params:`, because the header must not have to edit a
-  # `params:` block the workflow already declares. Measured: with `env:` set and
-  # `params: [DEVMAN_PROJECT_DIR: ""]` also present, the step and the exit
-  # handler both saw the env value, and the workflow's other parameters kept
-  # their own defaults (S2).
-  #
-  # THE HEADER ADDS; IT NEVER OVERWRITES. A body that states its own
-  # `working_dir` or `log_dir` keeps them — that is §11's cross-repo workflow,
-  # which must also be given `DEVMAN_SELF_DIR` rather than `DEVMAN_PROJECT_DIR`,
-  # because a workflow that triggers other workflows must not hold the name it
-  # passes to its children.
-  #
-  # The cost is stated in `STAGE_6_LOG.md` S1 rather than discovered: a
-  # central overlay's `.devman/workflows/x.yaml` view is no longer read live by Dagu.
-  # Editing it needs one shell entry to re-project.
-  #
-  # This script forks. It runs only when the rendered entry differs from the one
-  # on disk, which the guard in `enterShell` decides without forking at all.
-  # STAGE 3 OF PROJECT 009 MOVED THE PROJECTION INTO PYTHON, AND THIS IS ALL
-  # THAT IS LEFT OF IT HERE.
-  #
-  # What used to be here decided the directory variable with
-  # `grep -q 'DEVMAN_SELF_DIR'`, decided the `env:` header with
-  # `grep -q '^env:'`, built the entry with `@PATH@` substitution, and validated
-  # no identity at all. Each of those four was a finding — P1-1, P1-1's severe
-  # case, P2-1 and P1-5 — and `src/devman/` already answered every one of them
-  # correctly from a parsed document. The renderer lives there now, and this
-  # file states the plan and runs it.
-  #
-  # `renderer` is built under THIS repository's nixpkgs, exactly as
-  # `installClient` builds `nix/dagu.nix`. The reason is the guard and not the
-  # charter: a `devman` found on PATH is a run-time fact, so its identity could
-  # not enter `planFile`, so the guard could not observe it. See
-  # `nix/renderer.nix`, which carries the amendment to §3.1.
-  # THE RENDERER'S SOURCE IS INVISIBLE TO DEVENV'S EVALUATION CACHE, AND THIS
-  # IS THE SAME MEASUREMENT `groupFiles` ABOVE RECORDS, ONE LAYER DOWN.
-  #
-  # `nix/renderer.nix` builds a `fileset.toSource` over `../src`. Interpolating
-  # a path copies it to the store, and devenv does not notice when the CONTENT
-  # of a copied path changes — so an edited `src/devman/project.py` kept
-  # producing the previous renderer's store path, shell entry after shell entry.
-  #
-  # Measured while writing stage 3, and it looked exactly like a bug in the new
-  # code: the projection refused correctly and then published one workflow
-  # anyway, because the renderer actually running was a build from before that
-  # behaviour was fixed. `planFile` recorded that stale path, so the guard was
-  # satisfied — everything agreed with everything, and all of it was old.
-  #
-  # `builtins.readFile` IS a read the cache tracks, which is why `groupFiles`
-  # uses it. Hashing every source file the renderer is built from puts the same
-  # tracked read on this derivation: change any of them and the hash changes,
-  # the derivation changes, `planFile` changes, and the guard re-projects.
-  #
-  # A repository pinning a `git+https` rev never meets this — a changed source
-  # is a changed rev. devman adopting itself (criterion 16) meets it on every
-  # edit, which is the case this exists for.
   rendererSource = lib.concatMapStrings
-    (file: builtins.readFile (../src/devman + "/${file}"))
-    (builtins.attrNames
-      (lib.filterAttrs
-        (file: kind: kind == "regular" && lib.hasSuffix ".py" file)
-        (builtins.readDir ../src/devman)));
+    (package:
+      lib.concatMapStrings
+        (file: builtins.readFile (../src + "/${package}/${file}"))
+        (builtins.attrNames
+          (lib.filterAttrs
+            (file: kind: kind == "regular" && lib.hasSuffix ".py" file)
+            (builtins.readDir (../src + "/${package}")))))
+    [ "devman" "devman_contract" ];
 
   renderer = (pkgs.callPackage ../nix/renderer.nix {
     dagu = pkgs.callPackage ../nix/dagu.nix { };
@@ -370,101 +138,31 @@ let
     devmanSourceHash = builtins.hashString "sha256" rendererSource;
   });
 
-  # ONE FILE HOLDING EVERYTHING NIX DERIVED, AND ITS STORE PATH IS THE GUARD.
-  #
-  # `plan` used to record the projection script's store path. That path changed
-  # when a group file changed, but NOT when `triggers.toml` changed — triggers
-  # reached the entry by a different route — so `plan` equality did not imply
-  # the projection was current, and the guard had to compare the whole rendered
-  # entry instead. Comparing the whole entry is what forced the entry to be
-  # rendered twice, once in bash and once in Python, and that is P2-1.
-  #
-  # Fixed by construction: this is one `writeText` holding the groups, the
-  # resolved workflows, the triggers and the renderer's own store path, so its
-  # path is a hash of all of it. Any change to any derived fact changes the
-  # path. `plan` equality therefore really does imply that every derived field
-  # is unchanged, which leaves the guard two run-time facts to compare — where
-  # this checkout sits, and which overrides exist.
-  #
-  # The next reader will want to delete the `plan` comparison as redundant. It
-  # is not: it is the only thing that notices a changed group file, a changed
-  # trigger map, or a changed renderer.
+  # This path is an identity for the selected policy and renderer. The
+  # compatibility publisher records it in metadata so the guard re-runs when
+  # either changes.
   planFile = pkgs.writeText "devman-plan-${projectName}.json" (builtins.toJSON {
-    schema = 4;
+    schema = 5;
     project = projectName;
     groups = cfg.groups;
-    # §7.3's OUTCOME, not its inputs. `shadows` is what `doctor` check 4 diffs
-    # an override against, and `source` is the store path that won.
-    workflows = lib.mapAttrs
-      (_: w: { inherit (w) group shadows; source = "${w.file}"; })
-      resolved;
-    inherit triggers;
-    inherit writes;
-    overlay = cfg.overlayDir;
-    links = effectiveLinks;
+    policy = policyDigest;
     renderer = "${renderer}";
   });
 
-  # ---------------------------------------------------------------------------
-  # THE REGISTRY ENTRY'S SCHEMA — the history, kept because each step has a
-  # reason a later reader will otherwise re-litigate.
-  #
-  # SCHEMA 2 added `workflows`, and it exists for `doctor` (§10) rather than for
-  # the projection, which never reads it. Schema 1 recorded the inputs to §7.3's
-  # resolution — `groups` and `local` — and not its outcome, so nothing on disk
-  # said which file won or what it displaced. Four of §10's six checks want the
-  # outcome, and check 4 — "shadowed files and their drift" — cannot be computed
-  # from schema 1 at all: to diff a repo's `.devman/workflows/check.yaml`
-  # against the group version it shadows, something must record which group
-  # version that was. §12.4's measurement asks the same question.
-  #
-  #   "workflows": {
-  #     "check": {"group":"base","shadows":[],"source":"/nix/store/..."}
-  #   }
-  #
-  # `local` stays, and the two are read together: a name in `local` is the
-  # winner, and `workflows.<name>.source` is then what it shadows. Nix knows the
-  # group half at evaluation time; which files are in a working tree is a
-  # run-time fact, which is why `local` is still filled by the hook.
-  #
-  # SCHEMA 3 adds `triggers`, for the same reason schema 2 added `workflows`:
-  # the watcher and `doctor` need the OUTCOME of a resolution that only Nix can
-  # perform. It is `null` for a repository that takes no group declaring any,
-  # which is every repository until one opts in.
-  #
-  # SCHEMA 4 changes what `plan` MEANS, and adds no field. It was the projection
-  # script's store path; it is now `planFile`'s. The difference is that the
-  # script's path did not change when `triggers.toml` changed, so `plan`
-  # equality did not imply the projection was current — which is why the guard
-  # compared the whole entry, which is why the entry was rendered twice, which
-  # is P2-1 (009 stage 3). `doctor` reports a schema it does not know rather
-  # than misreading it.
-  #
-  # The entry itself is written by `src/devman/project.py`, in a fixed layout so
-  # that the guard below can slice three fields out of it without forking.
-
-  # A thin wrapper, and rule 8's whole point: Python for the logic, shell for
-  # the exec. `--root` and `--local` are run-time facts and stay arguments;
-  # everything Nix knows is in the plan.
   projectScript = pkgs.writeShellScript "devman-project-${projectName}" ''
-    exec ${renderer}/bin/devman-project apply \
-      --plan ${planFile} \
+    exec ${renderer}/bin/devman \
       --registry "$2" \
       --state "$3" \
-      --root "$1" \
-      "''${@:4}"
+      project apply \
+      --plan ${planFile} \
+      --policy-root ${policyRoot} \
+      --overlay-root "${cfg.overlayDir}" \
+      --root "$1"
   '';
 
-  # The machine-local file is the bootstrap edge into the central config.  It
-  # must be linked before the next shell evaluates its declarations, so keep
-  # this one declaration implicit instead of asking every project to repeat it.
-  bootstrapLink = {
-    "devenv.local.nix" = {
-      canonical = "central";
-      path = "projects/${projectName}/devenv.local.nix";
-    };
-  };
-  effectiveLinks = bootstrapLink // cfg.link;
+  # The link module owns the bootstrap link and all link declarations. Workflow
+  # projection no longer copies those declarations into a second plan.
+
 
 in
 {
@@ -508,11 +206,12 @@ in
         `services.devman-dagu.registryDir` on the machine.
 
         **Not moved to `~/.config/devman` yet, though `overlayDir` already
-        defaults there** (§11 Stage 3's charter said it should). `_sources()`
-        in `project.py` reads a local workflow override's authored source from
+        defaults there** (§11 Stage 3's charter said it should). `reconcile.py`
+        reads a local workflow override's authored source from
         `overlay/projects/<p>/workflows/<name>.yaml`, the same relative path
-        `apply()` writes the rendered projection to under `registry/projects/
-        <p>/workflows/`. Moving this option would make the two the same file
+        the compatibility publisher writes as a rendered projection under
+        `registry/projects/<p>/workflows/`. Moving this option would make the
+        two the same file
         until §6.2a's render-to-link change lands, and every shell entry would
         overwrite a tracked, hand-authored workflow with its own generated
         output. §6.2a is deferred: it needs a design for how a scheduled
@@ -636,14 +335,12 @@ in
       # strips to the same thing — is not compared. There is no body to match,
       # and a header alone is its correct projection.
       devman_local=""
-      devman_local_args=()
-      devman_names="${lib.concatStringsSep " " (lib.attrNames resolved)}"
+      devman_names="${lib.concatStringsSep " " workflowNames}"
       devman_stale=""
       for devman_f in "$devman_root"/.devman/workflows/*.yaml; do
         [ -e "$devman_f" ] || continue
         devman_b="''${devman_f##*/}"
         devman_local="$devman_local, \"''${devman_b%.yaml}\""
-        devman_local_args+=(--local "''${devman_b%.yaml}")
         devman_names="$devman_names ''${devman_b%.yaml}"
 
         devman_proj="$devman_reg/projects/${projectName}/workflows/$devman_b"
@@ -750,12 +447,12 @@ in
       # three fields it slices out of the entry Python wrote:
       #
       #     disk "path"   == $DEVENV_ROOT     this repository has not moved
-      #     disk "plan"   == ${planFile}      nothing Nix derived has changed
+      #     disk "plan"   == ${planFile}      selected policy and renderer unchanged
       #     disk "local"  == $devman_local    the override set has not changed
       #
-      # `plan` covers every derived field by construction — see `planFile`. The
-      # two run-time facts are the other two. The whole-entry compare lost
-      # nothing.
+      # `plan` covers the selected policy sources and renderer. The two
+      # run-time facts are the other two. The canonical resolver reads the
+      # sources again at publication time, so Nix never selects a workflow.
       #
       # The slices fork nothing; the hook already sliced `path` this way.
       # `src/devman/project.py` writes the entry in a fixed layout SO THAT these
@@ -841,12 +538,12 @@ in
            || [ "$devman_locals" != "$devman_local" ] \
            || [ ! -d "$devman_reg/dags" ] \
            || [ -n "$devman_relink" ] || [ -n "$devman_stale" ]; then
-          ${projectScript} "$devman_root" "$devman_reg" "$devman_state" "''${devman_local_args[@]}"
+          ${projectScript} "$devman_root" "$devman_reg" "$devman_state"
         fi
       fi
 
       unset devman_root devman_reg devman_state devman_meta devman_b devman_f \
-            devman_disk devman_local devman_local_args devman_names devman_n \
+            devman_disk devman_local devman_names devman_n \
             devman_relink devman_stale devman_proj devman_body devman_have \
             devman_recorded devman_plan devman_locals devman_badroot \
             devman_trig devman_trig_kept devman_trig_now devman_trig_was \

@@ -1,0 +1,12 @@
+Commands were run from /tmp.
+
+env -u PYTHONPATH -u NIX_PYTHONPATH /run/current-system/sw/bin/devman-link status --project vendomat --root /home/andrew/Documents/Projects/vendomat --overlay "$HOME/.config/devman"
+PASS — exit 0; central config was reported; five ok states were reported.
+
+env -u PYTHONPATH -u NIX_PYTHONPATH /run/current-system/sw/bin/devman link status --project vendomat --root /home/andrew/Documents/Projects/vendomat --overlay "$HOME/.config/devman"
+PASS — exit 0; central config was reported; five ok states were reported.
+
+Fleet sweep:
+47 projects returned 0 (clean).
+1 project returned 1: image-gen-pipeline, ordinary promote drift for .claude/skills.
+No link adapter refusal occurred.

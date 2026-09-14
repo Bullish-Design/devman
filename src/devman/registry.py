@@ -21,8 +21,9 @@ authored config; `metadata.json` and the kept copies of the repository's own
 in state. Both halves lived under `~/.local/share/devman/` before Stage 3;
 only the second half has actually moved, to `~/.local/state/devman/`.
 `registryDir` itself is NOT moving to `~/.config/devman` yet — see
-`DEFAULT_REGISTRY`'s comment for why (§6.2a is the blocker). `link.py:395` and
-the NixOS module's `--registry`/`--state` flags are the boundary either way.
+`DEFAULT_REGISTRY`'s comment for why (§6.2a is the blocker). The
+`devman_link` adapter and the NixOS module's `--registry`/`--state` flags are
+the boundary either way.
 
 `dags/` is Dagu's flat view; `projects/` is devman's. A DAG is keyed by its
 file's base name, so the flat name is what `dagu ls`, the scheduler and `dagu
@@ -59,11 +60,12 @@ from devman_contract.identity import (  # noqa: F401
 # this CLI with `--registry` when a machine moves it.
 #
 # **Stage 3 keeps this at `~/.local/share/devman` for now, deliberately.**
-# `overlayDir` already defaults to `~/.config/devman`, and `_sources()` in
-# `project.py` reads a local workflow override's AUTHORED source from
+# `overlayDir` already defaults to `~/.config/devman`, and `reconcile.py`
+# reads a local workflow override's AUTHORED source from
 # `overlay/projects/<p>/workflows/<name>.yaml` — the same relative path
-# `apply()` WRITES the rendered projection to under `registry/projects/<p>/
-# workflows/`. Moving `registryDir` to `~/.config/devman` before §6.2a's
+# the compatibility publisher writes as a rendered projection under
+# `registry/projects/<p>/workflows/`. Moving `registryDir` to
+# `~/.config/devman` before §6.2a's
 # render-to-link change lands would make those the same file, and every shell
 # entry would overwrite a tracked, hand-authored workflow with its own
 # generated projection. §6.2a is deferred pending a design for how a

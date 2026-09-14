@@ -6,9 +6,11 @@ import json
 
 import pytest
 
+from devman.project import ProjectionError
 from devman.reconcile import (
     ReconcileError,
     bundle_from_json,
+    compatibility_apply,
     inspect_project,
     render_project,
     renderer_digest,
@@ -149,3 +151,72 @@ def test_renderer_rejects_a_generation_from_another_policy(tmp_path):
             overlay_root=tmp_path / "overlay",
             generation=_generation(digest_bytes(b"other")),
         )
+
+
+def test_compatibility_apply_publishes_the_canonical_render(tmp_path):
+    policy_root = _policy_root(tmp_path)
+    project_root = tmp_path / "project"
+    _manifest(project_root)
+    registry = tmp_path / "registry"
+    state = tmp_path / "state"
+
+    compatibility_apply(
+        project_root,
+        policy_root=policy_root,
+        overlay_root=tmp_path / "overlay",
+        registry=registry,
+        state=state,
+        plan="/nix/store/compatibility-plan.json",
+        dagu="true",
+    )
+
+    projected = registry / "projects" / "fixture" / "workflows" / "check.yaml"
+    assert projected.read_text().endswith(WORKFLOW)
+    assert (registry / "dags" / "fixture.check.yaml").is_symlink()
+    metadata = json.loads(
+        (state / "projects" / "fixture" / "metadata.json").read_text()
+    )
+    assert metadata["plan"] == "/nix/store/compatibility-plan.json"
+
+
+def test_compatibility_apply_validates_before_publishing(tmp_path):
+    policy_root = _policy_root(tmp_path)
+    project_root = tmp_path / "project"
+    _manifest(project_root)
+    registry = tmp_path / "registry"
+    state = tmp_path / "state"
+
+    with pytest.raises(ProjectionError, match="refusing to publish"):
+        compatibility_apply(
+            project_root,
+            policy_root=policy_root,
+            overlay_root=tmp_path / "overlay",
+            registry=registry,
+            state=state,
+            plan="compatibility-plan",
+            dagu="false",
+        )
+
+    assert not (registry / "projects" / "fixture" / "workflows" / "check.yaml").exists()
+    assert not (registry / "dags" / "fixture.check.yaml").exists()
+    assert not (state / "projects" / "fixture" / "metadata.json").exists()
+
+
+def test_compatibility_apply_skips_unchanged_validation(tmp_path):
+    policy_root = _policy_root(tmp_path)
+    project_root = tmp_path / "project"
+    _manifest(project_root)
+    registry = tmp_path / "registry"
+    state = tmp_path / "state"
+    kwargs = {
+        "policy_root": policy_root,
+        "overlay_root": tmp_path / "overlay",
+        "registry": registry,
+        "state": state,
+        "plan": "compatibility-plan",
+    }
+
+    compatibility_apply(project_root, dagu="true", **kwargs)
+    compatibility_apply(project_root, dagu="false", **kwargs)
+
+    assert (registry / "projects" / "fixture" / "workflows" / "check.yaml").exists()

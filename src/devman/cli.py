@@ -19,10 +19,11 @@ registry.
 same reason. The projection used to be shell inside `modules/devenv.nix`, which
 duplicated four decisions this package already made correctly from a parsed
 document — and each duplicate was a finding (P1-1, P1-5, P2-1, P2-2). A
-repository's shell entry runs it through `devman-project`, a narrow entry point
-built as its own derivation so the guard can see its store path; `doctor` and
-the unit tests call the same module through this command. No person types
-either.
+The compatibility `project apply` command remains a narrow publication
+boundary. A repository's shell entry invokes the packaged `devman` renderer
+directly, so the guard and the machine-plane commands use the same resolver.
+`doctor` and the unit tests exercise that same package surface. No person types
+the compatibility command.
 
 **The name.** `devman 0.2.0` owned this name and shipped its own `doctor`,
 `init`, `up`, `down`, `switch`, `bootstrap` and `index` (§3.3). It was removed

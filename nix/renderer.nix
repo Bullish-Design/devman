@@ -1,4 +1,4 @@
-# The projection renderer (CONCEPT.md §9.2) — `devman-project apply`.
+# The projection renderer (CONCEPT.md §9.2) — `devman project apply`.
 #
 # WHY THIS EXISTS AS A SECOND DERIVATION, AND WHAT IT AMENDS.
 #
@@ -39,8 +39,8 @@
 #
 # COST CONTROL.
 #
-#   * the SAME source tree as `nix/devman-cli.nix`, with a narrower entry point
-#     and no watchexec wrapper. One source, two derivations, no second
+#   * the SAME source tree as `nix/devman-cli.nix`, with a compatibility entry
+#     point and no watchexec wrapper. One source, two derivations, no second
 #     implementation.
 #   * `dagu` is wrapped on, because the projection validates every file before
 #     it publishes it (§3.5 of the 009 guide, P2-2). That is `nix/dagu.nix` —
@@ -70,19 +70,14 @@ python3Packages.buildPythonApplication {
   nativeBuildInputs = [ makeWrapper ];
 
   # Vendomat calls the public machine-plane boundary (`devman project render`
-  # and `inspect`). The old narrow entry point only accepted `apply`, so it
-  # could not serve the immutable plane package.
+  # and `inspect`). The compatibility entry point below forwards every command
+  # to that same CLI.
   postInstall = ''
 cat > $out/bin/devman-project <<EOF
 #!${bash}/bin/sh
 if [ "\$1" = apply ]; then
-  plan="\$3"
-  registry="\$5"
-  state="\$7"
-  root="\$9"
-  shift 9
-  exec "$out/bin/devman" --registry "\$registry" --state "\$state" project apply \
-    --plan "\$plan" --root "\$root" "\$@"
+  shift
+  exec "$out/bin/devman" project apply "\$@"
 fi
 exec "$out/bin/devman" "\$@"
 EOF
@@ -94,6 +89,8 @@ chmod +x $out/bin/devman-project
   # machine's `dagu` on PATH only when `installClient` is on, and the projection
   # must not depend on that option.
   postFixup = ''
+    wrapProgram $out/bin/devman \
+      --prefix PATH : ${lib.makeBinPath [ dagu ]}
     wrapProgram $out/bin/devman-project \
       --prefix PATH : ${lib.makeBinPath [ dagu ]}
   '';

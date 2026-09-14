@@ -7,10 +7,10 @@
 # project that triggered it.
 #
 # The devenv half cannot run in here — a NixOS test has no network and devenv
-# would need to evaluate a whole second nixpkgs — so the projection is built by
-# hand, in exactly the shape `modules/devenv.nix` writes it. What that half
-# does is proved by entering shells instead; see STAGE_1_LOG.md, S10.
-{ module, groups, fixture, plan }:
+# would need to evaluate a whole second nixpkgs — so the compatibility publisher
+# is called directly. It uses the same canonical resolver as the machine-plane
+# renderer and writes the old registry shape for this test.
+{ module, groups, policy, fixture }:
 
 { lib, ... }:
 
@@ -48,12 +48,8 @@
 
     GROUPS = "${groups}"
     FIXTURE = "${fixture}"
-    # The plan `modules/devenv.nix` writes, in its shape. The devenv half cannot
-    # run in a NixOS test — it would need a whole second nixpkgs and a network —
-    # which is the constraint STAGE_1_LOG.md S10 records. What IS real below is
-    # everything downstream of the plan: the renderer, `dagu validate`, the
-    # published bytes, the link, the entry, and a run.
-    PLAN = "${plan}"
+    POLICY = "${policy}"
+    PLAN = "compatibility-vm-test"
     HOME = "/home/tester"
     PLANE = HOME + "/.local/state/vendomat/devman"
     GENERATION = PLANE + "/generations/1"
@@ -391,13 +387,15 @@
 
     with subtest("the real renderer projects the fixture repository"):
         machine.succeed(f"mkdir -p {FIX}/.devman/workflows")
+        machine.succeed(f"cp {FIXTURE}/.devman/project.toml {FIX}/.devman/")
         machine.succeed(f"mkdir -p {LOCAL}")
         machine.succeed(f"cp {FIXTURE}/.devman/workflows/comment-only.yaml {LOCAL}/")
         machine.succeed(f"chown -R tester:users {HOME}/work/fixture {HOME}/.config/devman")
 
         out = tester(
-            f"devman --registry {REG} project apply --plan {PLAN}"
-            f" --root {FIX} --local comment-only"
+            f"devman --registry {REG} --state {STATE} project apply --plan {PLAN}"
+            f" --policy-root {POLICY} --overlay-root {HOME}/.config/devman"
+            f" --root {FIX}"
         )
         print(out)
 
@@ -454,8 +452,9 @@
         machine.succeed(f"cp {FIXTURE}/.devman/workflows/env-only.yaml {LOCAL}/")
         machine.succeed(f"chown -R tester:users {HOME}/work/fixture {HOME}/.config/devman")
         refusal = machine.fail(
-            f"su tester -c '{ENV}devman --registry {REG} project apply --plan {PLAN}"
-            f" --root {FIX} --local comment-only --local env-only' 2>&1"
+            f"su tester -c '{ENV}devman --registry {REG} --state {STATE}"
+            f" project apply --plan {PLAN} --policy-root {POLICY}"
+            f" --overlay-root {HOME}/.config/devman --root {FIX}' 2>&1"
         )
         print(refusal)
         assert "env-only.yaml" in refusal
@@ -471,6 +470,10 @@
         still = tester(f"cat {REG}/projects/fixture/workflows/comment-only.yaml")
         assert f"DEVMAN_PROJECT_DIR: {FIX}" in still
         assert "fixture.comment-only" in tester("dagu ls")
+        # Fix the authored overlay before the next publication. The canonical
+        # resolver reads every file in this view, so leaving the refused file
+        # in place must continue to block a later shell entry.
+        machine.succeed(f"rm {LOCAL}/env-only.yaml")
 
     # ---------------------------------------------------------------------
     # 009 P1-3 — the daemon's own enqueues take the daemon's own shell.
@@ -508,8 +511,9 @@
         machine.succeed(f"cp {FIXTURE}/.devman/workflows/tick.yaml {LOCAL}/")
         machine.succeed(f"chown -R tester:users {HOME}/work/fixture {HOME}/.config/devman")
         tester(
-            f"devman --registry {REG} project apply --plan {PLAN}"
-            f" --root {FIX} --local comment-only --local tick"
+            f"devman --registry {REG} --state {STATE} project apply --plan {PLAN}"
+            f" --policy-root {POLICY} --overlay-root {HOME}/.config/devman"
+            f" --root {FIX}"
         )
         projected = tester(f"cat {REG}/projects/fixture/workflows/tick.yaml")
         print(projected)

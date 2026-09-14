@@ -5,9 +5,9 @@ project manifest, resolves group and overlay sources, and returns a complete
 projection bundle. It does not write a repository, start Dagu, or activate a
 generation. Vendomat owns those machine operations.
 
-The compatibility ``project apply`` path still uses the Nix-produced ``Plan``
-in :mod:`devman.project`. The machine-plane command uses this module instead so
-that a packaged renderer has one explicit input contract and one identity.
+The compatibility ``project apply`` path publishes through this same module.
+It keeps the old registry shape only until the machine-plane activation path
+replaces it.
 """
 
 from __future__ import annotations
@@ -15,6 +15,9 @@ from __future__ import annotations
 import base64
 import importlib.metadata
 import json
+import os
+import shutil
+import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,17 +27,18 @@ from devman_contract import (
     ProjectionRecord,
     ProjectManifest,
     digest_blobs,
+    digest_bytes,
+    digest_file,
 )
 
 from .project import (
-    DAG_SEPARATOR,
     ProjectionError,
     entry_text,
     render,
     resolve_triggers,
     resolve_writes,
 )
-from .registry import identity_fault
+from .registry import DAG_SEPARATOR, identity_fault
 
 RECONCILIATION_SCHEMA = 1
 INSPECTION_SCHEMA = 1
@@ -322,6 +326,7 @@ def render_project(
     policy_root: Path,
     overlay_root: Path,
     generation: PlaneGeneration,
+    plan: str | None = None,
 ) -> ProjectionBundle:
     """Resolve and render one project into a Vendomat-consumable bundle."""
 
@@ -345,7 +350,7 @@ def render_project(
         project=manifest.project,
         root=root.expanduser().resolve(),
         groups=list(manifest.groups),
-        plan=f"plane:{generation.generation}",
+        plan=plan if plan is not None else f"plane:{generation.generation}",
         local=local_names,
         workflows={
             name: workflow.metadata() for name, workflow in sorted(workflows.items())
@@ -373,6 +378,181 @@ def render_project(
         files=rendered,
         links=links,
         sources=sources,
+    )
+
+
+def compatibility_apply(
+    root: Path,
+    *,
+    policy_root: Path,
+    overlay_root: Path,
+    registry: Path,
+    state: Path,
+    plan: str,
+    dagu: str | None = None,
+) -> None:
+    """Publish one canonical render into the temporary compatibility registry."""
+
+    project_root = root.expanduser().resolve()
+    manifest = ProjectManifest.from_root(project_root)
+    policy = resolve_policy(manifest, policy_root)
+    binary = dagu or shutil.which("dagu") or "dagu"
+    dagu_digest = (
+        digest_file(Path(binary))
+        if Path(binary).is_file()
+        else digest_bytes(binary.encode())
+    )
+    generation = PlaneGeneration(
+        generation=0,
+        devman_runtime=runtime_version(),
+        renderer_digest=renderer_digest(),
+        policy_digest=policy.digest,
+        dagu_digest=dagu_digest,
+        toolchain_digest=digest_bytes(b"compatibility"),
+    )
+    bundle = render_project(
+        project_root,
+        policy_root=policy_root,
+        overlay_root=overlay_root,
+        generation=generation,
+        plan=plan,
+    )
+    _publish_compatibility_bundle(
+        bundle,
+        project_root,
+        registry=registry,
+        state=state,
+        dagu=binary,
+    )
+
+
+def _publish_compatibility_bundle(
+    bundle: ProjectionBundle,
+    root: Path,
+    *,
+    registry: Path,
+    state: Path,
+    dagu: str,
+) -> None:
+    """Write a canonical bundle in the old registry shape until item 4 lands."""
+
+    project = bundle.project
+    workflow_prefix = f"projects/{project}/workflows/"
+    rendered = {
+        name.removeprefix(workflow_prefix).removesuffix(".yaml"): body.decode()
+        for name, body in bundle.files.items()
+        if name.startswith(workflow_prefix)
+    }
+    metadata_path = f"projects/{project}/metadata.json"
+    metadata = bundle.files.get(metadata_path)
+    if metadata is None:
+        raise ReconcileError(
+            f"canonical render omitted compatibility metadata for '{project}'"
+        )
+
+    registry_entry = registry / "projects" / project
+    workflows_dir = registry_entry / "workflows"
+    dags = registry / "dags"
+    entry = state / "projects" / project
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    dags.mkdir(parents=True, exist_ok=True)
+    entry.mkdir(parents=True, exist_ok=True)
+    for name in ("logs", "artifacts", "reports"):
+        (root / ".devman" / ".runs" / name).mkdir(parents=True, exist_ok=True)
+
+    published = _compatibility_published(workflows_dir)
+    recorded_plan = _compatibility_recorded_plan(entry)
+    plan = json.loads(metadata.decode())["plan"]
+    revalidate = recorded_plan != plan
+    staging = workflows_dir / ".validate"
+    try:
+        staging.mkdir(exist_ok=True)
+        for name, text in rendered.items():
+            if not (revalidate or published.get(name) != text):
+                continue
+            checked = staging / f"{name}.yaml"
+            checked.write_text(text)
+            _validate_compatibility(dagu, checked, Path(bundle.sources.get(name, name)))
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    for name in sorted(set(published) - set(rendered)):
+        (workflows_dir / f"{name}.yaml").unlink(missing_ok=True)
+        link = dags / f"{project}.{name}.yaml"
+        target = f"../projects/{project}/workflows/{name}.yaml"
+        if link.is_symlink() and os.readlink(link) == target:
+            link.unlink()
+
+    for name, text in rendered.items():
+        temporary = workflows_dir / f".{name}.yaml.new"
+        temporary.write_text(text)
+        os.replace(temporary, workflows_dir / f"{name}.yaml")
+
+    for relative, target in bundle.links.items():
+        _compatibility_relink(registry / relative, target)
+
+    for local_name in ("triggers.toml", "writes.toml"):
+        source = root / ".devman" / local_name
+        kept = entry / local_name
+        if source.is_file():
+            kept.write_text(source.read_text())
+        else:
+            kept.unlink(missing_ok=True)
+
+    temporary = entry / ".metadata.json.new"
+    temporary.write_bytes(metadata)
+    os.replace(temporary, entry / "metadata.json")
+
+
+def _compatibility_published(workflows_dir: Path) -> dict[str, str]:
+    """Read existing compatibility workflow bytes by name."""
+
+    out = {}
+    for path in workflows_dir.glob("*.yaml"):
+        try:
+            out[path.stem] = path.read_text()
+        except OSError:
+            continue
+    return out
+
+
+def _compatibility_recorded_plan(entry: Path) -> str | None:
+    """Read the last canonical plan identity, if the entry exists."""
+
+    try:
+        return json.loads((entry / "metadata.json").read_text()).get("plan")
+    except (OSError, ValueError):
+        return None
+
+
+def _compatibility_relink(link: Path, target: str) -> None:
+    """Create one compatibility DAG link without replacing an equal link."""
+
+    if link.is_symlink() and os.readlink(link) == target:
+        return
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(target)
+
+
+def _validate_compatibility(binary: str, rendered: Path, source: Path) -> None:
+    """Validate one canonical workflow before compatibility publication."""
+
+    result = subprocess.run(
+        [binary, "validate", str(rendered)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return
+    message = (result.stderr or result.stdout).strip()
+    raise ProjectionError(
+        f"refusing to publish '{rendered.stem}'\n"
+        f"  its source is {source}\n"
+        "  dagu refuses the file this renders:\n"
+        + "\n".join(f"    {line}" for line in message.splitlines())
+        + "\n  nothing was published; fix the source and enter the shell again"
     )
 
 

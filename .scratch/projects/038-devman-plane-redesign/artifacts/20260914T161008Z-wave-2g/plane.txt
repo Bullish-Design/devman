@@ -1,0 +1,6 @@
+PLANE=$HOME/.local/state/vendomat/devman/active
+readlink: generations/2
+projects: 45
+DAG files: 143
+DAG digest: 5a06aca3a93a8bd8030a8becc42dc57f0560452b04940518b31f8e7f696fe2b9
+dagu ls lines: 144

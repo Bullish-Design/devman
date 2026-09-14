@@ -17,10 +17,10 @@ dependencies = ["pyyaml"]
 
 [project.scripts]
 devman = "devman.cli:main"
-# The narrow entry point the devenv module calls at shell entry (009 stage 3).
-# It is the same module `devman project apply` runs; `nix/renderer.nix` builds
-# it as its own derivation so that its store path is an evaluation-time fact the
-# shell-entry guard can observe. See `src/devman/project.py`.
+# The renderer package used by the devenv module at shell entry (009 stage 3).
+# It exposes the same `devman project apply` compatibility command and the
+# canonical `render`/`inspect` boundaries. Its store path is an evaluation-time
+# fact the shell-entry guard can observe. See `src/devman/reconcile.py`.
 devman-project = "devman.project:cli"
 
 [build-system]

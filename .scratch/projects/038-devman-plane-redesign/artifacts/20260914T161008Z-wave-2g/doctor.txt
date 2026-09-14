@@ -1,0 +1,9 @@
+Command: devenv shell -- devman doctor
+Exit: 1, the expected finding result
+
+Findings: exactly four known findings.
+
+1. link drift: flora-037-part-e:devenv.local.nix: create
+2. vendomat has uncommitted changes and is consumed unpinned
+3. repoman has uncommitted changes and is consumed unpinned
+4. an unpinned git+file input has no rev in devenv.lock

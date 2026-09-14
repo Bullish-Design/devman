@@ -174,9 +174,10 @@ generation. It reports the manifest, policy, renderer, source, and overlay
 identities without starting Dagu or running a repository task.
 
 The compatibility `project apply` path remains active during migration. It is
-still the shell-entry path and still uses the Nix plan. The new renderer is
-selected only by a Vendomat plane generation until old and new output have
-passed the comparison phase.
+still the shell-entry publication path, but it now calls the canonical resolver
+and renderer. The Nix plan records the policy and renderer identity so the
+shell-entry guard knows when to publish again. The compatibility registry writer
+remains until the machine-plane activation path replaces it.
 
 There is no top-level `list`, `status`, `register`, or `unregister` command.
 Registration is automatic and has no manual path; link status is available under

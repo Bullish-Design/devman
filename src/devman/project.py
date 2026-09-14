@@ -4,8 +4,9 @@
     <registry>/projects/<project>/workflows/<workflow>.yaml   the generated file
     <registry>/dags/<project>.<workflow>.yaml   -> the line above
 
-`state` and `registry` are the same directory unless a caller splits them
-(`apply()`'s `state` keyword, §11 Stage 3).
+The compatibility `project apply` command may split `state` and `registry`
+(§11 Stage 3). It publishes the canonical bundle from `reconcile.py`; this
+module keeps the fixed registry metadata layout and body renderer.
 
 **This used to be shell inside `modules/devenv.nix`, and four of project 009's
 findings were one consequence of that.** The module decided the directory
@@ -16,7 +17,7 @@ of those questions correctly, from a parsed document:
 
     is this a cross-repository parent?      Workflow.triggers_other_dags()
     does an `env:` block define a name?     workflow._env_holds()
-    is this name legal?                     registry.identity_fault()
+    is this name legal?                     devman_contract.identity_fault()
 
 So a comment mentioning `DEVMAN_SELF_DIR` changed the emitted variable (P1-1 —
 `plane-report.yaml` shipped the wrong one for a whole stage), a body with any
@@ -43,22 +44,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
-import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
-from .registry import DAG_SEPARATOR, identity_fault
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow, _env_holds
 
-# The registry entry's schema. SCHEMA 4 changes what `plan` means: it was the
-# projection script's store path, and it is now the store path of the plan file
-# holding everything Nix derived — the groups, the resolved workflows, the
-# triggers, and the renderer's own store path.
+# The registry entry's schema. SCHEMA 4 records the compatibility publisher's
+# policy and renderer identity in `plan`. The old Nix plan held the resolved
+# workflows, triggers, and renderer path; the canonical resolver now supplies
+# those bytes at publication time.
 #
 # The change exists so that `plan` equality implies every derived field is
 # unchanged. Under schema 3 it did not: the script's path changed when a group
@@ -276,445 +273,35 @@ def _text(value: object) -> str:
 
 
 # ---------------------------------------------------------------------------
-# publication
-
-
-@dataclass
-class Plan:
-    """Everything Nix derived, read from the plan file (§7.3's outcome).
-
-    One `writeText` holds all of it, so the plan's store path is a hash of all
-    of it. Any change to any derived fact changes that path, which is what makes
-    the guard's `plan` comparison imply that every derived field is unchanged.
-    """
-
-    path: str
-    project: str
-    groups: list[str]
-    workflows: dict[str, dict]
-    triggers: object
-    renderer: str
-    writes: object = None
-    overlay: str = "~/.config/devman"
-    links: dict = None
-
-    @classmethod
-    def read(cls, path: str | os.PathLike[str]) -> Plan:
-        raw = json.loads(Path(path).read_text())
-        return cls(
-            path=str(path),
-            project=raw["project"],
-            groups=raw.get("groups", []),
-            workflows=raw.get("workflows", {}),
-            triggers=raw.get("triggers"),
-            writes=raw.get("writes"),
-            overlay=raw.get("overlay", "~/.config/devman"),
-            links=raw.get("links", {}),
-            renderer=raw.get("renderer", ""),
-        )
-
-
-def apply(
-    plan: Plan,
-    root: Path,
-    registry: Path,
-    local: list[str],
-    *,
-    state: Path | None = None,
-    dagu: str | None = None,
-) -> None:
-    """Rebuild this project's whole projection, then record it.
-
-    Order of operations per workflow (§3.5 of the refactor guide):
-
-      1. validate the project and the workflow identity, BEFORE any path is
-         constructed. A name holding `/` or `..` selects a registry subpath
-         (009 P1-5).
-      2. render every workflow, and validate every one whose bytes changed,
-         inside this project's own registry entry
-      3. on any failure, refuse — naming the source and quoting Dagu's message.
-         **Publish nothing**, which means the previous projection stays exactly
-         as it was rather than being swept away by a run that then refused.
-      4. only then sweep, `os.replace` each file into place, and write the
-         `dags/` links
-
-    **This is P2-2's better fix.** Validating at enqueue moves the refusal to
-    whoever triggers the workflow next; validating here moves it to the one
-    person who can fix it — the author, at shell entry — and it means every
-    runnable link is known valid.
-
-    **§11 Stage 3 splits the entry in two.** `workflows_dir` and `dags` are the
-    projection of authored config and stay under `registry`; `entry` — holding
-    `metadata.json` and the kept copies of `.devman/triggers.toml` and
-    `.devman/writes.toml` — is regenerated on every shell entry and moves under
-    `state`. The two are the same directory when a caller passes `registry ==
-    state`, which is what every test in this suite still does.
-    """
-    fault = identity_fault("project", plan.project)
-    if fault:
-        raise ProjectionError(f"refusing to project '{plan.project}'\n  {fault}")
-
-    registry_entry = registry / "projects" / plan.project
-    workflows_dir = registry_entry / "workflows"
-    dags = registry / "dags"
-    entry = (state if state is not None else registry) / "projects" / plan.project
-    workflows_dir.mkdir(parents=True, exist_ok=True)
-    dags.mkdir(parents=True, exist_ok=True)
-    entry.mkdir(parents=True, exist_ok=True)
-
-    # §9.2's run-state layout, repo-side. Dagu creates `log_dir` itself, but
-    # `artifacts/` and `reports/` have no other owner and a step that writes a
-    # report should not have to create the tree first.
-    for name in ("logs", "artifacts", "reports"):
-        (root / ".devman" / ".runs" / name).mkdir(parents=True, exist_ok=True)
-
-    sources = _sources(
-        plan,
-        root,
-        local,
-        Path(os.path.expandvars(os.path.expanduser(plan.overlay))),
-    )
-    for name in sources:
-        fault = identity_fault("workflow", name)
-        if fault:
-            raise ProjectionError(
-                f"refusing to project '{name}' in '{plan.project}'\n  {fault}"
-            )
-        if DAG_SEPARATOR in name:
-            raise ProjectionError(
-                f"refusing to project '{name}.yaml' in '{plan.project}'\n"
-                f"  a workflow name may not hold a '{DAG_SEPARATOR}'\n"
-                f"  a DAG name is <project>{DAG_SEPARATOR}<workflow>, and the"
-                " last separator is what makes it injective (§9.2)"
-            )
-
-    # WHAT IS ALREADY PUBLISHED, READ BEFORE THE SWEEP REMOVES IT.
-    #
-    # `dagu validate` is a fork, measured at 71 ms per workflow — 960 ms for
-    # this repository's ten, against 250 ms for the same projection with
-    # validation stubbed out (`STAGE_9_LOG.md` S-3). That is worth paying when
-    # bytes change and not worth paying when they do not, so a file whose
-    # rendered bytes are identical to the ones already published is republished
-    # without a second validation. It passed when it was written.
-    #
-    # THE ONE THING THAT INVALIDATES THAT ARGUMENT IS A NEW VALIDATOR, so the
-    # recorded `plan` is what decides. It holds the renderer's store path, and
-    # the renderer wraps the Dagu that validates — so a new Dagu, a new
-    # renderer, or any other derived change gives a new plan path and every file
-    # is validated again. Unchanged plan plus unchanged bytes is the only case
-    # that skips, and in that case nothing about the file or the validator has
-    # moved.
-    published = _published(workflows_dir)
-    revalidate = _recorded_plan(entry) != plan.path
-    binary = dagu or shutil.which("dagu") or "dagu"
-
-    # RENDER AND VALIDATE EVERYTHING BEFORE PUBLISHING ANYTHING.
-    #
-    # "Publish nothing" has to mean the whole projection, not the one file that
-    # failed. Measured while writing this stage: with the sweep first, adding an
-    # `env:` block to ONE override refused correctly — and left the repository
-    # with none of its ten workflows published, because the sweep had already
-    # removed them. A repository whose author makes a typo would lose its
-    # nightly `maintain` until they noticed.
-    #
-    # So the registry is untouched until every file has rendered and every
-    # changed file has validated. A refusal now leaves the previous projection
-    # exactly as it was: stale, and stated to be stale by the refusal.
-    rendered: dict[str, str] = {}
-    for name, source in sorted(sources.items()):
-        rendered[name] = render(source, root)
-
-    # A DIRECTORY, and the file inside it keeps the workflow's own base name.
-    # Dagu derives the DAG name from that base name (S1), so validating
-    # `<workflows>/.validate` refused every file with "DAG name is required" —
-    # the validator reporting the temporary file's name rather than anything
-    # about the workflow. The directory is a dotfile, so the sweep's `*.yaml`
-    # glob does not see it.
-    staging = workflows_dir / ".validate"
-    try:
-        staging.mkdir(exist_ok=True)
-        for name, text in rendered.items():
-            if not (revalidate or published.get(name) != text):
-                continue
-            checked = staging / f"{name}.yaml"
-            checked.write_text(text)
-            _validate(binary, checked, sources[name])
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
-
-    _sweep(
-        plan.project,
-        workflows_dir,
-        dags,
-        published_names=set(published),
-        rendered_names=set(rendered),
-    )
-
-    for name, text in rendered.items():
-        tmp = workflows_dir / f".{name}.yaml.new"
-        tmp.write_text(text)
-        os.replace(tmp, workflows_dir / f"{name}.yaml")
-        link = dags / f"{plan.project}{DAG_SEPARATOR}{name}.yaml"
-        _relink(link, f"../projects/{plan.project}/workflows/{name}.yaml")
-
-    # Last, and atomically, exactly as the shell wrote it last: an interrupted
-    # projection leaves an entry that does not match and is retried on the next
-    # shell entry (§9.3). Since it can no longer be half-written, `projects()`
-    # no longer has to treat a parse failure as a normal state — see stage 4.
-    # THE GUARD HAS TO NOTICE AN EDIT TO THE LOCAL TRIGGER FILE, and it notices
-    # it the same way it notices an edited override: by comparing the source
-    # against the copy this projection kept (S-5a). A verbatim copy beside the
-    # entry is what makes that comparison forkless and exact.
-    # The same applies to the local WRITES layer, and 015 shipped the layer
-    # without this and without the guard's half — so `.devman/writes.toml` was
-    # read correctly by the renderer and never re-read, because nothing marked
-    # the projection stale when it changed. Measured end-to-end: editing it
-    # changed the registry entry not at all until this was added.
-    for local_file in (LOCAL_TRIGGERS, LOCAL_WRITES):
-        source = root / ".devman" / local_file
-        kept = entry / local_file
-        if source.is_file():
-            kept.write_text(source.read_text())
-        else:
-            kept.unlink(missing_ok=True)
-
-    text = entry_text(
-        project=plan.project,
-        root=root,
-        groups=plan.groups,
-        plan=plan.path,
-        local=local,
-        workflows=plan.workflows,
-        triggers=resolve_triggers(plan.triggers, root),
-        writes=resolve_writes(plan.writes, root),
-        overlay=plan.overlay,
-        links=plan.links,
-    )
-    tmp = entry / ".metadata.json.new"
-    tmp.write_text(text)
-    os.replace(tmp, entry / "metadata.json")
-
-
-# ---------------------------------------------------------------------------
-# §7.3's last layer, for triggers (009 P3-3)
-#
-# WHY THIS LAYER EXISTS. The group owns the trigger glob and the repository owns
-# the task's file domain, and nothing reconciled them. `groups/format` maps
-# `**/*.py`; this repository's `pyproject.toml` excludes `.scratch` from Ruff.
-# Saving a file under `.scratch` therefore fired `format`, ran the task in full,
-# and formatted nothing — 16 times in 252 fires, measured.
-#
-# The fix could not be "a repository excluding paths from its formatter must
-# exclude them from the trigger", because a repository could not exclude
-# anything: `groupTriggers` reads only `groups/<group>/triggers.toml`, and there
-# was no local layer at all. Workflows resolved group -> group -> local;
-# triggers resolved group -> group. This completes the asymmetry rather than
-# inventing a mechanism.
-#
-# WHY IT IS READ HERE AND NOT IN NIX. Which files are in a working tree is a
-# RUN-TIME fact — the same reason `.devman/workflows/` is applied here rather
-# than at evaluation time. The watcher still reads only the registry entry, so
-# there is still exactly one implementation of §7.3.
-#
-# WHOLE-FILE, PLUS AN IGNORE LIST, AND THE SECOND IS WHY THE FIRST IS NOT
-# ENOUGH. §7.3 shadows whole files and this map does too — a `[map]` table
-# replaces the group's outright. But whole-file replacement cannot express
-# "everything the group says, except this directory", which is the case that
-# forced the layer: to drop `.scratch` a repository would have to restate a map
-# it does not own and then keep it in step. `ignore` says the narrowing
-# directly, and a repository that wants both may state both.
-LOCAL_TRIGGERS = "triggers.toml"
-
-
-def local_triggers(root: Path) -> dict | None:
-    """This repository's own trigger layer, or `None` if it ships none."""
-    path = root / ".devman" / LOCAL_TRIGGERS
-    if not path.is_file():
-        return None
-    try:
-        raw = tomllib.loads(path.read_text())
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ProjectionError(
-            f"refusing to project '{path}'\n"
-            f"  {exc}\n"
-            '  it is TOML: `ignore = ["<glob>"]`, and an optional [map] of'
-            " <glob> = <workflow>"
-        ) from exc
-    unknown = sorted(set(raw) - {"ignore", "map"})
-    if unknown:
-        raise ProjectionError(
-            f"refusing to project '{path}'\n"
-            f"  it states {', '.join(unknown)}, and this file holds two keys\n"
-            "  `ignore`, a list of globs this repository never fires on, and"
-            " `map`, a table of <glob> = <workflow> replacing the group's (§8)"
-        )
-    ignore = raw.get("ignore", [])
-    if not isinstance(ignore, list) or not all(isinstance(g, str) for g in ignore):
-        raise ProjectionError(
-            f"refusing to project '{path}'\n"
-            "  `ignore` is a list of glob strings, matched against a path"
-            " relative to this repository's root"
-        )
-    mapping = raw.get("map")
-    if mapping is not None and not (
-        isinstance(mapping, dict) and all(isinstance(v, str) for v in mapping.values())
-    ):
-        raise ProjectionError(
-            f"refusing to project '{path}'\n"
-            "  `[map]` is a table of <glob> = <workflow>, and a workflow is a"
-            " name this repository projects (§7.3)"
-        )
-    return raw
-
-
-def resolve_triggers(plan_triggers: object, root: Path) -> object:
-    """The group layer, narrowed or replaced by this repository's own.
-
-    The OUTCOME is what reaches the registry entry, exactly as §7.3's workflow
-    resolution records its outcome. `source` says which layer decided, because
-    "why does saving this file do nothing" is a question `doctor` has to be able
-    to answer without reading two files in two places.
-    """
-    local = local_triggers(root)
-    if local is None:
-        return plan_triggers
-
-    group = plan_triggers if isinstance(plan_triggers, dict) else {}
-    mapping = local.get("map") or group.get("map") or {}
-    if not mapping:
-        # An `ignore` list with nothing to narrow fires nothing and hides
-        # nothing. It is a repository preparing for a group it has not taken,
-        # which is legal and worth saying nothing about.
-        return None
-    return {
-        "group": group.get("group", "?") if local.get("map") is None else "(local)",
-        "map": mapping,
-        "ignore": local.get("ignore", []),
-        "source": "local" if local.get("map") is not None else "group+local",
-    }
-
-
-def _published(workflows_dir: Path) -> dict[str, str]:
-    """The bytes already published, by workflow name."""
-    out = {}
-    for path in workflows_dir.glob("*.yaml"):
-        try:
-            out[path.stem] = path.read_text()
-        except OSError:
-            continue
-    return out
-
-
-def _recorded_plan(entry: Path) -> str | None:
-    """The `plan` the last projection recorded, or `None` if there is none."""
-    try:
-        return json.loads((entry / "metadata.json").read_text()).get("plan")
-    except (OSError, ValueError):
-        return None
-
-
-def _sources(
-    plan: Plan, root: Path, local: list[str], overlay: Path
-) -> dict[str, Path]:
-    """`<workflow> -> the file that won §7.3`, group files then local overrides.
-
-    The central per-project workflows are the last layer and shadow every group,
-    whole-file. `root` remains an explicit parameter for the project-side view
-    and for the repository's run-state paths.
-    """
-    out = {n: Path(w["source"]) for n, w in plan.workflows.items()}
-    for name in local:
-        out[name] = overlay / "projects" / plan.project / "workflows" / f"{name}.yaml"
-    return out
-
-
-def _sweep(
-    project: str,
-    workflows_dir: Path,
-    dags: Path,
-    *,
-    published_names: set[str],
-    rendered_names: set[str],
-) -> None:
-    """The registry is derived, so the projection is rebuilt rather than patched.
-
-    A `dags/` link is removed only when it still points at this project's own
-    file. The current codec is injective, so the link target check protects the
-    derived registry if an unrelated writer left a stale link behind.
-    """
-
-    def target(stem: str) -> str:
-        return f"../projects/{project}/workflows/{stem}.yaml"
-
-    removed_names = published_names - rendered_names
-    for stem in sorted(removed_names):
-        link = dags / f"{project}{DAG_SEPARATOR}{stem}.yaml"
-        if link.is_symlink() and os.readlink(link) == target(stem):
-            link.unlink()
-        (workflows_dir / f"{stem}.yaml").unlink(missing_ok=True)
-
-
-def _relink(link: Path, target: str) -> None:
-    if link.is_symlink() and os.readlink(link) == target:
-        return
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    link.symlink_to(target)
-
-
-def _validate(binary: str, rendered: Path, source: Path) -> None:
-    """`dagu validate` on the rendered bytes, before anything can run them.
-
-    One fork per projected workflow, on the guarded path only — the hook decides
-    without forking whether this runs at all. The cost is measured in
-    `STAGE_9_LOG.md` S-3.
-    """
-    result = subprocess.run(
-        [binary, "validate", str(rendered)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode == 0:
-        return
-    message = (result.stderr or result.stdout).strip()
-    raise ProjectionError(
-        f"refusing to publish '{rendered.stem}'\n"
-        f"  its source is {source}\n"
-        f"  dagu refuses the file this renders:\n"
-        + "\n".join(f"    {line}" for line in message.splitlines())
-        + "\n  nothing was published; fix the source and enter the shell again"
-    )
-
-
-# ---------------------------------------------------------------------------
 # the command
-#
-# §10's list of three commands is closed and `project` does not join it, for the
-# same reason `watch` did not: it is machinery. The projection script runs it at
-# shell entry, and no person ever types it.
 
 
 def main(args, reg) -> int:
+    """Run one projection command from the Devman CLI."""
+
+    from .reconcile import ReconcileError, compatibility_apply
+
     project_command = getattr(args, "project_command", "apply")
-    if project_command == "render":
-        return render_main(args)
-    if project_command == "inspect":
-        return inspect_main(args)
     try:
-        plan = Plan.read(args.plan)
-        apply(
-            plan,
-            Path(args.root),
-            reg.root,
-            list(args.local),
-            state=reg.state,
-            dagu=getattr(args, "dagu", None),
-        )
-    except ProjectionError as exc:
+        if project_command == "apply":
+            compatibility_apply(
+                Path(args.root),
+                policy_root=Path(args.policy_root),
+                overlay_root=Path(args.overlay_root),
+                registry=reg.root,
+                state=reg.state,
+                plan=args.plan,
+                dagu=args.dagu,
+            )
+            return 0
+        if project_command == "render":
+            return render_main(args)
+        if project_command == "inspect":
+            return inspect_main(args)
+    except (ProjectionError, ReconcileError, OSError, ValueError, KeyError) as exc:
         print(f"devman: {exc}", file=sys.stderr)
         return 1
-    return 0
+    raise ValueError(f"unknown project command: {project_command}")
 
 
 def render_main(args) -> int:
@@ -820,18 +407,8 @@ def _render_generation(args, policy_digest, renderer, runtime, digest):
 
 
 def cli(argv: list[str] | None = None) -> int:
-    """`devman-project` — the narrow entry point the devenv module calls.
+    """The narrow `devman-project` entry point used by the compatibility hook."""
 
-    The devenv module cannot call `devman` from PATH. A PATH lookup is a
-    run-time fact, so the module could not put the renderer's identity into
-    `planFile`, so the guard could not observe it — and upgrading the machine's
-    `devman` would change the rendering rules while every repository kept a
-    projection produced by the old renderer, with the entry still matching and
-    nothing re-projecting. That is `STAGE_7_LOG.md` S-5a again, one layer down.
-
-    So this ships as its own derivation, built under the consuming repository's
-    nixpkgs (`nix/renderer.nix`), and its store path is inside `planFile`.
-    """
     ap = argparse.ArgumentParser(
         prog="devman-project",
         description="Project one repository into the registry (§9.2).",
@@ -847,25 +424,20 @@ def cli(argv: list[str] | None = None) -> int:
         root = Path(args.registry)
         state = Path(args.state)
 
+    args.project_command = args.command
     return main(args, _Reg())
 
 
 def add_arguments(p: argparse.ArgumentParser) -> None:
-    """The arguments `devman project apply` and `devman-project apply` share.
+    """Arguments for the temporary compatibility publication path."""
 
-    `--root` and `--local` stay arguments rather than moving into `planFile`,
-    because both are run-time facts: where this checkout sits, and which files
-    are in its `.devman/workflows/` view right now. Everything Nix knows is in the
-    plan.
-    """
-    p.add_argument("--plan", required=True, help="the plan file Nix wrote")
-    p.add_argument("--root", required=True, help="this repository's root")
+    p.add_argument("--plan", required=True, help="the shell-entry policy identity")
+    p.add_argument("--root", required=True, help="the repository root")
+    p.add_argument("--policy-root", required=True, help="the Devman policy checkout")
     p.add_argument(
-        "--local",
-        action="append",
-        default=[],
-        metavar="NAME",
-        help="one workflow name from the .devman/workflows/ overlay view, in glob order",
+        "--overlay-root",
+        default="~/.config/devman",
+        help="the central project overlay root",
     )
     p.add_argument("--dagu", help="the dagu binary to validate with")
 
@@ -895,6 +467,105 @@ def add_inspect_arguments(p: argparse.ArgumentParser) -> None:
     """Add the identity-only renderer boundary arguments."""
 
     add_render_arguments(p)
+
+
+# ---------------------------------------------------------------------------
+# §7.3's last layer, for triggers (009 P3-3)
+#
+# WHY THIS LAYER EXISTS. The group owns the trigger glob and the repository owns
+# the task's file domain, and nothing reconciled them. `groups/format` maps
+# `**/*.py`; this repository's `pyproject.toml` excludes `.scratch` from Ruff.
+# Saving a file under `.scratch` therefore fired `format`, ran the task in full,
+# and formatted nothing — 16 times in 252 fires, measured.
+#
+# The fix could not be "a repository excluding paths from its formatter must
+# exclude them from the trigger", because a repository could not exclude
+# anything: `groupTriggers` reads only `groups/<group>/triggers.toml`, and there
+# was no local layer at all. Workflows resolved group -> group -> local;
+# triggers resolved group -> group. This completes the asymmetry rather than
+# inventing a mechanism.
+#
+# WHY IT IS READ HERE AND NOT IN NIX. Which files are in a working tree is a
+# RUN-TIME fact — the same reason `.devman/workflows/` is applied here rather
+# than at evaluation time. The watcher still reads only the registry entry, so
+# there is still exactly one implementation of §7.3.
+#
+# WHOLE-FILE, PLUS AN IGNORE LIST, AND THE SECOND IS WHY THE FIRST IS NOT
+# ENOUGH. §7.3 shadows whole files and this map does too — a `[map]` table
+# replaces the group's outright. But whole-file replacement cannot express
+# "everything the group says, except this directory", which is the case that
+# forced the layer: to drop `.scratch` a repository would have to restate a map
+# it does not own and then keep it in step. `ignore` says the narrowing
+# directly, and a repository that wants both may state both.
+LOCAL_TRIGGERS = "triggers.toml"
+
+
+def local_triggers(root: Path) -> dict | None:
+    """This repository's own trigger layer, or `None` if it ships none."""
+    path = root / ".devman" / LOCAL_TRIGGERS
+    if not path.is_file():
+        return None
+    try:
+        raw = tomllib.loads(path.read_text())
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            f"  {exc}\n"
+            '  it is TOML: `ignore = ["<glob>"]`, and an optional [map] of'
+            " <glob> = <workflow>"
+        ) from exc
+    unknown = sorted(set(raw) - {"ignore", "map"})
+    if unknown:
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            f"  it states {', '.join(unknown)}, and this file holds two keys\n"
+            "  `ignore`, a list of globs this repository never fires on, and"
+            " `map`, a table of <glob> = <workflow> replacing the group's (§8)"
+        )
+    ignore = raw.get("ignore", [])
+    if not isinstance(ignore, list) or not all(isinstance(g, str) for g in ignore):
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            "  `ignore` is a list of glob strings, matched against a path"
+            " relative to this repository's root"
+        )
+    mapping = raw.get("map")
+    if mapping is not None and not (
+        isinstance(mapping, dict) and all(isinstance(v, str) for v in mapping.values())
+    ):
+        raise ProjectionError(
+            f"refusing to project '{path}'\n"
+            "  `[map]` is a table of <glob> = <workflow>, and a workflow is a"
+            " name this repository projects (§7.3)"
+        )
+    return raw
+
+
+def resolve_triggers(plan_triggers: object, root: Path) -> object:
+    """The group layer, narrowed or replaced by this repository's own.
+
+    The OUTCOME is what reaches the registry entry, exactly as §7.3's workflow
+    resolution records its outcome. `source` says which layer decided, because
+    "why does saving this file do nothing" is a question `doctor` has to be able
+    to answer without reading two files in two places.
+    """
+    local = local_triggers(root)
+    if local is None:
+        return plan_triggers
+
+    group = plan_triggers if isinstance(plan_triggers, dict) else {}
+    mapping = local.get("map") or group.get("map") or {}
+    if not mapping:
+        # An `ignore` list with nothing to narrow fires nothing and hides
+        # nothing. It is a repository preparing for a group it has not taken,
+        # which is legal and worth saying nothing about.
+        return None
+    return {
+        "group": group.get("group", "?") if local.get("map") is None else "(local)",
+        "map": mapping,
+        "ignore": local.get("ignore", []),
+        "source": "local" if local.get("map") is not None else "group+local",
+    }
 
 
 # ---------------------------------------------------------------------------

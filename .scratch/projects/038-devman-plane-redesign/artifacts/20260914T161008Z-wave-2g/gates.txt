@@ -1,0 +1,13 @@
+Commands and results
+
+devenv tasks run -v base:check
+PASS — All checks passed.
+
+devenv tasks run -v base:unit
+PASS — 585 passed in 10.00s.
+
+devenv tasks run -v base:test
+PASS — all 24 flake checks passed in 100s.
+
+devenv shell -- sh -c 'nix build .#checks.x86_64-linux.dagu-service --no-link && nix build .#packages.x86_64-linux.devman-link --no-link'
+PASS — both builds completed with exit 0.

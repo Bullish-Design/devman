@@ -12,17 +12,15 @@
 # not (the watcher would then need §7.3's resolution, and the plane would have
 # two implementations of it).
 #
-# It is resolved at evaluation time by `modules/devenv.nix`, whole-file and in
+# It is resolved at shell entry by `src/devman/reconcile.py`, whole-file and in
 # the order the repository lists its groups, and recorded in the registry entry.
 #
 # WHY TOML RATHER THAN NIX.
 #
-# Nix reads it with `builtins.fromTOML (builtins.readFile …)`, which is the
-# construct stage 1's S8 measured as tracked by devenv's evaluation cache — and
-# a mapping that decides what happens when a developer saves must not go stale
-# silently. It is also inert data: a `.nix` file would let a group evaluate
-# arbitrary Nix in every repository that takes it, and a workflow is inert YAML
-# for the same reason (§7.2).
+# The resolver reads it as inert data at shell entry, and a mapping that decides
+# what happens when a developer saves must not go stale silently. A `.nix` file
+# would let a group evaluate arbitrary Nix in every repository that takes it,
+# and a workflow is inert YAML for the same reason (§7.2).
 #
 # TAKING THIS GROUP IS THE OPT-IN, AND THAT IS THE POINT.
 #

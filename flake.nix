@@ -309,28 +309,18 @@
             pkgs.runCommand "devman-module-assertions" { } "touch $out";
 
           # The machine module, run rather than evaluated (§9, rule 7). One VM,
-          # one lingering user, one projection built by hand — because the
-          # devenv half cannot run inside a NixOS test — and one real run.
+          # one lingering user, one canonical compatibility publication —
+          # because the devenv half cannot run inside a NixOS test — and one
+          # real run.
           dagu-service = pkgs.testers.runNixOSTest (import ./nix/tests/dagu-service.nix {
             module = ./nix/nixos-module.nix;
             groups = ./groups;
+            policy = ./.;
             # P1-1's two source files, kept where the review wrote them. One
             # mentions DEVMAN_SELF_DIR in a comment and must still be given
             # DEVMAN_PROJECT_DIR; the other has an `env:` block naming neither
             # reserved name and must be refused (009 stage 8, §9.2).
             fixture = ./.scratch/projects/009-code-review/fixture-project;
-            # The plan the devenv module would have written for that fixture,
-            # in its shape (schema 4). Everything downstream of it in the test
-            # is the real thing: the renderer, `dagu validate`, the published
-            # bytes, the `dags/` link, the entry, and a run.
-            plan = pkgs.writeText "devman-plan-fixture.json" (builtins.toJSON {
-              schema = 4;
-              project = "fixture";
-              groups = [ ];
-              workflows = { };
-              triggers = null;
-              renderer = "the devenv module records the renderer's store path here";
-            });
           });
         });
     };
