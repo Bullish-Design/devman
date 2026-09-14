@@ -28,6 +28,9 @@
       # an active-generation swap.
       registryDir = "$HOME/.local/state/vendomat/devman/active";
       stateDir = "$HOME/.local/state/devman";
+      # Keep the VM timeout short enough to exercise the blocked path. The
+      # normal active-run proof below completes within this limit.
+      reloadMaxWaitSec = 15;
       # A queue set the test can recognise, so it can tell this config.yaml
       # from Dagu's own default.
       queues = { light = 4; exclusive = 1; };
@@ -54,6 +57,9 @@
     PLANE = HOME + "/.local/state/vendomat/devman"
     GENERATION = PLANE + "/generations/1"
     GENERATION2 = PLANE + "/generations/2"
+    GENERATION3 = PLANE + "/generations/3"
+    GENERATION4 = PLANE + "/generations/4"
+    GENERATION5 = PLANE + "/generations/5"
     REG = PLANE + "/active"
     STATE = HOME + "/.local/state/devman"
     PROJ = HOME + "/work/demo"
@@ -221,6 +227,105 @@
         assert "Succeeded" in tester("dagu status demo.probe")
         after_lines = int(tester(f"wc -l < {PROJ}/.devman/.runs/metadata.jsonl"))
         assert after_lines == before_lines + 1, (before_lines, after_lines)
+
+    with subtest("a timed-out reload blocks only the reload and leaves runs usable"):
+        tester(
+            f"printf 'steps:\\n  - name: hold-long\\n    run: sleep 20\\n'"
+            f" > {PROJ}/hold-long.yaml"
+        )
+        tester(
+            f"ln -sfn {PROJ}/hold-long.yaml"
+            f" {REG}/projects/demo/workflows/hold-long.yaml"
+        )
+        tester(f"ln -sfn ../projects/demo/workflows/hold-long.yaml {REG}/dags/demo.hold-long.yaml")
+        tester(f"DEVMAN_PROJECT_DIR={PROJ} dagu enqueue demo.hold-long")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}dagu ps | grep -q demo.hold-long'", timeout=30
+        )
+        before_pid = tester("systemctl --user show dagu -p MainPID --value").strip()
+        machine.succeed(f"su tester -c 'cp -a {GENERATION2} {GENERATION3}'")
+        generation3 = {
+            "generation": 3,
+            "devman_runtime": "test",
+            "renderer_digest": "sha256:test",
+            "policy_digest": "sha256:test-v3",
+            "dagu_digest": "sha256:test",
+            "toolchain_digest": "sha256:test",
+        }
+        machine.succeed(
+            f"su tester -c \"printf '%s\\n' '{json.dumps(generation3)}' > {GENERATION3}/generation.json\""
+        )
+        machine.succeed(
+            f"su tester -c 'ln -s generations/3 {PLANE}/.active-3.new && "
+            f"mv -Tf {PLANE}/.active-3.new {REG}'"
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}systemctl --user is-failed devman-dagu-reload.service'",
+            timeout=30,
+        )
+        tester(f"test -f {STATE}/reload.blocked && test ! -e {STATE}/reload.pending")
+        assert tester("systemctl --user show dagu -p MainPID --value").strip() == before_pid
+
+        manual = tester(f"cd {PROJ} && HOME={HOME} devman run probe -p demo")
+        assert "Enqueued" in manual
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test $(wc -l < {PROJ}/.devman/.runs/metadata.jsonl) -ge 3'",
+            timeout=90,
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test -z \"$(dagu ps | grep demo.hold-long || true)\"'",
+            timeout=40,
+        )
+        tester("systemctl --user restart devman-dagu-reload.service")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
+        )
+        tester(f"test ! -e {STATE}/reload.pending && test ! -e {STATE}/reload.blocked")
+
+    with subtest("a reload while Dagu is stopped does not wait for the timeout"):
+        tester("systemctl --user stop dagu")
+        machine.succeed(f"su tester -c 'cp -a {GENERATION3} {GENERATION4}'")
+        generation4 = generation3 | {"generation": 4, "policy_digest": "sha256:test-v4"}
+        machine.succeed(
+            f"su tester -c \"printf '%s\\n' '{json.dumps(generation4)}' > {GENERATION4}/generation.json\""
+        )
+        machine.succeed(
+            f"su tester -c 'ln -s generations/4 {PLANE}/.active-4.new && "
+            f"mv -Tf {PLANE}/.active-4.new {REG}'"
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}test ! -e {STATE}/reload.pending && "
+            f"test ! -e {STATE}/reload.blocked'",
+            timeout=10,
+        )
+        tester("systemctl --user start dagu")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
+        )
+
+    with subtest("a failed Dagu restart leaves a visible failed reload"):
+        tester("systemctl --user stop dagu")
+        tester("systemctl --user mask dagu.service")
+        machine.succeed(f"su tester -c 'cp -a {GENERATION4} {GENERATION5}'")
+        generation5 = generation4 | {"generation": 5, "policy_digest": "sha256:test-v5"}
+        machine.succeed(
+            f"su tester -c \"printf '%s\\n' '{json.dumps(generation5)}' > {GENERATION5}/generation.json\""
+        )
+        machine.succeed(
+            f"su tester -c 'ln -s generations/5 {PLANE}/.active-5.new && "
+            f"mv -Tf {PLANE}/.active-5.new {REG}'"
+        )
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}systemctl --user is-failed devman-dagu-reload.service'",
+            timeout=30,
+        )
+        tester(f"test -e {STATE}/reload.pending")
+        tester("systemctl --user unmask dagu.service")
+        tester(f"rm -f {STATE}/reload.pending")
+        tester("systemctl --user start dagu")
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
+        )
 
     with subtest("the ports the module declares are the ports Dagu binds"):
         machine.succeed("ss -ltnp | grep 127.0.0.1:8080")
