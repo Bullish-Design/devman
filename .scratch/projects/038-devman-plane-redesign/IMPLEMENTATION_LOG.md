@@ -1913,3 +1913,123 @@ Gitman still reports the pre-existing off-canonical state: the divergent
 `021-changelog` lane and the leftover raw Git `038-fixup-and-fanout` ref. This
 repair did not reconcile that state because Project 038 defers it. The full
 cause, evidence, file set, and proof are in `RESEARCH_REPORT.md`.
+
+## Stage 39 — the §11 item 3 design, and what the fanout already closed
+
+On 2026-09-14, Project 038 landed on `main` as pull request 167, merge commit
+`dc42bfccb6b5c9afa9aa0538fd0b375b31afce6a`. This stage then measured §11 item 3
+before changing anything. **Item 3 needs no new design. The consumer fanout
+already shipped one, and it already passed the gate for 45 of 51 checkouts.**
+
+### The design, stated
+
+`REMOVAL_SEQUENCE_PROMPT.md` asks how the central file gets its project identity
+without the Devman Nix module, and offers two shapes. **The fanout took the
+second: the central file takes the project as an argument, and falls back to the
+repository manifest when the argument is absent.** The header is one line:
+
+```nix
+{ config, project ? null, ... }:
+
+let
+  projectName =
+    if project != null then project
+    else
+      (builtins.fromTOML
+        (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;
+in
+```
+
+**Two callers, two branches, one file.** The link adapter evaluates the file as
+a plain function and supplies `project` whenever the file declares it, so the
+adapter always takes the first branch — `src/devman_link/config.py:143-156`
+builds the arguments from `builtins.functionArgs`. Devenv's module system
+supplies no `project`, so shell entry always takes the second branch and reads
+`.devman/project.toml` through `config.devenv.root`, which is a devenv option.
+Neither branch reads `config.devman.project`, so neither needs the Devman
+module.
+
+**The failure this avoids** is the one Stage 14 measured on Vendomat: removing
+the `devman` input, the module import and the option block made shell entry fail
+at Nix evaluation with `attribute 'devman' missing`, because the central file
+interpolated `config.devman.project`. The file now names its own identity
+source, so the module can go.
+
+**It keeps one declaration format, as 025 and the A-to-C guide §5.2 require.**
+There is still one `devman.link` attribute set at one file path. Identity
+resolution moved into the file's `let`; the declaration did not change shape.
+`modules/link.nix:17-34` makes the same choice on the module side, guarding with
+`config.devman ? project` rather than requiring it.
+
+### Vendomat is the probe, and it already passed
+
+Vendomat carries no `devman` option block and imports no Devman module. Its
+`flake.nix` still names a `devman` input, but only to `callPackage` the CLI,
+renderer and Dagu derivations for Vendomat's own plane manifest — that is
+Vendomat packaging Devman, not Vendomat consuming the module. `devenv shell --
+true` returns 0 and reconciles five links. This is the Stage 14 probe, in its
+completed state.
+
+### Where item 3 actually stands
+
+Measured across the 55 central declarations and their checkouts. `A` is the
+migrated header above; `B` interpolates `config.devman.project`. `module` means
+the checkout still declares a `devman = { ... }` option block and imports
+`devman/modules`. Evidence:
+`artifacts/20260914T135741Z-s11-item3-baseline/central-file-shapes.txt`.
+
+| Central file | Module | Count | Which |
+|---|---|---|---|
+| A | none | 45 | the migrated fleet — **item 3's gate has passed here** |
+| A | module | 1 | `tyo3` |
+| B | module | 5 | `allium-env`, `devman`, `forgelab`, `lodestar`, `repoman` |
+| B | no checkout | 4 | `fleetman`, `foreman`, `my-ai`, `siteman` |
+
+**Six checkouts still carry the module, and each has its own reason:**
+
+- **`tyo3`** is a partial migration, not an unmigrated one. Its central file is
+  already shape A; only the checkout's `devenv.yaml` import and option block
+  remain. Stage 38 migrated it through the path-limited raw-Git fallback,
+  because Gitman is blocked there by jj/Git desynchronization. Finishing it
+  means finishing that fallback, not repeating the design.
+- **`devman`** keeps the module on purpose. Criterion 16 says devman adopts
+  itself, and `devenv.yaml` imports `./modules` as a local directory rather than
+  an input, because the plane has no rev to pin against itself. **This one is
+  not item 3 work.**
+- **`repoman`** and **`allium-env`** are live and unmigrated. RepoMan is also one
+  of the four standing doctor findings — dirty and unpinned — so editing it
+  mixes item 3 with unrelated drift repair.
+- **`forgelab`** and **`lodestar`** are backburner checkouts whose central files
+  set `devman.enable = lib.mkForce false`. **`mkForce` is a module-system call,
+  so removing the module from these two is not the same edit as the other four.**
+  It needs a decision about what "backburner" means without a module to disable.
+
+The four entries with no checkout are stale overlay directories. `fleetman` and
+`my-ai` are already named in the `TODO(038-archive)` note above.
+
+### Baseline, re-measured rather than copied
+
+Every plane measure is unchanged from Stage 17:
+
+```text
+active pointer  generations/2, 46 projects, 146 DAG files
+DAG digest      5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b
+dagu ls         147 lines
+fleet sweep     51 checkouts: 47 exit 0, 4 ordinary drift, 0 refusals
+canary          both adapters exit 0 on vendomat, five ok, central path shown
+doctor          exit 1, the same four findings
+```
+
+The four drift checkouts are `forgelab`, `image-gen-pipeline`, `lodestar` and
+`repoman` — the same four Stage 17 named. A new refusal would be a regression;
+there is none.
+
+### Not done in this stage
+
+No consumer changed. This stage wrote the design and the measurement, as
+`REMOVAL_SEQUENCE_PROMPT.md` requires before a consumer edit. **The remaining
+item 3 work is four checkouts, in two groups that need different decisions**, and
+the backburner pair is the group to ask about first. Items 2 and 4 sit behind
+item 3 and did not start. Item 5 remains blocked on the operator decisions the
+prompt lists: the three manifest placements, the seven detached-HEAD branches,
+and the compatibility-only projects.

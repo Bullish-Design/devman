@@ -1,0 +1,6 @@
+date: 2026-09-14T13:57:48Z
+host: server
+devman-link: /nix/store/zjzp1hxfwgc323dbrq01acq54x5vcqc6-devman-link-0.6.0/bin/devman-link
+devman: /nix/store/k1vd72565fdpfvsyhf1y7ih355zdyivh-devman-0.6.0/bin/devman
+head: dc42bfccb6b5c9afa9aa0538fd0b375b31afce6a
+branch: main
