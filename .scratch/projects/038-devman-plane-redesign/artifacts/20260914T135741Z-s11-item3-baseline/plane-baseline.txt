@@ -1,0 +1,8 @@
+active pointer: generations/2
+projects: 46
+dag files: 146
+dag digest: 5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b
+dagu ls: 147 lines
+fleet sweep: 51 repositories, 47 exit 0, 4 exit 1 (ordinary drift), 0 refusals
+canary devman-link status vendomat: exit 0, five ok
+canary devman link status vendomat: exit 0, five ok
