@@ -2192,3 +2192,11 @@ copies of repository-owned `triggers.toml` and `writes.toml` to the state root.
 Stage 3 item 2 did not move `registryDir` to `~/.config/devman`; the overlay
 collision and scheduled-run gate remain documented in
 `.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a.
+
+## Wave 1B — mark Project 038 shipped
+
+On 2026-09-14, the Project 038 README changed from `proposed concept` to
+`implemented and deployed`. The redesign is deployed. §11 still tracks the
+duplicate resolver, compatibility registry writes, compatibility mode, and
+obsolete documentation and flags. Routine consumer Devman lock updates are
+complete.

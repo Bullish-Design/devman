@@ -1,7 +1,7 @@
 # 038 — Devman plane redesign
 
 Date: 2026-09-12
-Status: proposed concept
+Status: implemented and deployed
 
 This project redesigns Devman as a machine-level automation plane.
 
@@ -41,4 +41,7 @@ Vendomat, and RepoMan.
 [CONSUMER_MIGRATION_GUIDE.md](CONSUMER_MIGRATION_GUIDE.md) is the detailed
 clean-session runbook for the remaining consumer migrations.
 
-This project is a design document. It does not implement the redesign.
+The redesign is implemented and deployed. The remaining §11 work is item 2
+(the duplicate resolver), item 4 (compatibility registry writes), item 5
+(compatibility mode), and item 6 (obsolete documentation and flags). Item 3
+(routine consumer Devman lock updates) is complete.
