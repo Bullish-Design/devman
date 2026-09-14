@@ -1764,3 +1764,48 @@ active pointer remained `generations/2`, with 46 projects, 146 DAG files,
 digest `5acf4cc3be671f7118643e33eb01f37d708ed780ee228027956dce0dcee6022b`,
 and Dagu inventory 147. Doctor was not rerun in this stage; its prior four
 known findings remain unchanged.
+
+## Stage 37 — approved detached and development-layer migrations
+
+On 2026-09-13, the operator approved the mapped destination branches for all
+seven previously detached repositories:
+
+- `gitman`: `e0f706cb16eda474d7d16e9070cc8585360bb86e`
+- `image-gen-pipeline`: `df9b0eedae562f46abd307d18538b02f9bd20b83`
+- `llgym`: `d74ecb7aa56b77bfa5071fa90457c32e0bc4cb86`
+- `loci-core`: `1be8d8db6eb984c34837b1d07dbb8c3c7760cbd7`
+- `nix-paseo`: `6d63f171f3433592ea1eadbca2484d6b4fc9a8fa`
+- `pydantree`: `c1ea76e1e43b13d02f526c9d00f2459630bca264`
+- `pyjutsu`: `f58935c5390303a007fef227a4620b09f6aa8710`
+
+The matching central declarations were committed locally as `64eb0bb9`
+(`gitman`), `b6bafa19` (`image-gen-pipeline`), `71c88366`
+(`llgym`), `ea93a362` (`loci-core`), `ce7d7846` (`nix-paseo`),
+`baca5ecc` (`pydantree`), and `167ab1e3` (`pyjutsu`).
+
+The operator also approved the three development-layer consumers. New
+manifests were added for `copyroom`, `docman`, and `mypi-agent`; their
+Devman declarations under `dev/devenv.nix` were removed; and their matching
+central declarations were committed locally as `6501fed6`, `79f983fd`,
+and `bf9293db`. Published consumer commits are
+`a0e922e54bb6020c4389c881154ea4bc0182efbe`,
+`660d6790f40ca76d98fea845107d44d822c1bb11`, and
+`3a45c14e435ef48ab18d38c111e2313a5b39f8c6`.
+
+Passing gates: `gitman` 314 tests, `nix-paseo`, `pydantree` (379
+passed, 1 expected failure), `pyjutsu`, and `copyroom` (603 tests).
+Published failures: `image-gen-pipeline` 4 failed / 647 passed;
+`llgym` 14 failed / 196 passed; `loci-core` 16 Ruff errors plus one
+promoted-skill link failure; `docman` one Ruff error with 18 tests passing;
+and `mypi-agent`, whose gates were blocked by the existing SecretSpec reason
+policy. All failures are recorded in the corresponding consumer commit
+messages. The link canary passed for every edited central declaration.
+
+### Archive TODO
+
+TODO(038-archive): review and remove active references to `fleetman`,
+`flora-037-part-e`, and the `my-ai` project when those libraries are
+archived. They are intentionally excluded from this migration. Historical
+design records, generated registry state, and the shared `my-ai` skill remain
+untouched. The active trigger inventory comments out `fleetman` and
+`my-ai` until that review.
