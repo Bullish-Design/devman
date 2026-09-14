@@ -426,8 +426,7 @@ def test_the_entry_is_written_last(tmp_path):
 
 def test_a_stale_link_and_file_are_swept(tmp_path):
     """The registry is derived, so the projection is rebuilt rather than
-    patched — including the pre-codec `<project>-<workflow>` shape, which is
-    what makes the codec migrate itself (S-12)."""
+    patched — including a stale link under the current codec."""
     root = tmp_path / "repo"
     local_workflow(tmp_path, "check", ORDINARY)
     registry = tmp_path / "registry"
@@ -436,13 +435,11 @@ def test_a_stale_link_and_file_are_swept(tmp_path):
     workflows.mkdir(parents=True)
     dags.mkdir(parents=True)
     (workflows / "gone.yaml").write_text("stale\n")
-    (dags / "p-gone.yaml").symlink_to("../projects/p/workflows/gone.yaml")
     (dags / "p.gone.yaml").symlink_to("../projects/p/workflows/gone.yaml")
 
     project.apply(plan_for(tmp_path), root, registry, ["check"], dagu="true")
 
     assert not (workflows / "gone.yaml").exists()
-    assert not (dags / "p-gone.yaml").is_symlink()
     assert not (dags / "p.gone.yaml").is_symlink()
     assert (dags / "p.check.yaml").is_symlink()
 

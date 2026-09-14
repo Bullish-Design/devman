@@ -2200,3 +2200,26 @@ On 2026-09-14, the Project 038 README changed from `proposed concept` to
 duplicate resolver, compatibility registry writes, compatibility mode, and
 obsolete documentation and flags. Routine consumer Devman lock updates are
 complete.
+
+## Wave 1C — remove the completed S-12 compatibility migration
+
+On 2026-09-14, the live `dag names` check reported no unmigrated workflow:
+16 workflow names rendered one DAG name each. The active plane had already
+removed the old hyphenated links, with 45 projects and 143 current DAG files.
+The migration gate therefore passed.
+
+The projection now sweeps and unprojects only the current dotted DAG name.
+`run` refuses a missing or incorrect current link instead of falling back to a
+legacy name. `doctor` reports the same missing-link condition as a projection
+fault. `LEGACY_DAG_SEPARATOR`, `Registry.unmigrated()`, and the old DAG-name
+fallback are gone.
+
+The unit suite changed from 606 to 599 tests. The seven removed tests covered
+only the completed migration: `test_an_unmigrated_project_falls_back_and_says_so`,
+`test_an_unmigrated_projection_is_a_note_and_not_a_fault`,
+`test_unproject_sweeps_both_name_shapes`,
+`test_a_project_projected_before_the_codec_is_unmigrated_not_broken`,
+`test_a_re_projected_workflow_is_not_unmigrated`,
+`test_a_workflow_with_no_link_at_all_is_not_unmigrated`, and
+`test_a_legacy_link_pointing_elsewhere_is_not_a_migration`. Tests for the
+current link target guard remain.

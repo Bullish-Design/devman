@@ -326,77 +326,17 @@ def test_unproject_removes_this_projects_projection(plane):
 
 
 def test_unproject_leaves_a_link_that_points_somewhere_else(plane):
-    """The rule outlives the ambiguity it was written for.
-
-    The codec makes the current shape unambiguous, so this can only bite on the
-    **legacy** shape `unproject` still sweeps during the migration — where
-    `<project>-<workflow>` is ambiguous when one project name is a prefix of
-    another, and the link target is not. A prune that removed another project's
-    DAG would be the silent wrong-tree failure this design refuses everywhere.
-    """
-    devman = plane.add("devman", workflows={"b-check": ORDINARY}, legacy=True)
+    """A prune must not remove a current link owned by another project."""
+    devman = plane.add("devman", workflows={"b-check": ORDINARY})
     devman_b = plane.add("devman-b", workflows={"check": ORDINARY})
-    shared = plane.root / "dags" / "devman-b-check.yaml"
+    shared = plane.root / "dags" / "devman-b.check.yaml"
+    plane.link("devman-b", "check", "../projects/devman/workflows/b-check.yaml")
     assert shared.is_symlink()
 
     plane.reg.unproject(devman_b)
 
     assert shared.is_symlink()
     assert plane.reg.workflow_file(devman, "b-check").exists()
-
-
-def test_unproject_sweeps_both_name_shapes(plane):
-    """A project mid-migration holds a link under each. Both are this project's
-    own, so both go (S-12)."""
-    proj = plane.add("p", workflows={"check": ORDINARY}, legacy=True)
-
-    plane.reg.unproject(proj)
-
-    assert not (plane.root / "dags" / "p.check.yaml").is_symlink()
-    assert not (plane.root / "dags" / "p-check.yaml").is_symlink()
-
-
-# ---------------------------------------------------------------------------
-# the migration — the machine holds both shapes until every shell is entered
-
-
-def test_a_project_projected_before_the_codec_is_unmigrated_not_broken(plane):
-    """**This is what stops the codec being a flag day.** The projection runs on
-    shell entry, one repository at a time, so 52 of 53 repositories hold only
-    the old link the moment the codec lands. Without this, "there is no dags/
-    link" is indistinguishable from a collision and every trigger in all of them
-    refuses."""
-    proj = plane.add("p", workflows={"check": ORDINARY}, link=False, legacy=True)
-
-    assert plane.reg.dag_link_fault(proj, "check") is not None
-    assert plane.reg.unmigrated(proj, "check") is True
-
-
-def test_a_re_projected_workflow_is_not_unmigrated(plane):
-    proj = plane.add("p", workflows={"check": ORDINARY})
-    assert plane.reg.unmigrated(proj, "check") is False
-
-
-def test_a_workflow_with_no_link_at_all_is_not_unmigrated(plane):
-    """Absent under both shapes is a broken projection, not a migration."""
-    proj = plane.add("p", workflows={"check": ORDINARY}, link=False)
-    assert plane.reg.unmigrated(proj, "check") is False
-
-
-def test_a_legacy_link_pointing_elsewhere_is_not_a_migration(plane):
-    """Deliberately narrow. The legacy shape is the ambiguous one, so a legacy
-    link pointing at another project's file is the collision the codec exists to
-    end — falling back to it would enqueue the wrong file (S6)."""
-    plane.add("devman", workflows={"b-check": ORDINARY})
-    devman_b = plane.add("devman-b", workflows={"check": ORDINARY}, link=False)
-    plane.link(
-        "devman-b",
-        "check",
-        "../projects/devman/workflows/b-check.yaml",
-        sep="-",
-    )
-
-    assert plane.reg.unmigrated(devman_b, "check") is False
 
 
 def test_unproject_removes_metadata_last(plane, monkeypatch):

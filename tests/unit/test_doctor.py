@@ -293,24 +293,6 @@ def test_same_lines_counts_what_survives():
     assert doctor._same_lines([], ["a"]) == (0, 0)
 
 
-# ---------------------------------------------------------------------------
-# the codec (§9.2, S-12)
-
-
-def test_an_unmigrated_projection_is_a_note_and_not_a_fault(plane):
-    """Reporting it `!!` would have made every repository on the machine a fault
-    for as long as the migration took — 53 of them, none of them broken."""
-    plane.add("p", workflows={"check": ORDINARY}, link=False, legacy=True)
-    rep = doctor.Report()
-
-    doctor.check_projection(rep, plane.reg)
-
-    status, lines = rep.sections[0][1], rep.sections[0][2]
-    assert status == "ok"
-    assert "still project under the pre-codec name" in lines[1]
-    assert "migrates itself the next time its shell is entered" in lines[2]
-
-
 def test_a_link_pointing_at_another_project_is_still_a_fault(plane):
     plane.add("devman", workflows={"b-check": ORDINARY})
     plane.add("devman-b", workflows={"check": ORDINARY}, link=False)

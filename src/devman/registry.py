@@ -107,12 +107,6 @@ DEFAULT_DAGU_HOME = "~/.local/share/dagu"
 # spells it.
 DAG_SEPARATOR = "."
 
-# The pre-S-12 shape, kept for one release so that a repository which has not
-# been re-entered since the codec changed still triggers. `doctor` names every
-# one of them, and `run` says so on stderr before it falls back. Delete both
-# when `doctor` reports no unmigrated workflow on any machine that matters.
-LEGACY_DAG_SEPARATOR = "-"
-
 
 class RegistryError(Exception):
     """A refusal the developer must see. The CLI prints it and exits 1."""
@@ -533,10 +527,6 @@ class Registry:
         """
         return f"{project.name}{DAG_SEPARATOR}{workflow}"
 
-    def legacy_dag_name(self, project: Project, workflow: str) -> str:
-        """The pre-S-12 name. Migration only — see `LEGACY_DAG_SEPARATOR`."""
-        return f"{project.name}{LEGACY_DAG_SEPARATOR}{workflow}"
-
     def dag_link_fault(self, project: Project, workflow: str) -> str | None:
         """What `dags/<project>.<workflow>.yaml` points at, when it is not this
         project's own file — and `None` when it is.
@@ -545,9 +535,8 @@ class Registry:
         comparing against it needs no second source. §9.2 already used the same
         rule in `unproject`, which refuses to remove a link pointing elsewhere.
 
-        A link that is simply absent because this project has not been
-        re-projected since the codec changed is `unmigrated()`'s business, not a
-        collision.
+        A missing link is a projection fault. The migration period ended when
+        every workflow moved to the current codec.
         """
         return self._link_fault(self.dag_name(project, workflow), project, workflow)
 
@@ -559,25 +548,6 @@ class Registry:
         except OSError:
             return "nothing — there is no dags/ link, so Dagu cannot run it by name"
         return None if got == want else got
-
-    def unmigrated(self, project: Project, workflow: str) -> bool:
-        """True when this workflow still projects only under the pre-S-12 name.
-
-        **This is what stops the codec being a flag day.** The projection runs
-        on shell entry, one repository at a time, so the machine holds both
-        shapes until every repository has been entered again. Without this the
-        codec would refuse every trigger in 52 of 53 repositories the moment it
-        landed — the new link does not exist yet, and "there is no dags/ link"
-        is indistinguishable from a collision.
-
-        It is deliberately narrow: the new link must be missing AND the old one
-        must point at this project's own file. A link pointing anywhere else is
-        still a fault, because that is the collision the codec exists to end.
-        """
-        if self.dag_link_fault(project, workflow) is None:
-            return False
-        legacy = self.legacy_dag_name(project, workflow)
-        return self._link_fault(legacy, project, workflow) is None
 
     def projected_files(self) -> list[tuple[Project, str, Path]]:
         """Every `(project, workflow, projected file)` in the registry."""
@@ -594,26 +564,18 @@ class Registry:
         """Remove one project's projection. `doctor --prune` only (§10 check 5).
 
         A `dags/` link is removed only when it still points at this project's
-        own file. The codec makes the name injective, so a link under the
-        current shape can only be this project's — but the rule stays, because
-        the **legacy** shape below is exactly the ambiguous one, and a prune that
-        removed another project's DAG would be the silent wrong-tree failure
-        this design refuses everywhere else. That is the same rule the
-        projection applies in `project._sweep()` — one rule, two callers, as with
-        `deepest()`.
-
-        Both shapes are removed while the machine holds both (S-12).
+        own file. The codec makes the name injective, but the target check still
+        protects another project's DAG from an incorrect prune.
         """
         removed: list[Path] = []
         registry_entry = self.projects_dir / project.name
         wdir = registry_entry / "workflows"
         for f in sorted(wdir.glob("*.yaml")) if wdir.is_dir() else []:
             want = f"../projects/{project.name}/workflows/{f.stem}.yaml"
-            for sep in (DAG_SEPARATOR, LEGACY_DAG_SEPARATOR):
-                link = self.dags_dir / f"{project.name}{sep}{f.stem}.yaml"
-                if link.is_symlink() and os.readlink(link) == want:
-                    link.unlink()
-                    removed.append(link)
+            link = self.dags_dir / f"{project.name}{DAG_SEPARATOR}{f.stem}.yaml"
+            if link.is_symlink() and os.readlink(link) == want:
+                link.unlink()
+                removed.append(link)
             f.unlink()
             removed.append(f)
         _rmdir(wdir)

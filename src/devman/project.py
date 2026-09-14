@@ -52,7 +52,7 @@ from pathlib import Path
 
 import yaml
 
-from .registry import DAG_SEPARATOR, LEGACY_DAG_SEPARATOR, identity_fault
+from .registry import DAG_SEPARATOR, identity_fault
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow, _env_holds
 
 # The registry entry's schema. SCHEMA 4 changes what `plan` means: it was the
@@ -639,14 +639,8 @@ def _sweep(
     """The registry is derived, so the projection is rebuilt rather than patched.
 
     A `dags/` link is removed only when it still points at this project's own
-    file, because the legacy shape is ambiguous when one project name is a
-    prefix of another and the link target is not.
-
-    BOTH SHAPES ARE SWEPT, AND THE SECOND IS THE MIGRATION (S-12). Sweeping only
-    the current shape would leave `dags/<project>-<workflow>.yaml` pointing at a
-    live file — a second DAG name for one workflow, which `dagu ls` shows and a
-    stale schedule still fires. Drop `-` when `doctor` reports no unmigrated
-    workflow.
+    file. The current codec is injective, so the link target check protects the
+    derived registry if an unrelated writer left a stale link behind.
     """
 
     def target(stem: str) -> str:
@@ -654,19 +648,10 @@ def _sweep(
 
     removed_names = published_names - rendered_names
     for stem in sorted(removed_names):
-        for sep in (DAG_SEPARATOR, LEGACY_DAG_SEPARATOR):
-            link = dags / f"{project}{sep}{stem}.yaml"
-            if link.is_symlink() and os.readlink(link) == target(stem):
-                link.unlink()
-        (workflows_dir / f"{stem}.yaml").unlink(missing_ok=True)
-
-    # Sweep the legacy shape for every surviving workflow. This keeps the S-12
-    # migration active without removing a current link that the next loop will
-    # rewrite byte-identically.
-    for stem in sorted(rendered_names):
-        link = dags / f"{project}{LEGACY_DAG_SEPARATOR}{stem}.yaml"
+        link = dags / f"{project}{DAG_SEPARATOR}{stem}.yaml"
         if link.is_symlink() and os.readlink(link) == target(stem):
             link.unlink()
+        (workflows_dir / f"{stem}.yaml").unlink(missing_ok=True)
 
 
 def _relink(link: Path, target: str) -> None:

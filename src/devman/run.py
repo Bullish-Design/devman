@@ -96,22 +96,6 @@ def resolve(
     dag = reg.dag_name(project, workflow)
     fault = reg.dag_link_fault(project, workflow)
 
-    # The codec landed in S-12 and the projection runs on shell entry, so the
-    # machine holds both name shapes until every repository has been entered
-    # again. Falling back is what stops that being a flag day — but it is said
-    # out loud, because a trigger quietly using a name the plane no longer
-    # projects is exactly the silent-default habit §12 rule 4 refuses.
-    if fault and reg.unmigrated(project, workflow):
-        dag = reg.legacy_dag_name(project, workflow)
-        fault = None
-        print(
-            f"devman run: '{project.name}' still projects under the pre-codec"
-            f" DAG name — enqueueing {dag}.\n"
-            f"  enter its shell once to re-project it as {reg.dag_name(project, workflow)}"
-            " (§9.2)",
-            file=sys.stderr,
-        )
-
     if fault:
         raise RegistryError(
             f"refusing to enqueue '{workflow}' in '{project.name}'\n"

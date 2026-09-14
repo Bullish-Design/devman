@@ -489,7 +489,7 @@ def check_ageing(rep: Report, reg: Registry, dagu_home: Path) -> None:
 
 
 def check_projection(rep: Report, reg: Registry) -> None:
-    """Does `dags/<project>-<workflow>` still point at that project's file?
+    """Does `dags/<project>.<workflow>` still point at that project's file?
 
     Everything else in `doctor` checks a projected file. This checks the one
     thing between a projected file and the name a trigger uses: a DAG name is
@@ -499,24 +499,16 @@ def check_projection(rep: Report, reg: Registry) -> None:
 
     It costs one `readlink` per projected workflow and needs no running daemon.
 
-    **Since S-12 it separates two answers that used to look identical.** A
-    missing link is not a collision when the codec has changed underneath the
-    machine: the repository simply has not been entered since, so it still
-    projects under `<project>-<workflow>`. That is a migration note and a fix a
-    developer can run, not a wrong-file hazard — and reporting it as `!!` would
-    have made every repository on the machine a fault for as long as the
-    migration took.
+    A missing link is a projection fault. The codec migration is complete, so
+    every projected workflow must have its current link.
     """
-    bad, unmigrated = [], []
+    bad = []
     for proj, name, _path in reg.projected_files():
         fault = reg.dag_link_fault(proj, name)
         if not fault:
             continue
-        if reg.unmigrated(proj, name):
-            unmigrated.append(f"{proj.name}/{name}")
-        else:
-            dag = reg.dag_name(proj, name)
-            bad.append(f"{dag}: the DAG of that name points at {fault}")
+        dag = reg.dag_name(proj, name)
+        bad.append(f"{dag}: the DAG of that name points at {fault}")
     if bad:
         rep.add(
             "projection",
@@ -530,21 +522,6 @@ def check_projection(rep: Report, reg: Registry) -> None:
         )
         return
     total = len(reg.projected_files())
-    if unmigrated:
-        projects = sorted({line.split("/")[0] for line in unmigrated})
-        rep.add(
-            "projection",
-            "ok",
-            [
-                f"{total - len(unmigrated)} of {total} DAG names each point at"
-                " their own project's file",
-                f"{len(unmigrated)} still project under the pre-codec name, in"
-                f" {len(projects)} repositories: {', '.join(projects)}",
-                "each migrates itself the next time its shell is entered"
-                " (§9.2, S-12) — `devman run` says so and falls back until then",
-            ],
-        )
-        return
     rep.add(
         "projection",
         "ok",

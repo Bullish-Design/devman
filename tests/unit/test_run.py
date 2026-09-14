@@ -508,21 +508,6 @@ def test_the_pair_that_used_to_collide_now_resolves_to_two_names(plane):
     assert a != b
 
 
-def test_an_unmigrated_project_falls_back_and_says_so(plane, capsys):
-    """The migration path. A repository not entered since the codec landed still
-    triggers — enqueueing the pre-codec name — and the fallback is announced,
-    because a trigger quietly using a name the plane no longer projects is the
-    silent default §12 rule 4 refuses."""
-    proj = plane.add("p", workflows={"check": ORDINARY}, link=False, legacy=True)
-
-    dag, _, _ = run.resolve(plane.reg, proj, "check", {})
-
-    assert dag == plane.reg.legacy_dag_name(proj, "check")
-    notice = capsys.readouterr().err
-    assert "still projects under the pre-codec DAG name" in notice
-    assert plane.reg.dag_name(proj, "check") in notice
-
-
 def test_a_workflow_name_holding_a_dot_is_refused_at_the_trigger(plane):
     """Such a name has no unambiguous DAG to enqueue, so it is a refusal rather
     than a fallback. The module refuses it earlier; this catches a projection

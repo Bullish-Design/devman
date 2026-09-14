@@ -23,7 +23,6 @@ from pathlib import Path
 
 from devman.registry import (
     DAG_SEPARATOR,
-    LEGACY_DAG_SEPARATOR,
     Project,
     Registry,
 )
@@ -67,15 +66,13 @@ class Plane:
         overlay: str = "~/.config/devman",
         links: dict | None = None,
         link: bool = True,
-        legacy: bool = False,
         make_dir: bool = True,
     ) -> Project:
         """Register one project, exactly as the devenv module's projection does.
 
         `workflows` maps a workflow name to the YAML text of its projected file.
-        `link` writes the `dags/` symlink the projection writes, under the
-        current codec; `legacy` writes it under the pre-S-12 name instead, which
-        is what a repository that has not been re-entered since looks like.
+        `link` writes the `dags/` symlink the projection writes under the
+        current codec.
         `make_dir` creates the repository the entry points at. `sources` records
         where a name resolved from, which is what `doctor` check 4 diffs a
         shadowing file against (schema 2, §7.3).
@@ -95,14 +92,6 @@ class Plane:
                 self.link(
                     name, workflow, f"../projects/{name}/workflows/{workflow}.yaml"
                 )
-            if legacy:
-                self.link(
-                    name,
-                    workflow,
-                    f"../projects/{name}/workflows/{workflow}.yaml",
-                    sep=LEGACY_DAG_SEPARATOR,
-                )
-
         # `metadata.json` is written LAST, which is what makes an interrupted
         # projection leave an entry `projects()` skips rather than half-reads
         # (registry.py, §9.3).
