@@ -486,16 +486,15 @@ in
 
     reloadMaxWaitSec = mkOption {
       type = types.ints.positive;
-      default = 300;
+      default = 600;
       description = ''
         How long the reload adapter waits for `dagu ps` to empty before it
         gives up and leaves the running Dagu process alone (§5, project 038).
 
-        **5 minutes is a stated bound, not a measurement** — nobody has timed
-        the longest run this machine's workflows are expected to take (the
-        same honesty `queues` states about `llm`). Raise it for a machine that
-        runs long jobs; the cost of raising it is a later reload, not a lost
-        run.
+        **10 minutes is based on a measurement.** The observed maximum is 279 s
+        over 1306 runs, with p99 at 61 s (§2.6, project 038). The 600 s limit
+        gives a 2x margin over the observed maximum. Raise it for a machine
+        that runs longer jobs; the cost is a later reload, not a lost run.
 
         On timeout the adapter writes `reload.blocked` under
         `services.devman-dagu.stateDir` and exits non-zero, so
