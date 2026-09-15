@@ -63,6 +63,12 @@
     REG = PLANE + "/active"
     STATE = HOME + "/.local/state/devman"
     PROJ = HOME + "/work/demo"
+    DEMO_ENTRY = json.dumps({
+        "schema": 3, "project": "demo", "path": PROJ,
+        "groups": ["base"], "plan": "", "local": ["probe"],
+        "workflows": {"check": {"group": "base", "shadows": [], "source": ""}},
+        "triggers": None,
+    })
     # DAGU_HOME matters: without it the CLI picks its own default home, reads a
     # different config.yaml, and lists Dagu's bundled examples instead of the
     # registry.
@@ -151,11 +157,20 @@
         )
         tester(f"ln -sfn {PROJ}/hold.yaml {REG}/projects/demo/workflows/hold.yaml")
         tester(f"ln -sfn ../projects/demo/workflows/hold.yaml {REG}/dags/demo.hold.yaml")
+        machine.succeed(
+            f"printf 'steps:\n  - name: hold-long\n    run: sleep 20\n' > {PROJ}/hold-long.yaml"
+        )
+        tester(f"ln -sfn {PROJ}/hold-long.yaml {REG}/projects/demo/workflows/hold-long.yaml")
+        tester(f"ln -sfn ../projects/demo/workflows/hold-long.yaml {REG}/dags/demo.hold-long.yaml")
+        machine.succeed(f"mkdir -p {STATE}/projects/demo")
+        machine.succeed(f"printf '%s\n' '{DEMO_ENTRY}' > {STATE}/projects/demo/metadata.json")
+        machine.succeed(f"printf '%s\n' '{DEMO_ENTRY}' > {REG}/projects/demo/metadata.json")
         listed = tester("dagu ls")
         print(listed)
         assert "demo.check" in listed, "the chained group symlink was not discovered"
         assert "demo.probe" in listed
         assert "demo.hold" in listed
+        assert "demo.hold-long" in listed
         assert "example-" not in listed, "Dagu seeded its examples into the registry"
 
     with subtest("a run lands in the project that triggered it"):
@@ -213,11 +228,11 @@
             f"su tester -c '{ENV}dagu ps | grep -q demo.hold'", timeout=5
         )
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}test -z \"$(dagu ps | grep demo.hold || true)\"'",
+            f"su tester -c '{ENV}dagu ps | grep -q demo.hold; test $? -ne 0'",
             timeout=60,
         )
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}test \"$(systemctl --user show dagu -p MainPID --value)\" != \"{before_pid}\"'",
+            f"su tester -c '{ENV}systemctl --user show dagu -p MainPID --value | grep -v -x {before_pid}'",
             timeout=60,
         )
         machine.wait_until_succeeds(
@@ -229,15 +244,6 @@
         assert after_lines == before_lines + 1, (before_lines, after_lines)
 
     with subtest("a timed-out reload blocks only the reload and leaves runs usable"):
-        tester(
-            f"printf 'steps:\\n  - name: hold-long\\n    run: sleep 20\\n'"
-            f" > {PROJ}/hold-long.yaml"
-        )
-        tester(
-            f"ln -sfn {PROJ}/hold-long.yaml"
-            f" {REG}/projects/demo/workflows/hold-long.yaml"
-        )
-        tester(f"ln -sfn ../projects/demo/workflows/hold-long.yaml {REG}/dags/demo.hold-long.yaml")
         tester(f"DEVMAN_PROJECT_DIR={PROJ} dagu enqueue demo.hold-long")
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}dagu ps | grep -q demo.hold-long'", timeout=30
@@ -273,7 +279,7 @@
             timeout=90,
         )
         machine.wait_until_succeeds(
-            f"su tester -c '{ENV}test -z \"$(dagu ps | grep demo.hold-long || true)\"'",
+            f"su tester -c '{ENV}dagu ps | grep -q demo.hold-long; test $? -ne 0'",
             timeout=40,
         )
         tester("systemctl --user restart devman-dagu-reload.service")
@@ -298,13 +304,15 @@
             f"test ! -e {STATE}/reload.blocked'",
             timeout=10,
         )
+        tester("systemctl --user reset-failed dagu.service")
         tester("systemctl --user start dagu")
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
         )
 
     with subtest("a failed Dagu restart leaves a visible failed reload"):
-        tester("systemctl --user stop dagu")
+        # Keep Dagu active. A stopped service is a drained reload and must not
+        # attempt a restart; masking the active unit makes try-restart fail.
         tester("systemctl --user mask dagu.service")
         machine.succeed(f"su tester -c 'cp -a {GENERATION4} {GENERATION5}'")
         generation5 = generation4 | {"generation": 5, "policy_digest": "sha256:test-v5"}
@@ -322,6 +330,7 @@
         tester(f"test -e {STATE}/reload.pending")
         tester("systemctl --user unmask dagu.service")
         tester(f"rm -f {STATE}/reload.pending")
+        tester("systemctl --user reset-failed dagu.service")
         tester("systemctl --user start dagu")
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}systemctl --user is-active dagu' 2>&1", timeout=60
@@ -337,12 +346,7 @@
     with subtest("the CLI is on PATH, wrapped with this machine's directories"):
         # The registry entry the devenv module would have written. The CLI reads
         # it; the projection above is what it points at.
-        entry = json.dumps({
-            "schema": 3, "project": "demo", "path": PROJ,
-            "groups": ["base"], "plan": "", "local": ["probe"],
-            "workflows": {"check": {"group": "base", "shadows": [], "source": ""}},
-            "triggers": None,
-        })
+        entry = DEMO_ENTRY
         machine.succeed(f"mkdir -p {STATE}/projects/demo")
         machine.succeed(
             f"install -o tester -g users -m 644 /dev/null {STATE}/projects/demo/metadata.json"
@@ -405,6 +409,7 @@
             "triggers": {"group": "base", "map": {"**/*.py": "probe"}},
         })
         machine.succeed(f"echo '{reactive}' > {STATE}/projects/demo/metadata.json")
+        machine.succeed(f"echo '{reactive}' > {REG}/projects/demo/metadata.json")
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"demo\\\"\" {STATE}/watch/state.json'",
             timeout=60,
@@ -451,6 +456,7 @@
         })
         machine.succeed(f"mkdir -p {STATE}/projects/nested")
         machine.succeed(f"echo '{nested}' > {STATE}/projects/nested/metadata.json")
+        machine.succeed(f"echo '{nested}' > {REG}/projects/nested/metadata.json")
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}grep -q \"\\\"project\\\": \\\"nested\\\"\" {STATE}/watch/state.json'",
             timeout=60,
@@ -470,6 +476,12 @@
         assert owners == {"nested"}, f"the outer project fired too: {owners}"
 
     with subtest("doctor still tells a dead watcher from a watching one"):
+        # The watcher polls the generated registry every five seconds. Wait
+        # for it to report the converged set before checking its healthy state.
+        machine.wait_until_succeeds(
+            f"su tester -c '{ENV}devman doctor | grep -q \"^ok  watcher\"'",
+            timeout=30,
+        )
         report = tester("devman doctor || true")
         assert "ok  watcher" in report, report
         tester("systemctl --user stop devman-watch")

@@ -254,8 +254,9 @@ let
     "${pkgs.coreutils}/bin/install" -m 0644 ${baseFile} "$DAGU_HOME/base.yaml"
   '';
 
-  # The active plane is an atomic symlink. A path unit turns its replacement
-  # into a deferred Dagu restart, because Dagu has no public reload operation.
+  # The active plane is an atomic symlink. A path unit watches the registry's
+  # parent directory so it sees replacement of that symlink, then turns it
+  # into a deferred Dagu restart because Dagu has no public reload operation.
   #
   # THE MARKERS ARE THE MAINTENANCE GATE'S HALF THAT LIVES HERE (§5, project
   # 038). `reload.pending` is written before the wait starts and removed only
@@ -269,7 +270,7 @@ let
   # so a scheduled run can still start in the gap between the wait loop
   # emptying and `systemctl try-restart` executing. That is an accepted,
   # documented limitation (§5.3), not an absolute guarantee.
-  registryChangePath = lib.replaceStrings [ "$HOME" ] [ "%h" ] cfg.registryDir;
+  registryChangePath = lib.replaceStrings [ "$HOME" ] [ "%h" ] (builtins.dirOf cfg.registryDir);
   reloadScript = pkgs.writeShellScript "devman-dagu-reload" ''
     set -eu
     registry="${cfg.registryDir}"
@@ -283,10 +284,10 @@ let
     # `$registry` as a bare directory the first time `dagu.service` starts on a
     # machine with no generation activated yet, before Vendomat has ever
     # activated one — and that creation is itself a change to the watched
-    # path, so the path unit fires for it. `readlink` on a bare directory
-    # fails, which is exactly how this tells a placeholder from a real
-    # activation: only Vendomat's atomic symlink replacement produces a target
-    # (`GenerationStore._activate_number`).
+    # path, so the parent-directory path unit fires for it. `readlink` on a
+    # bare directory fails, which is exactly how this tells a placeholder from
+    # a real activation: only Vendomat's atomic symlink replacement produces a
+    # target (`GenerationStore._activate_number`).
     target="$(${pkgs.coreutils}/bin/readlink "$registry" 2>/dev/null || true)"
     if [ -z "$target" ]; then
       exit 0
@@ -321,8 +322,8 @@ let
     # therefore true whether or not anything is running, and this loop never
     # terminated on its own; a restart happened only when `dagu ps` itself
     # transiently failed and `2>/dev/null` emptied its output by accident.
-    # The VM test does not cover reload yet. Unit tests write the markers by
-    # hand. Add the reload subtest before relying on this loop in the VM.
+    # The NixOS service test covers the timeout and blocked-marker path. Keep
+    # this loop small so its behavior stays visible in that test.
     while :; do
       # A stopped Dagu has no active runs. Its `ps` command may also fail
       # while the service is stopping. Both states are already drained.
@@ -350,6 +351,13 @@ let
       waited=$((waited + 1))
     done
 
+    # `try-restart` returns success when the unit is masked, even if an old
+    # process is still serving. Detect that state before treating the reload as
+    # complete, or the pending marker would disappear with no restart.
+    if ! ${pkgs.systemd}/bin/systemctl --user is-enabled --quiet dagu.service; then
+      echo "devman-dagu-reload: dagu.service is masked or disabled; Dagu was NOT restarted" >&2
+      exit 1
+    fi
     ${pkgs.systemd}/bin/systemctl --user try-restart dagu.service
     "${pkgs.coreutils}/bin/rm" -f "$pending"
     printf '%s' "$target" > "$last.new"
