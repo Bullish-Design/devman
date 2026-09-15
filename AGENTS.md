@@ -75,12 +75,30 @@ keeps a change from re-learning something the plane already paid for.**
    canonical. Read the registry freely; write to it through the projection, or
    through `doctor --prune`.
 
-   **Current state:** `~/.local/share/devman/` remains the registry root for
-   `dags/` and projected workflows. Stage 3 item 1 is deployed: generated
-   metadata and kept trigger/write copies live under `~/.local/state/devman/`.
-   Stage 3 item 2 did not move `registryDir` to `~/.config/devman`; the
-   overlay collision and scheduled-run gate remain in
-   `.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a.
+   **Current state — three roots, each with a different owner.**
+
+   | Root | Holds | Status |
+   |---|---|---|
+   | `~/.local/share/devman/` | the **compatibility registry**: `dags/` and the shell-entry projection | live. Nothing deleted it |
+   | `~/.local/state/devman/` | the **stable state root**: generated metadata, kept `triggers.toml` and `writes.toml` copies, watcher state, run metadata, the reload markers | Stage 3 item 1, deployed |
+   | `~/.local/state/vendomat/devman/active` | the **active generation**: a complete registry root — project metadata, projected workflows, Dagu links, `generation.json` | generation 3 since 2026-09-15 (Stage 44) |
+
+   `registryDir` may point at the active generation. `stateDir` stays stable, so
+   run metadata and watcher state survive an active-pointer swap.
+
+   Stage 3 item 2 did **not** move `registryDir` to `~/.config/devman`.
+   `overlayDir` already defaults there. With the two roots equal,
+   `reconcile.py` reads a hand-authored overlay workflow and then writes
+   generated output over that same file. Stage 41 added the refusal that keeps
+   the roots apart. Render-to-link (§6.2a) stays deferred until its safety
+   property is proven. Both gates live in
+   `.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a and Stage 3 items 2
+   and 6.
+
+   **Dated machine evidence, 2026-09-15 (Stage 44, Stage 46):** generation 3,
+   48 projects, 152 DAG files, `dagu_digest`
+   `sha256:d3bbe557424a1137700d5cad5b35f983489313227ea1f8c92161be7ee5cf1278`.
+   Read the counts as evidence, not as architecture.
 7. **Python for core logic; shell stays a thin wrapper.** Shell that grows past a
    wrapper is shell nobody can test.
 8. **Secrets are declared, never held.** A workflow names a secret through Dagu's

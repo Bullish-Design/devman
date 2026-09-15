@@ -1802,6 +1802,7 @@ branches, not to `main`:
 merged to trunk. For all ten repositories, `git merge-base --is-ancestor
 <commit> origin/main` returned `NO`, and `origin/main:.devman/project.toml` was
 absent. The remaining action is to land the ten published branches on `main`.
+Stage 42 landed them on 2026-09-14, one merge-commit pull request each.
 
 Passing gates: `gitman` 314 tests, `nix-paseo`, `pydantree` (379
 passed, 1 expected failure), `pyjutsu`, and `copyroom` (603 tests).
@@ -2576,3 +2577,79 @@ The active plane was not rebuilt. It remains generation 3 with 48 projects and
 state changed.
 
 Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260915T020932Z-wave3-item14-identity-fallback/`
+
+## Stage 46 — the Wave 3 documentation sweep
+
+**The answer.** On 2026-09-15, item 15 aligned the library documents with the
+plane the code and the machine now describe. Five statements were wrong or
+stale, and each one is now stated with its measurement.
+
+- The registry is **three roots**, not one: the live compatibility registry at
+  `~/.local/share/devman/`, the stable state root at `~/.local/state/devman/`,
+  and the active generation at `~/.local/state/vendomat/devman/active`. No
+  document may say the compatibility registry was deleted.
+- `registryDir` did **not** move to `~/.config/devman`, and render-to-link did
+  **not** ship. The `${DAG_NAME%.*}` mechanism is proven; the migration is not
+  (R8).
+- The watcher **is** gated by `run.trigger`. Only Dagu's scheduled enqueues
+  bypass the reload marker, and that overlap is an accepted limitation with a
+  measured bound (R1).
+- `doctor` in plane mode checks the **active generation**, and its `check_load`
+  cost is 16.8 ms per projected file, not the 87.6 ms rollout figure.
+- The VM test gained reload coverage in Wave 3 item 7. No earlier reload defect
+  was caught by it (R10).
+
+**The versions.** Dagu 2.15.0. Devman runtime `v0.6.0`. Active generation 3,
+`dagu_digest`
+`sha256:d3bbe557424a1137700d5cad5b35f983489313227ea1f8c92161be7ee5cf1278`.
+Repository `main` at `58330a1`; branch `wave-3-item-15-documentation-sweep`.
+
+**The exact commands.**
+
+```sh
+cd /tmp && time env -u PYTHONPATH -u NIX_PYTHONPATH \
+  /run/current-system/sw/bin/devman doctor
+cd /tmp && time env -u PYTHONPATH -u NIX_PYTHONPATH \
+  PYTHONPATH=/home/andrew/Documents/Projects/devman/src \
+  /run/current-system/sw/bin/devman doctor
+git diff --check
+devenv tasks run -v base:check
+devenv tasks run -v base:unit
+devenv tasks run -v base:test
+devenv shell -- nix build .#checks.x86_64-linux.dagu-service --no-link
+devenv shell -- nix build .#packages.x86_64-linux.devman-link --no-link
+```
+
+**The evidence.** `base:check` passed. `base:unit` passed 590 tests.
+`base:test` passed in 138 s. Both explicit Nix builds exited 0. Both canary
+commands returned 0 with five `ok` states and the central configuration path.
+The fleet sweep returned 47 clean repositories and the known
+`image-gen-pipeline` promote drift, with no new refusal.
+
+`check_load` measured **2.549 s over 152 projected files — 16.8 ms per file**
+against the live generation. The whole-plane `doctor` run took 10.5 s, against
+6.0 s for the 16-file state-root view.
+
+**One failed attempt, kept.** The first `doctor` run reported `3 projects, 16
+workflows` against generation 3 and read like a regression. It is not. The
+installed `/run/current-system/sw/bin/devman` predates Wave 3 item 5 and still
+enumerates the stable state root. The same binary with `PYTHONPATH` set to this
+repository's `src` reported `48 projects, 152 workflows`. `AGENTS_GUIDE.md` §3
+now states that lag rather than hiding it.
+
+**The charter impact.** `.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a
+gains a 2026-09-15 amendment that separates a proven mechanism from a shipped
+migration, and names the safety property still to prove: a shared source whose
+resolved directory does not exist reports `Succeeded`. Stage 3 item 2 records
+Stage 41's equal-roots refusal as a guard, not a resolution. Stage 3 item 4
+points at the amendment. `AGENTS.md` property 6 restates the three roots and
+keeps the boundary rule unchanged.
+
+**What the entry left on the machine.** Nothing. No implementation code,
+generated registry file, active-generation file, overlay, Dagu state, or other
+repository changed. The plane remains generation 3 with 48 projects and 152 DAG
+files, with both reload markers absent. `devman doctor` exits 1 with two `!!`
+sections: the `/tmp/${DEVMAN_PROJECT_DIR}` directory the Wave 3 investigation
+left on 2026-09-14, and the uncommitted, unpinned Vendomat source.
+
+Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260915T124543Z-wave3-item15-documentation-sweep/`
