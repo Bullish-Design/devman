@@ -2544,8 +2544,8 @@ with 48 explicit project roots. Generation 3 is active with 48 projects and
 exited 0, rebuilt `.dag.index`, and left no references to generations 1 or 2.
 
 `devman doctor` passed all plane checks, including generation, links, reload,
-and watcher checks. It exited 1 only for the known uncommitted, unpinned local
-Vendomat source consumed by one project. The Vendomat worktree was not
-changed.
+and watcher checks. It exited 1 with the two known findings: one workflow has
+no declared output ownership, and the local Vendomat source is uncommitted and
+unpinned for one consumer. The Vendomat worktree was not changed.
 
 Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260915T014032Z-wave3-item13-generation3/`

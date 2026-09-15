@@ -45,7 +45,7 @@ generation 3 paths and no generation 1 or 2 paths.
 ## Doctor
 
 `devman doctor` passed the plane, registry, validation, generation, links,
-reload, and watcher checks. It exited 1 with one operational finding: the
-local Vendomat source has uncommitted changes and is consumed unpinned by one
-project. That finding is pre-existing and belongs to the Vendomat worktree;
-this activation did not modify that worktree.
+reload, and watcher checks. It exited 1 with two known findings: one workflow
+has no declared output ownership and the local Vendomat source has uncommitted
+changes and is consumed unpinned by one project. Both findings predate this
+activation. The Vendomat worktree was not modified.
