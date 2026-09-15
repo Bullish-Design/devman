@@ -87,12 +87,12 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | File | Responsible for |
 |---|---|
 | `src/devman/cli.py` | the argument surface: `run`, `show`, `doctor`, `watch`, `agent`, `project apply`, and `link reconcile/status`. `--registry` and `--dagu-home` are global flags, not `DEVMAN_*` variables, because Dagu passes every `DEVMAN_*` through to a run |
-| `src/devman/registry.py` | reading `~/.local/share/devman/`. Resolves a directory to a project, refuses a checkout inside a checkout, detects a flat DAG name two projects claim |
+| `src/devman/registry.py` | reading a registry root — the compatibility registry, or an active generation. Resolves a directory to a project, refuses a checkout inside a checkout, detects a flat DAG name two projects claim. `for_active_generation()` is the read-only whole-plane view `doctor` uses in plane mode |
 | `src/devman/workflow.py` | the only YAML reading there is: `params()`, `triggers_other_dags()`, `holds_project_dir()`, `handlers()`, `queues()` |
 | `src/devman/run.py` | the one place that triggers a workflow. Resolves, refuses, exports, enqueues |
 | `src/devman/show.py` | prints the **source** file, never the generated projection, so `devman show x > .devman/workflows/x.yaml` round-trips into the central overlay through its project-side view |
 | `src/devman/doctor.py` | whole-plane diagnostic checks |
-| `src/devman/watch.py` | the watcher's entry point. Reads the registry, execs watchexec, dispatches one batch of events |
+| `src/devman/watch.py` | the watcher's entry point. Reads the registry, execs watchexec, dispatches one batch of events. Its dispatcher calls `run.trigger`, so **the watcher inherits every `run` refusal, including the `reload.pending` gate** (`watch.py:612`; correction R1) |
 | `src/devman/agent.py` | §10's fourth command, and the only one that runs **inside** a workflow. Translates one admitted run into one Agentman invocation: a strict request, an allowlisted environment, a bounded process, a verified receipt, one exit code. Never composes a capsule |
 
 ### `devman run`'s refusals, and why each exists
@@ -112,45 +112,79 @@ without that line every step runs under the login shell of whoever triggered it.
 
 ### `devman doctor`'s checks
 
-`plane` · `queues` · `load` (a `dagu validate` per projected file) · `queue names`
-· `literal ${DEVMAN_PROJECT_DIR} directories` · `drift` (an override against what
-it shadows) · `stale entries` · `ageing runs` · `projection` · `handlers` ·
-`cross-repo` · `trigger targets` · `watcher`.
+In order, as `doctor.main` runs them:
+
+`mode` · `plane` · `queues` · `registry` · `load` (a `dagu validate` per projected
+file) · `queue names` · `literal ${DEVMAN_PROJECT_DIR} directories` · `shadowing`
+(an override against what it shadows) · `stale entries` · `run output` ·
+`projection` · `dag names` · `schema` · `generation` · `handlers` · `cross-repo` ·
+`fan-out` · `writes` · `trigger targets` · `link drift` · `local sources` ·
+`path inputs` · `daemon shell` · `reload` · `watcher`.
+
+**`mode` decides which plane the rest of the checks see.** `doctor` reports
+`plane` when `generation.json` exists at the registry root, and then swaps in the
+active generation's own project view. In compatibility mode it reads the stable
+state root, which shell entry regenerates and which may hold a partial rollout.
+Wave 3 item 5 made that swap; before it, `doctor` enumerated the state root in
+both modes and saw a fraction of the plane.
 
 It exits 1 when it has findings. `--prune` removes stale entries; they restore
 themselves at the next shell entry, which is what makes pruning safe.
 
-**`check_load` is the cost.** Measured across the whole rollout at **87.6 ms per
-projected file**, flat from 6 projects to 54 — about 15 s at 169 workflows. If it
-passes 30 s the answer is a `--project` scope, not a heavier queue.
+**`check_load` is the cost.** Measured 2026-09-15 against the live generation 3
+at **16.8 ms per projected file** — 2.549 s over 152 files. The whole
+whole-plane `doctor` run took 10.5 s, against 6.0 s for the 16-file state-root
+view. The earlier figure of 87.6 ms per file came from the 2026-07 rollout on the
+compatibility registry; the new number supersedes it. If `check_load` passes 30 s
+the answer is a `--project` scope, not a heavier queue.
+
+**The machine CLI can lag the repository.** On 2026-09-15 the installed
+`/run/current-system/sw/bin/devman` still reported `3 projects, 16 workflows`
+against generation 3, while the same command with `PYTHONPATH` set to this
+repository's `src` reported `48 projects, 152 workflows`. Item 5 ships in the
+repository and reaches the machine at the next system rebuild.
 
 ---
 
 ## 4. The registry
 
+**A registry root has one shape, and three roots use it.**
+
 ```
-~/.local/share/devman/
+<registry root>/
 ├── projects/<project>/metadata.json          # schema 4: identity, path, groups,
 │   │                                         # local, workflows, triggers, plan
 ├── projects/<project>/triggers.toml          # a copy of the repo's own layer,
 │   │                                         # so the guard can compare it
 │   └── workflows/<workflow>.yaml             # the GENERATED projection
-└── dags/<project>.<workflow>.yaml -> ../projects/<project>/workflows/<workflow>.yaml
+├── dags/<project>.<workflow>.yaml -> ../projects/<project>/workflows/<workflow>.yaml
+└── generation.json                           # the ACTIVE GENERATION only
 ```
 
+| Root | What it is |
+|---|---|
+| `~/.local/share/devman/` | the **compatibility registry**. Shell entry writes it. It holds `dags/` and the shell-entry projection, and it is still live |
+| `~/.local/state/devman/` | the **stable state root** (`stateDir`). Generated metadata, kept `triggers.toml` and `writes.toml` copies, watcher state, run metadata, and the `reload.pending`/`reload.blocked` markers |
+| `~/.local/state/vendomat/devman/active` | the **active generation**. Vendomat builds it, validates it, and moves the `active` symlink atomically. It carries `generation.json`, so `doctor` reports `mode plane` against it |
+
+- `registryDir` may point at the active generation. **Keep `stateDir` stable**:
+  run metadata and watcher state must survive an active-pointer swap.
+- **`registryDir` did not move to `~/.config/devman`.** `overlayDir` already
+  defaults there, and one shared root makes the projection overwrite a
+  hand-authored overlay workflow. Stage 41 added the refusal. Render-to-link,
+  which would remove the write side, stays deferred
+  (`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a, Stage 3 items 2 and 6).
+- **Live on 2026-09-15:** generation 3, 48 projects, 152 DAG files. Dated
+  evidence, not architecture.
 - `dags/` is Dagu's flat view; `projects/` is devman's.
 - A DAG is keyed by its file's base name, so `<project>.<workflow>` is what
   `dagu ls`, the scheduler and `dagu enqueue` all agree on.
 - **`<project>-<workflow>` is not injective.** `devman-b` + `check` and `devman`
   + `b-check` render the same name. `registry.dag_link_fault` is what catches it.
 - **The registry is derived.** Group sources and central per-project overlay files
-  are canonical; everything in the registry is reconstructable by re-entering
-  every registered repository's shell. The registry remains under
-  `~/.local/share/devman/`. Stage 3 item 1 is deployed: generated metadata and
-  kept trigger/write copies live under `~/.local/state/devman/`. Stage 3 item 2
-  did not move `registryDir` to `~/.config/devman`; the overlay collision and
-  scheduled-run gate remain in `.scratch/projects/025-the-link-plane/CONCEPT.md`
-  §6.2a.
+  are canonical. Every registry root is reconstructable — the compatibility
+  registry by re-entering each registered repository's shell, the active
+  generation by re-running Vendomat's render from each `.devman/project.toml`.
 - **Nothing walks the disk looking for repositories.** §15.1 forbids it. Reading
   devman's own registry is not scanning.
 
@@ -175,6 +209,30 @@ workflow gets `DEVMAN_SELF_DIR` instead.
 
 This is what lets Dagu's own scheduler fire a workflow: the daemon has one
 environment for the whole machine and nothing to fill in.
+
+### The reload gate, and what it does not cover
+
+When the active pointer moves, the reload service writes `reload.pending` under
+`stateDir`, waits for active runs to end, and restarts Dagu. `run.trigger`
+refuses new work while `reload.pending` exists.
+
+- **`devman run` and the watcher both pass `run.trigger`**, so both are gated
+  (`watch.py:612`; correction R1).
+- **Dagu's own scheduler does not.** A scheduled enqueue never enters
+  `run.trigger`, so a scheduled run can still overlap a reload. This is an
+  **accepted limitation**, measured and recorded in
+  `.scratch/projects/025-the-link-plane/CONCEPT.md` Stage 3 item 5: scheduled
+  runs reached 20 s over 550 records, `maintain` 5 s over 551, and 45 DAGs fire
+  together at 00:05 daily. Dagu 2.15.0 offers no primitive that defers rather
+  than drops.
+- **On timeout the service clears `pending` and writes `reload.blocked`**, so a
+  blocked reload does not freeze every manual run.
+
+Coverage is what the tests prove and no more. `tests/unit/test_watch.py` proves
+the dispatcher refuses under `reload.pending`. `nix/tests/dagu-service.nix`
+covers the timeout path, a reload while Dagu is stopped, and a failed restart
+that leaves the marker visible. The VM test had **no** reload subtest before
+Wave 3 item 7, so no earlier reload defect was caught by it (correction R10).
 
 ### The shell-entry guard
 

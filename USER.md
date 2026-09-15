@@ -31,7 +31,10 @@ devman doctor
 ```
 
 `devman doctor` prints the project count, the workflow count, and any findings.
-A healthy plane ends with `Nothing to report.`
+A healthy plane ends with `Nothing to report.` It prints `mode plane` when the
+registry root carries a `generation.json`, and then checks every project in the
+active generation. It prints `mode compatibility` when it reads the old
+shell-entry registry instead.
 
 The web UI is on `http://127.0.0.1:8080` by default. It binds loopback, because
 the plane runs one developer's own checkouts.
@@ -223,9 +226,11 @@ pointer. Previous generations stay on disk. A failed render or validation
 leaves the active generation unchanged. The old shell-entry projection stays
 available until the comparison and canary phases are complete.
 
-The active generation is a complete registry root. It contains the projected
-workflows, Dagu links, and generation record under Vendomat's stable `active`
-symlink. A canary machine can point the Dagu service and machine CLI at it:
+The active generation is a complete registry root. It contains project
+metadata, the projected workflows, Dagu links, and the generation record under
+Vendomat's stable `active` symlink. On 2026-09-15 this machine runs generation 3
+with 48 projects and 152 DAG files. A canary machine can point the Dagu service
+and machine CLI at it:
 
 ```nix
 services.devman-dagu.registryDir = "$HOME/.local/state/vendomat/devman/active";
@@ -237,6 +242,21 @@ project metadata and watcher state survive an active-generation swap.
 
 The module watches the active pointer and reloads Dagu after active runs end.
 The stable Dagu home keeps run history across that restart.
+
+**What the reload gate covers.** While a reload waits, the marker
+`reload.pending` exists under the stable state root, and `devman run` refuses to
+enqueue. The watcher uses the same code path, so a save is refused too, and it
+prints the pending timestamp. If the wait passes `reloadMaxWaitSec` (600 s by
+default, chosen from an observed maximum of 279 s over 1306 runs), the service
+clears `pending`, writes `reload.blocked`, and leaves the plane usable for manual
+runs.
+
+> **A scheduled run is not gated.** Dagu's scheduler enqueues without the Python
+> trigger, so a scheduled run can overlap a reload. This is an accepted
+> limitation with a measured bound — scheduled runs reached 20 s over 550
+> records — not a maintenance guarantee.
+
+`devman doctor` reports both markers under `reload`.
 
 Keep the consumer shell hook on the compatibility registry during this phase.
 The old hook still writes its own registry projection. It must not write into
@@ -263,11 +283,17 @@ repository-owned `triggers.toml` stay in the checkout. `workflows/` is normally
 the view of the central per-repository overlay. devman reserves these three
 names and never reads, writes or inspects anything else there.
 
-The generated machine registry remains under `~/.local/share/devman/`. Link-plane
-Stage 3 item 1 is deployed: generated metadata and kept trigger/write copies
-live under `~/.local/state/devman/`. Stage 3 item 2 did not move `registryDir` to
-`~/.config/devman`; the overlay collision and scheduled-run gate remain in
-`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a.
+Machine-side data sits in three roots, and you rarely touch any of them:
+
+| Root | Holds |
+|---|---|
+| `~/.local/share/devman/` | the compatibility registry the shell hook writes — projected workflows and `dags/`. Still live |
+| `~/.local/state/devman/` | the stable state root — generated metadata, kept trigger and write copies, watcher state, run metadata |
+| `~/.local/state/vendomat/devman/active` | the active generation Vendomat builds |
+
+`registryDir` did not move to `~/.config/devman`, and direct workflow links have
+not shipped. Both remain deferred in
+`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a and Stage 3 items 2 and 6.
 
 **One restriction on where a repository may live.** Its path may not hold a
 double quote, a backslash, a tab or a newline. Spaces, `: `, `#` and every
@@ -618,6 +644,10 @@ from a trigger.
 > **A scheduled run does not pass through its queue.** 58 DAGs sharing one
 > schedule all started at once with queue depth 0. **Nothing throttles the
 > scheduled set**, so schedule only work that is cheap by construction.
+>
+> **A scheduled run also skips `devman run`'s refusals**, including the
+> plane-reload gate. Only a manual run and a watcher-fired run pass through
+> them (§2.7).
 
 To opt out of a schedule a group ships, shadow the file and leave the key out.
 
@@ -686,7 +716,7 @@ time that repository's shell is entered.
 | `its path holds a double quote` | this checkout's path holds `"`, `\`, a tab or a newline | move or rename the directory (§2.6) |
 | `these names are the plane's, not the caller's` | you passed `DEVMAN_PROJECT_DIR=` or `DEVMAN_SELF_DIR=` | drop it, and pass `--project NAME` instead (§3) |
 | `these overrides name no declared parameter` | a misspelled parameter name | use a name from the list the refusal prints |
-| `cannot determine project identity` | link status cannot find a manifest or literal `devman.project` declaration | pass `--project NAME --root DIR`, or use `devman link status --all --projects-root DIR` |
+| `cannot determine project identity` | link status found no `.devman/project.toml`, and you passed no `--project`. The adapter reads the manifest only; it no longer parses a literal `devman.project` value out of Nix | add the manifest, pass `--project NAME --root DIR`, or use `devman link status --all --projects-root DIR` |
 | `so it names a project` | you gave a path to a parameter that defaults to a project name | pass a registered project's name instead (§3) |
 | `devman: group 'X' does not exist` | a group name that is not in `groups/` | fix the name; a deleted group leaves a tombstone that does **not** throw |
 | `× Invalid task name: check` | devenv requires `namespace:name` | write `<group>:<name>` |

@@ -463,6 +463,19 @@ straight from the config repository into the DAGs directory —
 and the project repository leaves the chain entirely. Revisit then, with evidence
 from having written workflows in two or three repositories.
 
+**Amendment, 2026-09-15 (Wave 3 item 15, correction R8). The mechanism is
+proven. The migration has not shipped.** Separate the two claims:
+
+| Claim | State |
+|---|---|
+| A shared source can carry a per-project directory into a **scheduled** run, through `${DAG_NAME%.*}` in a DAG-level `env:` value | **Proven** in an isolated Dagu 2.15.0 scheduler. Stage 3 item 4 holds the experiment |
+| Direct registry links replace `render()` | **Not shipped.** No code path links a workflow directly, and `registryDir` has not moved |
+
+**The safety property is the block.** A shared source whose resolved directory
+does not exist currently reports `Succeeded`. That is the exact failure the plane
+exists to prevent (`devman/AGENTS.md` property 4). Render-to-link needs its own
+wave: a VM prototype and a refusal first, then the renderer change.
+
 ### 6.3 Measured: the whole chain works
 
 | Property | Result |
@@ -871,6 +884,11 @@ registry in its old place and workflows still rendered.
    only once §6.2a's render-to-link change removes the write side of the
    collision. Stage 3 as originally scoped here moved `registryDir` without
    also completing §6.2a, which is the gap.
+
+   **Update 2026-09-14 (038 Stage 41).** `compatibility_apply` now resolves both
+   roots and refuses before it renders or writes when they are equal. The
+   collision is guarded, not resolved: `registryDir` still stays at
+   `$HOME/.local/share/devman`, and nothing under it was deleted.
 3. `paths.dags_dir` stays under `registryDir`, unmoved — no change needed
    there since `registryDir` itself did not move.
 4. **§6.2a now has a designed mechanism and isolated proof.** `render()`'s
@@ -883,7 +901,10 @@ registry in its old place and workflows still rendered.
    not `%%`, preserves the dotted project name, matching `registry.py`'s
    `rsplit` rule. The path convention holds for 45 of 45 active projects.
    This is not yet proof under renderer removal. Stage 4 must run the VM
-   prototype before it changes `project.py`'s render path.
+   prototype before it changes `project.py`'s render path. §6.2a's 2026-09-15
+   amendment states the split: the mechanism is proven, the migration has not
+   shipped, and the missing-directory `Succeeded` result is the safety property
+   still to prove.
 5. **Scheduled-run race accepted — measured 2026-09-14.** Scheduled runs
    reached a maximum of 20 s over 550 records; `maintain` reached a maximum of
    5 s over 551 records. Forty-five DAGs fire together at 00:05 each day.

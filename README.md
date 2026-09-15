@@ -55,6 +55,14 @@ project identity explicitly. Normal devenv evaluation reads the same identity
 from `.devman/project.toml`. The link module owns no workflow, renderer,
 registry, or compatibility state.
 
+**`.devman/project.toml` is the authoritative identity source.** A checkout
+without a manifest needs an explicit `--project`. The link adapter no longer
+reads a literal `devman.project` assignment from `devenv.nix` or
+`devenv.local.nix`: the fleet search for that assignment returned zero hits, and
+Wave 3 item 14 removed the parser. Removing it also removed the
+manifest-versus-Nix drift refusal, which existed only because the fallback ran
+unconditionally.
+
 To join that link plane, run `devman-link reconcile --root "$PWD"` once from
 the repository. It creates the central bootstrap file and its repository view.
 After that, `devenv shell` evaluates the central declaration and reconciles it
@@ -257,6 +265,13 @@ projection is generated per project.
 > `exclusive` — limit 1 — both started in the same second. **Nothing throttles
 > the scheduled set**, so anything scheduled must be cheap by construction.
 
+**A scheduled run also skips the Python trigger.** `devman run` and the watcher
+both call `run.trigger`, which refuses new work while a plane reload is pending.
+Dagu's scheduler enqueues directly, so a scheduled run can overlap a reload. That
+is an accepted limitation with a measured bound — scheduled runs reached 20 s
+over 550 records — not a maintenance guarantee
+(`.scratch/projects/025-the-link-plane/CONCEPT.md` Stage 3 item 5).
+
 ## Refusals
 
 The plane's habit is to be loud rather than to guess, because **a successful run
@@ -280,13 +295,23 @@ src/devman/     the CLI and projection tools — run, show, doctor, watch, agent
 .devman/        run state, triggers, and the central workflow view
 ```
 
-Machine-side registry data lives in `~/.local/share/devman/`:
-`projects/<project>/` holds projected workflows, and `dags/` holds Dagu's flat
-view of them. Stage 3 item 1 is deployed: generated metadata and kept
-trigger/write copies live under `~/.local/state/devman/`, as the 2026-09-14
-live-plane check confirms. Stage 3 item 2 did not move `registryDir` to
-`~/.config/devman`; the overlay collision and scheduled-run gate remain in
-`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a.
+Machine-side data lives in three roots:
+
+| Root | Holds |
+|---|---|
+| `~/.local/share/devman/` | the **compatibility registry** — `projects/<project>/` projected workflows, and `dags/`, Dagu's flat view of them. Shell entry writes it, and it is still live |
+| `~/.local/state/devman/` | the **stable state root** — generated metadata, kept trigger and write copies, watcher state, run metadata, the reload markers |
+| `~/.local/state/vendomat/devman/active` | the **active generation** — a complete registry root with its own project metadata, projected workflows, Dagu links and `generation.json` |
+
+`registryDir` may point at the active generation; `stateDir` stays where it is,
+so run metadata and watcher state survive an active-pointer swap. **`registryDir`
+did not move to `~/.config/devman`** — `overlayDir` already defaults there, and
+one shared root makes the projection overwrite a hand-authored overlay workflow.
+Direct registry links (render-to-link) have not shipped. Both gates are in
+`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a and Stage 3 items 2 and 6.
+
+Live on 2026-09-15: generation 3, 48 projects, 152 DAG files. Read those counts
+as dated evidence.
 
 **The registry is derived.** Group sources and central overlay files are
 canonical; registry projections are reconstructable by re-entering every
@@ -310,8 +335,12 @@ devman is the mechanism. The content documents itself:
 **Stages 1 to 7 are shipped.**
 
 These are the historical automation-plane stages. Link-plane Stage 3 item 1
-(the state split) is deployed. Direct workflow links and the `registryDir` move
-remain deferred as described in project 029.
+(the state split) is deployed. **Direct workflow links (render-to-link) and the
+`registryDir` move have not shipped.** The `${DAG_NAME%.*}` mechanism that would
+carry a project directory into a scheduled run from a shared source is designed
+and measured under Dagu 2.15.0, but the migration stays deferred until its safety
+property is proven (`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a,
+Stage 3 item 4).
 
 | Stage | What it delivered |
 |---|---|
