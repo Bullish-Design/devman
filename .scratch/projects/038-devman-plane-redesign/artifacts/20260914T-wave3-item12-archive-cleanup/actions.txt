@@ -23,7 +23,7 @@ fleetman materialized:
   .claude/skills -> ../.agents/skills
   devenv.local.nix
 fleetman shared skill:
-  .agents/skills/gitman remains an excluded absolute link to the global skill
+  the local absolute link was removed; the shared skill remains global
 
 derived cleanup:
   devman doctor --prune removed flora-037-part-e and one link

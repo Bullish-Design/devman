@@ -2507,8 +2507,8 @@ share-registry entry remained. Four regular project skills and
 `devenv.local.nix` were moved into the archived repository. The tracked Claude
 settings content was already identical to the promoted copy, and
 `.claude/skills` now points to the repository `.agents/skills` tree. The shared
-`gitman` skill remains a local global-skill link and is excluded from the
-archive commit because its absolute path is machine-specific.
+`gitman` skill is not project content; its local link was removed, and the
+global skill remains in the central configuration.
 
 The archived `fleetman` change landed and pushed as `8ff5f37`. The exact
 central overlay and generated share-registry directory were moved to the
