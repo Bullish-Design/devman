@@ -2521,3 +2521,31 @@ RepoMan. The active generation was not rebuilt. Item 13 remains gated on the
 `.dag.index` experiment and the dirty unpinned local sources.
 
 Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260914T-wave3-item12-archive-cleanup/`
+
+## Stage 44 — rebuild the active generation and answer the `.dag.index` question
+
+On 2026-09-15, item 13 passed its gate and activated a new generation. The
+isolated experiment created a stale `.dag.index` in generation 2, switched the
+active pointer from generation 1 to generation 2, and ran a new `dagu ls`.
+Dagu rebuilt the index and resolved the workflow under generation 2. A stale
+index does not block a new Dagu process after the pointer switch.
+
+The VM service test now proves the active-generation lifecycle. It covers the
+parent-directory watcher for atomic active-pointer replacement, the reload
+timeout and blocked marker, a failed restart with a retained pending marker,
+watcher convergence, and the nested-checkout boundary. The fixture also keeps
+the stable metadata and active generated metadata aligned when it changes the
+hand-built projection.
+
+The repository gates passed: `base:check`, `base:unit` with 594 tests, and the
+full NixOS-backed `base:test`. Vendomat then planned and activated `devman`
+with 48 explicit project roots. Generation 3 is active with 48 projects and
+152 DAG files. The pending and blocked reload markers are absent. `dagu ls`
+exited 0, rebuilt `.dag.index`, and left no references to generations 1 or 2.
+
+`devman doctor` passed all plane checks, including generation, links, reload,
+and watcher checks. It exited 1 only for the known uncommitted, unpinned local
+Vendomat source consumed by one project. The Vendomat worktree was not
+changed.
+
+Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260915T014032Z-wave3-item13-generation3/`
