@@ -2549,3 +2549,30 @@ no declared output ownership, and the local Vendomat source is uncommitted and
 unpinned for one consumer. The Vendomat worktree was not changed.
 
 Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260915T014032Z-wave3-item13-generation3/`
+
+## Stage 45 — remove the literal identity fallback
+
+On 2026-09-15, item 14 removed the link adapter's parser for literal
+`devman.project` values. The resolver now uses `.devman/project.toml`, or an
+explicit `--project` value for a manifest-free compatibility checkout. It no
+longer reads `devenv.nix` or `devenv.local.nix` for identity.
+
+The current fleet search returned zero literal `devman.project =` assignments.
+The two named archived callers, `forgelab` and `lodestar`, also have none. The
+removed parser was the only live reader. Four tests that covered the deleted
+fallback and manifest/Nix drift refusal were removed. The unit count changed
+from 594 to 590. The trade-off is recorded: a conflicting old Nix identity no
+longer causes a manifest/Nix drift refusal. This check existed only because the
+fallback ran unconditionally.
+
+`base:check`, `base:unit`, and the full NixOS-backed `base:test` passed. The
+explicit Dagu service and `devman-link` package builds passed. Both canary
+commands returned 0 with five `ok` states. The fleet sweep returned 47 clean
+repositories and the known `image-gen-pipeline` promote drift, with no new
+refusal.
+
+The active plane was not rebuilt. It remains generation 3 with 48 projects and
+152 DAG files. No consumer checkout, generated registry, overlay, or Dagu
+state changed.
+
+Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260915T020932Z-wave3-item14-identity-fallback/`

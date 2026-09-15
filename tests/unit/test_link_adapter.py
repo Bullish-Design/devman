@@ -230,34 +230,34 @@ def test_mismatching_explicit_identity_names_both_and_a_repair(tmp_path: Path):
     assert "repair:" in message
 
 
-def test_matching_manifest_and_nix_identities_agree(tmp_path: Path):
+def test_manifest_identity_ignores_nix_identity(tmp_path: Path):
     write_manifest(tmp_path, "demo")
-    (tmp_path / "devenv.nix").write_text('{ devman = { project = "demo"; }; }\n')
+    (tmp_path / "devenv.nix").write_text(
+        '{ devman = { project = "different-name"; }; }\n'
+    )
 
     result = devman_link.resolve_project_identity(tmp_path)
 
-    assert result.compatibility == "demo"
+    assert result.project == "demo"
+    assert result.source == "manifest"
 
 
-def test_mismatching_manifest_and_nix_identities_refuse(tmp_path: Path):
-    write_manifest(tmp_path, "manifest-name")
-    (tmp_path / "devenv.nix").write_text('{ devman = { project = "old-name"; }; }\n')
+def test_manifest_free_identity_requires_manifest_or_explicit_project(
+    tmp_path: Path,
+):
+    (tmp_path / "devenv.nix").write_text('{ devman.project = "legacy"; }\n')
 
     with pytest.raises(IdentityError) as caught:
         devman_link.resolve_project_identity(tmp_path)
 
     message = str(caught.value)
-    assert "manifest identity" in message
-    assert "compatibility identity" in message
+    assert ".devman/project.toml is absent" in message
+    assert "literal devman.project" not in message
     assert "repair:" in message
 
+    result = devman_link.resolve_project_identity(tmp_path, "explicit")
 
-def test_manifest_free_compatibility_fallback(tmp_path: Path):
-    (tmp_path / "devenv.nix").write_text('{ devman.project = "legacy"; }\n')
-
-    result = devman_link.resolve_project_identity(tmp_path)
-
-    assert (result.project, result.source) == ("legacy", "compatibility")
+    assert (result.project, result.source) == ("explicit", "explicit")
 
 
 def test_directory_name_is_never_an_identity(tmp_path: Path):
@@ -270,8 +270,7 @@ def test_directory_name_is_never_an_identity(tmp_path: Path):
     message = str(caught.value)
     # The refusal names the root as the place that lacks an identity, and
     # proposes the manifest or --project. It never proposes the directory name.
-    assert "is absent and no literal devman.project exists" in message
-    assert "manifest-free compatibility repository" in message
+    assert ".devman/project.toml is absent" in message
     assert "repair:" in message
 
 

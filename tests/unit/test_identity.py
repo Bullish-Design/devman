@@ -8,6 +8,7 @@ import pytest
 
 import devman_link.api
 from devman import cli
+from devman_contract import MANIFEST_NAME
 from devman_link import (
     IdentityError,
     LinkConfiguration,
@@ -68,45 +69,32 @@ def test_mismatching_explicit_project_refuses(tmp_path: Path):
     assert "repair:" in message
 
 
-def test_matching_manifest_and_nix_identities_succeed(tmp_path: Path):
+def test_manifest_identity_ignores_nix_identity(tmp_path: Path):
     write_manifest(tmp_path, "demo")
-    (tmp_path / "devenv.nix").write_text('{ devman = { project = "demo"; }; }\n')
+    (tmp_path / "devenv.nix").write_text(
+        '{ devman = { project = "different-name"; }; }\n'
+    )
 
     result = resolve_project_identity(tmp_path)
 
     assert result.project == "demo"
-    assert result.compatibility == "demo"
+    assert result.source == "manifest"
 
 
-def test_mismatching_manifest_and_nix_identities_refuse(tmp_path: Path):
-    write_manifest(tmp_path, "manifest-name")
+def test_manifest_free_identity_requires_manifest_or_explicit_project(
+    tmp_path: Path,
+):
     (tmp_path / "devenv.nix").write_text(
-        '{ devman = { project = "compatibility-name"; }; }\n'
+        'let\n  projectName = "legacy";\nin\n{ devman = { project = projectName; }; }\n'
     )
 
     with pytest.raises(IdentityError) as caught:
         resolve_project_identity(tmp_path)
 
     message = str(caught.value)
-    assert "manifest identity" in message
-    assert "compatibility identity" in message
-    assert "compatibility-name" in message
+    assert f"{MANIFEST_NAME} is absent" in message
+    assert "literal devman.project" not in message
     assert "repair:" in message
-
-
-def test_manifest_free_compatibility_fallback_still_works(tmp_path: Path):
-    (tmp_path / "devenv.nix").write_text(
-        'let\n  projectName = "legacy";\nin\n{ devman = { project = projectName; }; }\n'
-    )
-
-    result = resolve_project_identity(tmp_path)
-
-    assert result.project == "legacy"
-    assert result.source == "compatibility"
-
-
-def test_explicit_project_precedes_manifest_free_compatibility_value(tmp_path: Path):
-    (tmp_path / "devenv.nix").write_text('{ devman = { project = "legacy"; }; }\n')
 
     result = resolve_project_identity(tmp_path, "explicit")
 
@@ -122,7 +110,7 @@ def test_directory_names_are_never_used_as_identity(tmp_path: Path):
         resolve_project_identity(root)
 
     message = str(caught.value)
-    assert "manifest-free compatibility repository" in message
+    assert ".devman/project.toml is absent" in message
     assert "repair:" in message
 
 
@@ -160,15 +148,6 @@ def test_unsupported_manifest_schema_names_field_and_repair(tmp_path: Path):
 
     assert "field 'schema'" in str(caught.value)
     assert "repair:" in str(caught.value)
-
-
-def test_multiple_compatibility_identities_refuse(tmp_path: Path):
-    (tmp_path / "devenv.nix").write_text(
-        '{ devman = { project = "one"; }; }\n{ devman = { project = "two"; }; }\n'
-    )
-
-    with pytest.raises(IdentityError, match="multiple values"):
-        resolve_project_identity(tmp_path)
 
 
 def test_central_link_configuration_is_validated_without_nix_process(
