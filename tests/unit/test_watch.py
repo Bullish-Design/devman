@@ -562,9 +562,7 @@ def test_dispatch_enqueues_through_run_trigger(plane, tmp_path, monkeypatch):
     ]
 
 
-def test_dispatch_refuses_while_reload_is_pending(
-    plane, tmp_path, monkeypatch, capsys
-):
+def test_dispatch_refuses_while_reload_is_pending(plane, tmp_path, monkeypatch, capsys):
     """The watcher shares `run.trigger`'s reload gate and records the refusal."""
     proj = plane.add("p", workflows={"format": ORDINARY}, triggers=PY_TRIGGERS)
     plane.reg.state.mkdir(parents=True, exist_ok=True)
@@ -573,7 +571,10 @@ def test_dispatch_refuses_while_reload_is_pending(
 
     assert watch.dispatch(DispatchArgs(str(tmp_path / "home")), plane.reg) == 1
 
-    assert "a plane reload has been pending since 2026-09-14T00:00:00Z" in capsys.readouterr().err
+    assert (
+        "a plane reload has been pending since 2026-09-14T00:00:00Z"
+        in capsys.readouterr().err
+    )
     assert [(f["project"], f["workflow"], f["outcome"]) for f in fired(plane)] == [
         ("p", "format", "refused (1)")
     ]
