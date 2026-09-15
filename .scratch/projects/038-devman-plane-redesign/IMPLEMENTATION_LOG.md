@@ -2096,7 +2096,9 @@ those two files, so the tree's in-progress work and its re-locked `devenv.lock`
 stay uncommitted.
 
 A stale staged deletion of `.devman/project.toml` was repaired in RepoMan's
-index. It is the same `git add -A` corruption the Stage 38 repair found here.
+index. **Correction, 2026-09-15 (Project 038 cleanup, workstream A):** this was
+misattributed to `git add -A`. The actual cause is jj's colocated
+working-copy export — see Stage 47.
 
 ### Evidence
 
@@ -2160,8 +2162,10 @@ until someone commits them there.**
 **That checkout is not in a state to commit into.** It sits detached with a
 corrupted index: 23 stray staged adds, 13 modifications and 14 renames,
 including `.envrc` and `.loci` symlinks staged for tracking although
-`.git/info/exclude` covers them. This is the same `git add -A` corruption the
-Stage 38 repair found here and in RepoMan. It also now holds two agent trees —
+`.git/info/exclude` covers them. **Correction, 2026-09-15 (Project 038
+cleanup, workstream A):** this was misattributed to `git add -A`. The actual
+cause is jj's colocated working-copy export — see Stage 47. It also now holds
+two agent trees —
 the restored `.agents/` and the older `.agents.devman-promoted/`. Reconciling
 that is the operator's call, not a side effect of this stage.
 
@@ -2653,3 +2657,252 @@ sections: the `/tmp/${DEVMAN_PROJECT_DIR}` directory the Wave 3 investigation
 left on 2026-09-14, and the uncommitted, unpinned Vendomat source.
 
 Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260915T124543Z-wave3-item15-documentation-sweep/`
+
+## Stage 47 — workstream A diagnosed: the colocated intent-to-add, not `git add -A`
+
+**The answer.** On 2026-09-15, a Project 038 cleanup session diagnosed the
+fleet-wide "staged empty blob" symptom seen across Stages 38, 40 and 41. It is
+**not** `git add -A` and **not** index corruption. It is **jj's colocated
+working-copy export**. Every gitman command snapshots the working copy through
+jj-lib in-process (pyjutsu), and that snapshot writes `.git/index`. A file jj
+tracks that git has never committed becomes an **intent-to-add** entry: blob
+`e69de29bb2d1d6434b8b29ae775ad8c2e48c5391`, zeroed stat cache, flags
+`20004000` (`CE_EXTENDED | CE_INTENT_TO_ADD`).
+
+Measured: **28 repositories, 140 paths** — not 40, not "several hundred."
+All 28 are jj-colocated; zero non-colocated repositories are affected.
+Reproduced exactly with jj 0.44.0 and git 2.54.0.
+
+| `git status --short` | In `HEAD`? | Count | What a commit does |
+|---|---|---|---|
+| `" A "` | no | 138 | Plain `git commit` ignores it, even with other files staged. `git commit -a` records the real content. No loss is reachable. |
+| `"DA"` | yes | 2 | Plain `git commit` records a deletion, not an empty file. |
+
+No commit anywhere in the fleet since 2026-06-01 recorded the empty blob for a
+file that had content — verified with `git log --all --raw` across every
+repository, zero hits. The two `DA` paths were in vendomat
+(`src/vendomat/plane.py`, `tests/test_plane.py`) and were repaired with
+`git restore --staged` before this stage closed.
+
+**Corrects Stage 40 (log lines ~2098-2099) and Stage 41 (log lines
+~2160-2164):** both attributed this pattern to `git add -A`. It is the jj
+colocated export instead.
+
+**The versions.** jj 0.44.0, git 2.54.0, gitman 0.6.2.
+
+**The evidence.** The gitman issue record:
+`gitman:.scratch/projects/41-colocated-index-intent-to-add/ISSUE.md`, landed
+`b5a566d` (`Bullish-Design/gitman#31`). It proposes a `gitman doctor` check
+classifying on `git status` code plus `HEAD` presence, never on blob hash,
+because hashing reproduces the false alarm inside the tool. Implementation is
+deferred — the issue is the deliverable.
+
+**The charter impact.** None yet. The 138 `" A "` paths are normal colocated
+state, load-bearing (Nix flake evaluation only sees the git tree), and the
+next gitman command re-creates them. They are not repaired.
+
+**What the entry left on the machine.** One committed issue record in gitman.
+No other repository's working tree changed as a result of this diagnosis
+alone; the two vendomat `DA` repairs are folded into Stage 51.
+
+## Stage 48 — gitman: the issue record lands
+
+**The answer.** Landed the Stage 47 issue record. gitman's `HEAD` was detached
+one commit ahead of `origin/main` (`bb88523`); that commit's sole content,
+`.devman/project.toml`, was already byte-identical on `origin/main`, so it was
+redundant rather than missing work. Branched `041-colocated-index-intent-to-add-issue`
+off `origin/main` instead of the detached HEAD, and added only the issue file.
+Three locally dirty devenv files (`devenv.lock`, `devenv.nix`, `devenv.yaml`,
+removing the devman devenv integration) were left alone as instructed — they
+turned out to already match `origin/main`, which had dropped that integration
+in `e0f706c`.
+
+**The versions.** gitman `main` was `e558b51` before this PR.
+
+**The exact command.** `git checkout -b 041-colocated-index-intent-to-add-issue origin/main`,
+`git add .scratch/projects/41-colocated-index-intent-to-add/ISSUE.md`, `git commit`,
+`git push -u origin`, `gh pr create`.
+
+**The evidence.** Landed as `Bullish-Design/gitman#31`, merge `5d31308`, docs-only
+change with no runtime surface.
+
+**The charter impact.** None. Docs-only.
+
+**What the entry left on the machine.** gitman `origin/main` gained the issue
+record. The three dirty devenv files remain untouched in the local checkout,
+unrelated to this branch.
+
+## Stage 49 — repoman: fast-forward, then the copyroom lock bump
+
+**The answer.** repoman's `039-devman-item3-repoman` branch had already landed
+as `Bullish-Design/repoman#22` (`74d4103`); local `main` was 3 commits behind.
+Verified 21 of 23 "dirty" paths were byte-identical to `origin/main` via
+`git hash-object` against `git rev-parse origin/main:<file>` before treating
+the checkout as stale rather than dirty. Fast-forwarded `main` (`57473ad` →
+`74d4103`). The one genuine change, `devenv.lock`'s copyroom relock from
+`v0.7.4` to `v0.7.7`, was committed alone on branch `040-copyroom-lock-bump`.
+
+**A stale-index trap surfaced mid-fast-forward:** `git stash push -u` failed
+with `Entry 'src/repoman/devman/migrate.py' not uptodate` — the Stage 47
+intent-to-add pattern blocking a normal git operation. Unstaging the two
+affected entries (`git reset -- <path>`) before stashing resolved it without
+touching their content.
+
+**The versions.** copyroom `v0.7.4` → `v0.7.7`, confirmed the latest tag and
+already used by nine repositories including `nix-meta` and `vendomat`.
+
+**The exact command.**
+```sh
+git reset -- src/repoman/devman/migrate.py tests/test_devman_migrate.py
+git stash push -u
+git checkout main && git merge --ff-only origin/main
+git stash pop   # tracked changes only; untracked already matched post-merge main
+git checkout -b 040-copyroom-lock-bump
+git add devenv.lock && git commit
+```
+
+**The evidence.** `repoman-sync` passed. `base:check` passed. `base:test`
+failed on `ruff-format` for `src/repoman/cli.py` and
+`src/repoman/devman/migrate.py` — both pre-existing content from the already-
+merged `#22`, untouched by this branch. Per operator direction, landed the
+lock bump anyway with the failure noted as a follow-up in the PR body rather
+than blocking on it. Landed as `Bullish-Design/repoman#23`, merge `cfb1015`.
+
+**One failed attempt, kept.** A redundant `git stash` entry
+(`039-devman-item3-repoman dirty worktree, pre-ff`) was left in the repoman
+worktree after the fast-forward. Its content was verified identical to what
+`main` already carries (`git diff stash@{0}^3` against the working tree
+returned nothing), so it is safe to drop, but it was not dropped this session.
+
+**The charter impact.** None.
+
+**What the entry left on the machine.** repoman `origin/main` gained the lock
+bump. Seven repositories still pin copyroom `v0.7.4` — `shellij`, `pyllij`,
+`poddantic`, `flora-qc`, `flora-core`, `eventic`, `argentic` — recorded as a
+follow-up, not bumped here. One redundant stash entry remains in the local
+repoman checkout.
+
+## Stage 50 — devman `v0.7.0`, then the machine rebuild
+
+**The answer.** Tagged `4c9927a` as an annotated `v0.7.0` and pushed it, after
+re-running every gate: `base:check`, `base:unit` (590 passed), `base:test`
+(including the VM-backed `dagu-service` check), and the explicit
+`dagu-service` and `devman-link` package builds. `nix-meta`'s devman input
+moved from the Project 038 bare-rev pin
+(`28b05a7044aa12eebd4aaf8da4c4eb302d79bf6d`) to `?ref=refs/tags/v0.7.0`, with
+the stale bare-rev comment rewritten. `profiles/devman.nix`'s `registryDir`
+was already committed on `nix-meta` `main` via `7e634d0`, ahead of what this
+session's earlier snapshot had shown as dirty — only `flake.nix` and
+`flake.lock` needed a commit.
+
+Verified stop conditions before the operator switched: `13:47 EDT`, nowhere
+near the `00:05` daily burst; no reload markers under
+`~/.local/state/devman`; `dagu ps` reported no running processes. The operator
+ran `nixos-rebuild boot` then `switch`.
+
+**The versions.** devman `v0.7.0` at `4c9927a`. System
+`nixos-system-server-26.11.20260705.d407951` before and after — the switch
+changed the devman/devman-link store paths inside that generation, not the
+generation name itself.
+
+**The exact command.**
+```sh
+git tag -a v0.7.0 4c9927a -m "..."
+git push origin v0.7.0
+# nix-meta:
+nix flake lock --update-input devman
+nixos-rebuild build --flake ~/Documents/Projects/nix-meta#server
+nix store diff-closures /run/current-system <result>
+# operator ran:
+sudo nixos-rebuild boot   --flake ~/Documents/Projects/nix-meta#server
+sudo nixos-rebuild switch --flake ~/Documents/Projects/nix-meta#server
+# acceptance:
+cd /tmp && env -u PYTHONPATH -u NIX_PYTHONPATH /run/current-system/sw/bin/devman doctor
+```
+
+**The evidence.** Closure diff: `devman -47.6 KiB`, `devman-link -21.3 KiB` —
+same package version string (`0.6.0`, unbumped in pyproject; the git tag is
+the release marker), different store paths
+(`k1vd72...` → `jvyh5s...`), confirming the pin took effect. Post-switch
+acceptance: `devman doctor` reported **48 projects, 152 workflows, mode
+plane** — matching the pre-switch baseline exactly. Digest unchanged
+(`sha256:d3bbe557424a1137700d5cad5b35f983489313227ea1f8c92161be7ee5cf1278`),
+generation still 3, both reload markers absent. `dagu ls` resolved 152 DAGs.
+Both canary commands (`devman-link status`, `devman link status`, vendomat)
+returned 0 with five `ok` states each. Fleet sweep: `47 0`,
+`1 1 image-gen-pipeline` — the known baseline, no new refusal. Landed as
+`Bullish-Design/nix-meta#5`, merge `6ee9014`.
+
+**One failed attempt, kept.** The first post-switch acceptance run, invoked as
+plain `devman doctor` from this session's persistent shell, reported `3
+projects, 16 workflows, mode compatibility` and looked like the switch had not
+taken. It was a shell-`PATH` artifact: the shell had devman's own project
+`devenv` venv ahead of the system path, so it resolved that project's dev
+binary rather than `/run/current-system/sw/bin/devman`. The explicit system
+path reported the correct result on the first try.
+
+**The charter impact.** None. This restores the fleet's tag-pin convention
+after the Project 038 bare-rev exception; no charter document described the
+exception as permanent.
+
+**What the entry left on the machine.** Active generation still 3, 48
+projects, 152 DAG files, digest unchanged. `nix-meta` `origin/main` pins
+devman at `v0.7.0`. No reload occurred; no consumer checkout or overlay
+changed.
+
+## Stage 51 — vendomat: the machine-plane migration lands
+
+**The answer.** vendomat's `038-devman-plane-redesign` branch (`5517878`, 15
+commits ahead of `origin/main`, 0 behind) landed. Its two `DA` index entries
+(Stage 47) were already repaired before this stage. The eight paths that had
+shown as dirty (`README.md`, `devenv.lock`, `devenv.nix`, `devenv.yaml`,
+`flake.lock`, `flake.nix`, `src/vendomat/cli.py`, `tests/test_cli.py`) were
+not branch work at all: every one was byte-identical to the branch's own
+`HEAD`, confirmed with `git hash-object` against `git rev-parse HEAD:<path>`.
+The `git status` `MM` codes were a stale index predating commit `5517878`,
+not real changes — `git diff` (index vs. working tree) and `git diff --cached`
+(HEAD vs. index) showed matching insertions and deletions with opposite sign,
+the signature of an index that has not caught up to the last commit. `git
+reset` (mixed) resynced the index to `HEAD` without touching the working
+tree, leaving nothing to commit and no unrelated drift to report.
+
+**The versions.** vendomat `main` was `1f8a34d`-equivalent before this PR
+(pre-038); branch tip `5517878`.
+
+**The exact command.**
+```sh
+for f in <8 paths>; do git hash-object "$f"; git rev-parse HEAD:"$f"; done
+git reset
+devenv shell -- testee verify --mode quick
+VENDOMAT_E2E=1 devenv shell -- testee verify --mode quick
+devenv shell -- nix build .#repoman-toolchain-core --no-link --print-out-paths
+gh pr create --base main --head 038-devman-plane-redesign
+```
+
+**The evidence.** `testee verify --mode quick`: passed (ruff, ruff-format, ty,
+pytest all green). `VENDOMAT_E2E=1 testee verify --mode quick`: passed.
+`nix build .#repoman-toolchain-core`: built,
+`/nix/store/z6ayz3iz2c3plgidf7kfslwnwrzc7yk2-repoman-toolchain-core`. Landed
+as `Bullish-Design/vendomat#7`, merge `c077cc0`. Post-merge, bare `devman
+doctor`'s `local sources` finding no longer names vendomat; the remaining
+entries (pyjutsu, docman, zelligate, pytuin) are the deliberately out-of-scope
+follow-ups the cleanup prompt named.
+
+**The charter impact.** None new. Confirms Project 038's machine-plane design
+for vendomat as built.
+
+**What the entry left on the machine.** vendomat `origin/main` carries the
+full 15-commit migration. `devman doctor`'s `local sources` finding dropped
+from naming vendomat, pyjutsu, docman, zelligate and pytuin to naming only the
+latter four. Active generation, project count, DAG count and digest all
+unchanged from Stage 50 — this stage touched no plane state, only a consumer
+repository.
+
+## Project 038 cleanup — closed
+
+All four steps closed: gitman (`Bullish-Design/gitman#31`), repoman
+(`Bullish-Design/repoman#23`), devman `v0.7.0` + machine rebuild
+(`Bullish-Design/nix-meta#5`), vendomat (`Bullish-Design/vendomat#7`). No stop
+condition was triggered. Two items are left for the operator, not blocking:
+the redundant repoman stash entry (Stage 49), and the seven repositories still
+pinning copyroom `v0.7.4` (Stage 49).
