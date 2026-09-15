@@ -1,0 +1,31 @@
+Wave 3 item 12 — 2026-09-14
+
+flora source:
+  /home/andrew/Documents/Projects/flora/.worktrees/037-part-e-flora
+flora archive:
+  /home/andrew/Documents/Projects/.archive/flora-037-part-e
+flora inventory before move:
+  47168 regular files, 11 symlinks
+flora overlay:
+  absent; the archived devenv.local.nix symlink remains dangling by design
+
+fleetman repository:
+  /home/andrew/Documents/Projects/.archive/fleetman
+fleetman commit:
+  8ff5f37 chore: materialize agent files for archived checkout
+fleetman push:
+  origin/main advanced from edc8fee to 8ff5f37
+fleetman materialized:
+  .agents/skills/copyroom/SKILL.md
+  .agents/skills/copyroom-adopt/SKILL.md
+  .agents/skills/copyroom-template-edit/SKILL.md
+  .agents/skills/my-ai/SKILL.md
+  .claude/skills -> ../.agents/skills
+  devenv.local.nix
+fleetman shared skill:
+  .agents/skills/gitman remains an excluded absolute link to the global skill
+
+derived cleanup:
+  devman doctor --prune removed flora-037-part-e and one link
+  the exact fleetman overlay and share-registry entry moved to:
+  /tmp/devman-wave3-cleanup-TSlwN2

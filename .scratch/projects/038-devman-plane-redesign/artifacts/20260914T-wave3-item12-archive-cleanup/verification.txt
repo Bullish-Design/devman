@@ -1,0 +1,28 @@
+Final verification after item 12:
+
+devman doctor
+  3 projects, 16 workflows
+  plane healthy — dagu 2.15.0, up 48h
+  6 queues, 0 running, none waiting
+  registry: every entry under projects/ reads
+  validate: 16 projected workflows load
+  stale entries: every registered path is a directory
+  projection: 16 DAG names each point at their own project's file
+  link drift: 11 declared links are correct
+  final result: 2 findings
+
+The two findings are the pre-existing dirty and unpinned local-source findings
+for Vendomat and RepoMan. The active generation was not rebuilt.
+
+fleetman:
+  git diff --cached --check passed before commit
+  commit 8ff5f37 pushed to origin/main
+  unrelated devenv.lock and gitman.toml edits remained unstaged
+
+flora:
+  source directory absent after move
+  archive directory present
+  archive inventory: 47168 regular files, 11 symlinks
+
+The full devenv gate was not rerun because the host filesystem was full and
+devenv shell entry failed with No space left on device.

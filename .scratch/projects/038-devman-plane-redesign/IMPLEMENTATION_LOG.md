@@ -2491,3 +2491,33 @@ publishing remains covered by its canonical-render test.
 **Status.** No authored overlay, generated registry, active generation or state
 entry was changed by this stage. The next incomplete phase is item 11: land the
 ten Stage 37 branches.
+
+## Stage 43 — archive the orphan and remove stale archive links
+
+On 2026-09-14, item 12 was completed without deleting project content. The
+directory `flora/.worktrees/037-part-e-flora` had no `.git` metadata and was
+not in `git -C flora worktree list`. It was an ignored directory, not a live
+Git worktree. It contained 47,168 regular files and 11 symlinks. The complete
+directory moved to `.archive/flora-037-part-e`. Its dangling
+`devenv.local.nix` symlink was retained as archive content; no Flora overlay
+file existed to restore.
+
+`fleetman` had already moved to `.archive/fleetman` but its project overlay and
+share-registry entry remained. Four regular project skills and
+`devenv.local.nix` were moved into the archived repository. The tracked Claude
+settings content was already identical to the promoted copy, and
+`.claude/skills` now points to the repository `.agents/skills` tree. The shared
+`gitman` skill remains a local global-skill link and is excluded from the
+archive commit because its absolute path is machine-specific.
+
+The archived `fleetman` change landed and pushed as `8ff5f37`. The exact
+central overlay and generated share-registry directory were moved to the
+recoverable quarantine directory `/tmp/devman-wave3-cleanup-TSlwN2`; they are
+not active. `devman doctor --prune` removed the Flora state entry and one link.
+
+The final doctor run reports 3 projects, 16 workflows, correct links, no stale
+entries, and only the two pre-existing local-source findings for Vendomat and
+RepoMan. The active generation was not rebuilt. Item 13 remains gated on the
+`.dag.index` experiment and the dirty unpinned local sources.
+
+Evidence: `.scratch/projects/038-devman-plane-redesign/artifacts/20260914T-wave3-item12-archive-cleanup/`
