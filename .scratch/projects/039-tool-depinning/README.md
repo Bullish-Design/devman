@@ -1,10 +1,18 @@
 # 039 — Remove repoman and vendomat from per-repo pins
 
 Date: 2026-09-15
-Status: **both halves built and deployed; the repoman half migrated 12 of 23
-consumers, the vendomat half migrated none.** Read `IMPLEMENTATION_LOG.md`
-§"Stage 2" for the audited state, dated 2026-09-16. The repoman half keeps its
-own log in `repoman/.scratch/projects/039-repoman-depin/`.
+Status: **both halves built, deployed and largely migrated.** repoman is at
+v0.8.2 and the vendomat half has migrated ten of fifteen consumers.
+
+Five repositories remain — `flora-core`, `nix-nvim`, `paloma-text-pipeline`,
+`loci-core`, `nix-paseo`. All five are blocked by the same thing: an
+uncommitted, unlanded Project 038 devman-consumer migration sitting in each
+working tree. Land or abandon that first; the vendomat change is small on top
+of a clean tree.
+
+Read `IMPLEMENTATION_LOG.md` §"Stage 2" and §"Stage 3" for the audited state,
+dated 2026-09-16. The repoman half keeps its own log in
+`repoman/.scratch/projects/039-repoman-depin/`.
 
 Project 038 removed devman from consumer repositories' version pins. It replaced
 a per-repo flake input with two machine-delivered channels and one stable

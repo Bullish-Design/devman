@@ -423,3 +423,95 @@ so the repair is `git branch -f main HEAD && git checkout main`, then commit.
 
 **Not repaired in this session** — the ref update was refused by the harness
 permission layer. It remains the first thing to fix.
+
+## Stage 3 — 2026-09-16: the manifest gap closed, and ten of fifteen migrated
+
+### repoman v0.8.2 — `cliProvider` gains a manifest home
+
+`manifestKnownFields` now accepts `cliProvider`, validated against
+`allCliProviders`, which the option's enum shares so the validator and the
+option can never disagree. `checks.repoman-consumer-module` evaluates the real
+module against two fixture roots: one with no manifest, asserting `store` and
+the default roster; one carrying the opt-out, asserting `venv` and
+`[copy git]`. The second assertion is what proves the manifest path.
+
+`tests/test_modules_nix.py` was updated, not deleted. Both original guarantees
+survive — the enum holds both values, the default is still `store` — and a new
+test asserts the manifest can carry the opt-out.
+
+Deployed: system generation built from `nix-meta` at `repoman v0.8.2`, verified
+byte-identical to the closure built before the switch.
+
+### The three repositories with no manager commands — fixed
+
+`llgym`, `nix-secrets` and `image-gen-pipeline` each took
+`cliProvider = "venv"` in `.repoman/project.toml`. Verified by checking that a
+manager **resolves on PATH**, not merely that `REPOMAN_MANAGERS` is populated —
+the check whose absence let this defect survive a release:
+
+```
+llgym               venv  gitman|copyroom|repoman -> ~/.local/share/repoman/venv/bin
+nix-secrets         venv  gitman|copyroom         -> same
+image-gen-pipeline  venv  gitman|copyroom|repoman -> same
+```
+
+### Vendomat phase 3 — ten of fifteen
+
+| Repository | Shape | Proof |
+|---|---|---|
+| flora-qc | no options | toolchain still resolves to `repoman-toolchain-core` |
+| tyo3 | store toolchain | `python` still resolves to the PROJECT venv, not the toolchain venv |
+| shellij, argentic, eventic, flora, loci.nvim, poddantic, pyllij | opt-out pair | `PROVIDER=venv`, `REPOMAN_TOOLCHAIN_BIN` unset, gitman from the shared venv |
+| repoman | vendor + editable | `UV_FIND_LINKS` at the wheelhouse; `repoman` resolves to this checkout, not a release |
+
+Each opt-out repository carries **both** halves in tracked manifests —
+`[toolchain] enable = false` in `vendomat.toml`, `cliProvider = "venv"` in
+`.repoman/project.toml` — because both option defaults point the other way.
+
+**Every `vendomat.toml` written also sets `[vendor.publish] enable = false`**,
+and each repository was checked for `.git/hooks/pre-push` afterwards. None was
+installed. Without that line the module writes one into every repository that
+gains a manifest.
+
+Plane invariants were identical before and after every migration: pointer
+`generations/3`, 48 projects, DAG digest `395882db05afe769…`. `devman doctor`
+exits 0 with the same 6 findings as the baseline. Fleet link sweep: 47 ok, the
+same single pre-existing `image-gen-pipeline` refusal.
+
+### Five repositories NOT migrated, and the reason is one shared fault
+
+`flora-core`, `nix-nvim`, `paloma-text-pipeline`, `loci-core` and `nix-paseo`
+each carry an **uncommitted, unlanded Project 038 devman-consumer migration** in
+the working tree — the `devman` input and the `devman = { … }` option block
+removed, `.devman/project.toml` added, and in flora-core's case the repoman pin
+rewritten too. `paloma-text-pipeline` additionally holds 67 file deletions under
+`experiments/diffusion/` and `docker/`.
+
+Adopting any of that into a vendomat lane would bury someone's in-flight work in
+an unrelated commit, so none was touched. **Land or abandon the 038 work in
+those five first; the vendomat migration is a small change on top of a clean
+tree.** Three of them — flora-core, nix-nvim, paloma-text-pipeline — also still
+pin repoman at `57473ad`, which predates v0.8.2 and rejects `cliProvider` as an
+unknown manifest field, so their `cliProvider` line must stay in `devenv.nix`
+until that pin is removed.
+
+### Central overlay — rescued
+
+`~/.config/devman` was on a detached HEAD with 27 off-branch commits, 90
+uncommitted entries and no remote. `main` was a strict ancestor, so `git branch
+-f main HEAD` recovered it without rewriting anything. The 90 entries landed in
+five themed commits rather than one blob. It still has **no git remote** — the
+one piece of this plane with no off-machine copy.
+
+### A hazard worth recording
+
+A helper that inserted the vendomat import after the first matching line broke
+`repoman`'s central file, whose `imports` were on a single line:
+
+```nix
+imports = [ /run/current-system/sw/share/devman/link-module.nix ];
+  /run/current-system/sw/share/vendomat/consumer-module.nix   # syntax error
+```
+
+31 of 51 central files still use the single-line form. `nix-instantiate --parse`
+over every central file is a cheap gate and caught it immediately.
