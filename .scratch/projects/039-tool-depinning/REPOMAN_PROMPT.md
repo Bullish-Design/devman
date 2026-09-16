@@ -57,7 +57,7 @@ What the twenty-three importers actually use:
 |---|---:|---|
 | `repoman.managers` | 23 | genuinely varies — four rosters in play |
 | `repoman.enable` | 22 | becomes implicit |
-| `repoman.cliProvider` | 10 | **all ten set `"store"`, which is already the default.** Delete the lines; change nothing. |
+| `repoman.cliProvider` | 10 | **all ten set `"venv"`. The default is `"store"`.** These lines are load-bearing — see §2.1. **Do not delete them.** |
 | `repoman.nativeBuild` | 1, commented | tyo3 |
 | `repoman.template`, `toolchainBin`, `installSkills`, `skillsDir` | **0** | dead option surface |
 
@@ -67,6 +67,35 @@ which have no Python tests), `[git]` × 1 (tyo3), `[copy git test doc]` × 1
 
 **Verify these numbers before you act.** They are days old by the time you read
 them.
+
+### 2.1 The opt-out pair — read this before deleting any option line
+
+An earlier revision of this prompt said the ten `cliProvider` lines named the
+default and were safe to delete. **That was wrong, and deleting them would have
+silently reconfigured ten repositories.** Measured 2026-09-16:
+
+| Repository | Sets | Sets |
+|---|---|---|
+| argentic, eventic, flora, flora-core, loci.nvim, nix-nvim, paloma-text-pipeline, poddantic, pyllij, shellij | `repoman.cliProvider = "venv"` | `vendor.toolchain.enable = false` |
+
+Those two lines are **one coherent opt-out**. The repository declines vendomat's
+store toolchain and takes the managers from the shared venv instead. Both option
+defaults point the other way (`cliProvider` defaults to `"store"`,
+`vendor.toolchain.enable` defaults to `true`), and vendomat's module sets
+`repoman.cliProvider = "store"` whenever its toolchain face is on.
+
+Delete either line and those ten repositories flip onto the store toolchain with
+no diff to explain it. That is the exact failure devman's charter names in
+property 4: *a run that reports success while producing an incorrect result*.
+
+**Carry the pair forward.** Each of the ten needs its opt-out preserved — the
+`vendor` half as `[toolchain] enable = false` in `vendomat.toml`, and the
+`repoman` half as an explicit field in `.repoman/project.toml`. Write both
+before removing either input.
+
+`tyo3` is the counter-example worth reading: `tyo3/devenv.nix:130` leaves
+`cliProvider` unset **on purpose**, with a comment saying vendomat's module sets
+it. Do not "normalise" that repository to match the other ten.
 
 ## 2. The target state
 
@@ -239,10 +268,16 @@ Add `.repoman/project.toml` parsing with the default roster
 `["copy", "git", "test"]`. Write the manifest into the eight repositories whose
 roster differs, **before** removing their inputs:
 
-- `[copy git]`: `forgelab`, `loci.nvim`, `nix-desktop`, `nix-nvim`, `nix-paseo`,
-  `nix-secrets`
+- `[copy git]`: `loci.nvim`, `nix-desktop`, `nix-nvim`, `nix-paseo`, `nix-secrets`
 - `[git]`: `tyo3`
 - `[copy git test doc]`: `repoman` itself
+
+`forgelab` also carries a `[copy git]` roster and is deliberately **not** in that
+list. It is archive-set, along with `lodestar`. Neither gets a manifest and
+neither gets migrated.
+
+Additionally, write the `cliProvider` opt-out from §2.1 into the manifests of the
+ten repositories that declare it.
 
 Keep the `repoman.*` options for one release as a compatibility fallback, with
 devman's comment discipline: *"the fallback keeps the migration reversible
@@ -252,7 +287,13 @@ Delete the four dead options (`template`, `toolchainBin` as a public name,
 `installSkills`, `skillsDir`) in a separate commit, with the measurement that no
 repository sets them.
 
-### Phase 3 — migrate the twenty-three, one lane each
+### Phase 3 — migrate the consumers, one lane each
+
+Count them yourself at the start of the session; the number below moved once
+already. Twenty-three repositories imported the meta-module when this was
+written, less `forgelab` and `lodestar` (archive-set), plus `nix-terminal`, which
+consumes repoman through its own `modules/repoman.nix` flake wrapper and is not
+one of the devenv importers — handle it separately and last.
 
 Per repository, **both halves in one transition**:
 

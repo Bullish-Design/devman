@@ -27,11 +27,16 @@ Two findings sharpen the case:
    directly, and `cd34bfd4` transitively through vendomat's flake. That diamond
    is the sharpest edge in the current graph, and removing the direct pin
    collapses it.
-2. **Most of the pinned option surface is unused.** Eleven of fourteen vendomat
-   importers set exactly one option (`vendor.toolchain.enable = true`). Five of
-   vendomat's eight options and four of repoman's seven are used by zero
-   repositories. The fleet pays a lock bump per release for an interface almost
-   nobody calls.
+2. **Most of the pinned option surface is unused.** Five of vendomat's eight
+   options and four of repoman's seven are set by zero repositories. The fleet
+   pays a lock bump per release for an interface almost nobody calls.
+
+   **But the options that are set are load-bearing, and an earlier revision of
+   these prompts got their values backwards.** Ten repositories set
+   `vendor.toolchain.enable = false` **and** `repoman.cliProvider = "venv"` —
+   one coherent opt-out from the store toolchain, against both defaults.
+   Deleting either line silently flips those ten repositories. Both prompts now
+   carry the correction; read it before deleting any option line.
 
 ## The order
 

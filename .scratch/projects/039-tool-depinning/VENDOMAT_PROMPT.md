@@ -38,7 +38,7 @@ What those fourteen importers actually use:
 
 | Option | Repos setting it |
 |---|---:|
-| `vendor.toolchain.enable` | 11 |
+| `vendor.toolchain.enable = false` | 10 — **`false`, not `true`. The default is `true`.** Deleting the line turns the store toolchain ON. Preserve it as `[toolchain] enable = false`. The same ten also set `repoman.cliProvider = "venv"`; that is one coherent opt-out pair and both halves must survive. |
 | `vendor.enable`, `vendor.libs`, `vendor.toolchain.mode` | 1 (vendomat's own consumer, repoman) |
 | `knowledge.enable` | 1 (loci-core) |
 | `vendor.self`, `vendor.noBuild`, `vendor.sharedCargo`, `vendor.publish.enable`, `knowledge.skillsDir` | **0** |
@@ -96,7 +96,8 @@ imports:
 
 `devenv.nix`:
 ```nix
-  vendor.toolchain.enable = true;
+  vendor.toolchain.enable = false;      # ten repos — an opt-OUT, not an opt-in
+  repoman.cliProvider = "venv";         # the matching half of the same opt-out
 ```
 
 `devenv.lock`: a `"vendomat"` node plus the root edge `"vendomat": "vendomat"`.
