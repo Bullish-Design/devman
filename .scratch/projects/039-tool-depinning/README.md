@@ -1,7 +1,10 @@
 # 039 — Remove repoman and vendomat from per-repo pins
 
 Date: 2026-09-15
-Status: planned, not started
+Status: **both halves built and deployed; the repoman half migrated 12 of 23
+consumers, the vendomat half migrated none.** Read `IMPLEMENTATION_LOG.md`
+§"Stage 2" for the audited state, dated 2026-09-16. The repoman half keeps its
+own log in `repoman/.scratch/projects/039-repoman-depin/`.
 
 Project 038 removed devman from consumer repositories' version pins. It replaced
 a per-repo flake input with two machine-delivered channels and one stable

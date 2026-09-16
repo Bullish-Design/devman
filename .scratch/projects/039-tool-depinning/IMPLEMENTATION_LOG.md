@@ -310,3 +310,116 @@ for the operator; do not repair it inside this project.
 - `vendomat.toml` for repoman and loci-core, and for the ten
   `vendor.toolchain.enable = false` repositories. Write these in the same lane as
   each repository's input removal.
+
+## Stage 2 — 2026-09-16: audit of both halves, and the manifest gap
+
+Stage 1 above is **stale**. It was written before the releases. Corrections:
+`v0.4.0` and `v0.4.1` both shipped, the machine boundary now passes, and the
+measurement it records was itself wrong in two places.
+
+### Corrected measurement, 2026-09-16
+
+| Claim in Stage 1 / README | Measured |
+|---|---|
+| 16 repositories declare vendomat | **15** — the sixteenth was `nix-meta`, the machine pin |
+| 6 unpinned `git+file://` consumers | **5** — repoman moved to a tag on 2026-09-07 |
+| 2 distinct pinned revisions | **3** — `v0.3.4`, `v0.3.7` ×7, `v0.3.9` ×2 |
+
+The `v0.3.4` pin is **repoman's own**, which makes the tool that consumes
+vendomat the most stale consumer in the fleet.
+
+### What is deployed
+
+Both machine modules are live and match their pins exactly, verified by
+evaluation rather than inference:
+
+```
+vendomat v0.4.1 → /nix/store/7azcp47xhrfawzsngx65mvpygk9a5m72-vendomat-0.4.1        MATCH
+repoman  v0.8.1 → /nix/store/12gznckrvzxr8wrlix6fh89x90adm4ya-repoman-module        MATCH
+```
+
+System generation 119. `devman doctor` exits 0 with 6 findings, down from 8;
+the vendomat local-source finding cleared. Fleet link sweep: 47 ok, 1
+pre-existing `image-gen-pipeline` refusal. Plane invariants show **no drift** —
+generation 3, 48 projects, 152 DAGs, `dagu_digest sha256:d3bbe557…`.
+
+### Three repositories run with no manager commands
+
+`llgym`, `nix-secrets`, `image-gen-pipeline` resolve `cliProvider = "store"`
+with `REPOMAN_TOOLCHAIN_BIN` unset. Measured inside `llgym`:
+
+```
+PROVIDER=store   TOOLCHAIN=[]   MANAGERS=copy git test
+gitman MISSING   copyroom MISSING   repoman MISSING   testee MISSING
+```
+
+`enterShell` warns to stderr and continues by design, so `devenv shell` exits 0
+and the roster still populates. **This is charter property 4**: the run reports
+success and the result is wrong.
+
+It is **not** a 039 regression. All three consumed repoman through an unpinned
+`git+file:` input resolving live against its working tree, where the
+`cliProvider` default flipped `venv` → `store` on 2026-09-08 (`79db869`). None
+declares vendomat, so nothing supplies the closure. They have been broken since
+a week before this project started. 039 did not cause it and did not detect it —
+the `v0.8.1` acceptance checked that `REPOMAN_MANAGERS` was populated, which it
+was, rather than that a manager resolves.
+
+### The manifest gap this exposed
+
+`REPOMAN_PROMPT.md` §2.1 required the `cliProvider` opt-out move into
+`.repoman/project.toml`. **That was not implemented.** The shipped parser
+accepted two fields only:
+
+```nix
+manifestKnownFields = [ "schema" "managers" ];   # unknown fields throw
+```
+
+So the ten opt-out repositories still hold the value in `devenv.nix`, in the
+option documented as removable "in one release". Withdrawing it would put all
+ten into the state the three repositories above are already in.
+
+**Fixed in repoman `v0.8.2`** (`ef8c69a`): `manifestKnownFields` gains
+`cliProvider`, `allCliProviders` is shared by the validator and the option enum
+so the two cannot disagree, and `checks.repoman-consumer-module` now evaluates
+the real module against two fixture roots — one with no manifest (asserts
+`store` and the default roster), one carrying the opt-out (asserts `venv`).
+
+### Ordering constraint — measured, not assumed
+
+A manifest carrying `cliProvider` **must not land before `v0.8.2` is
+deployed**. The evaluation is lazy, so the throw does not fire on
+`config.repoman.cliProvider`; it fires as soon as `managers` is forced, which
+every real shell does. Proved against the deployed `v0.8.1`:
+
+```
+error: repoman: …/manifest-venv/.repoman/project.toml has unknown field(s): cliProvider
+```
+
+### The vendomat.toml trap — confirmed live
+
+Writing `vendomat.toml` into a consumer installs a **pre-push git hook** on its
+next shell entry. `publish.enable` defaults to `true` and the gate is file
+presence, in the v0.3.7 module those repositories pin *and* in the v0.4.1
+machine module:
+
+```nix
+(lib.mkIf cfg.publish.enable {
+  enterShell = ''if [ -f vendomat.toml ]; then ${vendomatCli}/bin/vendomat install-hook; fi'';
+})
+```
+
+Neither prompt mentions this. Write `[vendor.publish] enable = false` alongside
+the toolchain opt-out, or migrate the gate off file presence. Do not write the
+twelve manifests ahead of the migrations.
+
+### Central overlay — the largest operational risk
+
+`~/.config/devman` was on a **detached HEAD**, 27 commits ahead of `main` with
+none on any branch, 90 uncommitted entries including every migrated repository's
+repoman import line, and **no git remote**. The machine-side half of the
+migration exists only in an unbacked working tree. `main` is a strict ancestor,
+so the repair is `git branch -f main HEAD && git checkout main`, then commit.
+
+**Not repaired in this session** — the ref update was refused by the harness
+permission layer. It remains the first thing to fix.
