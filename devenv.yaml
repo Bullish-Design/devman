@@ -21,9 +21,9 @@ inputs:
 
 imports:
   - shellij/modules
-  # devman adopts itself (criterion 16). A local directory, not an input: this
-  # repository is the plane, so there is no rev to pin against itself.
-  - ./modules
+  # devman adopts itself through the machine's link plane. `.devman/project.toml`
+  # carries the identity, and the central overlay links the machine-local views.
+  # No `devman/modules` import: the plane module is deleted.
 
 # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true

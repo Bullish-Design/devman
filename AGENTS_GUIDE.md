@@ -67,10 +67,9 @@ fill. Nothing rewrites a file at projection time except the generated header.
 | `nix/devman-cli.nix` | the CLI package. Ships from the NixOS module **only** |
 | `nix/renderer.nix` | the projection renderer, `devman-project`. The same source, built under the **consuming repository's** nixpkgs so the shell-entry guard can see its store path (§3.1's second exception) |
 | `nix/tests/dagu-service.nix` | a NixOS VM test: the unit starts, a projected DAG is discovered, a run lands its logs in the right project |
-| `modules/devenv.nix` | the **compatibility workflow** interface — project options, the `enterShell` guard, the policy/renderer identity, and `planFile`. The canonical resolver and projection are in `src/devman/reconcile.py`; `src/devman/project.py` keeps the compatibility entry and body renderer |
-| `modules/link.nix` | the **link-only** interface — typed `devman.link`, manifest identity resolution, and one shell hook that calls the machine-installed adapter |
+| `modules/link.nix` | the **link-only** interface — typed `devman.link`, manifest identity resolution, and one shell hook that calls the machine-installed adapter. The machine installs it as `link-module.nix` |
 | `groups/` | workflow **content**, one directory per group. `groups/README.md` is the mechanism and the index; each group's own README says what taking it costs |
-| `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `agent`, `registry`, `workflow`, and `project` — the projection, which the devenv module runs at shell entry |
+| `src/devman/` | the CLI: `cli`, `run`, `show`, `doctor`, `watch`, `agent`, `registry`, `workflow`, and `project` — the projection |
 | `tests/` | the Python test layer. `tests/README.md` says what it protects and what it refuses to test |
 | `.devman/workflows/` | this repository's central per-project workflow overlay view. `.devman/workflows/README.md` documents it |
 | `.scratch/projects/006-automation-plane/` | the charter and stage logs 1–6 |
@@ -321,15 +320,6 @@ systemctl --user status dagu devman-watch
   Otherwise the new language's saves fire a run whose precondition is never true,
   which reports `Succeeded` with a skipped step. Nothing checks this.
 - A tombstone group must never hold one.
-
-### `modules/devenv.nix`
-
-- Anything in `enterShell` costs every shell entry, twice. Measure it. Criterion
-  7's budget is 10 ms for the whole module.
-- Anything that forks belongs in `projectScript`, which runs only when the guard
-  says the entry changed.
-- `metadata.json` is written **last**, so an interrupted projection leaves an
-  entry that does not match and is retried.
 
 ### `nix/nixos-module.nix`
 

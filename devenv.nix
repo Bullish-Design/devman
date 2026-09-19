@@ -1,7 +1,6 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
-  projectName = "devman";
   # The plane's orchestrator (CONCEPT.md §4). nixpkgs packages no Dagu at any
   # version, so this repo carries the expression and both interfaces call the
   # same file — this shell now, the NixOS module at stage 1 (§3.1).
@@ -113,35 +112,9 @@ in
 
   '';
 
-  # devman adopts itself (CONCEPT.md §14, criterion 16). Three lines, and the
-  # repo's own primitives below.
-  #
-  # There is no `devman` input in devenv.yaml: this repository IS the plane, so
-  # it imports `./modules` directly. Every other repository pins a rev with
-  # `git+file` (§3.2): it records `rev` and `narHash` in the lock and reads
-  # committed files only. This repository imports its own modules directly so
-  # its active working tree remains visible.
-  # `base` for the workflows, `format` for the reactivity (§8).
-  #
-  # The `python` group was deleted at stage 7: a language's decomposition is a
-  # devenv task graph, not a Dagu file (PROPOSAL.md §1.1).
-  #
-  # `format` is the group that fires on a save, and taking it is the whole
-  # opt-in (groups/format/README.md). devman adopts its own reactive group
-  # for the same reason criterion 16 has it adopt its own workflows: a plane
-  # nobody runs against themselves is a plane nobody has tested.
-  # `release` is stage 4's, and devman is one of the two repositories that made
-  # it a group rather than one repository's own file (§16's promotion rule —
-  # a group begins when a second repository wants the same file). It ships one
-  # workflow that nothing ever fires on its own, so inheriting it costs nothing
-  # (§7.4) — which is exactly the argument that does NOT hold for
-  # `format`, and the difference is that a release is triggered by a
-  # person (groups/release/README.md).
-  devman = {
-    enable = true;
-    project = projectName;
-    groups = [ "base" "format" "release" ];
-  };
+  # devman adopts itself through the machine's link plane (CONCEPT.md §16,
+  # criterion 16). The repository keeps `.devman/project.toml`, and the central
+  # overlay links its machine-local views. It imports no module.
 
   # https://devenv.sh/tasks/
   #

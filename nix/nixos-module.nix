@@ -475,8 +475,7 @@ in
         user service has one home per user. It must match `devman.registryDir`
         in every repository that registers.
 
-        **Not moved to `~/.config/devman` yet** — see `devman.registryDir`'s
-        description in `modules/devenv.nix` for why (§6.2a is the blocker).
+        **Not moved to `~/.config/devman` yet** — §6.2a is the blocker.
       '';
     };
 

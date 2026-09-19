@@ -11,7 +11,8 @@
   # interfaces, and the workflow groups:
   #
   #   nixosModules.default   one Dagu service, queues, state paths, ports
-  #   modules/               the repo interface, imported via devenv.yaml
+  #   modules/link.nix       the repo interface; the machine installs it as
+  #                          `link-module.nix` for `devenv.local.nix`
   #   groups/                workflow content, shadowed by name (§7.2, §7.3)
   #
   # Note what is NOT here: the NixOS module takes `pkgs` from the importing
@@ -85,31 +86,10 @@
             touch $out
           '';
 
-          # The shell-entry hook assigns state into `devman_*` variables and
-          # must unset each one before it returns. This check reads the shipped
-          # module text. It prevents another staleness block from leaking a
-          # variable into every adopting repository's interactive shell.
-          shell-variable-unset = pkgs.runCommand "devman-shell-variable-unset" { } ''
-            module=${./modules/devenv.nix}
-            assigned=$(grep -oE '(^|[[:space:]])devman_[A-Za-z0-9_]+=' "$module" \
-              | grep -oE 'devman_[A-Za-z0-9_]+=' | sed 's/=$//' | sort -u)
-            unset=$(sed -n '/^[[:space:]]*unset devman_/,/devman_cur$/p' "$module" \
-              | grep -oE 'devman_[A-Za-z0-9_]+' | sort -u | tr '\n' ' ')
-            missing=0
-            for name in $assigned; do
-              case " $unset " in
-                *" $name "*) ;;
-                *) echo "assigned variable is not unset: $name" >&2; missing=1 ;;
-              esac
-            done
-            [ "$missing" = 0 ]
-            touch $out
-          '';
-
           # THE THIRD READER OF THE SHARED IDENTITY TABLE (009 P1-5).
           #
           # The grammar is stated twice — `src/devman/registry.py` for the CLI
-          # and `modules/devenv.nix` for the repo interface — because §3.1 says
+          # and `modules/link.nix` for the repo interface — because §3.1 says
           # what the two interfaces share must be TEXT, and a Python function is
           # not text. `tests/fixtures/identity.json` is that text.
           #
@@ -121,7 +101,7 @@
           identity-grammar =
             let
               table = builtins.fromJSON (builtins.readFile ./tests/fixtures/identity.json);
-              # The devenv module's own pattern, spelled as it is spelled there.
+              # The link module's own pattern, spelled as it is spelled there.
               # `builtins.match` anchors, so the module carries no `^` or `$`.
               grammar = "[A-Za-z0-9][A-Za-z0-9._-]*";
               agrees = case: (builtins.match grammar case.name != null) == case.valid;
@@ -130,62 +110,6 @@
             assert table.grammar == "^${grammar}$";
             assert disagreeing == [ ];
             pkgs.runCommand "devman-identity-grammar" { } "touch $out";
-
-          # §3.8's case 12 — the hook's own refusal, run rather than read.
-          #
-          # The shell-entry guard compares the recorded path against
-          # `$DEVENV_ROOT` WITHOUT FORKING (§5.2), and a forkless comparison
-          # cannot undo the JSON encoding `src/devman/project.py` writes. Three
-          # characters are therefore refused at registration, by name. That
-          # refusal is bash inside a Nix string inside a devenv hook, which no
-          # Python test can reach.
-          #
-          # THIS CUTS THE BLOCK OUT OF `modules/devenv.nix` AND RUNS IT. What is
-          # tested is the bytes the hook uses, not a copy of them — a copy would
-          # be the second implementation rule 5 warns about, and it would agree
-          # with itself forever. The module carries the two sentinels and a
-          # comment saying why its source text must stay runnable.
-          hook-path-refusal = pkgs.runCommand "devman-hook-path-refusal" { } ''
-            block=$(sed -n '/devman-hook: path-refusal begin/,/devman-hook: path-refusal end/p' \
-              ${./modules/devenv.nix})
-            if [ -z "$block" ]; then
-              echo "the sentinels are gone from modules/devenv.nix" >&2
-              exit 1
-            fi
-            echo "--- the block under test ---"
-            printf '%s\n' "$block"
-
-            check() {          # <path> <expected reason, or empty for accepted>
-              devman_root="$1"
-              eval "$block"
-              if [ "$devman_badroot" != "$2" ]; then
-                echo "FAIL: $(printf %q "$1") gave '''$devman_badroot''', wanted '''$2'''" >&2
-                exit 1
-              fi
-            }
-
-            # Refused, each by name. These are the three the guard cannot
-            # compare once Python has encoded them.
-            check 'has"quote'    'a double quote'
-            check 'has\backslash' 'a backslash'
-            check "$(printf 'has\tnewline')" 'a control character'
-            check "$(printf 'has\ttab')"     'a control character'
-            check "$(printf 'has\rreturn')"  'a control character'
-
-            # ACCEPTED, and this half matters more: P2-1's complaint was that
-            # the domain was narrower than the contract said, so everything
-            # that is not one of the three above has to keep working.
-            check /home/you/project            ""
-            check '/home/you/with space'       ""
-            check '/home/you/colon: space'     ""
-            check '/home/you/hash#mark'        ""
-            check '/home/you/café-日本'       ""
-            check "/home/you/single'quote"     ""
-            check '/home/you/{brace}$dollar'   ""
-            check '/home/you/semi;colon|pipe'  ""
-
-            touch $out
-          '';
 
           # The Python test layer (`tests/README.md`, `STAGE_7_LOG.md` S-11).
           #

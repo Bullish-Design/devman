@@ -10,39 +10,29 @@
 let
   inherit (lib) mkOption types;
 
-  # Older adopters still import modules/devenv.nix and therefore expose
-  # devman.project. New adopters expose only this module; their identity is the
-  # repository manifest. The fallback keeps the migration reversible without
-  # making the compatibility option part of the new interface.
+  # Identity is the repository manifest. The plane module that carried the
+  # `devman.project` option is deleted, so this module never reads it.
   projectName =
-    if config.devman ? project then
-      config.devman.project
-    else
-      let
-        manifestPath = "${config.devenv.root}/.devman/project.toml";
-        manifest =
-          if builtins.pathExists manifestPath then
-            builtins.fromTOML (builtins.readFile manifestPath)
-          else
-            throw ("devman-link: project manifest is missing at "
-              + manifestPath + ". Create .devman/project.toml.");
-      in
-        if manifest ? project && builtins.isString manifest.project then
-          manifest.project
+    let
+      manifestPath = "${config.devenv.root}/.devman/project.toml";
+      manifest =
+        if builtins.pathExists manifestPath then
+          builtins.fromTOML (builtins.readFile manifestPath)
         else
-          throw ("devman-link: project manifest " + manifestPath
-            + " must define a string project field.");
+          throw ("devman-link: project manifest is missing at "
+            + manifestPath + ". Create .devman/project.toml.");
+    in
+      if manifest ? project && builtins.isString manifest.project then
+        manifest.project
+      else
+        throw ("devman-link: project manifest " + manifestPath
+          + " must define a string project field.");
 
   identityGrammar = "[A-Za-z0-9][A-Za-z0-9._-]*";
 
-  # Keep this fallback only for adopters that still set the old option. The
-  # link-only interface has no overlay option: the machine contract is the
-  # user's central configuration checkout.
-  overlayDir =
-    if config.devman ? overlayDir then
-      config.devman.overlayDir
-    else
-      "$HOME/.config/devman";
+  # The machine contract is the user's central configuration checkout. The
+  # link-only interface has no overlay option.
+  overlayDir = "$HOME/.config/devman";
 
 in
 {

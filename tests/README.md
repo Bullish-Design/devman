@@ -75,7 +75,6 @@ two installs of one name resolved by order is §3.3's `devman 0.2.0` hazard.
 | Dagu's HTTP API — queues, health | `nix/tests/dagu-service.nix`, against a real service |
 | the watchexec supervisor loop, systemd | the same NixOS test |
 | the projection's own bytes | `tests/unit/test_project.py`, and the "real renderer" subtests in `nix/tests/dagu-service.nix` |
-| the shell-entry guard's path refusal | `checks.hook-path-refusal`, which cuts the block out of `modules/devenv.nix` and runs it |
 | the machine module's assertions | `checks.module-assertions` |
 | the identity grammar, at all three boundaries | here, `tests/conformance/`, and `checks.identity-grammar` — all reading `tests/fixtures/identity.json` |
 | every shipped group file loading | `checks.groups-validate` |

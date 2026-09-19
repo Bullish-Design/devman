@@ -13,7 +13,7 @@ import re
 # character set as the DAG-name codec in `devman.registry`. The leading
 # character is restricted so that `-flag` and `.hidden` cannot be names.
 #
-# It is duplicated at the Nix boundary in `modules/devenv.nix`, because §3.1
+# It is duplicated at the Nix boundary in `modules/link.nix`, because §3.1
 # says what the two interfaces share must be TEXT and a Python function is not
 # text. `tests/fixtures/identity.json` is the shared table that proves the two
 # copies agree; three readers assert against it.
@@ -24,13 +24,13 @@ IDENTITY_PATTERN = re.compile(IDENTITY_GRAMMAR)
 def identity_fault(kind: str, value: str) -> str | None:
     """Why this project or workflow name may not become an identity, or `None`.
 
-    **The grammar, at both boundaries** (009 P1-5). Before this, `devman.project`
-    was a bare `types.str` and the codec validated one condition — a dot in the
-    workflow half. So `bad@project` registered, `run.resolve()` returned
+    **The grammar, at both boundaries** (009 P1-5). Before this, the project
+    name was a bare `types.str` and the codec validated one condition — a dot in
+    the workflow half. So `bad@project` registered, `run.resolve()` returned
     `bad@project.check`, and the pinned Dagu refused it. Worse characters reached
     path construction: `projects/$proj`, `dags/$proj.$workflow.yaml` and the
-    sweep loops in `modules/devenv.nix`. A slash, an empty name, or `..` selects
-    a registry subpath.
+    sweep loops in the deleted plane module. A slash, an empty name, or `..`
+    selects a registry subpath.
 
     The character set is measured rather than chosen: Dagu 2.15.0 allows
     alphanumerics, dashes, dots and underscores in a name and refuses everything
@@ -43,7 +43,7 @@ def identity_fault(kind: str, value: str) -> str | None:
 
     `tests/fixtures/identity.json` is the shared table. §3.1 says what the two
     interfaces share must be text, so the table is what keeps this function and
-    `modules/devenv.nix`'s assertion in agreement.
+    `modules/link.nix`'s assertion in agreement.
     """
     where = f"a {kind} name"
     if value == "":

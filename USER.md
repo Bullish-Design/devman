@@ -43,51 +43,40 @@ the plane runs one developer's own checkouts.
 
 ## 2. Adopt a repository
 
-### 2.1 `devenv.yaml` — the input and the import
+### 2.1 `.devman/project.toml` — the identity manifest
 
-```yaml
-inputs:
-  devman:
-    url: "git+https://github.com/Bullish-Design/devman?ref=main&rev=<commit>"
+Every repository states its identity in `.devman/project.toml`:
 
-imports:
-  - devman/modules
-```
-
-**Pin local consumers with `git+file:`.** It records `rev` and `narHash` in
-`devenv.lock`, just as `git+https:` does, but reads committed files only. Use
-`path:` only for the repository under active edit.
-
-The import path is `devman/modules`, not `devman/modules/devenv.nix`. devenv
-resolves `<input>/<subdir>` and then looks for `devenv.nix` inside it.
-
-### 2.2 `devenv.nix` — tracked project membership
-
-```nix
-devman = {
-  enable  = true;
-  project = "myproject";
-  groups  = [ "base" ];
-};
+```toml
+schema = 1
+project = "myproject"
+groups = ["base"]
+policy = "stable"
 ```
 
 | Key | Rule |
 |---|---|
-| `enable` | required to join |
 | `project` | **required, and stated rather than inferred.** Identity that defaulted to the directory name would break on a rename: the repository would re-register as new and lose its run history |
-| `groups` | the groups this repository inherits, in precedence order. `[ ]` is legal — the repository then has only its central per-project workflow overlay |
+| `groups` | the groups this repository inherits, in precedence order. `[]` is legal — the repository then has only its central per-project workflow overlay |
 
-The optional `registryDir` must match the machine's registry. `overlayDir`
-selects the central configuration root and normally stays at its default,
-`$HOME/.config/devman`. `installClient` puts the Dagu client on this shell's
-PATH and defaults to true. These options belong to the compatibility workflow
-module. The long-term link-only path is described below.
+The repository does **not** pin devman in `devenv.yaml`, and it does **not**
+import `devman/modules`. The plane is link-only.
 
-For a repository that needs only machine-local views, do not add the Devman
-workflow input or module. Keep `.devman/project.toml` in the repository and run
-`devman-link reconcile --root "$PWD"` once. The machine-installed adapter then
-creates the central bootstrap view. Its central file imports the link-only
-module and receives the project identity as an explicit argument.
+### 2.2 Link the machine-local views
+
+The NixOS module installs the link adapter at
+`/run/current-system/sw/share/devman/link-module.nix`. The central config
+repository keeps one `projects/<project>/devenv.local.nix` that imports it and
+declares `devman.link`. Materialize the repository-side links once:
+
+```bash
+devman-link reconcile --root "$PWD"
+```
+
+The adapter creates the central bootstrap view when it is missing, then links
+`.agents`, `.claude/skills`, `.envrc`, `.loci`, and `devenv.local.nix` into the
+repository. `devman-link reconcile` runs again at every shell entry, so the
+declaration is the source of truth.
 
 ### 2.3 Define the task names your groups call
 
