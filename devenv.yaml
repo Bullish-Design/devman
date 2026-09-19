@@ -23,7 +23,7 @@ imports:
   - shellij/modules
   # devman adopts itself through the machine's link plane. `.devman/project.toml`
   # carries the identity, and the central overlay links the machine-local views.
-  # No `devman/modules` import: the plane module is deleted.
+  # No plane-module import: it is deleted.
 
 # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true
