@@ -1,4 +1,6 @@
 trunk = "main"
+verify = ["nix", "flake", "check"]
+verify_timeout = 3600
 
 [version]
 file = "pyproject.toml"
