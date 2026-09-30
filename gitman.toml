@@ -1,7 +1,5 @@
 trunk = "main"
+
+[publish]
 verify = ["nix", "flake", "check"]
 verify_timeout = 3600
-
-[version]
-file = "pyproject.toml"
-pattern = 'version = "{version}"'
