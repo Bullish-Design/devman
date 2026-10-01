@@ -64,10 +64,14 @@ ignore = ["E501"] # line length is the formatter's job
 # `testpaths` so that a bare `pytest` in this repository collects `tests/` and
 # never `.scratch/`, which holds NixOS test bodies whose globals a driver
 # injects.
+#
+# `.` joined the list at the M14 cutover (tools/cutover/, Lane 2): those
+# scripts are a package at the repository root, not under `src`, because they
+# are one-shot cutover tooling rather than shipped library code.
 [tool.pytest.ini_options]
 addopts = "-v"
 python_files = ["test_*.py", "*_test.py"]
-pythonpath = ["src", "tests"]
+pythonpath = [".", "src", "tests"]
 testpaths = ["tests"]
 markers = [
   "unit: fast, isolated tests",
