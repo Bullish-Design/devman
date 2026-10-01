@@ -16,7 +16,14 @@ no Dagu run. ``nix/link-adapter.nix`` builds it from those two packages alone,
 so an import of ``devman`` fails that build rather than passing unnoticed.
 """
 
-from .api import DEFAULT_OVERLAY, OPERATIONS, LinkOutcome, format_results, run
+from .api import (
+    DEFAULT_OVERLAY,
+    OPERATIONS,
+    LinkOutcome,
+    format_results,
+    format_results_json,
+    run,
+)
 from .config import (
     LinkConfiguration,
     central_link_file,
@@ -54,6 +61,7 @@ __all__ = [
     "central_link_file",
     "evaluate_central_file",
     "format_results",
+    "format_results_json",
     "inspect",
     "reconcile",
     "resolve",

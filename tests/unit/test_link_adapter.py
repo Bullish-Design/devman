@@ -179,6 +179,66 @@ def test_status_writes_nothing(tmp_path: Path):
     assert not (overlay / STATE_FILE).exists()
 
 
+def test_json_status_maps_one_to_one_onto_the_text_output(tmp_path: Path):
+    """D-a: Lane 4's comparator trusts this surface only if it says the same
+    thing the text one does. `.envrc` is already correct (`ok`), `.agents` has
+    no canonical target yet (`create`), and the synthesized `devenv.local.nix`
+    bootstrap has a canonical side but no view yet (`link`) — three states.
+    """
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_manifest(root, "demo")
+    write_central_file(overlay, "demo", DEFAULT_CENTRAL)
+    (overlay / "common").mkdir(parents=True)
+    (overlay / "common" / "envrc").write_text("# envrc\n")
+    (root / ".envrc").symlink_to(overlay / "common" / "envrc")
+
+    outcome = devman_link.run("status", root=root, overlay=overlay)
+
+    text_lines = devman_link.format_results(outcome)
+    json_rows = devman_link.format_results_json(outcome)
+
+    assert text_lines[0] == f"central config {outcome.central_file}"
+    assert len(json_rows) == len(outcome.results) == 3
+    for line, row, result in zip(
+        text_lines[1:], json_rows, outcome.results, strict=True
+    ):
+        assert row["project"] == "demo"
+        assert row["view"] == result.link.declaration.view
+        assert row["canonical"] == str(result.link.canonical_path)
+        assert row["view_path"] == str(result.link.view_path)
+        assert row["state"] == result.state
+        assert line == f"{result.state:7} {result.link.key}  {result.link.view_path}"
+    assert {row["state"] for row in json_rows} == {"ok", "create", "link"}
+
+
+def test_cli_json_flag_parses_and_matches_the_text_output(tmp_path: Path, capsys):
+    root = tmp_path / "repo"
+    overlay = tmp_path / "overlay"
+    root.mkdir()
+    write_manifest(root, "demo")
+    write_central_file(overlay, "demo", DEFAULT_CENTRAL)
+    (overlay / "common").mkdir(parents=True)
+    (overlay / "common" / "envrc").write_text("# envrc\n")
+    (root / ".envrc").symlink_to(overlay / "common" / "envrc")
+    base_args = ["status", "--root", str(root), "--overlay", str(overlay)]
+
+    text_exit = link_cli(base_args)
+    text_output = capsys.readouterr().out
+    json_exit = link_cli([*base_args, "--json"])
+    json_output = capsys.readouterr().out
+
+    assert json_exit == text_exit
+    rows = json.loads(json_output)
+    assert isinstance(rows, list)
+    text_body_lines = text_output.strip().splitlines()[1:]  # drop "central config"
+    assert len(rows) == len(text_body_lines)
+    for row in rows:
+        assert row["view"] in text_output
+        assert row["state"] in text_output
+
+
 def test_reconcile_touches_no_dag_or_generation_file(tmp_path: Path):
     root = tmp_path / "repo"
     overlay = tmp_path / "overlay"

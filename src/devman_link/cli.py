@@ -17,9 +17,10 @@ caller keeps believing it selected something.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
-from .api import DEFAULT_OVERLAY, OPERATIONS, format_results, run
+from .api import DEFAULT_OVERLAY, OPERATIONS, format_results, format_results_json, run
 from .errors import LinkAdapterError
 
 _RETIRED = {
@@ -36,6 +37,11 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", default=".", help="repository root")
     parser.add_argument(
         "--overlay", default=DEFAULT_OVERLAY, help="the central configuration root"
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON object per declaration, instead of plain text",
     )
 
 
@@ -75,8 +81,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 — an infrastructure fault is exit 2
         print(f"devman-link: link operation failed: {exc}", file=sys.stderr)
         return 2
-    for line in format_results(outcome):
-        print(line)
+    if args.json:
+        print(json.dumps(format_results_json(outcome), indent=2, sort_keys=True))
+    else:
+        for line in format_results(outcome):
+            print(line)
     return outcome.exit_code
 
 

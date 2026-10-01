@@ -42,6 +42,7 @@ repository shell on that machine anyway.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -201,6 +202,11 @@ def parser() -> argparse.ArgumentParser:
         )
         p_link_one.add_argument("--root", default=".", help="repository root")
         p_link_one.add_argument("--overlay", help="config repository root")
+        p_link_one.add_argument(
+            "--json",
+            action="store_true",
+            help="print one JSON object per declaration, instead of plain text",
+        )
         if name == "status":
             p_link_one.add_argument(
                 "--all",
@@ -337,6 +343,8 @@ def _link_all(args) -> int:
         worst = 1
 
     overlay = args.overlay or devman_link.DEFAULT_OVERLAY
+    as_json = getattr(args, "json", False)
+    rows: list[dict[str, object]] = []
     for _project, root in sorted(candidates.items()):
         try:
             outcome = devman_link.run(
@@ -346,9 +354,14 @@ def _link_all(args) -> int:
             report(exc)
             worst = max(worst, 1)
             continue
-        for line in devman_link.format_results(outcome):
-            print(line)
+        if as_json:
+            rows.extend(devman_link.format_results_json(outcome))
+        else:
+            for line in devman_link.format_results(outcome):
+                print(line)
         worst = max(worst, outcome.exit_code)
+    if as_json:
+        print(json.dumps(rows, indent=2, sort_keys=True))
     return worst
 
 
@@ -378,8 +391,15 @@ def _link_command(args, _reg: Registry) -> int:
         overlay=args.overlay or devman_link.DEFAULT_OVERLAY,
         project=args.project,
     )
-    for line in devman_link.format_results(outcome):
-        print(line)
+    if getattr(args, "json", False):
+        print(
+            json.dumps(
+                devman_link.format_results_json(outcome), indent=2, sort_keys=True
+            )
+        )
+    else:
+        for line in devman_link.format_results(outcome):
+            print(line)
     return outcome.exit_code
 
 

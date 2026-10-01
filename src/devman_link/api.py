@@ -126,11 +126,32 @@ def format_results(outcome: LinkOutcome) -> list[str]:
     return lines
 
 
+def format_results_json(outcome: LinkOutcome) -> list[dict[str, object]]:
+    """One object per declaration — the machine-checkable twin of the text.
+
+    Additive only: `format_results` above is untouched, so the M14 cutover's
+    Phase A comparator (`tools/cutover/compare.py` in Lane 4) can check that
+    both surfaces describe the same world. Retired with the rest of
+    `devman_link` at Lane 9 (decision D-a).
+    """
+    return [
+        {
+            "project": outcome.project,
+            "view": result.link.declaration.view,
+            "canonical": str(result.link.canonical_path),
+            "view_path": str(result.link.view_path),
+            "state": result.state,
+        }
+        for result in outcome.results
+    ]
+
+
 __all__ = [
     "DEFAULT_OVERLAY",
     "OPERATIONS",
     "LinkAdapterError",
     "LinkOutcome",
     "format_results",
+    "format_results_json",
     "run",
 ]
