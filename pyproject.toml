@@ -15,6 +15,29 @@ description = "The devman automation plane's CLI — run, show, doctor, watch"
 requires-python = ">=3.13"
 dependencies = ["pyyaml"]
 
+# `linkman` joined at the M14 cutover, Lane 7 (Phase C): devman becomes a
+# consumer of the Linkman library behind the DEVMAN_LINK_ENGINE flag
+# (decisions.md D1). It is an optional group, not a base dependency, because
+# `nix/devman-cli.nix` builds the shipped CLI hermetically against a fixed
+# Nix dependency list (`python3Packages.pyyaml` only) — a base dependency
+# the Nix build cannot resolve fails `pythonRuntimeDepsCheckHook`, as it did
+# here on the first attempt. Lane 9 rewires the Nix packaging once the
+# engine flips to Linkman by default; until then this group exists for the
+# dev venv (`uv sync --extra cutover`) and for tests, not for the shipped
+# binary. It is not published anywhere; `tool.uv.sources` below points
+# `uv sync` at the sibling checkout.
+#
+# `pytest` rides along in this group for the same reason `base:unit` hands
+# its hermetic interpreter "pytest and pyyaml and nothing of devman's"
+# (devenv.nix): `tests/unit/test_linking.py` needs `linkman` to run for
+# real, so it runs here instead, under `uv sync --extra cutover` rather
+# than the fast loop.
+[project.optional-dependencies]
+cutover = ["linkman", "pytest"]
+
+[tool.uv.sources]
+linkman = { path = "../linkman", editable = true }
+
 [project.scripts]
 devman = "devman.cli:main"
 # The renderer package used by the devenv module at shell entry (009 stage 3).

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -365,6 +366,47 @@ def _link_all(args) -> int:
     return worst
 
 
+def _link_reconcile_with_linkman(args) -> int:
+    """`DEVMAN_LINK_ENGINE=linkman`: reconcile through concept §14 (Lane 7).
+
+    `devman.linking` imports `linkman`, which needs `pydantic` — present in
+    the dev venv's `cutover` extra, absent from the Nix-shipped CLI's closure
+    until Lane 9 rewires `nix/link-adapter.nix`. The import stays inside this
+    function so the flag defaulting off never pays for it, and the shipped
+    binary never needs it to run at all.
+    """
+    from . import linking
+
+    try:
+        result = linking.reconcile_with_linkman(
+            args.root,
+            overlay=args.overlay or devman_link.DEFAULT_OVERLAY,
+            project=args.project,
+        )
+    except linking.LinkingError as exc:
+        report(exc)
+        return 1
+
+    apply_result = result.apply_result
+    if getattr(args, "json", False):
+        print(
+            json.dumps(apply_result.model_dump(mode="json"), indent=2, sort_keys=True)
+        )
+    else:
+        for applied in apply_result.applied:
+            actions = ",".join(applied.actions)
+            print(f"{actions:20} {applied.link_rel}")
+        for refusal in apply_result.refused:
+            print(f"refuse               {refusal.link_rel}")
+        for failure in apply_result.failed:
+            print(f"fail                 {failure.link_rel}: {failure.message}")
+    if apply_result.failed:
+        return 13
+    if apply_result.refused:
+        return 11
+    return 0
+
+
 def _link_command(args, _reg: Registry) -> int:
     """The public link boundary — identity first, then the independent adapter.
 
@@ -383,6 +425,12 @@ def _link_command(args, _reg: Registry) -> int:
                 "link status --all and --project are mutually exclusive"
             )
         return _link_all(args)
+
+    if (
+        args.link_command == "reconcile"
+        and os.environ.get("DEVMAN_LINK_ENGINE") == "linkman"
+    ):
+        return _link_reconcile_with_linkman(args)
 
     root = args.root
     outcome = devman_link.run(
