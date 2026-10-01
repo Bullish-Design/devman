@@ -12,15 +12,9 @@ inputs:
     url: "github:sadjow/codex-cli-nix?ref=main"
   claude-code:
     url: "github:sadjow/claude-code-nix?ref=main"
-  # shellij: durable Zellij workbenches. This repo does not import RepoMan's
-  # meta-module, so it imports shellij's devenv module directly — shellij/zellij/
-  # yazi packages, the guarded `shellij open` enterShell hook, and
-  # YAZI_CONFIG_HOME pointing at the packaged Yazi assets.
-  shellij:
-    url: "git+file:///home/andrew/Documents/Projects/shellij"
 
-imports:
-  - shellij/modules
+imports: []
+
   # devman adopts itself through the machine's link plane. `.devman/project.toml`
   # carries the identity, and the central overlay links the machine-local views.
   # No plane-module import: it is deleted.
