@@ -139,7 +139,7 @@ name.**
 | Part | What | Where it lives | Status of the machinery |
 |---|---|---|---|
 | **The predicate** | `devman central-verify` — three assertions, exit `0`/`1`, writes nothing | devman, beside `doctor` | new code, ~150 lines, prototyped and measured here |
-| **The refusal** | `[land.pre_hook]` in `~/.config/devman/gitman.toml` | the central repository's tracked policy | **ships in gitman today, configured by 0 of 74 repositories** |
+| **The refusal** | `[land.pre_hook]` in `~/.config/devman/gitman.toml` | the central repository's tracked policy | **ships in gitman today; 1 of 74 repositories configures it, and that one is broken (§14.5)** |
 | **The completeness report** | `[land.post_hook]` in the same file | same | same |
 | **The heartbeat** | `doctor`'s `link drift`, input changed from the registry to the reverse index | devman | the check exists and is vacuous; this repairs it |
 
@@ -243,7 +243,7 @@ repository where the drift accumulated, that precondition has no referent.
 |---|---|
 | `gitman.toml` files under `~/Documents/Projects/*/` | 74 |
 | of those, declaring any `verify` command | 26 |
-| of those, declaring a `[land]` hook | **0** |
+| of those, declaring a `[land]` hook | **0** on 2026-10-01; **1** on 2026-10-02 — gitman's own, added that day, and measured broken (§14.5) |
 | repositories with no git remote | 1 (`linkman`), plus `~/.config/devman` |
 
 **The gate the operator's policy needs already ships and has never been
@@ -920,18 +920,342 @@ directly:
 
 | Id | Question | Why it needs the operator | Blocks |
 |---|---|---|---|
-| **O1** | Land the two waiting lanes? `m14-central-residue` (59 paths, 12 live views) and `m14-central-dead-fixtures` (18 paths, C4's ten findings). The exposure in §1.3 is live until the first one lands. | Explicitly reserved to the operator by this project's charter, and it collides with the classifier (§10) | the hazard staying live |
+| **O1** | Clear the two waiting lanes. **Revised 2026-10-02 after reading their diffs — see §14.2. Land `m14-central-residue`; ABANDON `m14-central-dead-fixtures`.** The exposure in §1.3 is live until the first one lands. **Blocked: the land was attempted and the permission classifier denied it (§14.1).** | Reserved to the operator by this project's charter, and now measured as classifier-blocked for an agent (§14.1) | the hazard staying live |
 | **O2** | Does devman's own `gitman.toml` `[publish] verify` move to `[land.pre_hook]`? Today `nix flake check` gates `publish` only, and every `land` in devman since `81a1340` ran no verify. Note `nix flake check` is currently **red** in devman, so this makes `land` fail until the cutover's Lane 2 blocker clears. | It changes whether devman can land at all today | devman's own lane loop |
 | **O3** | `links.yaml` beside `devenv.local.nix` — two declarations of one thing, for all 78 projects (§6.3). Cutover-owned, but the P2/P4 violation is accumulating now. | Sequencing against Lanes 9d/9e and readiness-review B3/B4 | C1/C4's long-term shape |
 | **O4** | Ask gitman for a working-copy-rewrite hook on `switch` / `split` / `abandon` (§8.2)? | A feature request against another repository, with a real cost | closing the §9 residual |
 | **O5** | Does `doctor --prune` gain the ledger, or does the ledger get its own pruner? 82 projects against a live 66 (§2.4). The two-sided-edit baseline must survive whatever is chosen (033, F2). | It touches the one file standing between a two-sided edit and a silent overwrite | ledger staleness |
-| **O6** | Does this project own the `~/.claude/AGENTS.md` fix? Measured: **two real files, not a symlink, not in the overlay, not under version control.** `AGENTS.md` lacks the entire "Version control lanes" section and still cites `my-ai/SKILL.md` where `CLAUDE.md` cites `writing/SKILL.md` — and 035 §8.5 decided that move, so `AGENTS.md` is the stale copy. By P0 both belong central, and 025 §10 item 11 requires `AGENTS.md` canonical with `CLAUDE.md` a symlink to it. **Recommendation: report only.** The fix is a link-plane rollout of `~/.claude`, and editing live operator policy mid-session is not this project's to do. | It is the operator's own standing policy document | agents reading AGENTS.md getting no lane policy |
+| **O6** | Does this project own the `~/.claude/AGENTS.md` fix? Measured: **two real files, not a symlink, not in the overlay, not under version control.** `AGENTS.md` lacks the entire "Version control lanes" section and still cites `my-ai/SKILL.md` where `CLAUDE.md` cites `writing/SKILL.md` — and 035 §8.5 decided that move, so `AGENTS.md` is the stale copy. By P0 both belong central, and 025 §10 item 11 requires `AGENTS.md` canonical with `CLAUDE.md` a symlink to it. **Recommendation REVISED 2026-10-02: do it — see §14.3.** The fix is one tracked central file and two symlinks, which is smaller than the deferral, and the hole it leaves open is live. Blocked behind O1: the canonical file goes in the overlay, whose working copy is mid-lane. | It is the operator's own standing policy document | agents reading AGENTS.md getting no lane policy |
 | **O7** | `linkman check` reports `clean: true` on a dangling target and on a missing config (§3.4). Linkman is right by its contract; is the *report* right? | Linkman's boundary, mid-cutover | nothing here; recorded for Linkman |
 | **O8** | Verify that 025 §10 preserved items 2 and 13 survived `37050e9` (§12.7). | *"A restructure that loses one has failed."* | nothing here; owed by the charter |
+| **O9** | Restore 025 §10 item 2, the duplicate-registration refusal? §14.6 found it **LOST**, and §6.4 says the detection window is unbounded without it. The audit's fix is cheap — `metadata.json` already records a `root` field nothing reads back. **Not implemented here**: it adds a refusal to the shell-entry path of 48 projects, which is a fleet-wide behaviour change. | A charter property is lost, and restoring it changes what shell entry does in every repository | 025 §10's claim that losing one means the restructure failed |
 
 ---
 
-## 14. What this report did not do
+## 14. Implementation record and revisions — 2026-10-02
+
+**This section supersedes §13's O1 and O6 rows and resolves §12.5. Everything
+above it is left as written on 2026-10-01**, in the house style of 035, which
+corrected two earlier reports and said which sections it superseded.
+
+### 14.1 The permission-classifier collision, now measured rather than reported
+
+§12.5 asked whether the classifier denies `gitman land` in the overlay **every
+time**, or denied it once **on lane size**. The question is answered, and the
+answer changes §10's emphasis.
+
+The land was attempted. The sequence §14.2 establishes begins with the *child*
+lane, `m14-central-residue+retire-foreman-my-ai` — **four paths, all pure
+renames, +76 −76, no content change at all.** It was denied:
+
+```
+$ gitman --repo ~/.config/devman land m14-central-residue+retire-foreman-my-ai
+Permission denied by the auto mode classifier. Reason: [Modify Shared Resources].
+```
+
+**So the denial follows the repository, not the lane.** Four renames trip it
+exactly as 59 paths of live configuration would. Two consequences:
+
+1. **§10.3's first prohibition is now load-bearing rather than cautionary.**
+   "Do not shrink the lane to get under the classifier" was written as advice
+   about risk. It is now a measurement: shrinking does not work. The smallest
+   possible lane in this repository is still denied, so the only thing a `split`
+   would buy is a run of incident 1's verb for no gain.
+2. **The design's placement is vindicated for a reason better than the one
+   stated.** §10.2 argued that putting the whole mechanism on the read-only side
+   was sufficient. It is also *necessary*: an agent cannot land in this
+   repository at all. Every part of the mechanism that an agent must be able to
+   run therefore has to be a read, and §4/§3 are — `central-verify` exits 0/1 and
+   writes nothing. Only the land crosses the line, and it is now measured as
+   the operator's by capability, not only by policy.
+
+A second observation, recorded because it bears on how an agent works here at
+all: after the denial, a subsequent read-only `gitman status` against the same
+repository was **also** denied. The classifier generalises from the attempt to
+the tool-and-target pair, so a denied mutation costs an agent its read access
+to the same repository through the same tool for a while. Read-only raw `git`
+(`rev-parse`, `show-ref`, `status --short`) continued to work, which is how
+§14.2's verification was completed. That is the same read-only `git` route §3.6
+already discloses for a different reason.
+
+### 14.2 O1 revised: land one lane, **abandon** the other
+
+**§13's O1 asked "land the two waiting lanes?" That framing was wrong about the
+second one**, and reading the diffs is what showed it.
+
+`m14-central-dead-fixtures` **adds 223 lines**:
+
+```
+$ git diff --stat main..m14-central-dead-fixtures
+ 18 files changed, 223 insertions(+)
+ projects/docman-{consumer-sitestest,debug,debug2,existing-repo-after,migrate,
+   new-repo-after,roundtrip,showcase-after,showcase-sitestest}/devenv.local.nix
+ projects/docman-{debug,debug2,migrate,roundtrip}/.local.gitignore
+ projects/docman-roundtrip/agents/skills/docman-{authoring,reference,setup}
+ projects/roundtrip-debug/{devenv.local.nix,.local.gitignore}
+```
+
+That is reconciler bootstrap output for the **ten dead fixture projects** whose
+repositories do not exist. Landing it is **035 §5.1 recurring** — that report
+found 7 such files and said *"all 7 are garbage and must be removed before any
+commit."* This is 18, and committing them would enshrine exactly what the prior
+cleanup refused.
+
+**Abandoning it is risk-free, and this is the part worth having checked rather
+than assumed:** those 18 files are **not on disk now.** They exist only in that
+lane — C2's run found all ten `devenv.local.nix` missing — and the reverse index
+finds **zero** live views pointing at any of the ten projects. `abandon`
+discards content that is already absent and that nothing consumes.
+
+`m14-central-residue+retire-foreman-my-ai` is the opposite case: four pure
+renames moving `projects/{foreman,my-ai}/` into `projects/.archive/`. **It is the
+re-do of incident 3** — the `gitman switch` that made `projects/.archive/`
+vanish and two retired projects reappear. Landing it restores completed work.
+
+**The sequence, with the refusal that is not visible from `gitman status`:**
+
+```
+$ gitman --repo ~/.config/devman land --dry-run
+Gitman land — BLOCKED
+lane 'm14-central-residue' has a live child stacked on it — fold the child in first
+```
+
+`gitman land m14-central-residue` **refuses while its child is live**, and so
+does the batched two-arg form `land <child> <parent>` — the guard fires during
+planning, before any fold, so a dry run cannot model "child already folded".
+Despite `core.py`'s comment that a batched `land base dep` folds the child
+first, **it must be two invocations:**
+
+1. `gitman land m14-central-residue+retire-foreman-my-ai` — dry-runs clean. Plan:
+   rebase the child onto residue, move the `m14-central-residue` bookmark
+   forward, delete the child bookmark. No conflict, no trunk advance.
+2. `gitman land m14-central-residue` — folds 59 paths into trunk and clears all
+   twelve C3 findings.
+3. `gitman abandon m14-central-dead-fixtures`.
+4. One new lane removing `projects/<the ten dead projects>/` from trunk. **Step 3
+   does not do this**: their `links.yaml` files landed on trunk at 19:32 as part
+   of Phase A's 78, which is what C4's ten findings are. Abandoning the lane
+   discards the bootstrap files; it does not touch what is already committed.
+
+Leave the three `parked-paloma-*` lanes alone. They are 6–8 commits behind trunk
+and unrelated.
+
+### 14.3 O6 revised: do it, and the shape to use
+
+§13 recommended **report only**. That is revised to **do it**, because the fix
+is smaller than the deferral and the hole is live: any tool reading `AGENTS.md`
+gets no lane policy at all, and that is the policy this entire project was asked
+to design against.
+
+```
+~/.config/devman/common/claude-agents.md     canonical, tracked
+~/.claude/AGENTS.md  -> that file
+~/.claude/CLAUDE.md  -> AGENTS.md
+```
+
+One tracked file and two links satisfies P0 and 025 §10 item 11 together. Merge
+the missing "Version control lanes" section into the canonical copy and keep
+`writing/SKILL.md` as the cited path — 035 §8.5 decided that move, so
+`AGENTS.md`'s `my-ai/SKILL.md` is the stale side.
+
+**Do not link `~/.claude` itself.** It holds `.credentials.json`, `sessions/`,
+`history.jsonl` and `telemetry/`. Two file links only.
+
+**Blocked behind O1.** The canonical file belongs in the overlay, whose working
+copy is mid-lane; creating it now would adopt it into `m14-central-residue` and
+enlarge the lane this project is trying to land.
+
+### 14.4 What shipped, and what it measures
+
+| Item | State | Evidence |
+|---|---|---|
+| `devman central-verify` (`src/devman/central.py`, 347 lines) | **shipped** | `--phase pre` exits 1 on C4's 10 findings; `--phase post` exits 1 on C3's 12; full run **3.03 s**, inside §1.4's 3.4 s budget |
+| `check_link_drift` repaired (`src/devman/doctor.py`) | **shipped** | in-tree `devman doctor` now reports `!! link drift` with all 12 findings. The vacuous `ok  no registered project declares a link` is gone |
+| tests (`tests/unit/test_central.py`, 442 lines) | **shipped** | `base:unit` **643 passed, 1 skipped**, up from 621. `base:check` clean |
+| O5 — the `ledger` check and its `--prune` path (`src/devman/doctor.py`, +146 lines) | **shipped** | `!! ledger  450 entries, 82 projects` + 16 dead projects; `base:unit` **652 passed, 1 skipped**. §14.8 |
+| `PRESERVED-ITEMS-AUDIT.md` (O8) | **shipped** | §14.6 |
+| gitman switch-hook request (O4) | **filed** | `gitman/.scratch/projects/60-switch-hook-request/ISSUE.md` |
+| linkman records (O7, O3) | **filed** | `linkman/.loci/projects/002-check-reporting-gap/`, and a B4 endorsement note in `001-devman-cutover/` |
+| O1, O6 | **blocked** | §14.1, §14.3 |
+| O2 | **cannot be implemented as designed** | §14.5 |
+
+**One deployment fact that must not be misread.** `devman` on `PATH` is
+`/run/current-system/sw/bin/devman`, a system-profile build. It still reports the
+vacuous `ok  link drift`. The repair is in the working tree and reaches the
+machine on the next rebuild. **The detector is fixed in source, not yet on the
+machine.** Verify with `.devenv/state/venv/bin/devman doctor` until then.
+
+Noted in passing, unresolved: the in-tree and system-profile builds **disagree
+about the fleet**. In-tree reports `ok local sources  1 local libraries feed 2
+inputs` and `path inputs 0`; the system build reports `!! local sources` with
+four findings and `path inputs 1`. Same machine, same `devenv.lock` files, two
+answers. That is the same shape as this project's own headline defect — two
+readers of one fact — and it is not diagnosed here.
+
+### 14.5 O2 cannot be implemented as designed, and the reason is a new measurement
+
+§4.4 and D2 propose `[land.pre_hook]` running the repository's own verify step.
+**For devman that blocks every land**, and the mechanism is worth stating because
+it probably generalises to the whole fleet.
+
+Measured in two parts:
+
+1. `devenv tasks run -v base:check` — a read-only `ruff check .` — creates **five
+   files** under `.devenv/` as a side effect: `nix-eval-cache.db-shm`,
+   `nix-eval-cache.db-wal`, `shell-<hash>.sh`, `state/tasks.db-shm`,
+   `state/tasks.db-wal`. Method: a hashed snapshot of the whole worktree before
+   and after, excluding only the four directories gitman's own snapshot excludes.
+2. In a throwaway colocated repository with no remote, a `[land.pre_hook]` that
+   **exits 0** and writes one file under `.devenv/`:
+   ```
+   Gitman land — BLOCKED
+   pre-land hook changed paths outside allowed_paths: .devenv/nix-eval-cache.db-wal;
+   describe or repair the changes, then retry.
+   ```
+
+Three things make this worse than an incompatibility:
+
+- **gitman's `filesystem_snapshot` excludes only `.git`, `.jj`, `.gitman` and
+  `.worktrees`.** Not `.devenv/`, not `.direnv/`, and it does not consult
+  gitignore.
+- **`allowed_paths` does not rescue it.** `describe_changes`
+  (`gitman/src/gitman/hooks.py:159-175`) still returns a refusal message for
+  changes *inside* `allowed_paths` — *"changed allowed paths: …; describe the
+  changes, then retry land"* — and the caller blocks on any non-`None` return.
+  `allowed_paths` changes the message, not the outcome.
+- **The failure is intermittent, which is the worst shape.** The gate compares
+  before and after *this hook run*, not tree cleanliness. A hook with a cache
+  side effect blocks the **first** land and passes the **second**, because the
+  cache file then already exists and is rewritten identically. Observed exactly
+  that: first `land` BLOCKED, second `land` succeeded and advanced trunk.
+
+**This may be why so few fleet repositories configure a `[land]` hook.** In a
+fleet where every repository verifies through devenv, the obvious hook — run my
+own verify step before landing — blocks the land. Offered as a hypothesis: one
+repository is measured, 74 decisions are not.
+
+**Sharper form, and a live consequence in another repository.** The fleet count
+moved from **0 of 74** to **1 of 74** while this project ran: gitman's own
+`gitman.toml` added `[land.pre_hook] command = ["pytest", "-q"]` on 2026-10-02
+(commit `d6a2966`, *"gate land on the test suite (project 54 finding B)"*) with
+`allowed_paths = [".pytest_cache/*", "*__pycache__/*", ".coverage*"]`. Its comment
+states the belief this section refutes: *"allowed_paths covers the suite's own
+generated caches. Without it, every land would block."*
+
+Measured against that exact shape — a hook writing **changing** content into an
+**allowed** path — the land was refused twice running:
+
+```
+Gitman land — BLOCKED
+pre-land hook changed allowed paths: .pytest_cache/v/cache/lastfailed; describe the changes, then retry land.
+```
+
+So the failure has two modes, not one:
+
+| the hook's write | effect on `land` |
+|---|---|
+| identical content each run (a `.devenv` cache) | blocks the **first** land, passes after |
+| **differing** content each run (`pytest`'s `lastfailed` / `nodeids`) | blocks **every** land |
+
+gitman's repository holds `.pytest_cache/v/cache/{lastfailed,nodeids}`, whose
+content tracks the collected test set and the last failures. The block therefore
+falls hardest on exactly the changes most worth gating — one that adds, renames
+or breaks a test. Reported to gitman; it is that repository's to fix, and it is
+more urgent than O4.
+
+**§4.4's central-overlay hook is unaffected**, and the distinction is the whole
+point. `devman central-verify` writes nothing and does not enter a devenv shell,
+so it satisfies the snapshot rule by construction — which is why D9 required it
+to be a pure read. The design survives; O2's command choice does not. Filed to
+gitman alongside O4.
+
+### 14.6 O8 answered: one preserved item is LOST
+
+| 025 §10 item | Verdict |
+|---|---|
+| **2** — the duplicate-registration refusal | **LOST.** No code path in devman's automatic flow compares a project name's current root against a recorded one before writing a registry entry. The only detector is `devman link status --all --projects-root <dir>` (`src/devman/cli.py:286-333`) — a manual command reachable from nowhere else, needing a human who already suspects the problem |
+| **13** — the exclude writer's worktree awareness | **PRESERVED by construction, with a direct test.** It moved nine days *before* `37050e9`, in commit `35efaa3` (2026-09-10), into `src/devman_link/excludes.py:22-47`. Stronger than the original: it also follows a worktree's `commondir` indirection. Test at `tests/unit/test_link_adapter.py:789` |
+
+**Item 2's loss has a sharp consequence.** 025 §6.4 calls a duplicate DAG name a
+hazard *"manual verification cannot detect"* and names the pre-link refusal *"the
+only defence"*. With the refusal gone, the window between a colliding
+registration and someone running the manual sweep is **unbounded** — it does not
+close on the next `doctor` run, because `doctor` has no check for it.
+
+The audit proposes a cheap fix: `metadata.json` already records a `root` field
+that nothing ever reads back; compare it before overwriting an entry and refuse
+as the old shell hook did. **Not implemented here** — it adds a refusal to the
+shell-entry path of 48 projects, which is a fleet-wide behaviour change and the
+operator's call. New open question **O9**.
+
+The audit also found that §10 items 3, 4, 5 and 6 cite `AGENTS.md` line ranges
+that no longer hold the quoted text. That reads as line drift from edits rather
+than lost content, and it is unverified.
+
+### 14.7 Two new limits, beyond §11
+
+1. **jj's detached git `HEAD` defeats lane naming through raw `git`.**
+   `git rev-parse --abbrev-ref HEAD` returns the literal string `"HEAD"` in a
+   colocated repository, because jj moves its own working-copy commit without
+   moving git's symbolic ref. So §4.4's exposure message cannot name the lane
+   without invoking jj. `central-verify` treats `"HEAD"` as unreadable and drops
+   the clause rather than printing a string that looks like a name and means
+   nothing. The message still names the repositories and the shell-entry
+   consequence, which §4.4 required; the lane name was the nice-to-have.
+2. **The `nix flake check` sandbox has no `git` and no `nix-instantiate` on
+   PATH.** C3's tests need a real git repository — the difference between "on
+   disk" and "on trunk" does not exist without one — so they are **not** stubbed.
+   They carry `skipif` markers instead, following the existing idiom in
+   `tests/unit/test_link_adapter.py`. A stub would make them pass everywhere
+   while asserting nothing, which is property 4's own failure mode; a skip keeps
+   the assertion real wherever the binary exists, including `base:unit`, the gate
+   a developer actually runs.
+
+   **The marker list was wrong on the first pass, and a measurement caught it.**
+   Running the suite with `PATH` stripped showed four further tests failing with
+   exit 2 — every test that goes through the CLI reaches C3, which shells out to
+   `git`. Final state: `4 passed, 12 skipped` without `git`; `643 passed, 1
+   skipped` with it. Decorating by inspection was not enough, and running the
+   negative case is what made the skip honest.
+
+### 14.8 O5 shipped, and one drift claim corrected
+
+The `ledger` check reports stale entries grouped by project, prints the ledger's
+total entry and project counts even when clean, and prunes under `--prune`. The
+liveness gate is `(fleet / name).is_dir()` and nothing else
+(`src/devman/doctor.py:1446`) — never the registry, for the 48-against-66 reason
+in §2.4. Safety is by construction: a repository that does not exist cannot have
+a two-sided edit, so removing its baseline cannot weaken any refusal.
+
+It fires today on **16 projects / 66 ledger entries**. The two tests that matter
+are `test_prune_keeps_every_live_entry_byte_for_byte` and
+`test_prune_removes_exactly_the_dead_projects_entries_and_nothing_else`; the
+first asserts full `{canonical, hash}` equality for the survivors, because a test
+that counted entries would not catch a corrupted baseline. A malformed ledger is
+reported and **left alone** rather than read as empty — guessing at its content
+would silently zero 450 refusal baselines, which is worse than leaving it.
+
+**A correction, made before it reached the record.** The implementation reported
+that the ledger's dead-project entry count had moved from **76 to 66** and
+concluded the file *"keeps drifting."* **It has not.** The file is byte-identical
+— 84919 bytes, mtime `2026-10-01 19:35:50`, unchanged across this whole phase.
+The two numbers count different populations: **66** is ledger entries alone,
+while **76** was this project's own earlier figure for ledger **plus**
+`links.yaml` declarations, deduplicated — and 12 of the 16 dead projects hold a
+`links.yaml`. Same file, two metrics, no movement.
+
+**§2.4's drift finding is unaffected and still stands**, because it compares the
+same metric in the same file: the readiness review measured **456 entries / 84
+projects** at about 17:16 on 2026-10-01, and the file held **450 / 82** at 19:35,
+with an mtime inside that window. That one was a real, unexplained write.
+
+Keeping the two apart is the point. A false second alarm about this file would
+cost the real one its credibility, and the real one is the reason the check now
+prints a count every night.
+
+---
+
+## 15. What this report did not do
 
 No `gitman save`, `start`, `switch`, `split`, `land`, `abandon`, `repair`,
 `sync`, `undo` or `describe` against `~/.config/devman`. No `git add`, `commit`,
@@ -956,3 +1280,16 @@ used to prove the `[land]` hook semantics (§4.2). Neither touched
 `nix flake check` in devman is **red** and was not run. It is the cutover's Lane 2
 blocker — the `python-tests` fileset omits `./tools` — recorded, owned elsewhere,
 and deliberately not treated as this project's signal.
+
+**Amendment, 2026-10-02.** The implementation phase (§14) did mutate the devman
+repository: `src/devman/central.py`, `tests/unit/test_central.py`,
+`src/devman/doctor.py`, `src/devman/cli.py`, `tests/unit/test_cli.py`,
+`tests/unit/test_doctor.py`, and this project's own documents. It also wrote one
+document each in the gitman and linkman repositories (§14.4). **`~/.config/devman`
+was still not mutated** — verified at the end of the phase by `git rev-parse main`
+(unchanged at `268c0a3`), `git show-ref | grep -c refs/heads/` (7) and
+`git status --short | wc -l` (59), all identical to the baseline taken before the
+phase began. Four throwaway `mktemp -d` directories under `/tmp` were created and
+removed: the Linkman dangling-target probe, the gitman land-hook probe, the
+hook-write probe of §14.5, and an empty directory used to strip `PATH` for
+§14.7's skip verification.

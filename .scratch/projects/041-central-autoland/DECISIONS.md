@@ -216,7 +216,7 @@ because *"58 identical failures is not a signal. One is."* The repaired check
 inherits that placement for free.
 
 **Rejected — a new per-repository hook.** P4, one mechanism per job. gitman
-already ships the hook point, configured by **0 of 74** repositories.
+already ships the hook point, configured by **0 of 74** repositories on 2026-10-01 (**1 of 74** from 2026-10-02 — see D18).
 
 **Forced by:** the shared contract being closed (`AGENTS.md` property 3 — six
 queue names, `DEVMAN_PROJECT_DIR`, `DEVMAN_SELF_DIR`, `.devman/.runs/`). This
@@ -427,7 +427,9 @@ stated as limit 9 rather than engineered around.
 
 ## D14 — This project reports the `~/.claude/AGENTS.md` defect and does not fix it
 
-**Decided:** report only. **Unforced** — a judgment, stated as one.
+**Decided 2026-10-01:** report only. **REVERSED 2026-10-02 — see D17.** Both
+entries are kept: the original reasoning is sound and the reversal is a change of
+weight, not a correction of fact.
 
 **Measured:** `~/.claude/AGENTS.md` and `~/.claude/CLAUDE.md` are **two real
 files, not a symlink pair**, not in the overlay, and under no version control.
@@ -499,3 +501,228 @@ the working copy, and in this repository a snapshot is a live-system write.
 **`nix flake check` in devman is red and was not run.** It is the cutover's Lane 2
 blocker — the `python-tests` fileset omits `./tools` — owned elsewhere, and not
 treated as this project's signal.
+
+---
+
+## D17 — `~/.claude` is fixed, not just reported. **Reverses D14**
+
+**Decided:** do it. One tracked canonical file in the overlay, two symlinks.
+
+**Why the reversal.** D14 deferred on the grounds that the fix is a link-plane
+rollout and that editing live operator policy mid-session makes this project's
+own premise mutable. The first half was wrong on inspection: the fix is **two
+files**, not a rollout. `~/.claude` cannot be linked as a directory — it holds
+`.credentials.json`, `sessions/`, `history.jsonl`, `telemetry/` — so the change
+is one canonical markdown file plus two file links, which is smaller than the
+cost of carrying the defect.
+
+The second half still stands and is the reason this is **sequenced**, not
+abandoned: it lands after O1, and the next session acts on the changed policy
+rather than this one.
+
+**What forced the reversal:** the deferral's own cost, stated plainly. Any tool
+reading `AGENTS.md` gets **no lane policy at all**, and that policy is what this
+entire project was asked to design a precondition for. A deferral that leaves the
+motivating document broken is not conservative.
+
+---
+
+## D18 — The land gate for devman is not `devenv tasks run`. **Amends D2**
+
+**Decided:** D2's choice of gate is correct; its choice of *command* is not
+implementable. Do not configure `[land.pre_hook]` in devman to run
+`devenv tasks run -v base:check`.
+
+**Forced by measurement, in two parts.** `devenv tasks run -v base:check` — a
+read-only `ruff check .` — creates five files under `.devenv/`. And gitman blocks
+a land when the hook changes **any** file: a hook exiting **0** that wrote one
+`.devenv/` file produced `Gitman land — BLOCKED`.
+
+**`allowed_paths` is not the escape hatch it appears to be.** `describe_changes`
+(`gitman/src/gitman/hooks.py:159-175`) returns a refusal message for changes
+*inside* `allowed_paths` as well, and the caller blocks on any non-`None` return.
+It changes the message, not the outcome. This is worth recording because a reader
+of the config schema will assume otherwise.
+
+**The failure shape is the finding, not the incompatibility.** The gate compares
+before and after *this hook run*, not tree cleanliness, so a hook with a cache
+side effect blocks the **first** land and passes the **second**. Observed.
+A deterministic refusal gets fixed; an intermittent one gets distrusted.
+
+**This may explain why so few repositories configure one.** In a fleet that
+verifies through devenv, the obvious hook blocks the land. Stated as a
+hypothesis, not a conclusion.
+
+**And the fleet count is now 1 of 74, not 0 — which strengthens the finding
+rather than weakening it.** gitman's own `gitman.toml` added
+`[land.pre_hook] command = ["pytest", "-q"]` on 2026-10-02 in commit `d6a2966`,
+*"gate land on the test suite (project 54 finding B)"*, with
+`allowed_paths = [".pytest_cache/*", "*__pycache__/*", ".coverage*"]`. Its own
+comment states the belief this decision refutes: *"allowed_paths covers the
+suite's own generated caches. Without it, every land would block."*
+
+**Measured against that exact config shape: every land blocks anyway.** A hook
+writing changing content into an **allowed** path was refused twice in a row —
+`"pre-land hook changed allowed paths: .pytest_cache/v/cache/lastfailed; describe
+the changes, then retry land."` So the earlier "intermittent" finding has a
+sharper form:
+
+| the hook's write | effect on `land` |
+|---|---|
+| identical content each run (a `.devenv` cache) | blocks the **first** land, passes after |
+| **differing** content each run (`pytest`'s `lastfailed` / `nodeids`) | blocks **every** land |
+
+gitman's repository holds `.pytest_cache/v/cache/{lastfailed,nodeids}`, whose
+content tracks the collected test set and the last failures. So the block lands
+hardest on exactly the changes most worth gating — one that adds, renames or
+breaks a test.
+
+**D9 is retroactively load-bearing.** It required the predicate to be a pure read
+for the classifier's sake. That requirement is what makes §4.4's central-overlay
+hook work at all under the snapshot rule — `devman central-verify` writes nothing
+and never enters a devenv shell. A design that had reached for the repository's
+devenv verify step, as D2 did for devman, would have been unusable. **The right
+constraint was adopted for the wrong reason, and the measurement promoted it.**
+
+**Not resolved here:** what devman's land gate should actually run. Filed to
+gitman beside O4.
+
+---
+
+## D19 — The classifier denies on the repository, not the lane. **Settles §12.5**
+
+**Decided:** nothing in the design changes. The measurement settles an open
+question and promotes one prohibition from advice to fact.
+
+**Measured:** `gitman land m14-central-residue+retire-foreman-my-ai` — **four
+paths, all pure renames, no content change** — was denied `[Modify Shared
+Resources]`. The denial follows the repository, not the lane's size or content.
+
+**What it forces.** D9 rejected shrinking the lane to get under the classifier on
+the grounds that the only way to carve it is `gitman split`, which is incident 1's
+verb. That reasoning was about risk. It is now arithmetic: **the smallest
+possible lane in this repository is still denied**, so a `split` buys nothing at
+all and costs a run of the dangerous verb.
+
+**And it strengthens D9's placement from sufficient to necessary.** D9 argued a
+read-only mechanism avoids the classifier. It is now the only kind of mechanism
+an agent can operate here, because an agent cannot land in this repository at
+any lane size.
+
+**One operational consequence, recorded for the next agent that works here.**
+After the denied mutation, a read-only `gitman status` against the same
+repository was also denied — the classifier generalises to the tool-and-target
+pair. Read-only raw `git` continued to work, which is how the state was verified
+afterwards. That is the same route §3.6 already discloses, reached for a second
+reason.
+
+---
+
+## D20 — The tests skip on a missing binary; they are not stubbed
+
+**Decided:** C3's tests carry `skipif(shutil.which("git") is None)` and C1's
+carry the same for `nix-instantiate`, following the existing idiom in
+`tests/unit/test_link_adapter.py`.
+
+**Rejected — stubbing `git`.** C3's entire reason to exist is the difference
+between "on disk" and "on trunk", and that difference does not exist without a
+real repository underneath it. A stub would make the test pass everywhere while
+asserting nothing — `AGENTS.md` property 4's own failure mode, committed inside
+the test for the check that exists to prevent it.
+
+**Rejected — letting them fail in the sandbox.** The `nix flake check` sandbox has
+neither binary on PATH. The flake check is already red for a reason the Linkman
+cutover owns; a second red that means nothing makes the first harder to see.
+
+**Forced by:** the asymmetry between where the test is useful and where it can
+run. A skip keeps the assertion real wherever the binary exists — including
+`base:unit`, the gate a developer actually runs — and declines to report a red in
+a sandbox that could never have executed it.
+
+**The decision needed a measurement to get right, and that is the part worth
+keeping.** The first marker list was assembled by reading each test for its
+helper calls. Running the suite with `PATH` stripped showed **four more** tests
+failing with exit 2: every test that goes through the CLI reaches C3, which shells
+out to `git`. Decorating by inspection was not enough. Final state: `4 passed, 12
+skipped` without `git`, `643 passed, 1 skipped` with it. **Run the negative case,
+or the skip is a guess.**
+
+---
+
+## D21 — The overlay keeps direct symlinks. A generation pointer is the wrong idea, not merely a costly one
+
+**Decided:** live symlink targets continue to point directly into
+`~/.config/devman`. Live-critical content stays **tracked and on trunk**;
+generated content stays **gitignored**. C3 is the mechanism that keeps it that
+way.
+
+**Rejected — a published generation pointer** for live targets, on the model of
+`~/.local/state/vendomat/devman/active`. This was the leading long-term candidate
+and research killed it. Four findings, each sufficient on its own:
+
+**1. The charter already refused the mirror image of this move, and the refusal
+is still in force.** `AGENTS.md` property 6: *"Stage 3 item 2 did **not** move
+`registryDir` to `~/.config/devman`. … With the two roots equal, `reconcile.py`
+reads a hand-authored overlay workflow and then writes generated output over that
+same file. Stage 41 added the refusal that keeps the roots apart."* That is the
+same collision approached from the other side — generated root meets
+hand-authored root. The precedent was available from the start and this project
+missed it for a day.
+
+**2. The hypothesis rested on a correlation that does not exist.** The proposal
+only pays where breakage is severe and editing is rare, so it needs severity and
+edit frequency to be inversely related. Measured over the repository's nine
+active days (2026-09-10 to 2026-10-01):
+
+| Class | Criticality | Commits | Days touched (of 9) |
+|---|---|---|---|
+| `projects/*/devenv.local.nix` | **high** — a dangling one fails shell entry uninterceptably | **137** | **8** |
+| `projects/*/.local.gitignore` | **high** — losing it exposes the link plane to `git add -A` | **51** | **7** |
+| `projects/*/agents/**` | medium | 103 | 8 |
+| `skills/**` | medium | 17 | 6 |
+| `projects/*/workflows/**` | low — one consumer | 19 | 3 |
+| `common/envrc` | low | 7 | 1 |
+
+**The two highest-severity classes are among the three most frequently edited.**
+The correlation is positive, so no split exists that buys safety without paying
+the immediacy cost on the content that matters most. Only `workflows/**` and
+`common/envrc` are both low-severity and low-frequency, and together they back
+**61 of 325** live views.
+
+**3. It would have manufactured this project's own founding defect.** The
+exclude projection refuses a two-sided edit by comparing a recorded hash against
+the canonical file (`src/devman_link/excludes.py:111-122`). If canonical resolved
+into an immutable generation directory, its hash could never change, so the
+refusal **could never fire** — a check that cannot fail, which is exactly the
+failure (`AGENTS.md` property 4) that §1.1 exists to repair. A fix that
+reproduces the disease it treats is disqualified on its own terms.
+
+**4. It does not even work without a code change, and it retires nothing.**
+`expanded_path` (`src/devman_link/paths.py`) calls `.resolve()` on the canonical
+root and path, so a view's symlink would be written with the **concrete
+generation number** baked in rather than the `active` indirection preserved. And
+the promote path (025 §5.1 state 3) writes to canonical with `os.replace`
+(`reconcile.py`, `excludes.py`), which has no defined target inside an immutable
+generation. Net retirement: nothing. Either the generation becomes the sole copy,
+which duplicates tracked hand-authored source and violates P2, or it is rendered
+from the tracked overlay, which reframes C3 into the harder question *"is the
+rendered copy current?"* rather than removing it.
+
+**Rejected — a trunk-mirroring daemon** (combining the accepted option with
+automatic refresh). Unmodelled, and rejected on structure rather than on
+measurement: it reintroduces a copy, which is P2, and adds a daemon to maintain
+it. It is strictly worse than the accepted option unless that option proves
+insufficient, and nothing yet says it will.
+
+**What this inverts, and it is the part to carry forward.** `CONCEPT.md` §1.4
+called the detector *"a bridge, not a destination."* **That was wrong.** The
+destination is "live-critical content stays tracked and on trunk," which is a
+discipline — and C3 is the only thing that makes a discipline checkable. **C3 is
+permanent infrastructure, not scaffolding.** The same correction applies more
+weakly to the gitman `[switch.pre_hook]` request: it is not retired, because new
+content necessarily begins life on a lane, and that window is real even when C3
+holds at zero elsewhere.
+
+**Forced by:** the measurement in (2), which is the one that decides it, and by
+property 6, which had already decided it.
+

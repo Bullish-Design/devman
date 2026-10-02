@@ -50,7 +50,7 @@ from pathlib import Path
 import devman_link
 from devman_contract import ContractError, ProjectManifest
 
-from . import agent, project, run, show, watch
+from . import agent, central, project, run, show, watch
 from .registry import (
     DEFAULT_DAGU_HOME,
     DEFAULT_REGISTRY,
@@ -136,6 +136,38 @@ def parser() -> argparse.ArgumentParser:
         "--prune",
         action="store_true",
         help="remove stale registry entries (§10 check 5)",
+    )
+
+    p_central = sub.add_parser(
+        "central-verify",
+        help="verify `~/.config/devman`'s live symlinks (project 041)",
+    )
+    p_central.add_argument(
+        "--phase",
+        choices=("pre", "post"),
+        help=(
+            "'pre' runs C1+C2+C4 — the content is wrong, so a land must"
+            " block on these. 'post' runs C3 alone — the content has not"
+            " reached safety yet, and landing is its cure, so C3 must"
+            " never block a land or it would refuse the one operation that"
+            " fixes what it detects (DECISIONS.md D3). Omit to run all four"
+            " assertions."
+        ),
+    )
+    p_central.add_argument(
+        "--overlay",
+        default=str(central.DEFAULT_CENTRAL),
+        help="the central configuration root",
+    )
+    p_central.add_argument(
+        "--fleet-root",
+        default=str(central.DEFAULT_FLEET),
+        help="the fleet root to walk for live symlinks into the overlay",
+    )
+    p_central.add_argument(
+        "--json",
+        action="store_true",
+        help="print one JSON object instead of plain text",
     )
 
     p_watch = sub.add_parser("watch", help="the watcher service's entry point (§8)")
@@ -240,6 +272,8 @@ def handler(command: str):
         # The public identity boundary, not a module's `main`. It resolves the
         # identity and then calls the independent adapter (038 Stage 16).
         return _link_command
+    if command == "central-verify":
+        return _central_verify
     return {
         "agent": agent.main,
         "run": run.main,
@@ -405,6 +439,78 @@ def _link_reconcile_with_linkman(args) -> int:
     if apply_result.refused:
         return 11
     return 0
+
+
+def _central_verify(args, _reg: Registry) -> int:
+    """`devman central-verify` — project 041's predicate over `~/.config/devman`.
+
+    Exit `0` ok, `1` a finding, `2` infra/config (the overlay is missing, or
+    a tool an assertion needs — `nix-instantiate`, `git` — is not on PATH).
+
+    **The phase split is DECISIONS.md D3, and it is load-bearing, not
+    cosmetic.** `--phase pre` runs C1 (central Nix evaluates), C2 (every live
+    view's target exists) and C4 (every tracked `links.yaml` pairs with a
+    `devenv.local.nix`) — these are *the content is wrong*, and landing wrong
+    content is worse than not landing, so a `[land.pre_hook]` blocks on them.
+    `--phase post` runs C3 alone (every live view's target is reachable from
+    trunk) — this is *the content has not reached safety yet*, and
+    **landing is its cure**. C3 must never run in the pre phase: blocking a
+    land on a condition only a land can fix is a deadlock. With no `--phase`,
+    all four run, for a developer checking the overlay by hand.
+
+    **Reads nothing from stdin.** A gitman land hook pipes a JSON event on
+    stdin and sets `GITMAN_HOOK_PHASE` in the environment. This predicate
+    answers from the filesystem and `git`'s read-only plumbing alone, so it
+    never touches stdin — it neither blocks waiting on an empty pipe nor
+    chokes on a populated one.
+    """
+    overlay = Path(args.overlay).expanduser()
+    fleet = Path(args.fleet_root).expanduser()
+    as_json = getattr(args, "json", False)
+
+    if not overlay.is_dir():
+        print(f"devman central-verify: no overlay at {overlay}", file=sys.stderr)
+        return 2
+
+    phase = args.phase
+    run_pre = phase in (None, "pre")
+    run_post = phase in (None, "post")
+
+    try:
+        views = central.reverse_index(fleet=fleet, central=overlay)
+        results: dict[str, list[str]] = {}
+        if run_pre:
+            results["C1"] = central.check_c1_nix_eval(overlay)
+            results["C2"] = [
+                central.format_view(v) for v in central.check_c2_missing(views)
+            ]
+            results["C4"] = central.check_c4_pairing(overlay)
+
+        lane_only: list[central.View] = []
+        if run_post:
+            trunk = central.trunk_name(overlay)
+            lane_only = central.check_c3_lane_only(views, overlay, trunk)
+            results["C3"] = [central.format_view(v, trunk=trunk) for v in lane_only]
+    except central.InfraError as exc:
+        print(f"devman central-verify: {exc}", file=sys.stderr)
+        return 2
+
+    findings = sum(len(lines) for lines in results.values())
+
+    if as_json:
+        print(
+            json.dumps({"phase": phase, "findings": results}, indent=2, sort_keys=True)
+        )
+    else:
+        for assertion_id, lines in results.items():
+            for line in lines:
+                print(f"!! {assertion_id}  {line}")
+        if lane_only:
+            print(central.exposure_message(lane_only, overlay))
+        if not findings:
+            print(f"devman central-verify: ok ({phase or 'pre+post'})")
+
+    return 1 if findings else 0
 
 
 def _link_command(args, _reg: Registry) -> int:

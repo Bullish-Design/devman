@@ -59,9 +59,9 @@ from pathlib import Path
 
 import yaml
 
-import devman_link
+from devman_link.state import STATE_FILE
 
-from . import project, watch
+from . import central, project, watch
 from .registry import Registry, dag_name_fault, identity_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
@@ -1275,37 +1275,203 @@ def check_path_inputs(rep: Report, reg: Registry) -> None:
         )
 
 
-def check_link_drift(rep: Report, reg: Registry) -> None:
-    """Report the reconciler state for every declared link.
+def check_link_drift(
+    rep: Report,
+    *,
+    fleet: Path = central.DEFAULT_FLEET,
+    central_root: Path = central.DEFAULT_CENTRAL,
+) -> None:
+    """Report drift in the live symlinks that reach into the central overlay.
 
-    This is deliberately a filesystem read, not a subprocess per project. The
-    state names are the reconciler's contract, so doctor and ``link status``
-    cannot disagree about what drift means.
+    **The state names are the reconciler's contract, so doctor and**
+    **`central-verify` cannot disagree about what drift means.** This stays
+    a filesystem read, not a subprocess per project, for the same reason the
+    prior version gave: cheap enough for `plane-report` to run nightly for
+    the whole machine without a second scheduled report (CONCEPT.md §4.5).
+
+    **Regression record, so the next person does not re-learn it.** Until
+    commit `37050e9` (2026-09-19, "link-only compatibility shim") deleted
+    `modules/devenv.nix`, this check read `proj.links`, a projection that
+    module wrote into the registry — project 036's verification record,
+    2026-09-11, shows it live: *two* real link-drift findings. The deleted
+    commit's message does not mention `doctor`'s dependency on that output.
+    After it, 0 of 48 registry entries ever declared a link again, the loop
+    body never ran, and `doctor` reported `ok  no registered project
+    declares a link` — a check that could not fail, not a clean plane
+    (project 041, CONCEPT.md §1.1).
+
+    **The fix changes the input, not the question.** This now reads
+    `devman.central.reverse_index()` — every live symlink in the fleet whose
+    raw target lands inside the overlay, found by walking the filesystem
+    rather than by trusting a record of it (DECISIONS.md D1: the registry is
+    empty and the link-state ledger is stale by 34 projects). It asserts C2
+    (the target exists) and, new here, **C3** (the target is reachable from
+    trunk, not merely present in an unlanded lane) — C3 is the condition
+    behind the 2026-10-01 incidents project 041 was opened to answer, and it
+    is exactly the branch that could not fire before: `!!` is reachable now.
     """
-    checked = 0
-    findings: list[str] = []
-    for proj in reg.projects().values():
-        for view, raw in (proj.links or {}).items():
-            checked += 1
-            try:
-                resolved = devman_link.resolve(
-                    devman_link.Declaration.read(view, raw),
-                    overlay=Path(os.path.expandvars(proj.overlay)).expanduser(),
-                    root=proj.path,
-                    project=proj.name,
-                )
-                state = devman_link.inspect(resolved).state
-            except devman_link.LinkError as exc:
-                findings.append(f"{proj.name}:{view}: invalid declaration — {exc}")
-                continue
-            if state != "ok":
-                findings.append(f"{proj.name}:{view}: {state}")
+    views = central.reverse_index(fleet=fleet, central=central_root)
+    trunk = central.trunk_name(central_root)
+    missing = central.check_c2_missing(views)
+    lane_only = central.check_c3_lane_only(views, central_root, trunk)
+
+    findings = [central.format_view(v) for v in missing]
+    findings += [central.format_view(v, trunk=trunk) for v in lane_only]
+
     if findings:
         rep.add("link drift", "!!", findings)
-    elif checked:
-        rep.add("link drift", "ok", [f"{checked} declared links are correct"])
+    elif views:
+        rep.add(
+            "link drift",
+            "ok",
+            [f"{len(views)} live views into the overlay are present and on {trunk}"],
+        )
     else:
-        rep.add("link drift", "ok", ["no registered project declares a link"])
+        rep.add("link drift", "ok", ["no live view into the overlay was found"])
+
+
+def _read_ledger_raw(central_root: Path) -> str | None:
+    """The ledger's raw text, or `None` when there is no file yet.
+
+    A fresh machine has made no link and has no ledger (project 033). That
+    is not a fault, so it reads the same as a clean check, never as `!!`.
+    """
+    try:
+        return (central_root / STATE_FILE).read_text()
+    except FileNotFoundError:
+        return None
+
+
+def _write_ledger(central_root: Path, state: dict, *, trailing_newline: bool) -> None:
+    """Rewrite the ledger atomically: a temp file in the same directory,
+    then `os.replace`. A partial write of this file is worse than a stale
+    one — it is the `{canonical, hash}` baseline
+    `devman_link.excludes.ensure_local_gitignore` reads to refuse a
+    two-sided edit (033; DECISIONS.md D15), and a reader must never see half
+    of it. Mirrors `devman_link.state.write_state`'s own pattern, except the
+    trailing newline is read from the file as found rather than assumed —
+    "preserve the JSON shape exactly" (project 041 open question O5) means
+    matching what is on disk, not what the sibling writer happens to do.
+    """
+    text = json.dumps(state, indent=2, sort_keys=True)
+    if trailing_newline:
+        text += "\n"
+    temp = central_root / f".{STATE_FILE}.doctor-prune.new"
+    temp.write_text(text)
+    os.replace(temp, central_root / STATE_FILE)
+
+
+def check_ledger_stale(
+    rep: Report,
+    *,
+    prune: bool,
+    fleet: Path = central.DEFAULT_FLEET,
+    central_root: Path = central.DEFAULT_CENTRAL,
+) -> None:
+    """The reconciler's ledger accumulates an entry for every project it has
+    ever linked and nothing ever removes one (CONCEPT.md §2.4, open question
+    O5). `check_stale` above prunes the *registry* when a repository is
+    gone; `Registry.unproject` (`registry.py:587-607`) does not touch
+    `.devman-link-state.json`, so the two have drifted apart for as long as
+    the registry has existed without the ledger following it.
+
+    **Liveness is the repository directory on disk, and nothing else — never
+    the registry.** Project 041 measured the registry at 48 entries against
+    66 repositories that carry a live symlink into the overlay (CONCEPT.md
+    §2.4, §3.3). Gating this prune on the registry would delete the
+    two-sided-edit baseline of those 18 *live* but unregistered repositories
+    — AGENTS.md property 6 names the registry as derived, not authoritative,
+    and `devman.central.reverse_index` (DECISIONS.md D1) made the identical
+    choice for the identical reason: the registry and the ledger can both go
+    stale, and the filesystem cannot.
+
+    **The prune is safe by construction, not by care.** An entry is removed
+    only when `fleet / <project>` is not a directory. A repository that does
+    not exist on disk cannot have a two-sided edit between its working copy
+    and the central `.local.gitignore` — there is no working copy to edit —
+    so removing its baseline cannot weaken any refusal
+    `devman_link.excludes.ensure_local_gitignore` makes for a live project
+    (033; DECISIONS.md D15, which this check is built to leave intact for
+    every surviving entry).
+
+    **The total entry and project count is reported even when nothing is
+    stale**, per AGENTS.md property 4: a check that only speaks when it
+    finds something cannot show a count disappearing between two runs. The
+    ledger shrank from 456 entries / 84 projects to 450 / 82 inside three
+    hours on 2026-10-01, and nothing recorded the write (CONCEPT.md §2.4,
+    §12.2). A count in a nightly report is what makes the next shrink loud.
+
+    **A malformed ledger is reported and left alone, never overwritten.** A
+    file that does not parse, or parses to something other than a JSON
+    object, is the one state this check cannot safely act on — rewriting it
+    would guess at content that might still hold a real baseline, and a
+    silent "nothing to report" would hide the one failure mode worse than
+    staleness. It reports `!!` and prunes nothing, with or without `--prune`.
+    """
+    raw = _read_ledger_raw(central_root)
+    if raw is None:
+        rep.add("ledger", "ok", [f"no {STATE_FILE} — a fresh machine has none"])
+        return
+
+    try:
+        state = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        rep.add(
+            "ledger",
+            "!!",
+            [
+                f"{STATE_FILE} is not valid JSON ({exc}) — refusing to read or"
+                " prune it; the two-sided-edit baseline may still be inside it,"
+                " fix the file by hand"
+            ],
+        )
+        return
+    if not isinstance(state, dict):
+        rep.add(
+            "ledger",
+            "!!",
+            [
+                f"{STATE_FILE} does not hold a JSON object — refusing to read or prune it"
+            ],
+        )
+        return
+
+    by_project: dict[str, list[str]] = collections.defaultdict(list)
+    for key in state:
+        # Key shape is "<project>:<view>" (`devman_link.paths.ResolvedLink.key`).
+        project_name, _, _ = str(key).partition(":")
+        by_project[project_name].append(key)
+
+    dead = {
+        name: keys for name, keys in by_project.items() if not (fleet / name).is_dir()
+    }
+    header = f"{len(state)} entries, {len(by_project)} projects"
+
+    if not dead:
+        rep.add(
+            "ledger", "ok", [header, "every ledger project has a repository directory"]
+        )
+        return
+
+    # One line per project, not per entry (015: "54 identical reports is one
+    # report nobody opens"). 16 projects is a readable finding; the 76
+    # entries behind them are not.
+    lines = [header]
+    for name in sorted(dead):
+        keys = dead[name]
+        if prune:
+            for key in keys:
+                del state[key]
+            lines.append(
+                f"{name}: repository directory gone — pruned {len(keys)} entries"
+            )
+        else:
+            lines.append(f"{name}: repository directory gone — {len(keys)} entries")
+    if prune:
+        _write_ledger(central_root, state, trailing_newline=raw.endswith("\n"))
+    else:
+        lines.append("run `devman doctor --prune` to remove them")
+    rep.add("ledger", "!!", lines)
 
 
 def check_trigger_targets(rep: Report, reg: Registry) -> None:
@@ -1612,7 +1778,8 @@ def main(args, reg: Registry) -> int:
     check_fanout(rep, reg)
     check_writes(rep, reg)
     check_trigger_targets(rep, reg)
-    check_link_drift(rep, reg)
+    check_link_drift(rep)
+    check_ledger_stale(rep, prune=args.prune)
     check_local_sources(rep, reg)
     check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)

@@ -12,6 +12,7 @@ the stub. They belong to `nix/tests/dagu-service.nix`, which runs a real one.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,6 @@ from helpers import ORDINARY
 from devman import doctor
 from devman.registry import Registry
 from devman.workflow import PROJECT_DIR
-from devman_link import reconcile
 
 pytestmark = pytest.mark.unit
 
@@ -62,46 +62,95 @@ def test_a_check_with_no_lines_still_prints(capsys):
     assert capsys.readouterr().out.strip() == "ok  plane"
 
 
-def test_link_drift_reports_the_reconciler_state(plane, tmp_path):
-    overlay = tmp_path / "overlay"
-    canonical = overlay / "common/envrc"
-    canonical.parent.mkdir(parents=True)
-    canonical.write_text("use devenv\n")
-    repo = plane.repos / "p"
-    plane.add(
-        "p",
-        links={".envrc": {"canonical": "central", "path": "common/envrc"}},
-        overlay=str(overlay),
+def _git_repo(root: Path, trunk: str = "main") -> None:
+    """A real git repository. project 041's C3 needs one — a reachability
+    test has no meaning against a fake record (CONCEPT.md §3.5, D11)."""
+    root.mkdir(parents=True, exist_ok=True)
+    for args in (
+        ["init", "-q", "-b", trunk],
+        ["config", "user.email", "doctor-tests@example.com"],
+        ["config", "user.name", "doctor tests"],
+    ):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+
+
+def _commit(root: Path, rel: str, text: str = "x\n") -> None:
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    subprocess.run(
+        ["git", "-C", str(root), "add", "-A"], check=True, capture_output=True
     )
-    reconcile(
-        {".envrc": {"canonical": "central", "path": "common/envrc"}},
-        overlay=overlay,
-        root=repo,
-        project="p",
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-q", "-m", "add " + rel],
+        check=True,
+        capture_output=True,
     )
-    report = doctor.Report()
-
-    doctor.check_link_drift(report, plane.reg)
-
-    assert report.sections == [("link drift", "ok", ["1 declared links are correct"])]
 
 
-def test_link_drift_names_a_real_view_as_promote(plane, tmp_path):
+def test_link_drift_reports_a_view_on_trunk_as_ok(plane, tmp_path):
+    """project 041: the input is the reverse index (every live symlink into
+    the overlay), not `proj.links` — the registry field commit `37050e9`
+    (2026-09-19) stopped populating, which is why this check used to read
+    `ok  no registered project declares a link` no matter what the fleet
+    held."""
     overlay = tmp_path / "overlay"
+    _git_repo(overlay)
+    _commit(overlay, "common/envrc", "use devenv\n")
     repo = plane.repos / "p"
     repo.mkdir(parents=True)
-    (repo / ".envrc").write_text("local\n")
-    plane.add(
-        "p",
-        links={".envrc": {"canonical": "central", "path": "common/envrc"}},
-        overlay=str(overlay),
-    )
+    (repo / ".envrc").symlink_to(overlay / "common/envrc")
     report = doctor.Report()
 
-    doctor.check_link_drift(report, plane.reg)
+    doctor.check_link_drift(report, fleet=plane.repos, central_root=overlay)
+
+    assert report.sections == [
+        (
+            "link drift",
+            "ok",
+            ["1 live views into the overlay are present and on main"],
+        )
+    ]
+
+
+def test_link_drift_fires_on_a_dangling_view(plane, tmp_path):
+    """C2: a live view whose target does not exist on disk is a finding —
+    the branch that could not fire before this project, because the input
+    it read (`proj.links`) was always empty (project 041, CONCEPT.md §1.1)."""
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    repo = plane.repos / "p"
+    repo.mkdir(parents=True)
+    (repo / ".envrc").symlink_to(overlay / "common/envrc")
+    report = doctor.Report()
+
+    doctor.check_link_drift(report, fleet=plane.repos, central_root=overlay)
 
     assert report.sections[0][0:2] == ("link drift", "!!")
-    assert report.sections[0][2] == ["p:.envrc: promote"]
+    assert "target does not exist" in report.sections[0][2][0]
+
+
+def test_link_drift_fires_on_a_lane_only_view(plane, tmp_path):
+    """C3, new in project 041: a view whose target exists but is not
+    reachable from trunk — the condition behind the 2026-10-01 incidents
+    this project was opened to answer."""
+    overlay = tmp_path / "overlay"
+    _git_repo(overlay)
+    subprocess.run(
+        ["git", "-C", str(overlay), "checkout", "-q", "-b", "m14-residue"],
+        check=True,
+        capture_output=True,
+    )
+    _commit(overlay, "common/envrc", "use devenv\n")
+    repo = plane.repos / "p"
+    repo.mkdir(parents=True)
+    (repo / ".envrc").symlink_to(overlay / "common/envrc")
+    report = doctor.Report()
+
+    doctor.check_link_drift(report, fleet=plane.repos, central_root=overlay)
+
+    assert report.sections[0][0:2] == ("link drift", "!!")
+    assert "lane-only, not reachable from main" in report.sections[0][2][0]
 
 
 # ---------------------------------------------------------------------------
@@ -888,3 +937,218 @@ def test_a_repository_with_no_local_inputs_says_so(plane):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("local sources", "ok")
     assert "0 local libraries" in lines[0]
+
+
+# ---------------------------------------------------------------------------
+# the ledger that nothing else prunes — `.devman-link-state.json`,
+# project 041 open question O5. `check_stale` above prunes the *registry*;
+# this is the file `Registry.unproject` never touches.
+#
+# Every test builds its own `fleet` and `central_root` under `tmp_path`. The
+# live ledger's counts are changing while this project runs (D15's own
+# incident: 456/84 to 450/82 inside three hours), so a test asserting a live
+# count would pass today and fail tomorrow — the same reason `test_central.py`
+# gives for never asserting against the live machine.
+
+LIVE_ENTRY = {
+    "canonical": "/home/andrew/.config/devman/projects/linkman/agents",
+    "hash": "a" * 64,
+}
+OTHER_LIVE_ENTRY = {
+    "canonical": "/home/andrew/.config/devman/projects/linkman/.local.gitignore",
+    "hash": "c" * 64,
+}
+DEAD_ENTRY = {
+    "canonical": "/home/andrew/.config/devman/projects/gone-project/agents",
+    "hash": "b" * 64,
+}
+
+
+def _ledger_text(entries: dict, *, trailing_newline: bool = True) -> str:
+    """The exact shape `devman_link.state.write_state` produces, confirmed
+    against the live file: 2-space indent, sorted keys, trailing newline."""
+    text = json.dumps(entries, indent=2, sort_keys=True)
+    return text + "\n" if trailing_newline else text
+
+
+def _write_ledger(
+    central_root: Path, entries: dict, *, trailing_newline: bool = True
+) -> Path:
+    central_root.mkdir(parents=True, exist_ok=True)
+    path = central_root / doctor.STATE_FILE
+    path.write_text(_ledger_text(entries, trailing_newline=trailing_newline))
+    return path
+
+
+def test_ledger_reports_a_project_whose_repository_is_absent(tmp_path):
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    (fleet / "linkman").mkdir(parents=True)
+    _write_ledger(
+        central_root,
+        {"linkman:.agents": LIVE_ENTRY, "gone-project:.agents": DEAD_ENTRY},
+    )
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=False, fleet=fleet, central_root=central_root)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("ledger", "!!")
+    assert "2 entries, 2 projects" in lines[0]
+    assert any("gone-project" in line and "1 entries" in line for line in lines)
+    assert not any(line.startswith("linkman:") for line in lines)
+    assert "doctor --prune" in lines[-1]
+
+
+def test_ledger_does_not_report_a_project_whose_repository_exists(tmp_path):
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    (fleet / "linkman").mkdir(parents=True)
+    _write_ledger(central_root, {"linkman:.agents": LIVE_ENTRY})
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=False, fleet=fleet, central_root=central_root)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("ledger", "ok")
+    assert "1 entries, 1 projects" in lines[0]
+
+
+def test_prune_keeps_every_live_entry_byte_for_byte(tmp_path):
+    """The two-sided-edit baseline is the `{canonical, hash}` pair, not just
+    the key — a test that only counted entries would not catch a corrupted
+    hash. Asserted against the parsed survivors directly."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    (fleet / "linkman").mkdir(parents=True)
+    path = _write_ledger(
+        central_root,
+        {
+            "linkman:.agents": LIVE_ENTRY,
+            "linkman:.local.gitignore": OTHER_LIVE_ENTRY,
+            "gone-project:.agents": DEAD_ENTRY,
+        },
+    )
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=True, fleet=fleet, central_root=central_root)
+
+    survivors = json.loads(path.read_text())
+    assert survivors == {
+        "linkman:.agents": LIVE_ENTRY,
+        "linkman:.local.gitignore": OTHER_LIVE_ENTRY,
+    }
+
+
+def test_prune_removes_exactly_the_dead_projects_entries_and_nothing_else(tmp_path):
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    (fleet / "linkman").mkdir(parents=True)
+    path = _write_ledger(
+        central_root,
+        {
+            "linkman:.agents": LIVE_ENTRY,
+            "gone-project:.agents": DEAD_ENTRY,
+            "another-gone:.agents": DEAD_ENTRY,
+        },
+    )
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=True, fleet=fleet, central_root=central_root)
+
+    survivors = json.loads(path.read_text())
+    assert set(survivors) == {"linkman:.agents"}
+    name, status, lines = rep.sections[0]
+    assert status == "!!"
+    assert any("pruned 1 entries" in line for line in lines if "gone-project" in line)
+    assert any("pruned 1 entries" in line for line in lines if "another-gone" in line)
+
+
+def test_without_prune_the_ledger_file_is_unmodified(tmp_path):
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    (fleet / "linkman").mkdir(parents=True)
+    path = _write_ledger(
+        central_root,
+        {"linkman:.agents": LIVE_ENTRY, "gone-project:.agents": DEAD_ENTRY},
+    )
+    before = path.read_bytes()
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=False, fleet=fleet, central_root=central_root)
+
+    assert path.read_bytes() == before
+
+
+def test_a_missing_ledger_file_is_not_an_error(tmp_path):
+    """A fresh machine has made no link and has no ledger (project 033)."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    fleet.mkdir()
+    central_root.mkdir()
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=True, fleet=fleet, central_root=central_root)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("ledger", "ok")
+    assert not (central_root / doctor.STATE_FILE).exists()
+
+
+def test_a_malformed_ledger_is_reported_and_left_alone(tmp_path):
+    """A file that does not parse might still hold a real two-sided-edit
+    baseline. Rewriting it would guess at content this check cannot read, so
+    it reports and refuses rather than overwriting or crashing."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    central_root.mkdir()
+    path = central_root / doctor.STATE_FILE
+    path.write_text("{ not json")
+    before = path.read_bytes()
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=True, fleet=fleet, central_root=central_root)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("ledger", "!!")
+    assert "not valid JSON" in lines[0]
+    assert path.read_bytes() == before
+
+
+def test_a_ledger_that_is_a_json_list_is_reported_and_left_alone(tmp_path):
+    """The shape, not only the syntax, must be right: a parseable file that
+    is not an object (a list, say) is just as unreadable as a baseline."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    central_root.mkdir()
+    path = central_root / doctor.STATE_FILE
+    path.write_text("[1, 2, 3]\n")
+    before = path.read_bytes()
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=True, fleet=fleet, central_root=central_root)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("ledger", "!!")
+    assert "JSON object" in lines[0]
+    assert path.read_bytes() == before
+
+
+def test_prune_preserves_a_ledger_with_no_trailing_newline(tmp_path):
+    """The write matches the file's own formatting, not an assumption. 033's
+    reconciler always writes a trailing newline; this proves the check does
+    not add one where the file on disk did not have it."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    (fleet / "linkman").mkdir(parents=True)
+    path = _write_ledger(
+        central_root,
+        {"linkman:.agents": LIVE_ENTRY, "gone-project:.agents": DEAD_ENTRY},
+        trailing_newline=False,
+    )
+    rep = doctor.Report()
+
+    doctor.check_ledger_stale(rep, prune=True, fleet=fleet, central_root=central_root)
+
+    assert not path.read_text().endswith("\n")
+    assert json.loads(path.read_text()) == {"linkman:.agents": LIVE_ENTRY}
