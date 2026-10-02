@@ -70,6 +70,30 @@ from .workflow import PROJECT_DIR, SELF_DIR, Workflow
 # named literally `${NAME}` when either is unset, and reports success (§7.2).
 LITERAL_DIRS = (f"${{{PROJECT_DIR}}}", f"${{{SELF_DIR}}}")
 
+# THE STATUS LEGEND (project 041, Phase 1, Part 3).
+#
+#   ok   the check ran, against a real population, and found nothing wrong.
+#   ..   the check could not run at all — no Dagu, no `dagu` on PATH, no
+#        queue list in config.yaml. Never counted in the exit code (below):
+#        "I could not look" is not a finding about the fleet.
+#   !!   the check ran and found something wrong. Counted in the exit code.
+#   --   EMPTY, new here. The check ran, but what it iterates — the thing it
+#        exists to examine — was a population of zero. Distinct from `ok`
+#        on purpose: `check_link_drift` printed `ok  no registered project
+#        declares a link` for twelve days while its real input (325 live
+#        symlinks) stayed nonzero, because an empty collection and a
+#        populated-but-clean one render the identical sentence. A reader
+#        cannot tell "zero problems" from "zero input" out of an `ok` line;
+#        `--` says which one this was. See `EMPTY` below for the checks that
+#        use it and why it does not count toward the exit code either.
+#
+# `mode` (`check_mode`) and `shadowing` (`check_drift`) print `ok` and never
+# anything else, by design — they are status lines, not fault detectors (each
+# function's own docstring says so). They are informational rows, not absent
+# ones: read their `ok` as "here is the fact," never as "nothing is wrong,"
+# because the second reading does not apply to them (project 041 Part 4).
+EMPTY = "--"
+
 
 @dataclass
 class Report:
@@ -80,6 +104,21 @@ class Report:
 
     @property
     def findings(self) -> int:
+        """The exit code's input (`main()` returns `1` iff this is nonzero).
+
+        Only `!!` counts. `..` is a check that could not run, and `EMPTY`
+        (`--`) is a check that ran against zero population — neither is a
+        finding ABOUT THE FLEET, which is what the `0`/`1`/`2`/`3` contract
+        means by a finding (025 §10 item 11: `1` is reserved for a finding).
+        A fresh machine's doctor exits `0` on `--` the same way it exits `0`
+        on `..` when Dagu is not running yet — both say "there was nothing
+        here to check," not "something here is wrong." Folding `EMPTY` into
+        `!!` would make `devman doctor` fail on every new machine's first
+        run, for a reason that goes away the moment one repository
+        registers — the "a check that screams on every run is worse than the
+        silence it replaced" failure this project's brief itself warns
+        against, aimed at the exit code instead of the report body.
+        """
         return sum(len(lines) for _, status, lines in self.sections if status == "!!")
 
     def print(self) -> None:
@@ -245,6 +284,13 @@ def check_load(rep: Report, reg: Registry, dagu_home: Path) -> None:
     if dagu is None:
         rep.add("validate", "..", ["dagu is not on PATH, so no file was validated"])
         return
+    # PROJECT 041 PART 2. Zero projected files is zero files `dagu validate`
+    # can be run against, and the `ok` below would read the same whether the
+    # registry is genuinely empty or merely stopped projecting (the original
+    # defect's shape).
+    if not files:
+        rep.add("validate", EMPTY, ["no projected workflow to validate"])
+        return
 
     # THIS CHECK IS 86% OF `doctor`'S RUNTIME, AND ALL OF IT IS SPAWN COST.
     #
@@ -295,8 +341,16 @@ def check_queue_names(rep: Report, reg: Registry, dagu_home: Path) -> None:
         rep.add("queue names", "..", [f"no queue list in {dagu_home}/config.yaml"])
         return
     default = _base(dagu_home).get("queue")
+    files = reg.projected_files()
+    # PROJECT 041 PART 2. `ok` below is trivially true of zero files — a
+    # workflow that does not exist names no undeclared queue either. `EMPTY`
+    # instead, so "no project named one correctly" cannot be misread for
+    # "nothing was projected."
+    if not files:
+        rep.add("queue names", EMPTY, ["no projected workflow names a queue"])
+        return
     bad = []
-    for proj, name, path in reg.projected_files():
+    for proj, name, path in files:
         for queue in Workflow.read(path).queues():
             if queue not in declared:
                 bad.append(
@@ -374,7 +428,19 @@ def check_literal(rep: Report, reg: Registry, dagu_home: Path) -> None:
 
 
 def check_drift(rep: Report, reg: Registry) -> None:
-    """Check 4 — an overriding file stops tracking its group (§15.6)."""
+    """Check 4 — an overriding file stops tracking its group (§15.6).
+
+    **PROJECT 041 PART 4 — RELABELLED, NOT GIVEN A FAULT BRANCH.** This row
+    has no `!!` by construction, and the comment at the bottom of this
+    function already said why: §7.3 offers no partial override, so a
+    shadowing file existing at all is the mechanism working as designed, not
+    a defect. Measuring the drift percentage is still useful — it answers
+    "how far has this repository's copy wandered" — but a number is not a
+    verdict, and giving it a threshold that turns into `!!` would invent an
+    opinion about how much drift is too much that nothing in §7.3 states.
+    See the status legend above `Report`: this is an informational row, read
+    for its content, not for whether it says `ok`.
+    """
     lines = []
     shadowing = 0
     for proj in reg.projects().values():
@@ -428,7 +494,14 @@ def check_stale(rep: Report, reg: Registry, prune: bool) -> None:
     command a developer runs to find out what is wrong, and a diagnostic that
     deletes state by default is one a developer hesitates to run.
     """
-    stale = [p for p in reg.projects().values() if not p.exists]
+    projects = reg.projects()
+    # PROJECT 041 PART 2. "every registered path is a directory" is vacuously
+    # true of zero registered paths, which is exactly `check_link_drift`'s
+    # regression shape: 0 of 0 reads identically to N of N clean.
+    if not projects:
+        rep.add("stale entries", EMPTY, ["the registry has no projects to check"])
+        return
+    stale = [p for p in projects.values() if not p.exists]
     if not stale:
         rep.add("stale entries", "ok", ["every registered path is a directory"])
         return
@@ -459,9 +532,22 @@ def check_ageing(rep: Report, reg: Registry, dagu_home: Path) -> None:
     if not isinstance(days, int):
         rep.add("run output", "..", ["no hist_retention_days in base.yaml"])
         return
+    # PROJECT 041 PART 2. Zero registered projects is zero places to look for
+    # ageing run output, and the loop below would print `ok` either way — the
+    # same shape `check_link_drift` had before this project, and this check
+    # had ZERO test coverage at any level (RESEARCH-check-efficacy.md Part 3
+    # #2), so nothing would have caught the input going silently empty.
+    projects = reg.projects()
+    if not projects:
+        rep.add(
+            "run output",
+            EMPTY,
+            ["no registered project to check for ageing run output"],
+        )
+        return
     cutoff = time.time() - days * 86400
     lines = []
-    for proj in reg.projects().values():
+    for proj in projects.values():
         logs = proj.runs_dir / "logs"
         if not logs.is_dir():
             continue
@@ -502,8 +588,16 @@ def check_projection(rep: Report, reg: Registry) -> None:
     A missing link is a projection fault. The codec migration is complete, so
     every projected workflow must have its current link.
     """
+    files = reg.projected_files()
+    # PROJECT 041 PART 2. Zero projected files is zero DAG names to compare
+    # against their links, and "N point at their own file" reads identically
+    # for N=0 whether that is because nothing is wrong or because nothing was
+    # projected.
+    if not files:
+        rep.add("projection", EMPTY, ["no projected workflow to check"])
+        return
     bad = []
-    for proj, name, _path in reg.projected_files():
+    for proj, name, _path in files:
         fault = reg.dag_link_fault(proj, name)
         if not fault:
             continue
@@ -521,11 +615,10 @@ def check_projection(rep: Report, reg: Registry) -> None:
             ],
         )
         return
-    total = len(reg.projected_files())
     rep.add(
         "projection",
         "ok",
-        [f"{total} DAG names each point at their own project's file"],
+        [f"{len(files)} DAG names each point at their own project's file"],
     )
 
 
@@ -547,13 +640,21 @@ def check_dag_names(rep: Report, reg: Registry) -> None:
     **This is set membership, not a heuristic, so §15.7 does not reach it.** It
     reads the characters in a name the registry already holds.
     """
+    projects = reg.projects()
+    # PROJECT 041 PART 2. Zero registered projects is zero names for the codec
+    # to render, and "N render one DAG name each" reads the same for N=0
+    # whether that is a clean fleet or an empty registry.
+    if not projects:
+        rep.add("dag names", EMPTY, ["no registered project or workflow to check"])
+        return
+    files = reg.projected_files()
     bad = []
-    for proj in reg.projects().values():
+    for proj in projects.values():
         fault = identity_fault("project", proj.name)
         if fault:
             meta = (proj.entry or reg.state_projects_dir / proj.name) / "metadata.json"
             bad.append(f"{proj.name}: {fault.splitlines()[0]}\n     {meta}")
-    for proj, name, _path in reg.projected_files():
+    for proj, name, _path in files:
         fault = identity_fault("workflow", name) or dag_name_fault(name)
         if fault:
             bad.append(f"{proj.name}/{name}: {fault.splitlines()[0]}")
@@ -563,7 +664,7 @@ def check_dag_names(rep: Report, reg: Registry) -> None:
         rep.add(
             "dag names",
             "ok",
-            [f"{len(reg.projected_files())} workflow names render one DAG name each"],
+            [f"{len(files)} workflow names render one DAG name each"],
         )
 
 
@@ -587,8 +688,15 @@ def check_handlers(rep: Report, reg: Registry) -> None:
     It is `!!` rather than a note, because the loss is silent and permanent: no
     later run puts back the line that was never written.
     """
+    files = reg.projected_files()
+    # PROJECT 041 PART 2. Zero projected files is zero workflows to read a
+    # `handler_on` out of, and this check had NO doctor-level test at all
+    # before this project (RESEARCH-check-efficacy.md row `handlers`).
+    if not files:
+        rep.add("handlers", EMPTY, ["no projected workflow to check"])
+        return
     lines = []
-    for proj, name, path in reg.projected_files():
+    for proj, name, path in files:
         events = Workflow.read(path).handlers()
         if events:
             lines.append(
@@ -614,9 +722,17 @@ def check_cross_repo(rep: Report, reg: Registry) -> None:
     how a parent directs a child. The rule that forbade mentioning it at all
     reported the only correct cross-repo workflow in this repository as broken.
     """
+    files = reg.projected_files()
+    # PROJECT 041 PART 2. Zero projected files is zero workflows to check for
+    # a cross-repo trigger, and this check's doctor-level wiring had no test
+    # exercising a firing fixture before this project (the predicate itself
+    # is tested at the `Workflow` level only).
+    if not files:
+        rep.add("cross-repo", EMPTY, ["no projected workflow to check"])
+        return
     lines = []
     parents = 0
-    for proj, name, path in reg.projected_files():
+    for proj, name, path in files:
         wf = Workflow.read(path)
         if not wf.triggers_other_dags():
             continue
@@ -656,9 +772,16 @@ def check_fanout(rep: Report, reg: Registry) -> None:
     three field names Dagu documents and reports their absence. A stated bound is
     never a finding, whatever its value.
     """
+    files = reg.projected_files()
+    # PROJECT 041 PART 2. Zero projected files is zero workflows to check for
+    # an unbounded fan-out, and this check's doctor-level wiring had no test
+    # exercising a firing fixture before this project either.
+    if not files:
+        rep.add("fan-out", EMPTY, ["no projected workflow to check"])
+        return
     lines = []
     parents = 0
-    for proj, name, path in reg.projected_files():
+    for proj, name, path in files:
         wf = Workflow.read(path)
         if not wf.child_runs():
             continue
@@ -704,10 +827,19 @@ def check_writes(rep: Report, reg: Registry) -> None:
     table; it does not run the step. A silent finding here means every
     declaration present is well formed — not that every writer declared.
     """
+    projects = reg.projects()
+    # PROJECT 041 PART 2. Zero registered projects is zero declarations to
+    # audit, which must not print the same "ok, unaudited" sentence a clean,
+    # populated fleet with no declarations prints (`test_a_project_declaring_
+    # nothing_is_reported_unaudited_not_clean` covers that still-legitimate
+    # case — it registers a project first).
+    if not projects:
+        rep.add("writes", EMPTY, ["no registered project to check"])
+        return
     tiers: collections.Counter[str] = collections.Counter()
     lines: list[str] = []
     declaring = 0
-    for proj in reg.projects().values():
+    for proj in projects.values():
         decls = proj.raw_writes() or {}
         if not decls:
             continue
@@ -847,9 +979,16 @@ def check_schema(rep: Report, reg: Registry) -> None:
     untouched: it reads one integer the entry states about itself.
     """
     known = project.SCHEMA
+    projects = reg.projects()
+    # PROJECT 041 PART 2. "every entry is schema N or older" is vacuously true
+    # of zero entries, the same shape as every other FRAGILE row this project
+    # found.
+    if not projects:
+        rep.add("schema", EMPTY, ["no registered project to check"])
+        return
     ahead = [
         f"{proj.name}: schema {proj.schema}, and this devman knows {known}"
-        for proj in reg.projects().values()
+        for proj in projects.values()
         if proj.schema > known
     ]
     if ahead:
@@ -876,6 +1015,16 @@ def check_mode(rep: Report, reg: Registry) -> None:
     projection never does. Its presence is the one fact the registry states on
     disk, so this reads it rather than inferring the mode from which binary
     happens to be first on PATH.
+
+    **PROJECT 041 PART 4 — RELABELLED, NOT GIVEN A FAULT BRANCH.** This row
+    has no `!!` by construction: "plane" and "compatibility" are two names for
+    one fact, neither wrong. Inventing a failing case (`RESEARCH-check-
+    efficacy.md` floated "compatibility while a generation.json sits unused
+    nearby," which is contradictory on inspection — `generation.json`
+    present IS the plane-mode test above) would manufacture a predicate this
+    check was never meant to have. The honest fix is the one the research
+    recommended and the legend above states: this is a status line, read as
+    "here is the fact," not a health check read as "nothing is wrong."
     """
     mode = "plane" if (reg.root / "generation.json").is_file() else "compatibility"
     rep.add("mode", "ok", [mode])
@@ -1151,9 +1300,16 @@ def check_local_sources(rep: Report, reg: Registry) -> None:
     that names an input it never uses is counted, and one that reaches a library
     some other way is not.
     """
+    projects = reg.projects()
+    # PROJECT 041 PART 2. Zero registered projects is zero sources to check
+    # for a dirty working tree or a stale pin — "none dirty and no pin behind
+    # its source" reads the same for 0 consumers as for a clean fleet of 54.
+    if not projects:
+        rep.add("local sources", EMPTY, ["no registered project to check"])
+        return
     consumers: dict[Path, set[str]] = {}
     pinned: list[tuple[str, Path, str]] = []
-    for proj in reg.projects().values():
+    for proj in projects.values():
         root = Path(proj.path)
         for src, rev in _local_git_inputs(root):
             consumers.setdefault(src, set()).add(proj.name)
@@ -1233,8 +1389,15 @@ def check_path_inputs(rep: Report, reg: Registry) -> None:
     Not a heuristic. It reads `url: path:…` out of each repository's own
     `devenv.yaml` and `stat`s what is there.
     """
+    projects = reg.projects()
+    # PROJECT 041 PART 2. Zero registered projects is zero `devenv.yaml`s to
+    # read a `path:` input out of — "0 directories are path: inputs" reads
+    # the same whether the fleet is clean or the registry is empty.
+    if not projects:
+        rep.add("path inputs", EMPTY, ["no registered project to check"])
+        return
     takers: dict[Path, set[str]] = {}
-    for name, proj in sorted(reg.projects().items()):
+    for name, proj in sorted(projects.items()):
         for target in _path_inputs(proj.path):
             takers.setdefault(target, set()).add(name)
 
@@ -1327,7 +1490,30 @@ def check_link_drift(
             [f"{len(views)} live views into the overlay are present and on {trunk}"],
         )
     else:
-        rep.add("link drift", "ok", ["no live view into the overlay was found"])
+        # Zero views is EMPTY, not `ok`. A machine that has linked nothing is
+        # legitimate, and so is a broken walk; `ok` cannot tell them apart, and
+        # "ok with a zero population" is the exact sentence this check reported
+        # for twelve days while blind (CONCEPT.md §1.1). The reverse index is a
+        # filesystem read rather than a projection, so this is far less likely
+        # than it was — but "less likely" is not what the rule says.
+        rep.add("link drift", EMPTY, ["no live view into the overlay was found"])
+
+    # C5 gets its own row rather than folding into "link drift". It is not
+    # drift: nothing moved, and no lane operation created it or will close it.
+    # A hollow target is a standing gap — an onboarding that never finished —
+    # and naming it under a check called "drift" would misfile the cause for
+    # whoever reads the report (central.check_c5_empty_surface).
+    hollow = central.check_c5_empty_surface(views, central_root)
+    if hollow:
+        rep.add(
+            "empty surface",
+            "!!",
+            [central.format_empty_view(v, central=central_root) for v in hollow],
+        )
+    elif views:
+        rep.add("empty surface", "ok", [f"{len(views)} live view targets hold content"])
+    else:
+        rep.add("empty surface", EMPTY, ["no live view into the overlay was found"])
 
 
 def _read_ledger_raw(central_root: Path) -> str | None:
@@ -1520,7 +1706,16 @@ def check_trigger_targets(rep: Report, reg: Registry) -> None:
             [f"{checked} triggers each name a workflow their project projects"],
         )
     else:
-        rep.add("trigger target", "ok", ["no registered project declares a trigger"])
+        # PROJECT 041 PART 2 — THE CLOSEST LIVING RELATIVE OF THE ORIGINAL
+        # DEFECT. `watch_map(reg)` reads `proj.triggers`, a registry-projected
+        # field, exactly as `check_link_drift` read `proj.links` before this
+        # project. `checked == 0` means either no project declares a trigger
+        # (a plain fact) or the projection stopped writing `triggers` the way
+        # it stopped writing `links` — this check cannot tell those apart, so
+        # it must not say `ok` for either. `EMPTY` instead of a silent "ok"
+        # with a zero count (the exact shape the regression this project
+        # fixes had).
+        rep.add("trigger target", EMPTY, ["no registered project declares a trigger"])
 
 
 def check_reload(rep: Report, reg: Registry) -> None:

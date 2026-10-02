@@ -147,11 +147,14 @@ def parser() -> argparse.ArgumentParser:
         choices=("pre", "post"),
         help=(
             "'pre' runs C1+C2+C4 — the content is wrong, so a land must"
-            " block on these. 'post' runs C3 alone — the content has not"
-            " reached safety yet, and landing is its cure, so C3 must"
-            " never block a land or it would refuse the one operation that"
-            " fixes what it detects (DECISIONS.md D3). Omit to run all four"
-            " assertions."
+            " block on these. 'post' runs C3 and C5 — neither must ever"
+            " block a land: C3's content has not reached safety yet and"
+            " landing is its cure, so blocking would refuse the one"
+            " operation that fixes what it detects (DECISIONS.md D3); C5's"
+            " empty surface is not caused by a lane and not cured by"
+            " landing one, so blocking an unrelated land over it would only"
+            " hold every future land hostage to an onboarding that needs a"
+            " separate fix. Omit to run all five assertions."
         ),
     )
     p_central.add_argument(
@@ -452,11 +455,18 @@ def _central_verify(args, _reg: Registry) -> int:
     view's target exists) and C4 (every tracked `links.yaml` pairs with a
     `devenv.local.nix`) — these are *the content is wrong*, and landing wrong
     content is worse than not landing, so a `[land.pre_hook]` blocks on them.
-    `--phase post` runs C3 alone (every live view's target is reachable from
-    trunk) — this is *the content has not reached safety yet*, and
-    **landing is its cure**. C3 must never run in the pre phase: blocking a
-    land on a condition only a land can fix is a deadlock. With no `--phase`,
-    all four run, for a developer checking the overlay by hand.
+    `--phase post` runs C3 and C5. C3 (every live view's target is reachable
+    from trunk) is *the content has not reached safety yet*, and **landing is
+    its cure** — it must never run in the pre phase, because blocking a land
+    on a condition only a land can fix is a deadlock. C5 (every live view's
+    target holds content git could ever track, not an empty directory tree)
+    is a different, lower-severity case: it is not caused by a lane and not
+    cured by landing one — usually it is a project whose onboarding never
+    finished — so blocking an unrelated land over it would hold every future
+    land hostage to a gap that landing cannot close. It runs in `post`
+    because `post` is the phase that can never block, which is the property
+    both assertions need, for different reasons. With no `--phase`, all five
+    run, for a developer checking the overlay by hand.
 
     **Reads nothing from stdin.** A gitman land hook pipes a JSON event on
     stdin and sets `GITMAN_HOOK_PHASE` in the environment. This predicate
@@ -491,6 +501,10 @@ def _central_verify(args, _reg: Registry) -> int:
             trunk = central.trunk_name(overlay)
             lane_only = central.check_c3_lane_only(views, overlay, trunk)
             results["C3"] = [central.format_view(v, trunk=trunk) for v in lane_only]
+            empty_surface = central.check_c5_empty_surface(views, overlay)
+            results["C5"] = [
+                central.format_empty_view(v, central=overlay) for v in empty_surface
+            ]
     except central.InfraError as exc:
         print(f"devman central-verify: {exc}", file=sys.stderr)
         return 2

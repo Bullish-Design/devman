@@ -294,6 +294,13 @@ class RegistryFault:
     is gone. Naming it is the whole point: an entry that is skipped silently
     keeps its `dags/` links and its schedules, so its workflows go on running
     while nothing can see the project they belong to.
+
+    **Project 041 widened this to the whole root.** `name="(registry root)"`
+    is the one case that is not a single entry — `Registry.load()` below uses
+    it when `projects_dir` itself has gone missing out from under an already
+    registered machine. The reasoning is identical at either grain: the
+    argument above applies verbatim to a root that vanished, not only to one
+    entry that did.
     """
 
     name: str
@@ -372,6 +379,62 @@ class Registry:
         faults: list[RegistryFault] = []
         projects_dir = self.project_source or self.state_projects_dir
         if not projects_dir.is_dir():
+            # PROJECT 041: an absent `projects_dir` used to read exactly like a
+            # present, empty one — `({}, [])` either way. `check_link_drift` had
+            # the identical shape one field lower: it read `proj.links`, which
+            # went empty when a refactor stopped writing it, and reported `ok`
+            # for twelve days because an empty field and a healthy one printed
+            # the same line. The fix there was to stop trusting the field.
+            # The fix here is the same move at the directory that holds every
+            # field: an absent root must not read like an empty one to the 26
+            # checks built on this method.
+            #
+            # IS AN ABSENT ROOT ALWAYS A FAULT? No. Naming it unconditionally
+            # would replace one silence with another: a machine that has never
+            # entered a devenv shell would then print a permanent `!!` that
+            # never goes away and never means anything — exactly the "a check
+            # that screams on every run is worse than the silence it replaced"
+            # failure this project's brief warns against, and the mirror image
+            # of property 4's "a check that can never fail teaches a reader to
+            # stop reading it."
+            #
+            # THE DISTINGUISHING FACT IS WHETHER THIS REGISTRY EVER EXISTED.
+            # `self.project_source` is set by exactly one caller,
+            # `for_active_generation()` — `doctor.main` only takes that path
+            # once `generation.json` is already on disk, i.e., once plane mode
+            # is PROVEN active, not merely possible. Its target is named, not
+            # guessed, so its absence is unconditionally a fault: a live plane
+            # with nothing projected would still have written the directory.
+            #
+            # The default (non-plane) view's `self.root` is the directory every
+            # projection creates alongside `state/projects` — `dags/` and the
+            # workflow projection live there (module docstring, §11 Stage 3) —
+            # the first time ANY repository enters its shell, and nothing but
+            # an external deletion removes it again once it exists. So:
+            #
+            #   root absent  -> no repository has ever registered here.
+            #                   Legitimately empty; not a fault.
+            #   root present -> a registration happened here before, and
+            #                   `state/projects` (or the active generation's own
+            #                   `projects/`) going missing while the root it
+            #                   lives under is still there is `check_link_drift`'s
+            #                   regression one level up: a write path died and
+            #                   a reader stayed blind to it.
+            #
+            # Either way the caller gets back `({}, faults)` and must still
+            # decide what zero projects means for ITS report — that is Part 2
+            # of this project (each check asserts its own population), not
+            # this method's job to guess.
+            if self.project_source is not None or self.root.is_dir():
+                faults.append(
+                    RegistryFault(
+                        "(registry root)",
+                        projects_dir,
+                        f"{projects_dir} is not a directory, and this registry"
+                        " has been used before — its projects/ vanished out"
+                        " from under it",
+                    )
+                )
             return out, faults
         for entry in sorted(projects_dir.iterdir()):
             if not entry.is_dir():

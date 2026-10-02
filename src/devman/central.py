@@ -24,10 +24,22 @@ Full design: `.scratch/projects/041-central-autoland/CONCEPT.md` §3, §4, §11;
 `git -C <central> rev-parse --abbrev-ref HEAD`. gitman ships 24 verbs and none
 of them is `diff`, `show` or `reflog`, and none answers "is this path in
 trunk's tree" — 035 §10 disclosed the identical choice for the identical
-reason. Only `ls-tree`, `ls-files`, `rev-parse` and `check-ignore` are used
-here; nothing that writes. C3 reads trunk through `ls-tree`, never the git
-index: in a colocated jj repository the index is jj's export artifact, not a
-staging area (035 §2.5).
+reason. Only `ls-tree`, `ls-files` and `rev-parse` are used here; nothing
+that writes. C3 reads trunk through `ls-tree`, never the git index: in a
+colocated jj repository the index is jj's export artifact, not a staging area
+(035 §2.5).
+
+**C3 does not fire on a target git can never track, and C5 reports that case
+instead.** A declared target that is a directory holding no file and no
+symlink anywhere below it — or whose only entries `.gitignore` excludes —
+cannot be "lane-only" (§3.5 below): git never held it in any lane, so it can
+never reach trunk, and C3 would otherwise report it on every run forever.
+`_hollow_directory_targets()` is the shared predicate, batched across every
+directory view in one pair of `git ls-files` calls rather than walked in
+Python — see its docstring for why that matters (16,751 real entries under
+one target alone). `check_c5_empty_surface` names the real condition — an
+onboarding that likely never finished — rather than blaming a lane for a gap
+no lane created.
 
 **This module writes nothing, ever.** It runs as a gitman land hook, and
 gitman snapshots the workspace before and after the hook and blocks the land
@@ -64,6 +76,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 DEFAULT_CENTRAL = Path("~/.config/devman").expanduser()
@@ -259,6 +272,80 @@ def check_c2_missing(views: list[View]) -> list[View]:
     return [v for v in views if not os.path.exists(v.target)]
 
 
+def _hollow_directory_targets(views: list[View], central: Path) -> set[str]:
+    """Which directory-shaped targets among `views` hold nothing git could
+    ever track on trunk, at any depth.
+
+    A file or a symlink target is always trackable on its own — git's
+    object model holds blobs (regular files) and symlinks (mode `120000`);
+    a directory is never an object of its own, so a tree of directories
+    holding only further directories is invisible to git forever. Only a
+    directory target can be hollow, so only directory targets are checked.
+
+    For a directory, the question becomes two of git's own: does it already
+    hold a **tracked** path (`git ls-files`), or does it hold an **untracked
+    path `.gitignore` would not skip** (`git ls-files --others
+    --exclude-standard`)? Either answers yes. A directory whose only content
+    `.gitignore` excludes (`projects/*/agents/pi/` and similar,
+    `~/.config/devman/.gitignore`) answers no to both, and is treated the
+    same as a structurally empty one: an ordinary `gitman land` can no more
+    land a gitignored path than it can land one that was never there, so
+    neither can reach trunk, which is all C3 asks.
+
+    **Batched, not per-view.** A real target can hold tens of thousands of
+    entries (`projects/browsee/agents`, measured at 16,751, mostly the
+    gitignored `agents/pi/` runtime cache); a Python `os.walk` plus a `stat`
+    per entry cost over half a second there alone, and 132 directory views
+    on the live overlay turned that into a 22 s run — a tenfold overshoot of
+    the 3.4 s budget. Two `git ls-files` calls across every directory view
+    at once, instead of two calls per view, answers in milliseconds: git's
+    own traversal is implemented in C and already knows how to skip what
+    `.gitignore` excludes.
+
+    **Cached per process, keyed on the directory set.** `check_c3_lane_only`
+    and `check_c5_empty_surface` each call this against the same `views`
+    within one `central-verify` run; without the cache that is two git
+    invocations where one would do. The key is the sorted tuple of directory
+    targets, not `id(views)`, so it stays correct if a caller ever builds two
+    different view lists that happen to name the same directories.
+    """
+    central_str = str(central.resolve())
+    rel_to_target: dict[str, str] = {}
+    for v in views:
+        if os.path.isdir(v.target):
+            path_str = v.target
+            rel = (
+                path_str[len(central_str) + 1 :]
+                if path_str.startswith(central_str)
+                else path_str
+            )
+            rel_to_target[rel] = path_str
+    if not rel_to_target:
+        return set()
+
+    present = _hollow_lookup(central, tuple(sorted(rel_to_target)))
+    return {target for rel, target in rel_to_target.items() if rel not in present}
+
+
+@lru_cache(maxsize=8)
+def _hollow_lookup(central: Path, rels: tuple[str, ...]) -> frozenset[str]:
+    """Which of `rels` (relative paths below `central`) hold any file or
+    symlink, tracked or not-ignored-untracked. The non-hollow subset."""
+    tracked = _git(central, "ls-files", "--", *rels)
+    untracked = _git(central, "ls-files", "--others", "--exclude-standard", "--", *rels)
+    present: set[str] = set()
+    for line in tracked.splitlines() + untracked.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        for rel in rels:
+            if rel in present:
+                continue
+            if line == rel or line.startswith(rel + "/"):
+                present.add(rel)
+    return frozenset(present)
+
+
 def check_c3_lane_only(
     views: list[View], central: Path = DEFAULT_CENTRAL, trunk: str | None = None
 ) -> list[View]:
@@ -268,16 +355,27 @@ def check_c3_lane_only(
     missing is C2's finding, not this one's — a target that does not exist
     is neither "on trunk" nor "lane-only"; reporting it twice would double
     one defect into two lines.
+
+    **Excludes a target git could never track.** A directory holding no
+    file and no symlink anywhere below it — `_hollow_directory_targets` —
+    is not "lane-only": git never held it in any lane, so no lane operation
+    can be blamed for its absence from trunk, and it will read as a C3
+    finding on every run forever otherwise (the defect this function was
+    changed to fix). `check_c5_empty_surface` reports the condition that
+    actually applies instead.
     """
     trunk = trunk or trunk_name(central)
     central_str = str(central.resolve())
     tracked = tracked_paths(central, trunk)
+    hollow = _hollow_directory_targets(views, central)
     findings: list[View] = []
     for v in views:
         if not (v.target == central_str or v.target.startswith(central_str + "/")):
             continue  # an external target: not this repository's to hold
         if not os.path.exists(v.target):
             continue  # C2's finding, not C3's
+        if v.target in hollow:
+            continue  # nothing git could ever track here; C5's finding, not C3's
         rel = v.target[len(central_str) + 1 :]
         if os.path.isdir(v.target):
             on_trunk = any(x == rel or x.startswith(rel + "/") for x in tracked)
@@ -286,6 +384,30 @@ def check_c3_lane_only(
         if not on_trunk:
             findings.append(v)
     return findings
+
+
+def check_c5_empty_surface(
+    views: list[View], central: Path = DEFAULT_CENTRAL
+) -> list[View]:
+    """C5 — every live view's target holds content on disk, not an empty shell.
+
+    A directory that holds no file and no symlink anywhere below it — see
+    `_hollow_directory_targets` — can never be C3's "lane-only", because
+    git never held it in any lane. It is not silence, either: a live
+    repository still symlinks into it, so an agent reading, say,
+    `.agents/skills` there finds no skills. That is degraded, not broken —
+    no shell fails on a hollow directory the way it does on a missing one
+    (C2) — and its usual cause is an onboarding that never finished: a
+    repository with no `.devman/project.toml` whose `devenv` shell entry
+    still created a central directory for it, with nothing in it yet.
+
+    Lower severity than C3: C3 names an active hazard (content that a lane
+    operation will remove from disk); C5 names a standing gap that no lane
+    operation created and none will close by landing — only finishing the
+    project's onboarding does.
+    """
+    hollow = _hollow_directory_targets(views, central)
+    return [v for v in views if os.path.exists(v.target) and v.target in hollow]
 
 
 def check_c4_pairing(central: Path = DEFAULT_CENTRAL) -> list[str]:
@@ -345,3 +467,23 @@ def format_view(
         else v.target
     )
     return f"{v.repo}/{v.rel} -> {shown} (lane-only, not reachable from {trunk})"
+
+
+def format_empty_view(v: View, *, central: Path = DEFAULT_CENTRAL) -> str:
+    """One `Report`-line rendering of a view, for C5's empty-surface finding.
+
+    Named plainly, not as corruption: the usual cause is a project that
+    never finished onboarding, not damage to a project that had. An agent
+    reading `{rel}` at this repository finds nothing below it.
+    """
+    central_str = str(central.resolve())
+    shown = (
+        v.target[len(central_str) + 1 :]
+        if v.target.startswith(central_str)
+        else v.target
+    )
+    return (
+        f"{v.repo}/{v.rel} -> {shown} (empty surface: no file or symlink"
+        " anywhere below this target — likely an onboarding that never"
+        " finished, not damage)"
+    )

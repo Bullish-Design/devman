@@ -103,6 +103,21 @@ def _commit_on_a_lane(
     _git(root, "commit", "-q", "-m", f"add {rel} on the lane")
 
 
+def _commit_symlink_on_a_lane(
+    root: Path, rel: str, link_target: str = "elsewhere", *, lane: str = "m14-residue"
+) -> None:
+    """Same shape as `_commit_on_a_lane`, but the committed content is itself
+    a symlink — proof that a symlink, not only a regular file, counts as
+    trackable content (git stores it as mode `120000`)."""
+    if _current_branch(root) != lane:
+        _git(root, "checkout", "-q", "-b", lane)
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.symlink_to(link_target)
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", f"add symlink {rel} on the lane")
+
+
 def _symlink(fleet: Path, repo: str, rel: str, target: Path) -> None:
     link = fleet / repo / rel
     link.parent.mkdir(parents=True, exist_ok=True)
@@ -226,6 +241,89 @@ def test_c3_does_not_double_report_a_target_c2_already_found_missing(tmp_path):
 
 
 @needs_git
+def test_c3_does_not_fire_on_a_target_that_is_a_tree_of_empty_directories(tmp_path):
+    """The defect this project fixes. `~/.config/devman/projects/mnemonix/agents`
+    is, on the live machine, three levels of empty directory — git tracks
+    blobs and symlinks, never a directory on its own, so this target can
+    never reach trunk no matter how many lanes land. Reporting it as C3
+    blamed a lane for a gap no lane created, and it fired on every run
+    forever because the condition can never resolve."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target.mkdir(parents=True)  # three levels deep; nothing in any of them
+    _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
+
+    views = central.reverse_index(fleet=fleet, central=central_root)
+    lane_only = central.check_c3_lane_only(views, central_root, "main")
+
+    assert lane_only == []
+
+
+@needs_git
+def test_c3_fires_on_a_lane_only_directory_holding_a_real_file(tmp_path):
+    """The assertion the project exists for must not weaken: a directory
+    target that holds a real file only in an unlanded lane is still a C3
+    finding, directory-shaped target or not."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    _commit_on_a_lane(central_root, "projects/linkman/agents/skills/my-ai/SKILL.md")
+    _symlink(fleet, "linkman", ".agents", central_root / "projects/linkman/agents")
+
+    views = central.reverse_index(fleet=fleet, central=central_root)
+    lane_only = central.check_c3_lane_only(views, central_root, "main")
+
+    assert [v.repo for v in lane_only] == ["linkman"]
+
+
+@needs_git
+def test_c3_fires_when_the_only_lane_only_content_is_a_symlink(tmp_path):
+    """A symlink is trackable content on its own — git stores it as mode
+    `120000` — so a directory whose only lane-only content is a symlink
+    must still fire C3. A predicate that counted only regular files would
+    silently excuse exactly the content the agent surface is composed of
+    (025 §7.3: 614 tracked symlinks in the real overlay)."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    _commit_symlink_on_a_lane(
+        central_root, "projects/linkman/agents/skills/copyroom", "../../../copyroom"
+    )
+    _symlink(fleet, "linkman", ".agents", central_root / "projects/linkman/agents")
+
+    views = central.reverse_index(fleet=fleet, central=central_root)
+    lane_only = central.check_c3_lane_only(views, central_root, "main")
+
+    assert [v.repo for v in lane_only] == ["linkman"]
+
+
+@needs_git
+def test_c3_does_not_fire_when_the_only_content_is_gitignored(tmp_path):
+    """A directory whose only content `.gitignore` excludes
+    (`projects/*/agents/pi/` in the real overlay) can no more reach trunk
+    than an empty one: an ordinary `gitman land` never stages an ignored
+    path. Decision: treat it the same as the empty-directory case, not as a
+    lane-only hazard — neither can ever land, by the same test C3 asks."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    (central_root / ".gitignore").write_text("projects/*/agents/pi/\n")
+    _git(central_root, "add", "-A")
+    _git(central_root, "commit", "-q", "-m", "add gitignore")
+    ignored_dir = central_root / "projects/mnemonix/agents/pi"
+    ignored_dir.mkdir(parents=True)
+    (ignored_dir / "cache.json").write_text("{}\n")
+    _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
+
+    views = central.reverse_index(fleet=fleet, central=central_root)
+    lane_only = central.check_c3_lane_only(views, central_root, "main")
+
+    assert lane_only == []
+
+
+@needs_git
 def test_exposure_message_names_repositories_and_the_shell_entry_consequence(
     tmp_path,
 ):
@@ -272,6 +370,60 @@ def test_c4_does_not_fire_when_the_pair_is_complete(tmp_path):
     (project_dir / "devenv.local.nix").write_text("{}\n")
 
     assert central.check_c4_pairing(central_root) == []
+
+
+# ---------------------------------------------------------------------------
+# C5 — empty surface: a declared target holds nothing git could ever track
+
+
+@needs_git
+def test_c5_fires_on_a_target_that_is_a_tree_of_empty_directories(tmp_path):
+    """The condition C3's fix stops misreporting is not silence: a live
+    repository still symlinks into a hollow directory, and C5 is where that
+    surfaces instead — named as an onboarding gap, not a lane hazard."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target.mkdir(parents=True)
+    _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
+
+    views = central.reverse_index(fleet=fleet, central=central_root)
+    empty = central.check_c5_empty_surface(views, central_root)
+
+    assert [v.repo for v in empty] == ["mnemonix"]
+
+
+@needs_git
+def test_c5_does_not_fire_on_a_populated_target(tmp_path):
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    target = central_root / "projects/linkman/agents/skills/my-ai"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_text("# skill\n")
+    _symlink(fleet, "linkman", ".agents", central_root / "projects/linkman/agents")
+
+    views = central.reverse_index(fleet=fleet, central=central_root)
+
+    assert central.check_c5_empty_surface(views, central_root) == []
+
+
+@needs_git
+def test_c5_does_not_fire_on_a_missing_target(tmp_path):
+    """A target that does not exist on disk at all is C2's finding, not
+    C5's — reporting it twice would double one defect into two lines, the
+    same rule C3 already follows."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    _symlink(
+        fleet, "linkman", ".agents", central_root / "projects/linkman/agents"
+    )  # never created on disk
+
+    views = central.reverse_index(fleet=fleet, central=central_root)
+
+    assert central.check_c5_empty_surface(views, central_root) == []
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +527,47 @@ def test_phase_post_does_not_run_c1_c2_c4(tmp_path, capsys):
     )  # neither C2 nor C4 ran, and no git repo means no C3 finding either
     assert "C2" not in out
     assert "C4" not in out
+
+
+@needs_git
+def test_phase_pre_does_not_run_c5(tmp_path, capsys):
+    """C5, like C3, must never block a land: it is not caused by a lane and
+    not cured by landing one, so blocking an unrelated land over it would
+    hold every future land hostage to an onboarding gap landing cannot
+    close."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target.mkdir(parents=True)
+    _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
+
+    args = _args(phase="pre", overlay=str(central_root), fleet_root=str(fleet))
+    code = cli._central_verify(args, None)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "C5" not in out
+
+
+@needs_git
+def test_phase_post_runs_c5(tmp_path, capsys):
+    """`--phase post` is where C5 surfaces — the only phase that can never
+    block a land, which both C3 and C5 need, for different reasons."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _init_central(central_root)
+    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target.mkdir(parents=True)
+    _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
+
+    args = _args(phase="post", overlay=str(central_root), fleet_root=str(fleet))
+    code = cli._central_verify(args, None)
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "C5" in out
+    assert "empty surface" in out
 
 
 @needs_git

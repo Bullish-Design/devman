@@ -6,24 +6,45 @@ config, the bounded walk, and the report's own arithmetic.
 
 **Nothing here mocks Dagu's HTTP API.** `check_plane` and `check_queues` read
 what a running Dagu reports about itself (E5), and a stub of that API would test
-the stub. They belong to `nix/tests/dagu-service.nix`, which runs a real one.
+the stub. The `!!` wedged-queue path belongs to `nix/tests/dagu-service.nix`,
+which runs a real one. Their down-path (`..`) is tested below by pointing at a
+port nothing listens on — a real connection refusal, not a stub of a response,
+so it stays within this file's own rule.
+
+**Project 041 Phase 2 — the enforceable gap-closing pass.** `FIRING_TESTS`
+near the foot of this file is the registry every check `doctor.main()` calls
+must appear in, each pointing at a test that makes that check report a
+non-`ok` status. The check list itself is read out of `main()`'s own source
+(`_checks_in_main()`), never hand-copied, so a new check missing its entry
+here fails the suite by construction rather than by someone remembering.
 """
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
+import os
+import shutil
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
 import yaml
 from helpers import ORDINARY
 
-from devman import doctor
+from devman import doctor, watch
 from devman.registry import Registry
 from devman.workflow import PROJECT_DIR
 
 pytestmark = pytest.mark.unit
+
+needs_dagu = pytest.mark.skipif(
+    shutil.which("dagu") is None, reason="needs a dagu binary"
+)
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="needs a git binary")
 
 
 def dagu_home(tmp_path, *, queues=("light", "heavy"), retention=7):
@@ -42,6 +63,35 @@ def dagu_home(tmp_path, *, queues=("light", "heavy"), retention=7):
 
 
 # ---------------------------------------------------------------------------
+# what Dagu reports about itself (E5) — the down-path, demonstrated without
+# mocking Dagu's API: a port nothing listens on gives `check_plane` and
+# `check_queues` the identical `urllib` failure a stopped Dagu would. Neither
+# counts toward the exit code (`Report.findings` only counts `!!`), but both
+# are LIVE in RESEARCH-check-efficacy.md's terms — they report loudly (`..`),
+# not `ok` — and neither had a test anywhere before this project.
+
+
+def test_plane_reports_unreachable_as_a_loud_non_finding():
+    rep = doctor.Report()
+
+    reached = doctor.check_plane(rep, "http://127.0.0.1:1")
+
+    name, status, lines = rep.sections[0]
+    assert reached is False
+    assert (name, status) == ("plane", "..")
+    assert "no answer from" in lines[0]
+
+
+def test_queues_reports_unreachable_as_a_loud_non_finding():
+    rep = doctor.Report()
+
+    doctor.check_queues(rep, "http://127.0.0.1:1")
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("queues", "..")
+
+
+# ---------------------------------------------------------------------------
 # the report's own arithmetic
 
 
@@ -53,6 +103,19 @@ def test_only_findings_are_counted():
     rep.add("b", "..", ["could not run"])
     rep.add("c", "!!", ["one", "two"])
     assert rep.findings == 2
+
+
+def test_empty_population_does_not_count_toward_the_exit_code():
+    """PROJECT 041 PART 3's exit-code decision. `EMPTY` (`--`) is a check that
+    ran against zero population — not a finding about the fleet, the same way
+    `..` is not. A fresh machine's first `devman doctor` must exit `0`, not
+    `1`, or every new machine would fail its own first health check for a
+    reason that goes away the moment one repository registers."""
+    rep = doctor.Report()
+    rep.add("a", "ok", ["fine"])
+    rep.add("b", doctor.EMPTY, ["nothing registered to check"])
+    rep.add("c", "!!", ["one real finding"])
+    assert rep.findings == 1
 
 
 def test_a_check_with_no_lines_still_prints(capsys):
@@ -88,6 +151,7 @@ def _commit(root: Path, rel: str, text: str = "x\n") -> None:
     )
 
 
+@needs_git
 def test_link_drift_reports_a_view_on_trunk_as_ok(plane, tmp_path):
     """project 041: the input is the reverse index (every live symlink into
     the overlay), not `proj.links` — the registry field commit `37050e9`
@@ -109,10 +173,14 @@ def test_link_drift_reports_a_view_on_trunk_as_ok(plane, tmp_path):
             "link drift",
             "ok",
             ["1 live views into the overlay are present and on main"],
-        )
+        ),
+        # C5 rides the same reverse-index walk and reports its own row, so a
+        # hollow target is never misfiled under a check named for drift.
+        ("empty surface", "ok", ["1 live view targets hold content"]),
     ]
 
 
+@needs_git
 def test_link_drift_fires_on_a_dangling_view(plane, tmp_path):
     """C2: a live view whose target does not exist on disk is a finding —
     the branch that could not fire before this project, because the input
@@ -130,6 +198,7 @@ def test_link_drift_fires_on_a_dangling_view(plane, tmp_path):
     assert "target does not exist" in report.sections[0][2][0]
 
 
+@needs_git
 def test_link_drift_fires_on_a_lane_only_view(plane, tmp_path):
     """C3, new in project 041: a view whose target exists but is not
     reachable from trunk — the condition behind the 2026-10-01 incidents
@@ -151,6 +220,67 @@ def test_link_drift_fires_on_a_lane_only_view(plane, tmp_path):
 
     assert report.sections[0][0:2] == ("link drift", "!!")
     assert "lane-only, not reachable from main" in report.sections[0][2][0]
+
+
+@needs_git
+def test_empty_surface_fires_on_a_hollow_target(plane, tmp_path):
+    """C5 gets its own row, not a `link drift` line. A target holding no file
+    and no symlink anywhere below it cannot be C3's "lane-only" — git never
+    held it in any lane — but a live repository still links into it, so an
+    agent reading there finds nothing. Measured live on `mnemonix`, whose
+    central `agents/skills/my-ai/` is three levels of empty directory."""
+    overlay = tmp_path / "overlay"
+    _git_repo(overlay)
+    (overlay / "projects/p/agents/skills/my-ai").mkdir(parents=True)
+    repo = plane.repos / "p"
+    repo.mkdir(parents=True)
+    (repo / ".agents").symlink_to(overlay / "projects/p/agents")
+    report = doctor.Report()
+
+    doctor.check_link_drift(report, fleet=plane.repos, central_root=overlay)
+
+    rows = {name: (status, lines) for name, status, lines in report.sections}
+    assert rows["empty surface"][0] == "!!"
+    assert "empty surface" in rows["empty surface"][1][0]
+    # And it is NOT misfiled as drift: C3 must stay silent on a hollow target.
+    assert rows["link drift"][0] == "ok"
+
+
+@needs_git
+def test_empty_surface_is_ok_when_the_target_holds_a_file(plane, tmp_path):
+    overlay = tmp_path / "overlay"
+    _git_repo(overlay)
+    _commit(overlay, "projects/p/agents/skills/gitman/SKILL.md", "# gitman\n")
+    repo = plane.repos / "p"
+    repo.mkdir(parents=True)
+    (repo / ".agents").symlink_to(overlay / "projects/p/agents")
+    report = doctor.Report()
+
+    doctor.check_link_drift(report, fleet=plane.repos, central_root=overlay)
+
+    rows = {name: status for name, status, _ in report.sections}
+    assert rows["empty surface"] == "ok"
+    assert rows["link drift"] == "ok"
+
+
+@needs_git
+def test_link_drift_and_empty_surface_report_empty_not_ok_with_no_views(
+    plane, tmp_path
+):
+    """Phase 1's rule, applied to this check: `ok` with a zero population is
+    never a pass. A machine that has linked nothing and a broken reverse-index
+    walk look identical from `ok`, and "ok with a zero population" is the exact
+    sentence this check printed for twelve days while blind."""
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "gitman.toml").write_text('trunk = "main"\n')
+    report = doctor.Report()
+
+    doctor.check_link_drift(report, fleet=plane.repos, central_root=overlay)
+
+    rows = {name: status for name, status, _ in report.sections}
+    assert rows["link drift"] == doctor.EMPTY
+    assert rows["empty surface"] == doctor.EMPTY
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +342,73 @@ def test_a_machine_with_no_queue_list_cannot_be_checked(plane, tmp_path):
     assert rep.sections[0][1] == ".."
 
 
+def test_queue_names_reports_empty_rather_than_ok_with_nothing_projected(
+    plane, tmp_path
+):
+    """PROJECT 041 PART 2/3. A declared queue list with zero projected files is
+    trivially "every queue named is one of …", true of nothing. `EMPTY`, not
+    `ok`, because this check already had test coverage for the populated case
+    and the gap was only ever the zero-population branch."""
+    rep = doctor.Report()
+
+    doctor.check_queue_names(rep, plane.reg, dagu_home(tmp_path))
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("queue names", doctor.EMPTY)
+    assert status != "ok"
+
+
+def test_validate_reports_empty_rather_than_ok_with_nothing_projected(
+    plane, monkeypatch
+):
+    """`check_load` shells out to a real `dagu validate` per file, excluded
+    from the rest of this suite for that reason (module docstring). Zero
+    files means the subprocess pool never runs, so this needs only a `dagu`
+    that resolves, not one that works."""
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/bin/dagu")
+    rep = doctor.Report()
+
+    doctor.check_load(rep, plane.reg, Path("/nonexistent-dagu-home"))
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("validate", doctor.EMPTY)
+    assert status != "ok"
+
+
+@needs_dagu
+def test_validate_fires_on_a_workflow_dagu_validate_rejects(plane, tmp_path):
+    """The `!!` branch, demonstrated against a real `dagu validate` — RESEARCH-
+    check-efficacy.md flagged this as inferred-only, since exercising it needs
+    a real binary and a deliberately broken workflow. `skipif` rather than a
+    stub: a step that depends on a step that does not exist is real, rejected
+    content, not a canned response.
+
+    The home is warmed with one harmless `validate` call first — a brand new
+    `--dagu-home` prints a one-time "creating example DAGs" line that would
+    otherwise push `dagu`'s own error past the two lines `check_load` keeps
+    (`doctor.py`'s own truncation, not a test artefact)."""
+    home = tmp_path / "dagu"
+    good = tmp_path / "warm.yaml"
+    good.write_text("steps:\n  - name: a\n    run: echo hi\n")
+    subprocess.run(
+        ["dagu", "--dagu-home", str(home), "validate", str(good)],
+        capture_output=True,
+    )
+    plane.add(
+        "p",
+        workflows={
+            "check": "steps:\n  - name: a\n    run: echo hi\n    depends: [missing]\n"
+        },
+    )
+    rep = doctor.Report()
+
+    doctor.check_load(rep, plane.reg, home)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("validate", "!!")
+    assert "Validation failed" in lines[0]
+
+
 # ---------------------------------------------------------------------------
 # check 3 — the bounded walk
 
@@ -248,6 +445,23 @@ def test_the_walk_does_not_descend_into_generated_directories(plane):
         (hidden / f"${{{PROJECT_DIR}}}").mkdir()
 
     assert doctor._literal_dirs(proj.path, depth=4) == []
+
+
+def test_check_literal_itself_reports_a_finding(plane, tmp_path):
+    """The three tests above call the private helper `_literal_dirs()`
+    directly; none of them call `check_literal` itself, so the `rep.add(...,
+    "!!", ...)` wiring around it was untested (RESEARCH-check-efficacy.md's
+    `literal dir` row). This is the doctor-level test that was missing."""
+    proj = plane.add("p")
+    hit = proj.path / f"${{{PROJECT_DIR}}}"
+    hit.mkdir()
+
+    rep = doctor.Report()
+    doctor.check_literal(rep, plane.reg, tmp_path / "dagu")
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("literal dir", "!!")
+    assert str(hit) in lines[0]
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +503,65 @@ def test_a_live_entry_is_left_alone(plane):
 
     assert rep.sections[0][1] == "ok"
     assert plane.reg.projects()["here"]
+
+
+def test_stale_entries_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    """PROJECT 041 PART 2/3. "every registered path is a directory" is
+    vacuously true of zero registered paths — the same shape the regression
+    this project fixes had."""
+    rep = doctor.Report()
+
+    doctor.check_stale(rep, plane.reg, prune=False)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("stale entries", doctor.EMPTY)
+    assert status != "ok"
+    assert rep.findings == 0
+
+
+# ---------------------------------------------------------------------------
+# check 6 — run output ageing (§9.2, D5) — had ZERO test coverage at any
+# level before project 041 (RESEARCH-check-efficacy.md Part 3 #2)
+
+
+def _age_a_run(proj_path: Path, workflow: str, *, days_old: int) -> None:
+    run_dir = proj_path / ".devman" / ".runs" / "logs" / workflow / "dag-run_1"
+    run_dir.mkdir(parents=True)
+    old = time.time() - days_old * 86400
+    os.utime(run_dir, (old, old))
+
+
+def test_run_output_fires_on_a_project_whose_runs_stopped_ageing_out(plane):
+    proj = plane.add("p", workflows={"check": ORDINARY})
+    _age_a_run(proj.path, "check", days_old=30)
+    rep = doctor.Report()
+
+    doctor.check_ageing(rep, plane.reg, dagu_home(plane.root, retention=7))
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("run output", "!!")
+    assert "newest 30 days old" in lines[0]
+
+
+def test_run_output_passes_when_nothing_is_old(plane):
+    proj = plane.add("p", workflows={"check": ORDINARY})
+    _age_a_run(proj.path, "check", days_old=1)
+    rep = doctor.Report()
+
+    doctor.check_ageing(rep, plane.reg, dagu_home(plane.root, retention=7))
+
+    assert rep.sections[0][1] == "ok"
+
+
+def test_run_output_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    rep = doctor.Report()
+
+    doctor.check_ageing(rep, plane.reg, dagu_home(plane.root, retention=7))
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("run output", doctor.EMPTY)
+    assert status != "ok"
+    assert rep.findings == 0
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +644,129 @@ def test_ordinary_workflow_names_pass_the_codec(plane):
     doctor.check_dag_names(rep, plane.reg)
 
     assert rep.sections[0][1] == "ok"
+
+
+def test_projection_reports_empty_rather_than_ok_with_nothing_projected(plane):
+    rep = doctor.Report()
+
+    doctor.check_projection(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("projection", doctor.EMPTY)
+    assert status != "ok"
+
+
+def test_dag_names_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    rep = doctor.Report()
+
+    doctor.check_dag_names(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("dag names", doctor.EMPTY)
+    assert status != "ok"
+
+
+# ---------------------------------------------------------------------------
+# check — handlers, cross-repo, fan-out (§9.2, S8, S-8) — the predicates were
+# tested at the `Workflow` level only; none of these three had a doctor-level
+# test with a firing fixture before this project
+# (RESEARCH-check-efficacy.md Part 2: "13 of 26 checks already have a
+# doctor-level test ... handlers, cross-repo, fan-out" are three of the gap).
+
+HANDLER_WORKFLOW = "handler_on:\n  success:\n    run: echo done\n" + ORDINARY
+
+CROSS_REPO_HOLDING_WORKFLOW = """
+working_dir: ${DEVMAN_PROJECT_DIR}
+steps:
+  - name: a
+    action: dag.run
+    with: {dag: child}
+"""
+
+UNBOUNDED_FANOUT_WORKFLOW = """
+steps:
+  - name: a
+    action: dag.run
+    with: {dag: child1}
+  - name: b
+    action: dag.run
+    with: {dag: child2}
+"""
+
+
+def test_handlers_fires_on_a_workflow_that_replaces_the_exit_handler(plane):
+    plane.add("p", workflows={"check": HANDLER_WORKFLOW})
+    rep = doctor.Report()
+
+    doctor.check_handlers(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("handlers", "!!")
+    assert "defines handler_on (success)" in lines[0]
+
+
+def test_handlers_passes_when_nothing_defines_one(plane):
+    plane.add("p", workflows={"check": ORDINARY})
+    rep = doctor.Report()
+
+    doctor.check_handlers(rep, plane.reg)
+
+    assert rep.sections[0][1] == "ok"
+
+
+def test_handlers_reports_empty_rather_than_ok_with_nothing_projected(plane):
+    rep = doctor.Report()
+
+    doctor.check_handlers(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("handlers", doctor.EMPTY)
+    assert status != "ok"
+
+
+def test_cross_repo_fires_on_a_parent_holding_its_own_project_dir(plane):
+    """S8: a `dag.run` parent that names `DEVMAN_PROJECT_DIR` for itself,
+    rather than only in a child's `with.params`, is holding the wrong
+    directory's name."""
+    plane.add("p", workflows={"stack": CROSS_REPO_HOLDING_WORKFLOW})
+    rep = doctor.Report()
+
+    doctor.check_cross_repo(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("cross-repo", "!!")
+    assert "holds DEVMAN_PROJECT_DIR in: working_dir" in lines[0]
+
+
+def test_cross_repo_reports_empty_rather_than_ok_with_nothing_projected(plane):
+    rep = doctor.Report()
+
+    doctor.check_cross_repo(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("cross-repo", doctor.EMPTY)
+    assert status != "ok"
+
+
+def test_fanout_fires_on_two_children_with_no_stated_bound(plane):
+    plane.add("p", workflows={"stack": UNBOUNDED_FANOUT_WORKFLOW})
+    rep = doctor.Report()
+
+    doctor.check_fanout(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("fan-out", "!!")
+    assert "a dag.run child takes no queue slot" in lines[-1]
+
+
+def test_fanout_reports_empty_rather_than_ok_with_nothing_projected(plane):
+    rep = doctor.Report()
+
+    doctor.check_fanout(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("fan-out", doctor.EMPTY)
+    assert status != "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +880,16 @@ def test_an_entry_from_a_newer_devman_is_reported(plane):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("schema", "!!")
     assert "schema 99" in lines[0]
+
+
+def test_schema_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    rep = doctor.Report()
+
+    doctor.check_schema(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("schema", doctor.EMPTY)
+    assert status != "ok"
 
 
 def test_mode_reports_compatibility_with_no_generation_file(plane):
@@ -707,6 +1113,16 @@ def test_a_repository_with_no_devenv_yaml_is_not_an_error(plane):
     assert rep.sections[0][1] == "ok"
 
 
+def test_path_inputs_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    rep = doctor.Report()
+
+    doctor.check_path_inputs(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("path inputs", doctor.EMPTY)
+    assert status != "ok"
+
+
 def test_the_whole_dotfile_counts_not_only_the_shell_scripts(plane, tmp_path):
     """Nix copies the dotfile whole, so the venv and the eval cache are part of
     the bill even though only `shell-*.sh` is safe to delete. 014 measured the
@@ -840,6 +1256,81 @@ def test_an_unknown_tier_is_a_finding(plane):
     assert "is not one of" in lines[0]
 
 
+def test_writes_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    """PROJECT 041 PART 2/3. Distinct from `test_a_project_declaring_nothing_
+    is_reported_unaudited_not_clean` above: that test registers one project
+    that declares nothing (legitimately "unaudited"); this one registers
+    none at all, which must not print the same "ok" sentence."""
+    rep = doctor.Report()
+
+    doctor.check_writes(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("writes", doctor.EMPTY)
+    assert status != "ok"
+
+
+# ---------------------------------------------------------------------------
+# check — trigger target (S-3) — project 041's Part 2 priority #1
+#
+# RESEARCH-check-efficacy.md named this the closest living relative of the
+# original `check_link_drift` defect: it trusts `proj.triggers`, a registry-
+# projected field, rather than re-deriving its answer from the filesystem —
+# and it had NO TEST ANYWHERE before this project.
+
+
+def test_trigger_target_fires_on_a_tombstoned_group(plane):
+    """A group whose workflow was deleted leaves its `triggers.toml` behind —
+    the registry entry still carries a `triggers` block naming a workflow
+    this project no longer projects. Every matching save then fires a
+    `devman run` that refuses, silently, in a watcher log nobody opens
+    (`check_trigger_targets`'s own docstring)."""
+    plane.add(
+        "p",
+        workflows={},
+        local=[],
+        triggers={"group": "format", "map": {"**/*.py": "format"}},
+    )
+    rep = doctor.Report()
+
+    doctor.check_trigger_targets(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("trigger target", "!!")
+    assert "'format' is not projected" in lines[0]
+    assert "this project projects: (nothing)" in lines[1]
+
+
+def test_trigger_target_passes_when_the_workflow_is_still_projected(plane):
+    plane.add(
+        "p",
+        workflows={"format": ORDINARY},
+        triggers={"group": "format", "map": {"**/*.py": "format"}},
+    )
+    rep = doctor.Report()
+
+    doctor.check_trigger_targets(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("trigger target", "ok")
+    assert "1 triggers" in lines[0]
+
+
+def test_trigger_target_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    """PROJECT 041 PART 2/3. Zero registered projects is zero triggers to
+    check, and `ok  no registered project declares a trigger` was the exact
+    sentence `check_link_drift` printed for twelve days while its real input
+    was nonzero — this check must not say `ok` for the same empty shape."""
+    rep = doctor.Report()
+
+    doctor.check_trigger_targets(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("trigger target", doctor.EMPTY)
+    assert status != "ok"
+    assert rep.findings == 0
+
+
 # ---------------------------------------------------------------------------
 # check — what a repository's local libraries actually resolve to (016)
 
@@ -937,6 +1428,19 @@ def test_a_repository_with_no_local_inputs_says_so(plane):
     name, status, lines = rep.sections[0]
     assert (name, status) == ("local sources", "ok")
     assert "0 local libraries" in lines[0]
+
+
+def test_local_sources_reports_empty_rather_than_ok_with_nothing_registered(plane):
+    """PROJECT 041 PART 2/3. Distinct from the test above: that one registers
+    a project with no local inputs (legitimately "0 local libraries feed 0
+    inputs"); this one registers no project at all."""
+    rep = doctor.Report()
+
+    doctor.check_local_sources(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("local sources", doctor.EMPTY)
+    assert status != "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -1152,3 +1656,188 @@ def test_prune_preserves_a_ledger_with_no_trailing_newline(tmp_path):
 
     assert not path.read_text().endswith("\n")
     assert json.loads(path.read_text()) == {"linkman:.agents": LIVE_ENTRY}
+
+
+# ---------------------------------------------------------------------------
+# check — `SHELL` in the running Dagu's own environment (009 P1-3, S13)
+#
+# Had no test anywhere (RESEARCH-check-efficacy.md: "the nix test checks
+# `/proc` directly, not `doctor`'s output"). `_dagu_pids` matches on a
+# process's own argv (named `dagu`, carrying `start-all`) and its
+# `DAGU_HOME`/environment — real facts to construct without a real `dagu`
+# binary: `subprocess.Popen`'s `executable=` runs this interpreter under a
+# borrowed argv[0], so `/proc/<pid>/cmdline` and `/proc/<pid>/environ` are
+# exactly what a real leaked-`SHELL` Dagu would leave. Nothing about Dagu's
+# own behaviour is faked; this is a real process and a real `/proc` read.
+
+
+def test_daemon_shell_fires_when_shell_leaks_into_a_running_dagu(tmp_path):
+    home = tmp_path / "dagu_home"
+    proc = subprocess.Popen(
+        ["dagu", "-c", "import time; time.sleep(30)", "start-all"],
+        executable=sys.executable,
+        env={**os.environ, "DAGU_HOME": str(home), "SHELL": "/bin/doctor-test-shell"},
+    )
+    try:
+        environ_path = Path(f"/proc/{proc.pid}/environ")
+        for _ in range(100):
+            if b"SHELL=/bin/doctor-test-shell" in environ_path.read_bytes():
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("the fake dagu process never showed its SHELL in /proc")
+
+        rep = doctor.Report()
+        doctor.check_daemon_shell(rep, home)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("daemon shell", "!!")
+    assert any(
+        f"pid {proc.pid}" in line and "SHELL=/bin/doctor-test-shell" in line
+        for line in lines
+    )
+
+
+# ---------------------------------------------------------------------------
+# check — the watcher (§8, stage 3)
+#
+# No unit-level test anywhere before this project: `nix/tests/dagu-
+# service.nix:389-488` exercises the process-table branches in a VM, and only
+# ever asserts the clean `"ok  watcher"` line (RESEARCH-check-efficacy.md).
+# This fires the "supervisor alive, registry says watch something, nothing is
+# actually watching it" branch — real `/proc` liveness (the state file names
+# THIS test process's own pid, which is trivially alive) against a real,
+# empty `running_watchers()` result (no watchexec was started, so there
+# genuinely is none) — the one branch reachable without spawning watchexec.
+
+
+def test_watcher_fires_when_the_supervisor_is_alive_but_nothing_is_running(plane):
+    plane.add(
+        "p",
+        workflows={"format": ORDINARY},
+        triggers={"group": "format", "map": {"**/*.py": "format"}},
+    )
+    entries = watch.watch_map(plane.reg)
+    state = watch.WatchState(plane.reg)
+    state.start(entries, ["watchexec", "--watch", str(plane.repos / "p")])
+
+    rep = doctor.Report()
+    doctor.check_watcher(rep, plane.reg)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("watcher", "!!")
+    assert any("is watching nothing" in line for line in lines)
+
+
+# ---------------------------------------------------------------------------
+# PART 2 — the rule enforced, not just satisfied (project 041, Phase 2)
+#
+# RESEARCH-check-efficacy.md's own recommendation: "one table-driven
+# parametrised test ... a list of (check_name, fixture_fn) pairs ... so a new
+# check added to main() without a corresponding fixture entry is itself a
+# visible gap." `_checks_in_main()` reads the check list out of `main()`'s
+# own source — never a hand-copied list — so the only thing a human can get
+# wrong is forgetting to add the new check's entry to `FIRING_TESTS`, and
+# THAT is what this test then fails on, by name, with a message that says
+# exactly what to do next.
+#
+# **What this cannot catch, stated so nobody over-trusts it:** a fixture
+# built against a wrong predicate proves nothing — it tests that *a* non-ok
+# branch is reachable, not that the branch means what the check's docstring
+# claims. It would NOT have caught the original defect this project exists to
+# fix: `check_link_drift`'s own tests built their input by hand and never
+# touched the different file (`modules/devenv.nix`) whose deletion emptied
+# the real population path. That is why the empty-population guards
+# (`EMPTY`, Part 2 of this project's Phase 1) are the primary defence and
+# this table is secondary — it keeps the *next* check honest about having
+# A firing test at all, not about that test's correctness.
+
+INFORMATIONAL = {
+    # `check_mode` and `check_drift` ("shadowing") print `ok` and nothing
+    # else, by construction — each function's own docstring says so, and
+    # RESEARCH-check-efficacy.md confirms neither has a reachable `!!`
+    # branch. Opting out here is explicit and visible for exactly that
+    # reason: a silent absence from FIRING_TESTS would look identical to a
+    # forgotten entry, which is the loophole this guard exists to close.
+    "check_mode": "no `!!` branch exists — a status line, not a fault detector (see check_mode's own docstring)",
+    "check_drift": "no `!!` branch exists — drift is a fact, not a fault (see check_drift's own docstring)",
+}
+
+FIRING_TESTS = {
+    "check_plane": "test_plane_reports_unreachable_as_a_loud_non_finding",
+    "check_queues": "test_queues_reports_unreachable_as_a_loud_non_finding",
+    "check_faults": "test_a_registry_fault_is_reported_with_its_metadata_path",
+    "check_load": "test_validate_fires_on_a_workflow_dagu_validate_rejects",
+    "check_queue_names": "test_an_undeclared_queue_name_is_a_finding",
+    "check_literal": "test_check_literal_itself_reports_a_finding",
+    "check_stale": "test_a_stale_entry_is_reported_without_prune",
+    "check_ageing": "test_run_output_fires_on_a_project_whose_runs_stopped_ageing_out",
+    "check_projection": "test_a_link_pointing_at_another_project_is_still_a_fault",
+    "check_dag_names": "test_a_workflow_name_holding_a_dot_is_a_finding",
+    "check_schema": "test_an_entry_from_a_newer_devman_is_reported",
+    "check_generation": "test_plane_projection_records_must_match_active_generation",
+    "check_handlers": "test_handlers_fires_on_a_workflow_that_replaces_the_exit_handler",
+    "check_cross_repo": "test_cross_repo_fires_on_a_parent_holding_its_own_project_dir",
+    "check_fanout": "test_fanout_fires_on_two_children_with_no_stated_bound",
+    "check_writes": "test_tier_free_outside_agent_surface_is_a_finding",
+    "check_trigger_targets": "test_trigger_target_fires_on_a_tombstoned_group",
+    "check_link_drift": "test_link_drift_fires_on_a_dangling_view",
+    "check_ledger_stale": "test_ledger_reports_a_project_whose_repository_is_absent",
+    "check_local_sources": "test_a_dirty_local_source_is_a_finding_with_its_consumer_count",
+    "check_path_inputs": "test_a_path_input_carrying_a_big_dotfile_is_a_finding",
+    "check_daemon_shell": "test_daemon_shell_fires_when_shell_leaks_into_a_running_dagu",
+    "check_reload": "test_reload_reports_blocked_as_a_finding_with_the_repair_action",
+    "check_watcher": "test_watcher_fires_when_the_supervisor_is_alive_but_nothing_is_running",
+}
+
+
+def _checks_in_main() -> list[str]:
+    """Every `check_*` function `doctor.main()` calls, read from its own
+    source rather than hand-copied — the "source or projection, never a
+    copy" rule (AGENTS.md P2), applied to this guard itself. A `check_*`
+    call added anywhere in `main()`'s body is found here whether or not it
+    sits behind an `if`, because this walks the parsed source rather than
+    running it."""
+    tree = ast.parse(inspect.getsource(doctor.main))
+    names = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id.startswith("check_")
+            and node.func.id not in names
+        ):
+            names.append(node.func.id)
+    return names
+
+
+def test_every_check_main_calls_is_accounted_for_at_all():
+    """A canary for the guard itself: if `main()` stops calling any
+    `check_*` function at all, or this parser stops finding them, the
+    parametrised test below would silently collect zero cases rather than
+    failing — pytest does not fail an empty parametrize by default."""
+    assert len(_checks_in_main()) >= 20
+
+
+@pytest.mark.parametrize("check_name", sorted(_checks_in_main()))
+def test_every_check_main_calls_has_a_firing_test_or_is_informational(check_name):
+    if check_name in INFORMATIONAL:
+        return
+    assert check_name in FIRING_TESTS, (
+        f"{check_name} is called by doctor.main() and has no entry in "
+        f"FIRING_TESTS (tests/unit/test_doctor.py). Add a test that makes "
+        f"it report a non-ok status (a `!!` finding, or a loud `..`/`EMPTY`), "
+        f'then add "{check_name}": "<your test\'s name>" to FIRING_TESTS — '
+        f"or, if it is deliberately informational and has no reachable `!!` "
+        f'branch, add "{check_name}": "<one-line reason>" to INFORMATIONAL '
+        f"instead."
+    )
+    test_name = FIRING_TESTS[check_name]
+    module = sys.modules[__name__]
+    assert hasattr(module, test_name), (
+        f"FIRING_TESTS[{check_name!r}] names {test_name!r}, which does not "
+        f"exist in {__name__}. Fix the name, or write the test."
+    )

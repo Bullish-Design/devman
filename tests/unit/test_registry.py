@@ -526,3 +526,66 @@ def test_one_corrupt_entry_does_not_refuse_a_healthy_project(plane):
     corrupt(plane, "broken", "[]")
 
     assert plane.reg.project("good").path == good.path
+
+
+# ---------------------------------------------------------------------------
+# project 041 Part 1 — an absent root must not read like an empty one
+#
+# `check_link_drift` read `proj.links`, a field a refactor stopped writing,
+# and reported `ok` for twelve days because an empty field and a healthy one
+# render the identical sentence (CONCEPT.md §1.1). The same shape existed one
+# level up: `Registry.load()` returned `({}, [])` whether `projects_dir` was
+# present-and-empty or missing entirely. These tests are the ones that fail
+# without this project's fix.
+
+
+def test_a_never_used_registry_is_empty_not_faulted(tmp_path):
+    """A machine that has never entered a devenv shell has no registry root at
+    all — `self.root` itself is absent. That is legitimately empty, not a
+    fault: naming it unconditionally would make `devman doctor` report a
+    permanent, meaningless `!!` on every fresh machine's first run."""
+    registry = Registry(tmp_path / "never-touched", tmp_path / "never-touched")
+
+    projects, faults = registry.load()
+
+    assert projects == {}
+    assert faults == []
+
+
+def test_a_registry_root_that_vanished_is_a_named_fault(plane):
+    """Once a registration has happened here before — `self.root` is a real
+    directory, because `plane.add()` built it — `state/projects` going
+    missing out from under it is not ambiguous. It is `check_link_drift`'s
+    regression one level up: a write path died and every one of the 26
+    `doctor` checks built on `Registry.load()` would otherwise stay blind to
+    it, exactly as they did when `proj.links` emptied out silently."""
+    plane.add("p", workflows={"check": ORDINARY})
+    # Simulate the vanished write path: point a fresh `Registry` at the same
+    # (now-existing) root, but at a state directory that was never created.
+    registry = Registry(plane.root, plane.root.parent / "state-never-written")
+
+    projects, faults = registry.load()
+
+    assert projects == {}
+    assert [f.name for f in faults] == ["(registry root)"]
+    assert "has been used before" in faults[0].why
+    assert registry.faults() == faults
+
+
+def test_an_absent_active_generation_directory_is_unconditionally_a_fault(tmp_path):
+    """`project_source` is only ever set by `for_active_generation()`, and
+    `doctor.main` only takes that path once `generation.json` proves plane
+    mode is already active. Its target is named, not guessed, so — unlike
+    the default view — its absence carries no "maybe this machine is just
+    new" reading at all, even when `self.root` ALSO does not exist (isolated
+    here: nothing under `tmp_path` was ever created)."""
+    registry = Registry(tmp_path / "never-touched", tmp_path / "never-touched")
+    registry = registry.for_active_generation()
+    assert registry.project_source is not None
+    assert not registry.project_source.is_dir()
+    assert not registry.root.is_dir()
+
+    projects, faults = registry.load()
+
+    assert projects == {}
+    assert [f.name for f in faults] == ["(registry root)"]
