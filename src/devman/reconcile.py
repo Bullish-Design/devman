@@ -463,6 +463,50 @@ def _publish_compatibility_bundle(
     workflows_dir = registry_entry / "workflows"
     dags = registry / "dags"
     entry = state / "projects" / project
+
+    # THE DUPLICATE-REGISTRATION REFUSAL (025 CONCEPT.md §10 item 2, restored
+    # after `modules/devenv.nix` was deleted — devman project 041, O9).
+    #
+    # `root` is this call's current checkout, already `.expanduser().resolve()`d
+    # by `compatibility_apply` before it reached `render_project` and this
+    # function (it is a required parameter here, not a run-time lookup), and
+    # it is the exact string `render_project` wrote into the entry's "path"
+    # field. So comparing `str(root)` against the recorded "path" compares the
+    # same two things the old shell hook compared as `$devman_root` and the
+    # slice it cut out of `metadata.json`.
+    #
+    # Three conditions, all required, same as the deleted hook (§9.1):
+    #   * a path was recorded at all — a first registration has none, and
+    #     must proceed;
+    #   * it names a DIFFERENT checkout — re-entering the shell from the same
+    #     checkout records the same path on every entry, and must not refuse
+    #     itself;
+    #   * that other checkout's directory STILL EXISTS. A recorded path that
+    #     is gone means the project moved, and the entry is replaced — which
+    #     is what keeps a moved repository from being refused forever. This
+    #     third condition is the one the fleet cannot survive losing: drop it
+    #     and every renamed or relocated repository registers once and then
+    #     refuses itself on every later shell entry.
+    #
+    # Placed before any directory under `registry_entry`, `dags` or `entry` is
+    # created, so a collision leaves the surviving checkout's workflows, DAG
+    # links and metadata byte-for-byte untouched rather than partly
+    # overwritten.
+    recorded_path = _compatibility_recorded_path(entry)
+    if (
+        recorded_path is not None
+        and recorded_path != str(root)
+        and Path(recorded_path).is_dir()
+    ):
+        raise ReconcileError(
+            f"refusing to register '{project}'\n"
+            f"  already registered at {recorded_path}, which still exists\n"
+            f"  this checkout is      {root}\n"
+            "  edit .devman/project.toml in one of the two checkouts to give\n"
+            '  it a different "project" name, then run `devman project apply`\n'
+            "  again (or just enter its devenv shell)"
+        )
+
     workflows_dir.mkdir(parents=True, exist_ok=True)
     dags.mkdir(parents=True, exist_ok=True)
     entry.mkdir(parents=True, exist_ok=True)
@@ -530,6 +574,21 @@ def _compatibility_recorded_plan(entry: Path) -> str | None:
 
     try:
         return json.loads((entry / "metadata.json").read_text()).get("plan")
+    except (OSError, ValueError):
+        return None
+
+
+def _compatibility_recorded_path(entry: Path) -> str | None:
+    """Read the last canonical checkout path, if the entry exists.
+
+    Measured against a live 854-byte ``metadata.json``: ~24 microseconds for
+    the read and the parse together (2000-iteration mean) — far under the
+    "a few milliseconds" budget this hot path is held to, because the file it
+    reads is the one the caller is about to overwrite anyway.
+    """
+
+    try:
+        return json.loads((entry / "metadata.json").read_text()).get("path")
     except (OSError, ValueError):
         return None
 

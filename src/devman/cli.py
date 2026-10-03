@@ -268,6 +268,11 @@ def handler(command: str):
     lookup for them and an import for one.
     """
     if command == "doctor":
+        # This deferred import is now load-bearing for a second reason, stated
+        # here because the first reason alone would not stop someone hoisting
+        # it: `doctor` imports `_manifest_candidates` from THIS module at module
+        # level (project 041 O9's duplicate-name check). Moving this line to the
+        # top of the file makes that a cycle. Keep it inside the function.
         from . import doctor
 
         return doctor.main

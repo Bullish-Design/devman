@@ -1332,6 +1332,81 @@ def test_trigger_target_reports_empty_rather_than_ok_with_nothing_registered(pla
 
 
 # ---------------------------------------------------------------------------
+# check_duplicate_identity — two checkouts sharing a project name (O9, half 2
+# of the duplicate-registration refusal). This reuses `cli._manifest_candidates`
+# rather than re-deriving the comparison; the fixtures below are the same
+# shape as `test_cli.py`'s `_write_manifest`/`test_link_all_blocks_duplicate_
+# manifest_identities`, because the two are exercising one function.
+
+
+def _write_project_manifest(root: Path, project: str) -> None:
+    manifest = root / ".devman" / "project.toml"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        f'schema = 1\nproject = "{project}"\ngroups = []\npolicy = "stable"\n'
+    )
+
+
+def test_duplicate_identity_fires_on_two_checkouts_sharing_a_project_name(tmp_path):
+    """025 §6.4's hazard, from state already on disk: two direct children of
+    the fleet root state the same `devman.project` in their own
+    `.devman/project.toml`. Nothing about this reads the registry — both
+    facts come from the checkouts themselves (041 D1)."""
+    fleet = tmp_path / "fleet"
+    fleet.mkdir()
+    _write_project_manifest(fleet / "first-checkout", "flora")
+    _write_project_manifest(fleet / "second-checkout", "flora")
+    rep = doctor.Report()
+
+    doctor.check_duplicate_identity(rep, fleet=fleet)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("duplicate name", "!!")
+    assert any("duplicate manifest identity 'flora'" in line for line in lines)
+    assert rep.findings == len(lines)
+
+
+def test_duplicate_identity_is_silent_when_every_checkout_names_itself_once(tmp_path):
+    fleet = tmp_path / "fleet"
+    fleet.mkdir()
+    _write_project_manifest(fleet / "first-checkout", "flora")
+    _write_project_manifest(fleet / "second-checkout", "orchid")
+    rep = doctor.Report()
+
+    doctor.check_duplicate_identity(rep, fleet=fleet)
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("duplicate name", "ok")
+    assert "2 checkouts" in lines[0]
+    assert rep.findings == 0
+
+
+def test_duplicate_identity_reports_empty_rather_than_ok_with_no_manifest(tmp_path):
+    """PROJECT 041 PART 2's rule, applied here: a fleet root that does not
+    exist yet and a fleet root full of checkouts that carry no
+    `.devman/project.toml` read identically through `ok` — `EMPTY` instead,
+    so a machine with nothing to compare cannot be misread as a machine that
+    compared everything and found it clean."""
+    rep = doctor.Report()
+
+    doctor.check_duplicate_identity(rep, fleet=tmp_path / "never-created")
+
+    name, status, lines = rep.sections[0]
+    assert (name, status) == ("duplicate name", doctor.EMPTY)
+    assert rep.findings == 0
+
+    fleet = tmp_path / "fleet-with-no-manifests"
+    (fleet / "some-dir").mkdir(parents=True)
+    rep2 = doctor.Report()
+
+    doctor.check_duplicate_identity(rep2, fleet=fleet)
+
+    name2, status2, _lines2 = rep2.sections[0]
+    assert (name2, status2) == ("duplicate name", doctor.EMPTY)
+    assert rep2.findings == 0
+
+
+# ---------------------------------------------------------------------------
 # check — what a repository's local libraries actually resolve to (016)
 
 
@@ -1784,6 +1859,7 @@ FIRING_TESTS = {
     "check_fanout": "test_fanout_fires_on_two_children_with_no_stated_bound",
     "check_writes": "test_tier_free_outside_agent_surface_is_a_finding",
     "check_trigger_targets": "test_trigger_target_fires_on_a_tombstoned_group",
+    "check_duplicate_identity": "test_duplicate_identity_fires_on_two_checkouts_sharing_a_project_name",
     "check_link_drift": "test_link_drift_fires_on_a_dangling_view",
     "check_ledger_stale": "test_ledger_reports_a_project_whose_repository_is_absent",
     "check_local_sources": "test_a_dirty_local_source_is_a_finding_with_its_consumer_count",

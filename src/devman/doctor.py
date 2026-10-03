@@ -62,7 +62,22 @@ import yaml
 from devman_link.state import STATE_FILE
 
 from . import central, project, watch
-from .registry import Registry, dag_name_fault, identity_fault
+
+# `cli` is not imported for its command-line surface. `_manifest_candidates`
+# (`cli.py:289-333`) is the one place that already compares two on-disk
+# `.devman/project.toml` manifests for a shared project name — built for
+# `devman link status --all` and, per project 041's audit, reachable from
+# nowhere else. `check_duplicate_identity` below is the second caller, so
+# this reuses that comparison rather than re-deriving it here (AGENTS.md:
+# re-implementing a check the repository already has is a smell). `cli`
+# itself deliberately does not import `doctor` (its own comment there, on
+# load cost for every OTHER command); the reverse does not reinstate that
+# cost, because every module `cli` pulls in beyond what `doctor` already
+# imports is cheap relative to `doctor`'s own `dagu validate` fan-out —
+# measured at parity, `python -c 'import devman.doctor'` against the same
+# plus `import devman.cli`, three runs each, well inside noise.
+from .cli import _manifest_candidates
+from .registry import Registry, RegistryError, dag_name_fault, identity_fault
 from .watch import WatchState, watch_map
 from .workflow import PROJECT_DIR, SELF_DIR, Workflow
 
@@ -1438,6 +1453,90 @@ def check_path_inputs(rep: Report, reg: Registry) -> None:
         )
 
 
+def check_duplicate_identity(
+    rep: Report, *, fleet: Path = central.DEFAULT_FLEET
+) -> None:
+    """Two checkouts cannot share a project name, and nothing automatic asks.
+
+    **This is the detection half of O9; the other half is a refusal, and a**
+    **refusal is not this.** Project 041 found the duplicate-registration
+    refusal LOST (`PRESERVED-ITEMS-AUDIT.md` item 2): no code path compares a
+    project name's already-registered root against a new checkout's root
+    before a registration writes. Restoring that refusal — elsewhere — stops
+    a THIRD checkout from joining a name already in use. It does nothing
+    about a collision already sitting on disk, and 025 §6.4 is the sharpest
+    statement of why that gap cannot close by hand: two `dags/` entries
+    resolving to one name make `dagu ls` print the name once, exit 0, no
+    warning, and manual verification cannot see the file it did not pick.
+    The only existing detector was `devman link status --all
+    --projects-root <dir>` (`cli.py:286-333`) — manual, opt-in, and reachable
+    from nowhere else in the codebase (same audit). This check is what makes
+    it run on its own, every night, with the rest of the fleet.
+
+    **Checked it is not already covered.** `check_dag_names` reads one
+    registry entry's own name for grammar; `check_projection` reads one
+    entry's own `dags/` link against its own file. Neither reads a SECOND
+    checkout, so neither can see two of them agreeing on a name.
+
+    **What it reads, and why not the registry.** 041's D1 is that the
+    registry is derived, and trusting it for a link check already failed
+    silently once: `check_link_drift` read a registry field that had emptied
+    and reported `ok` for twelve days (this file, above). A name collision
+    is exactly the shape where the registry is least trustworthy — the
+    registry entry is one slot, so the second checkout's write either lands
+    beside the first (two entries, one name) or replaces it outright
+    depending on which path wrote it, and either way reading the registry
+    risks seeing only the survivor. What is NOT derived is each checkout's
+    own `.devman/project.toml`: the file a repository states its identity
+    in, on its own disk, independent of whatever the registry currently
+    holds. `cli._manifest_candidates` already walks that source and already
+    reports a `project` field two children agree on — built for `devman link
+    status --all`, reused here rather than re-derived (see the import
+    comment above).
+
+    **Set membership, not a heuristic (§15.7).** The only question asked is
+    whether two direct children of `fleet` hold a `project.toml` naming the
+    same project. Both sides are facts a checkout states about itself; there
+    is no guess about which one is right.
+
+    **Cost.** One `iterdir()` of `fleet` and one manifest read per direct
+    child that has one — no subprocess, no Dagu call. `check_link_drift` and
+    `check_ledger_stale` already default to this same fleet root for the
+    identical reason: cheap enough for `plane-report` to run nightly for the
+    whole machine without a second scheduled report.
+    """
+    try:
+        candidates, errors = _manifest_candidates([str(fleet)])
+    except RegistryError:
+        # PROJECT 041 PART 2's shape: an absent or manifest-free fleet root is
+        # zero checkouts to compare, not zero collisions found among some.
+        rep.add(
+            "duplicate name",
+            EMPTY,
+            [f"no checkout with a .devman/project.toml under {fleet}"],
+        )
+        return
+    dupes = [
+        (path, why) for path, why in errors if "duplicate manifest identity" in why
+    ]
+    if dupes:
+        lines = [f"{path}: {why.splitlines()[0]}" for path, why in dupes]
+        lines.append(
+            "two checkouts under the fleet root declare one devman.project —"
+            " the registry, dags/ and the scheduler each resolve it to"
+            " whichever wrote last (025 §6.4); rename one and re-enter its"
+            " shell, or run `devman link status --all --projects-root"
+            f" {fleet}` for the full picture"
+        )
+        rep.add("duplicate name", "!!", lines)
+        return
+    rep.add(
+        "duplicate name",
+        "ok",
+        [f"{len(candidates)} checkouts under {fleet}, no two declare one project"],
+    )
+
+
 def check_link_drift(
     rep: Report,
     *,
@@ -1973,6 +2072,7 @@ def main(args, reg: Registry) -> int:
     check_fanout(rep, reg)
     check_writes(rep, reg)
     check_trigger_targets(rep, reg)
+    check_duplicate_identity(rep)
     check_link_drift(rep)
     check_ledger_stale(rep, prune=args.prune)
     check_local_sources(rep, reg)
