@@ -914,7 +914,9 @@ def test_mode_reports_plane_when_a_generation_file_is_active(plane):
 
 
 @pytest.mark.parametrize("mode", ["compatibility", "plane"])
-def test_header_names_the_project_metadata_source(plane, tmp_path, capsys, monkeypatch, mode):
+def test_header_names_the_project_metadata_source(
+    plane, tmp_path, capsys, monkeypatch, mode
+):
     plane.add("active", workflows={"check": ORDINARY})
     state = tmp_path / "state"
     state_entry = state / "projects" / "stale-state"
@@ -942,7 +944,9 @@ def test_header_names_the_project_metadata_source(plane, tmp_path, capsys, monke
     assert lines[0] == f"devman doctor — 1 projects, {workflow_count} workflows"
     assert f"    projects   {source}" in lines
     selected = registry.for_active_generation() if mode == "plane" else registry
-    assert sorted(selected.projects()) == (["active"] if mode == "plane" else ["stale-state"])
+    assert sorted(selected.projects()) == (
+        ["active"] if mode == "plane" else ["stale-state"]
+    )
 
 
 def test_plane_projection_records_must_match_active_generation(plane):
