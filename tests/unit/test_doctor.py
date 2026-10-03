@@ -30,6 +30,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -40,6 +41,7 @@ from devman.registry import Registry
 from devman.workflow import PROJECT_DIR
 
 pytestmark = pytest.mark.unit
+needs_git = pytest.mark.skipif(shutil.which("git") is None, reason="needs a git binary")
 
 needs_dagu = pytest.mark.skipif(
     shutil.which("dagu") is None, reason="needs a dagu binary"
@@ -909,6 +911,38 @@ def test_mode_reports_plane_when_a_generation_file_is_active(plane):
     doctor.check_mode(rep, plane.reg)
 
     assert rep.sections[0] == ("mode", "ok", ["plane"])
+
+
+@pytest.mark.parametrize("mode", ["compatibility", "plane"])
+def test_header_names_the_project_metadata_source(plane, tmp_path, capsys, monkeypatch, mode):
+    plane.add("active", workflows={"check": ORDINARY})
+    state = tmp_path / "state"
+    state_entry = state / "projects" / "stale-state"
+    state_entry.mkdir(parents=True)
+    (state_entry / "metadata.json").write_text(
+        (plane.root / "projects" / "active" / "metadata.json")
+        .read_text()
+        .replace('"active"', '"stale-state"')
+    )
+    registry = Registry(plane.root, state)
+    if mode == "plane":
+        (plane.root / "generation.json").write_text('{"generation": 1}\n')
+
+    # Main selects the source before printing. Stub checks so this test reads
+    # no machine state and asserts the header from the actual command path.
+    for name in dir(doctor):
+        if name.startswith("check_") and name != "check_mode":
+            monkeypatch.setattr(doctor, name, lambda *args, **kwargs: None)
+    args = SimpleNamespace(dagu_home=tmp_path / "dagu", prune=False)
+    assert doctor.main(args, registry) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    source = plane.root / "projects" if mode == "plane" else state_entry.parent
+    workflow_count = 1 if mode == "plane" else 0
+    assert lines[0] == f"devman doctor — 1 projects, {workflow_count} workflows"
+    assert f"    projects   {source}" in lines
+    selected = registry.for_active_generation() if mode == "plane" else registry
+    assert sorted(selected.projects()) == (["active"] if mode == "plane" else ["stale-state"])
 
 
 def test_plane_projection_records_must_match_active_generation(plane):
