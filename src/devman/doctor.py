@@ -1759,6 +1759,141 @@ def check_ledger_stale(
     rep.add("ledger", "!!", lines)
 
 
+# ---------------------------------------------------------------------------
+# universal law vs. selected tool skills (project 041, skill-surface work,
+# step 4)
+
+# A skill belongs here when a repository's stack makes no difference to
+# whether the skill applies to it — every repository writes text, so every
+# repository needs the operator's Simplified Technical English law, no
+# matter what it builds. `gitman` and `copyroom` read as near-universal by
+# COUNT alone (92-98% of the 65 live surfaces,
+# `.scratch/projects/041-central-autoland/RESEARCH-universal-skills.md`
+# §2) but stay out of this set on purpose: a repository with no version
+# control, or with nothing to adopt from a template, is a real exception
+# the pool's selection-by-link mechanism is right to express for a tool
+# skill. `writing` has no such exception to express — RESEARCH-
+# universal-skills.md §3 traces its gap to a rollout that ran for one
+# repository (`71344a42`) and never went fleet-wide, not to 47 deliberate
+# choices against it — so it is the one name here. A second name earns a
+# place in this tuple only by clearing the identical bar: no stack
+# carve-out, no tool gate, every repository's agent produces text under
+# some written standard or none.
+UNIVERSAL_SKILLS = ("writing",)
+
+
+def check_universal_skills(
+    rep: Report,
+    *,
+    fleet: Path = central.DEFAULT_FLEET,
+    central_root: Path = central.DEFAULT_CENTRAL,
+) -> None:
+    """Every live surface's `agents/skills/` carries the universal set.
+
+    **The gap this closes.** The central overlay holds a pool of shared
+    skills at `skills/`, and a project's surface at
+    `projects/<name>/agents/skills/` selects from the pool by holding a
+    link into it (025 §7.3: "selection is a directory of links"). Selection
+    is right for a tool skill — a repository not using `docman` has no use
+    for `docman`'s skill — and wrong for `writing`, which is operator law,
+    not a tool (`UNIVERSAL_SKILLS` above states the criterion). Measured by
+    RESEARCH-universal-skills.md §2-§3: 65 surfaces existed, 18 carried
+    `writing`, and `git log --all` on the other 47 showed no commit ever
+    touching their `writing` link — an unrolled migration, not 47
+    decisions against it. Nothing reported the gap for three weeks.
+
+    **Liveness matches `check_ledger_stale`, not a third rule.** That check
+    treats `(fleet / name).is_dir()` as the only test of whether a project
+    is live — "never the registry" (its own docstring) — because the
+    registry and the ledger can both go stale and the filesystem cannot.
+    This reuses the identical test: a surface under
+    `projects/<name>/agents/skills/` counts only when `fleet / name` is a
+    real directory today. `check_link_drift` reads the fleet in the other
+    direction (which repositories hold a live link into the overlay); this
+    stays inside the overlay's own surfaces and asks the fleet only "does
+    this project still exist," the exact question `check_ledger_stale`
+    already answers the same way, so a third liveness rule is not invented
+    here.
+
+    **The pool gets its own, more severe row.** A surface missing
+    `writing` is one project behind; the pool itself missing `writing`
+    means no surface could carry it no matter how many links exist, and
+    every one of those links would already be dangling (a `check_link_drift`
+    C2 finding, traced here to its single root cause instead of 47 separate
+    ones). Both are asserted; the pool is checked first so its finding, when
+    there is one, explains the surface findings that follow rather than
+    competing with them for the reader's attention.
+
+    **A real directory satisfies the requirement; so does a link.** 025
+    §7.2 wants a link into the pool — that is how one `writing` edit
+    reaches every consumer without a second edit — but this check asks a
+    narrower question than §7.2 does: can an agent reading this surface
+    find the skill right now. A real copy answers yes exactly as
+    completely as a link does, only without the pool's future benefit of
+    one edit reaching every consumer. Flagging a real copy as a finding
+    would make this check about provisioning mechanics instead of the
+    presence it exists to assert, so a directory and a link are accepted
+    on equal terms; nothing here distinguishes them.
+
+    **Cost.** One `Path.glob()` over the surfaces plus one `.exists()` per
+    universal skill per live surface — no subprocess, no git call.
+    Measured at 2.5 ms for 65 surfaces against the live overlay, well
+    inside the nightly `plane-report` budget this shares with
+    `check_link_drift`'s 0.72 s walk.
+
+    **Zero live surfaces is `EMPTY`, not `ok`** (the legend above
+    `Report`): a machine with no live surface and a broken glob both read
+    as "nothing to report" from `ok`, and this project exists because that
+    exact confusion hid a real gap for twelve days — `check_link_drift`'s
+    own docstring tells that story in full.
+    """
+    pool_dir = central_root / "skills"
+    pool_missing = [name for name in UNIVERSAL_SKILLS if not (pool_dir / name).exists()]
+    if pool_missing:
+        rep.add(
+            "universal pool",
+            "!!",
+            [
+                f"the shared pool at {pool_dir} has no {name!r} — no surface"
+                " linking to it can carry the skill either"
+                for name in pool_missing
+            ],
+        )
+    else:
+        rep.add(
+            "universal pool",
+            "ok",
+            [f"{', '.join(UNIVERSAL_SKILLS)} present in the pool at {pool_dir}"],
+        )
+
+    surfaces = sorted(central_root.glob("projects/*/agents/skills"))
+    live = [s for s in surfaces if (fleet / s.parent.parent.name).is_dir()]
+
+    if not live:
+        rep.add(
+            "universal skills",
+            EMPTY,
+            ["no live surface was found under projects/*/agents/skills"],
+        )
+        return
+
+    findings = []
+    for surface in live:
+        name = surface.parent.parent.name
+        missing = [s for s in UNIVERSAL_SKILLS if not (surface / s).exists()]
+        if missing:
+            findings.append(f"{name}: missing {', '.join(missing)}")
+
+    if findings:
+        rep.add("universal skills", "!!", findings)
+    else:
+        rep.add(
+            "universal skills",
+            "ok",
+            [f"{len(live)} live surfaces carry {', '.join(UNIVERSAL_SKILLS)}"],
+        )
+
+
 def check_trigger_targets(rep: Report, reg: Registry) -> None:
     """A trigger must name a workflow the project actually projects (S-3).
 
@@ -2081,6 +2216,7 @@ def main(args, reg: Registry) -> int:
     check_duplicate_identity(rep)
     check_link_drift(rep)
     check_ledger_stale(rep, prune=args.prune)
+    check_universal_skills(rep)
     check_local_sources(rep, reg)
     check_path_inputs(rep, reg)
     check_daemon_shell(rep, dagu_home)

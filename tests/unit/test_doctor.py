@@ -1772,6 +1772,142 @@ def test_prune_preserves_a_ledger_with_no_trailing_newline(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# universal law vs. selected tool skills (project 041, skill-surface work,
+# step 4)
+
+
+def _pool(central_root: Path, *names: str) -> Path:
+    """A pool skill, real content so `.exists()` has something to find."""
+    pool = central_root / "skills"
+    for name in names:
+        (pool / name).mkdir(parents=True, exist_ok=True)
+        (pool / name / "SKILL.md").write_text(f"# {name}\n")
+    return pool
+
+
+def _surface(central_root: Path, project: str) -> Path:
+    surface = central_root / "projects" / project / "agents" / "skills"
+    surface.mkdir(parents=True, exist_ok=True)
+    return surface
+
+
+def _link(surface: Path, pool: Path, name: str) -> None:
+    """A real relative link into the pool — 025 §7.2's shape."""
+    (surface / name).symlink_to(
+        os.path.relpath(pool / name, surface), target_is_directory=True
+    )
+
+
+def test_universal_skills_fires_on_a_surface_missing_writing(tmp_path):
+    """The branch project 041 opened this check to reach: a live surface
+    that never received the `writing` link, undetected by any convention
+    for three weeks (RESEARCH-universal-skills.md §3)."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    pool = _pool(central_root, "writing")
+    (fleet / "has-it").mkdir(parents=True)
+    _link(_surface(central_root, "has-it"), pool, "writing")
+    (fleet / "lacks-it").mkdir(parents=True)
+    _surface(central_root, "lacks-it")  # no writing link at all
+    rep = doctor.Report()
+
+    doctor.check_universal_skills(rep, fleet=fleet, central_root=central_root)
+
+    rows = {name: (status, lines) for name, status, lines in rep.sections}
+    assert rows["universal skills"][0] == "!!"
+    assert any(
+        "lacks-it: missing writing" in line for line in rows["universal skills"][1]
+    )
+    assert not any(line.startswith("has-it") for line in rows["universal skills"][1])
+
+
+def test_universal_skills_is_silent_when_every_live_surface_carries_it(tmp_path):
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    pool = _pool(central_root, "writing")
+    (fleet / "p").mkdir(parents=True)
+    _link(_surface(central_root, "p"), pool, "writing")
+    rep = doctor.Report()
+
+    doctor.check_universal_skills(rep, fleet=fleet, central_root=central_root)
+
+    rows = {name: status for name, status, _ in rep.sections}
+    assert rows["universal skills"] == "ok"
+    assert rows["universal pool"] == "ok"
+
+
+def test_universal_skills_reports_empty_not_ok_with_no_live_surfaces(tmp_path):
+    """Phase 1's rule, applied here: `ok` with a zero population is never a
+    pass — the exact confusion that hid `check_link_drift`'s real gap for
+    twelve days (its own docstring)."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _pool(central_root, "writing")
+    rep = doctor.Report()
+
+    doctor.check_universal_skills(rep, fleet=fleet, central_root=central_root)
+
+    rows = {name: status for name, status, _ in rep.sections}
+    assert rows["universal skills"] == doctor.EMPTY
+    assert rows["universal skills"] != "ok"
+
+
+def test_universal_skills_ignores_a_surface_whose_repository_is_gone(tmp_path):
+    """Liveness matches `check_ledger_stale`: `(fleet / name).is_dir()`,
+    never the central overlay's own say-so. A central surface left behind
+    for a repository the fleet no longer has is not counted — it is
+    `check_ledger_stale`'s finding, not this check's."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _pool(central_root, "writing")
+    _surface(central_root, "gone")  # no writing link, and no fleet/gone dir
+    rep = doctor.Report()
+
+    doctor.check_universal_skills(rep, fleet=fleet, central_root=central_root)
+
+    rows = {name: status for name, status, _ in rep.sections}
+    assert rows["universal skills"] == doctor.EMPTY
+
+
+def test_universal_skills_accepts_a_real_directory_copy_not_only_a_link(tmp_path):
+    """025 §7.2 wants a link into the pool; this check asks a narrower
+    question than §7.2 does — can an agent reading this surface find the
+    skill right now — and a real copy answers that exactly as a link
+    does, so it is accepted on equal terms (the check's own docstring)."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    _pool(central_root, "writing")
+    (fleet / "p").mkdir(parents=True)
+    surface = _surface(central_root, "p")
+    (surface / "writing").mkdir()
+    (surface / "writing" / "SKILL.md").write_text("# writing\n")
+    rep = doctor.Report()
+
+    doctor.check_universal_skills(rep, fleet=fleet, central_root=central_root)
+
+    rows = {name: status for name, status, _ in rep.sections}
+    assert rows["universal skills"] == "ok"
+
+
+def test_universal_pool_fires_when_the_pool_itself_lacks_a_universal_skill(tmp_path):
+    """Worse than any one surface's gap: nothing links to a pool skill that
+    is not there, so every linking surface is dangling for the identical
+    reason at once. Named here rather than left to be traced back from 47
+    separate `check_link_drift` C2 findings."""
+    fleet = tmp_path / "fleet"
+    central_root = tmp_path / "central"
+    central_root.mkdir(parents=True)
+    (fleet / "p").mkdir(parents=True)
+    _surface(central_root, "p")  # no pool at all, nothing to link to
+    rep = doctor.Report()
+
+    doctor.check_universal_skills(rep, fleet=fleet, central_root=central_root)
+
+    rows = {name: status for name, status, _ in rep.sections}
+    assert rows["universal pool"] == "!!"
+
+
+# ---------------------------------------------------------------------------
 # check — `SHELL` in the running Dagu's own environment (009 P1-3, S13)
 #
 # Had no test anywhere (RESEARCH-check-efficacy.md: "the nix test checks
@@ -1900,6 +2036,7 @@ FIRING_TESTS = {
     "check_duplicate_identity": "test_duplicate_identity_fires_on_two_checkouts_sharing_a_project_name",
     "check_link_drift": "test_link_drift_fires_on_a_dangling_view",
     "check_ledger_stale": "test_ledger_reports_a_project_whose_repository_is_absent",
+    "check_universal_skills": "test_universal_skills_fires_on_a_surface_missing_writing",
     "check_local_sources": "test_a_dirty_local_source_is_a_finding_with_its_consumer_count",
     "check_path_inputs": "test_a_path_input_carrying_a_big_dotfile_is_a_finding",
     "check_daemon_shell": "test_daemon_shell_fires_when_shell_leaks_into_a_running_dagu",
