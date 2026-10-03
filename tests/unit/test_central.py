@@ -269,7 +269,9 @@ def test_c3_fires_on_a_lane_only_directory_holding_a_real_file(tmp_path):
     fleet = tmp_path / "fleet"
     central_root = tmp_path / "central"
     _init_central(central_root)
-    _commit_on_a_lane(central_root, "projects/linkman/agents/skills/retired-skill/SKILL.md")
+    _commit_on_a_lane(
+        central_root, "projects/linkman/agents/skills/retired-skill/SKILL.md"
+    )
     _symlink(fleet, "linkman", ".agents", central_root / "projects/linkman/agents")
 
     views = central.reverse_index(fleet=fleet, central=central_root)

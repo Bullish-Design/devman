@@ -27,9 +27,12 @@ The exact remaining paths and text counts are recorded in
 ## Checks
 
 `devman` `base:check` passed in the cleanup lane. A second run also passed.
-The central repository `base:check` passed. `devman doctor` reported local-source
-findings for Repoman and Pytuin during concurrent repository updates; the final
-health check remains to be repeated after those updates settle.
+The central repository `base:check` passed. A later `base:test` attempt failed
+during collection because three `test_cutover_*` modules could not import
+`tools`. The final `devman doctor` run exits 1 because its ledger lists five
+missing checkout directories: allium-env (7 entries), image-gen-pipeline (3),
+lodestar (6), mypi-agent (6), and pytuin-desktop (4). The local-source and
+path-input checks pass. I left those unrelated ledger entries intact.
 
 Repository suites passed where the lane reports record them. Some suites could not
 run because local dependencies or test tools were absent. The status file records
