@@ -521,6 +521,34 @@ def test_stale_entries_reports_empty_rather_than_ok_with_nothing_registered(plan
     assert rep.findings == 0
 
 
+def test_orphan_dag_links_are_reported_and_pruned(plane):
+    (plane.root / "projects").mkdir(parents=True)
+    orphan = plane.link("gone", "check", "../projects/gone/workflows/check.yaml")
+    rep = doctor.Report()
+
+    doctor.check_orphan_dag_links(rep, plane.reg, prune=False)
+
+    assert rep.sections[0][0:2] == ("orphan DAG links", "!!")
+    assert "gone.check.yaml" in rep.sections[0][2][0]
+    assert "--registry ~/.local/share/devman doctor --prune" in rep.sections[0][2][-1]
+    assert orphan.is_symlink()
+
+    pruned = doctor.Report()
+    doctor.check_orphan_dag_links(pruned, plane.reg, prune=True)
+
+    assert pruned.sections[0][0:2] == ("orphan DAG links", "!!")
+    assert "pruned" in pruned.sections[0][2][0]
+    assert not orphan.is_symlink()
+
+    clean = doctor.Report()
+    doctor.check_orphan_dag_links(clean, plane.reg, prune=False)
+    assert clean.sections[0] == (
+        "orphan DAG links",
+        "ok",
+        ["no unowned dangling DAG links"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # check 6 — run output ageing (§9.2, D5) — had ZERO test coverage at any
 # level before project 041 (RESEARCH-check-efficacy.md Part 3 #2)
@@ -2023,6 +2051,7 @@ FIRING_TESTS = {
     "check_queue_names": "test_an_undeclared_queue_name_is_a_finding",
     "check_literal": "test_check_literal_itself_reports_a_finding",
     "check_stale": "test_a_stale_entry_is_reported_without_prune",
+    "check_orphan_dag_links": "test_orphan_dag_links_are_reported_and_pruned",
     "check_ageing": "test_run_output_fires_on_a_project_whose_runs_stopped_ageing_out",
     "check_projection": "test_a_link_pointing_at_another_project_is_still_a_fault",
     "check_dag_names": "test_a_workflow_name_holding_a_dot_is_a_finding",

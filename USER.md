@@ -689,6 +689,10 @@ watcher last fired.
 `devman doctor --prune` removes stale entries; they restore themselves the next
 time that repository's shell is entered.
 
+Run `devman --registry ~/.local/share/devman doctor --prune` to remove canonical
+dangling compatibility DAG links with no registered workflow owner. It keeps
+links for registered workflows.
+
 ### Common refusals, and what each one means
 
 | Message | Cause | Fix |

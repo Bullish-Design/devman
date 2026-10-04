@@ -313,6 +313,30 @@ def test_the_second_projection_takes_the_first_ones_link(plane):
 # unproject() — `doctor --prune` only
 
 
+def test_dangling_orphan_scan_keeps_registered_and_noncanonical_links(plane):
+    live = plane.add("live", workflows={"check": ORDINARY})
+    registered = plane.reg.dags_dir / "live.check.yaml"
+    plane.reg.workflow_file(live, "check").unlink()
+
+    orphan = plane.link("gone", "check", "../projects/gone/workflows/check.yaml")
+    foreign = plane.link("outside", "check", "../elsewhere/missing.yaml")
+
+    assert plane.reg.dangling_orphan_dag_links() == [orphan]
+    assert registered.is_symlink()
+    assert not registered.exists()
+    assert foreign.is_symlink()
+
+
+def test_prune_dangling_orphan_links_does_not_write_an_active_generation(plane):
+    orphan = plane.link("gone", "check", "../projects/gone/workflows/check.yaml")
+    (plane.root / "generation.json").write_text("{}")
+
+    removed = plane.reg.prune_dangling_orphan_dag_links()
+
+    assert removed == []
+    assert orphan.is_symlink()
+
+
 def test_unproject_removes_this_projects_projection(plane):
     proj = plane.add("p", workflows={"check": ORDINARY})
     entry = plane.root / "projects" / "p"

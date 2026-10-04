@@ -15,6 +15,7 @@ itself, because nothing in Dagu reports them, and §10 numbers them:
     3  an unresolved directory variable — a literally-named directory
     4  shadowed files and their drift
     5  a stale registry entry — the only thing that ever notices a deleted repo
+       and an unowned dangling compatibility DAG link
     6  a `.runs/` that has stopped ageing out
 
 Plus §11's mechanical check, plus — since stage 5 — a workflow that defines its
@@ -535,6 +536,47 @@ def check_stale(rep: Report, reg: Registry, prune: bool) -> None:
     if not prune:
         lines.append("run `devman doctor --prune` to remove them")
     rep.add("stale entries", "!!", lines)
+
+
+def check_orphan_dag_links(rep: Report, reg: Registry, prune: bool) -> None:
+    """Find canonical dangling compatibility links without a workflow owner."""
+    if (reg.root / "generation.json").is_file():
+        rep.add(
+            "orphan DAG links",
+            "..",
+            ["Vendomat owns this generation; check the compatibility registry instead"],
+        )
+        return
+
+    links = reg.dangling_orphan_dag_links()
+    if not links:
+        rep.add("orphan DAG links", "ok", ["no unowned dangling DAG links"])
+        return
+
+    if prune:
+        removed = reg.prune_dangling_orphan_dag_links()
+        if removed:
+            rep.add(
+                "orphan DAG links",
+                "!!",
+                [
+                    f"{link.name}: unowned dangling compatibility link — pruned"
+                    for link in removed
+                ],
+            )
+            return
+        links = reg.dangling_orphan_dag_links()
+        if not links:
+            rep.add("orphan DAG links", "ok", ["no unowned dangling DAG links"])
+            return
+
+    lines = [
+        f"{link.name} -> {os.readlink(link)} (unowned, dangling)" for link in links
+    ]
+    lines.append(
+        "run `devman --registry ~/.local/share/devman doctor --prune` to remove them"
+    )
+    rep.add("orphan DAG links", "!!", lines)
 
 
 def check_ageing(rep: Report, reg: Registry, dagu_home: Path) -> None:
@@ -2203,6 +2245,8 @@ def main(args, reg: Registry) -> int:
     check_literal(rep, reg, dagu_home)
     check_drift(rep, reg)
     check_stale(rep, reg, args.prune)
+    if not plane:
+        check_orphan_dag_links(rep, reg, args.prune)
     check_ageing(rep, reg, dagu_home)
     check_projection(rep, reg)
     check_dag_names(rep, reg)

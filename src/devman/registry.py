@@ -1,9 +1,10 @@
 """Reading devman's registry (CONCEPT.md §9.2, §11 Stage 3).
 
 The registry is derived and group/central overlay sources are canonical (§9.3),
-so everything here reads and nothing here writes. The one exception is `Registry.unproject`,
-which `doctor --prune` calls, and §10 makes that safe for the same reason: a
-pruned entry restores itself the next time that repository's shell is entered.
+so everything here reads and nothing here writes. `doctor --prune` owns both
+write paths: `Registry.unproject` removes an absent project's projection, and
+`Registry.prune_dangling_orphan_dag_links` removes an unowned compatibility
+link. A project projection restores itself when its shell is entered.
 
     ~/.local/share/devman/                                  (the registry root)
     ├── projects/<project>/workflows/<workflow>.yaml   -> the winner of §7.3's resolution
@@ -646,6 +647,89 @@ class Registry:
             for f in sorted(wdir.glob("*.yaml")):
                 out.append((proj, f.stem, f))
         return out
+
+    def dangling_orphan_dag_links(self) -> list[Path]:
+        """Compatibility DAG links with no registered workflow owner.
+
+        Only canonical symlinks count. A link for a registered workflow stays
+        owned even when its target has gone missing. Malformed registry entries
+        also keep their project names protected because their workflows are
+        unknown.
+        """
+        projects, faults = self.load()
+        if any(fault.name == "(registry root)" for fault in faults):
+            return []
+
+        owners = {
+            (project.name, workflow)
+            for project in projects.values()
+            for workflow in project.workflow_names()
+        }
+        unknown_projects = {
+            fault.name for fault in faults if fault.name != "(registry root)"
+        }
+        metadata_dir = self.project_source or self.state_projects_dir
+        if metadata_dir.is_dir():
+            for entry in metadata_dir.iterdir():
+                if entry.is_dir() and not (entry / "metadata.json").is_file():
+                    unknown_projects.add(entry.name)
+
+        if self.projects_dir.is_dir():
+            for entry in self.projects_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+                workflow_dir = entry / "workflows"
+                if workflow_dir.is_dir():
+                    owners.update(
+                        (entry.name, workflow.stem)
+                        for workflow in workflow_dir.glob("*.yaml")
+                    )
+
+        orphaned: list[Path] = []
+        if not self.dags_dir.is_dir():
+            return orphaned
+        for link in sorted(self.dags_dir.glob("*.yaml")):
+            if not link.is_symlink() or link.exists():
+                continue
+            project, separator, workflow = link.stem.partition(DAG_SEPARATOR)
+            if (
+                not separator
+                or identity_fault("project", project)
+                or identity_fault("workflow", workflow)
+                or project in unknown_projects
+                or (project, workflow) in owners
+            ):
+                continue
+            expected = f"../projects/{project}/workflows/{workflow}.yaml"
+            try:
+                if os.readlink(link) != expected:
+                    continue
+            except OSError:
+                continue
+            try:
+                (link.parent / expected).resolve(strict=True)
+            except FileNotFoundError:
+                orphaned.append(link)
+            except (OSError, RuntimeError):
+                continue
+        return orphaned
+
+    def prune_dangling_orphan_dag_links(self) -> list[Path]:
+        """Remove unowned dangling links from the compatibility registry.
+
+        `doctor --prune` is the only caller. Vendomat owns active generations,
+        so this method leaves a root with `generation.json` unchanged.
+        """
+        if (self.root / "generation.json").is_file():
+            return []
+        removed = []
+        for link in self.dangling_orphan_dag_links():
+            try:
+                link.unlink()
+            except FileNotFoundError:
+                continue
+            removed.append(link)
+        return removed
 
     def unproject(self, project: Project) -> list[Path]:
         """Remove one project's projection. `doctor --prune` only (§10 check 5).

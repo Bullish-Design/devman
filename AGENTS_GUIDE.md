@@ -115,7 +115,7 @@ In order, as `doctor.main` runs them:
 
 `mode` · `plane` · `queues` · `registry` · `load` (a `dagu validate` per projected
 file) · `queue names` · `literal ${DEVMAN_PROJECT_DIR} directories` · `shadowing`
-(an override against what it shadows) · `stale entries` · `run output` ·
+(an override against what it shadows) · `stale entries` · compatibility `orphan DAG links` · `run output` ·
 `projection` · `dag names` · `schema` · `generation` · `handlers` · `cross-repo` ·
 `fan-out` · `writes` · `trigger targets` · `link drift` · `local sources` ·
 `path inputs` · `daemon shell` · `reload` · `watcher`.
@@ -129,6 +129,10 @@ both modes and saw a fraction of the plane.
 
 It exits 1 when it has findings. `--prune` removes stale entries; they restore
 themselves at the next shell entry, which is what makes pruning safe.
+
+Compatibility mode also finds canonical dangling DAG links with no registered
+workflow owner. Run `devman --registry ~/.local/share/devman doctor --prune` to
+remove them. This keeps links for registered workflows.
 
 **`check_load` is the cost.** Measured 2026-09-15 against the live generation 3
 at **16.8 ms per projected file** — 2.549 s over 152 files. The whole
