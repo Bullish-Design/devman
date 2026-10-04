@@ -1,8 +1,8 @@
-# Research — the 35 stale skill citations: what the sentence should say, and where it should come from
+# Research — the 35 stale personal-layer skill citations: what the sentence should say
 
 **Date:** 2026-10-03
 **Scope:** the 35 tracked `AGENTS.md` files that hand-write a path into the
-link plane (`.agents/skills/my-ai/SKILL.md`), and the mechanism question of
+link plane (a retired personal-layer skill path), and the mechanism question of
 where a skill citation should live. Does **not** cover which symlinks exist
 in which repository — that is a separate audit, running in parallel.
 **Mode:** read-only investigation. Nothing was mutated: no file edited, no
@@ -31,19 +31,19 @@ live skill content — only to the static prose now inlined in `AGENTS.md`.
 
 ## 1. The citation text, and what it claims
 
-Fresh survey, 2026-10-03, `grep -rl '\.agents/skills/my-ai/SKILL\.md' --include=AGENTS.md ~/Documents/Projects`,
+Fresh survey, 2026-10-03, before the retirement cleanup,
 excluding `.archive/`: **35 live repositories**, not the 38-39 an earlier
-same-day pass (`CLEANUP-my-ai-fleet.md`, `REMOVAL-my-ai.md`) recorded —
+same-day pass (`CLEANUP-personal-layer-fleet.md`, `REMOVAL-personal-layer.md`) recorded —
 `allium-env`, `repoman`, and `clinch` were edited since by that same pass
 (landed for the first two; described-but-unlanded for `clinch`, which still
 changes its working tree). Treat 35 as today's count, not a ceiling.
 
 | Variant | Repositories | Count |
 |---|---|---|
-| **A — the four-topic boilerplate.** *"The user's cross-repo law — devenv discipline, the exit-code contract, manager routing, the agent-files convention — lives in `.agents/skills/my-ai/SKILL.md`, delivered by the `my-ai` personal layer. **Read it first.** Keep this file for what is true of *this* project only."* | `atuout`, `boomtube`, `cairn`, `embeddy`, `flora`, `flora-core`, `flora-qc`, `forgelab`, `fornix`, `grail`, `image-gen-pipeline`, `inferference`, `interplay`, `knappy`, `loci-core`, `lodestar`, `observantic`, `parsedantic`, `poddantic`, `pydantree`, `PyGentic`, `pyjutsu`, `pytuin`, `pytuin-desktop`, `silverbullet-server`, `siteman`, `structured-agents-v2`, `template-py` (its own repo-root file, distinct from the fixed `template/AGENTS.md` payload), `terminal-state`, `vendomat`, `webdantic`, `zelligate` | 32 |
-| **B — writing-only, narrow.** *"Write in Simplified Technical English (ASD-STE100) style. The rules live in the personal layer: `.agents/skills/my-ai/SKILL.md`, section 'Writing style'."* | `copyroom` | 1 |
-| **C — conditional, hedged.** *"...The cross-repository agent-file convention lives in `.agents/skills/my-ai/SKILL.md` when the personal layer is installed."* | `pyllij` | 1 |
-| **D — two separate citations in one file**, one narrative ("Read it first. It defines the standing environment, verification, version-control, and writing rules.") and one ownership ("The personal layer owns `.agents/skills/my-ai/SKILL.md`. Change that skill in its source repository, then materialize the update here."). | `templateer_v2` | 1 |
+| **A — the four-topic boilerplate.** The text said the cross-repo law lived in the former personal-layer skill, then told readers to use it for devenv discipline, exit codes, routing, and agent-file rules. | `atuout`, `boomtube`, `cairn`, `embeddy`, `flora`, `flora-core`, `flora-qc`, `forgelab`, `fornix`, `grail`, `image-gen-pipeline`, `inferference`, `interplay`, `knappy`, `loci-core`, `lodestar`, `observantic`, `parsedantic`, `poddantic`, `pydantree`, `PyGentic`, `pyjutsu`, `pytuin`, `pytuin-desktop`, `silverbullet-server`, `siteman`, `structured-agents-v2`, `template-py` (its own repo-root file, distinct from the fixed `template/AGENTS.md` payload), `terminal-state`, `vendomat`, `webdantic`, `zelligate` | 32 |
+| **B — writing-only, narrow.** The text said the writing rules lived in the former personal-layer skill. | `copyroom` | 1 |
+| **C — conditional, hedged.** The text said the agent-file convention lived in that skill when installed. | `pyllij` | 1 |
+| **D — two separate citations in one file**, one narrative about environment, verification, version control, and writing, and one ownership pointer to the former personal-layer skill. | `templateer_v2` | 1 |
 
 Variant A is the common boilerplate the brief expected. **The four-topic
 claim is real** — Variant A literally names four things, and three other
@@ -52,23 +52,21 @@ variants either repeat or narrow the same claim.
 ### Does `writing/SKILL.md` carry all four? No — confirmed by content.
 
 `~/.config/devman/skills/writing/SKILL.md` (34 lines) opens: *"This skill
-holds the user's standing writing rules. It moved out of `my-ai` so a
+holds the user's standing writing rules. It moved out of the former personal layer so a
 repository can select it without carrying the rest of that skill's law."* Its
 entire body is the Simplified Technical English rule set. **It carries one
 of the four claimed topics (writing style is not even one of the four named —
 Variant A doesn't mention writing at all). It carries zero of Variant A's
 four: devenv discipline, the exit-code contract, manager routing, the
-agent-files convention.** A bare path swap from `my-ai` to `writing` would
+agent-files convention.** A bare path swap from the retired skill to `writing` would
 replace a dangling citation with a citation that resolves but asserts
 something false.
 
 ### Where do the four topics live today?
 
-`~/.config/devman/skills/my-ai/` is gone from trunk entirely (`git ls-tree -r
-main -- skills/my-ai` → 0 entries, confirmed in `REMOVAL-my-ai.md` §1 and
-re-confirmed here) — not merely re-delivered differently, as `035
-§8.4/§9`'s original plan said ("keep `skills/my-ai/SKILL.md`... as pool
-content delivered by symlink"). That plan did not survive; the content was
+The former personal-layer skill was gone from trunk entirely (confirmed in
+`REMOVAL-personal-layer.md` §1 and re-confirmed here) — not merely re-delivered
+differently, as 035 §8.4/§9 originally proposed. That plan did not survive; the content was
 retired outright, not relocated.
 
 | Claimed topic | Shared home today |
@@ -151,10 +149,10 @@ still does not.
 
 | Option | Files touched now | Recurs on next pool rename? | What a cold reader sees |
 |---|---|---|---|
-| **(a) Swap the path in all 35** | 35, each its own lane | **Yes** — any future rename breaks the same 35 again | A citation to a skill most of these repos do not even have linked yet (prior audit: 10/38 linked, 28/38 not — see `CLEANUP-my-ai-fleet.md`). Also still false: `writing/SKILL.md` does not carry 3 of the 4 claimed topics. Not a one-line fix — it needs the precondition (link `writing` everywhere) plus a rewrite of the claim itself. |
+| **(a) Swap the path in all 35** | 35, each its own lane | **Yes** — any future rename breaks the same 35 again | A citation to a skill most of these repos do not even have linked yet (prior audit: 10/38 linked, 28/38 not — see `CLEANUP-personal-layer-fleet.md`). Also still false: `writing/SKILL.md` does not carry 3 of the 4 claimed topics. Not a one-line fix — it needs the precondition (link `writing` everywhere) plus a rewrite of the claim itself. |
 | **(b) Stop citing a skill path; let the generated router carry the routes** | 35, once, to remove the dangling sentence and inline what survives | **No** — the router is regenerated from disk every sync; nothing tracked names a pool path any more | Loses the live, warm-reader routing table (needs `devenv shell` anyway, per `CONCEPT.md §7.1` — a cold reader gets nothing from it either way). `CONCEPT.md §7.4` already concedes *"cold readers see no skills."* They still get the devenv-discipline/exit-code/agent-files prose, now inlined instead of delegated. Close to what `template-py/template/AGENTS.md` already does. |
 | **(c) Cite by name, not by path** (e.g. "the `repoman` skill") | 35, once | Survives a path/location rename; breaks if the skill is ever renamed | Keeps a pointer a cold reader can at least search for; loses clickability. |
-| **(d) Template-delivered line, one edit propagates** | **Does not work as hoped.** Only 10 of the 35 even have a live `copyroom.project.yml` (`flora`, `flora-core`, `flora-qc`, `forgelab`, `image-gen-pipeline`, `inferference`, `lodestar`, `poddantic`, `pyllij`, `pytuin`) — the other 25 have no Copier relationship to any template at all, confirmed by absence of `copyroom.project.yml`. Of those 10, the offending section is not even owned by `template-py`'s own genome — it was seeded once by the now-retired `my-ai` *layer*, whose own `copier.yml` sets `_skip_if_exists: ["AGENTS.md"]` (`~/Documents/Projects/.archive/my-ai/copier.yml:33-34`), explicitly so no future layer update ever overwrites a repo's own file. `template-py/template/AGENTS.md` itself dropped this section entirely on 2026-09-19 (commit `4870b1b`) — there is no live template content to converge toward even for the 10. | N/A — there is no propagation path | N/A |
+| **(d) Template-delivered line, one edit propagates** | **Does not work as hoped.** Only 10 of the 35 even have a live `copyroom.project.yml` (`flora`, `flora-core`, `flora-qc`, `forgelab`, `image-gen-pipeline`, `inferference`, `lodestar`, `poddantic`, `pyllij`, `pytuin`) — the other 25 have no Copier relationship to any template at all, confirmed by absence of `copyroom.project.yml`. Of those 10, the offending section is not even owned by `template-py`'s own genome — it was seeded once by the retired personal layer, whose template skipped existing `AGENTS.md` files so future updates would not overwrite repo-owned guidance. `template-py/template/AGENTS.md` itself dropped this section entirely on 2026-09-19 (commit `4870b1b`) — there is no live template content to converge toward even for the 10. | N/A — there is no propagation path | N/A |
 | **(e) Fix only the symlinks, leave the 35 as-is** | 0 | **Yes**, and worse — the sentence stays false even once the path resolves, because `writing/SKILL.md` never carried 3 of the 4 claimed topics | Reader follows a now-live link to a skill that does not say what the sentence claims it says |
 
 ---
@@ -196,11 +194,11 @@ otherwise.
 
 - Whether any of the 25 repositories lacking `copyroom.project.yml` were
   ever template-managed and opted out, or were always hand-built and only
-  received the `my-ai` layer directly — their `.copier-answers.my-ai.yml`
+  received the personal layer directly — their layer enrollment markers
   files were not individually re-checked here (that is link-plumbing
   territory, out of this task's scope per the parallel audit).
 - Whether `clinch`'s described-but-unlanded edit (from the same-day
-  `CLEANUP-my-ai-fleet.md` pass) is still sitting in a lane or has since
+  `CLEANUP-personal-layer-fleet.md` pass) is still sitting in a lane or has since
   landed — not re-checked, to avoid any lane-state read that could be
   confused with a mutating check.
 - The exact current linked/unlinked split of `writing` across all 35 (the

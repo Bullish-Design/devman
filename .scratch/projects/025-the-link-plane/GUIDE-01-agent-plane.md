@@ -44,7 +44,7 @@ any design, and leaving them uncommitted makes the revert in §4 harder to read.
 | Skill | Repos | Ships from |
 |---|---:|---|
 | `copyroom`, `copyroom-adopt`, `copyroom-template-edit` | 65 each | **genome AND copyroom package assets — shipped twice** |
-| `my-ai` | 62 | the `my-ai` copier layer |
+| Personal layer | 62 | the personal Copier layer |
 | `gitman` | 21 | `gitman init` (now removed) |
 | `repoman` | 18 | generated router |
 | `devenv-*` (7 skills) | 14–15 each | genome |
@@ -75,7 +75,7 @@ Two further measurements:
     copyroom/  copyroom-adopt/  copyroom-template-edit/
     devenv-authoring/  devenv-inputs/  devenv-lock/  devenv-module-edits/
     devenv-processes/  devenv-python-venv/  devenv-run-commands/  devenv-troubleshoot/
-    my-ai/     gitman/     testee/     docman/
+    personal-configuration/     gitman/     testee/     docman/
   agents/
     devenv/                                  the `.agents/devenv` docs export
 
@@ -125,8 +125,8 @@ Then **remove the skills the genome already shipped** — this is the new work:
 - regenerate: `copyroom render py basic && copyroom golden py basic`
 - the golden loses 10 skill directories; that is the expected diff
 
-`template-nix` ships `my-ai` under its own `template/.agents/skills/` — remove that
-too.
+`template-nix` ships the personal skill under its own `template/.agents/skills/` —
+remove that too.
 
 ### 4.3 Build the pool (1–2 h)
 
@@ -136,7 +136,7 @@ Move, do not copy. Sources:
 |---|---|
 | `copyroom`, `copyroom-adopt`, `copyroom-template-edit` | `copyroom/src/copyroom/agent/assets/skills/` |
 | `devenv-*` × 7 | the genome, before deleting it in §4.2 |
-| `my-ai` | `my-ai/template/.agents/skills/my-ai/` |
+| Personal layer | `template/.agents/skills/` in its source template |
 | `gitman`, `testee`, `docman` | the deleted constants — recover from git: `git -C gitman show HEAD:src/gitman/init.py` |
 
 **Two edits while moving:**

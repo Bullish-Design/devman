@@ -19,7 +19,7 @@ fleetman materialized:
   .agents/skills/copyroom/SKILL.md
   .agents/skills/copyroom-adopt/SKILL.md
   .agents/skills/copyroom-template-edit/SKILL.md
-  .agents/skills/my-ai/SKILL.md
+  .agents/skills/personal-configuration/SKILL.md
   .claude/skills -> ../.agents/skills
   devenv.local.nix
 fleetman shared skill:

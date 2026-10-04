@@ -21,7 +21,7 @@ def keywords(p):
         return name, re.findall(r'"([^"]+)"', kw.group(1))
 
 # TODO(038-archive): review and remove archived libraries from this spike.
-REPOS = ["testee", "gitman", "docman", "copyroom", # "my-ai",
+REPOS = ["testee", "gitman", "docman", "copyroom",
          "shellij", "repoman", # "fleetman",
 ]
 grand = 0

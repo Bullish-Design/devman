@@ -148,7 +148,7 @@ than `git ls-tree main` reports:
 `projects/paloma-text-pipeline/agents/skills/repoman/SKILL.md`. Raw
 `git status --short` (known unreliable here per the operating rules) shows
 this same area as dirty in a different, inconsistent way (`M
-.local.gitignore`, `D agents/skills/my-ai`). This matches the documented
+.local.gitignore`, `D agents/skills/<retired-skill>`). This matches the documented
 caveat that the colocated git export can lag jj's actual tree. I did not run
 `jj` directly to resolve it. **Before running the `rm` below, the operator
 should re-run `git ls-tree -r --name-only main -- projects/paloma-text-pipeline/`

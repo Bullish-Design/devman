@@ -331,7 +331,7 @@ diff ~/.claude/AGENTS.md ~/.claude/CLAUDE.md
 ```
 ```
 18c18
-< Full rules live in the personal layer: `.agents/skills/my-ai/SKILL.md`, section "Writing style" (in repos that carry the layer).
+< AGENTS.md points its Writing style note to the removed personal-layer skill.
 ---
 > Full rules live in the personal layer: `.agents/skills/writing/SKILL.md` (in repos that carry the layer).
 30a31,41
@@ -339,7 +339,7 @@ diff ~/.claude/AGENTS.md ~/.claude/CLAUDE.md
 > ... (11 lines)
 ```
 Two real differences, matching the brief exactly:
-1. `AGENTS.md` line 18 cites the pre-035-§8.5 path (`my-ai/SKILL.md`);
+1. `AGENTS.md` line 18 cites the pre-035-§8.5 skill path;
    `CLAUDE.md` line 18 already has the post-move path (`writing/SKILL.md`),
    which 035 §8.5 decided.
 2. `AGENTS.md` is missing the entire "Version control lanes" section (11
@@ -369,7 +369,7 @@ add common/claude-agents.md: canonical global agent law (025 §10 item 11)
 
 ~/.claude/AGENTS.md and ~/.claude/CLAUDE.md were two real, untracked files
 that disagreed: AGENTS.md lacked the "Version control lanes" section and
-cited the pre-035-§8.5 skill path (my-ai/SKILL.md) instead of the
+cited the pre-035-§8.5 skill path instead of the
 post-move path (writing/SKILL.md). This violates P0 (machine-true content
 goes central), 025 §10 item 11 (AGENTS.md canonical, CLAUDE.md a symlink to
 it), and P2 (source or projection, never a copy).

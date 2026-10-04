@@ -1,7 +1,7 @@
 # Lane assessment — two unlanded lanes in `devman`
 
 Date: 2026-10-03
-Scope: `041-doctor-project-source`, `parked-my-ai-enrollment`, in this repository
+Scope: `041-doctor-project-source`, the retired-enrollment lane, in this repository
 (`/home/andrew/Documents/Projects/devman`).
 Mode: read-only assessment. Nothing was mutated. No mutating `gitman`/`jj`
 command ran. All version-control inspection used `gitman status`, `gitman
@@ -15,7 +15,7 @@ same workspace.
 ```
 trunk: main @ ce4c87d5a834e8e28ba17b2f1f5f6e6b1b8853be  (in sync with origin)
   041-doctor-project-source draft   1 change, +137 −8   · ws 041-doctor-project-source · 2 behind trunk
-  parked-my-ai-enrollment   draft   1 change, +0 −6                                     · 2 behind trunk
+  retired-enrollment        draft   1 change, +0 −6                                     · 2 behind trunk
 ```
 
 Both lanes branch from the same merge-base, `ef24f6e` (`m041: the central
@@ -225,112 +225,30 @@ small, bounded, and `--dry-run` safe to attempt first.
 
 ---
 
-## Lane 2 — `parked-my-ai-enrollment`
+## Lane 2 — retired enrollment marker
 
-**Recommendation: LEAVE FOR ITS OWNER**, with a note that it is already safe
-to land whenever that owner is ready. Deciding fact: devman's own `.agents` is
-already the link-plane symlink (`.agents -> /home/andrew/.config/devman/projects/devman/agents`),
-and `AGENTS.md:111` already cites `.agents/skills/writing/SKILL.md`, not
-`my-ai` — devman has already crossed the retirement sequence's prerequisite,
-so this deletion has no ordering hazard left to wait on; it was parked for
-coordination, not blocked on anything technical.
+The six-line enrollment marker deletion was a real change, not a no-op. At the
+assessment snapshot, the lane was two commits behind trunk and had no conflict.
+Its base repository already linked its agent surface centrally, and both the
+repository and machine guidance pointed to the separate writing skill. The
+marker therefore had no remaining consumer.
 
-### Confirmed: exactly one deletion
+The deleted file recorded a Copier enrollment for a personal instruction
+layer, pinned to v0.2.0. The repository's own template enrollment was separate.
+Removing the marker stopped future layer updates from selecting this repository;
+it did not remove the repository's own template relationship or the writing
+rules.
 
-```
-$ git diff $(git merge-base main parked-my-ai-enrollment)..parked-my-ai-enrollment
-diff --git a/.copier-answers.my-ai.yml b/.copier-answers.my-ai.yml
-deleted file mode 100644
-index 4efb5da..0000000
---- a/.copier-answers.my-ai.yml
-+++ /dev/null
-@@ -1,6 +0,0 @@
--# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
--# This is the my-ai *personal layer* link. The repo's own template is recorded
--# separately in .copier-answers.yml — the two converge independently.
--#   copyroom update --layer my-ai
--_commit: v0.2.0
--_src_path: gh:Bullish-Design/my-ai
-```
+The central pool no longer held this skill, and the shared writing guidance had
+already moved into skills/writing/SKILL.md. The earlier report found that the
+fleet had crossed to central agent surfaces before the source template was
+archived. That ordering removed the risk of leaving repositories without their
+agent files.
 
-One file, 6 lines, nothing else. `git diff --stat` confirms `+0 -6` as `gitman
-status` reports.
-
-### Is the deletion already on trunk? No — not a no-op
-
-```
-$ git ls-tree -r --name-only main | grep -i copier
-.copier-answers.my-ai.yml
-```
-
-Trunk still has the file. The lane's merge-base is the only common ancestor;
-`git diff` between that merge-base and trunk for this path is empty — trunk has
-not touched it since the lane branched. This is **not** the 15-orphaned-lane
-case from project 036 Part B (a tip already an ancestor of trunk with no
-unique patch): this lane carries a real, as-yet-unlanded change. **Do not
-abandon it for being redundant — it is not.**
-
-### Is the my-ai retirement actually in progress?
-
-Yes, actively. Evidence, independent of this lane:
-
-- **gitman's own trunk already landed the identical pattern.** `gitman log` in
-  `/home/andrew/Documents/Projects/gitman` shows a landed commit, "chore:
-  remove my-ai Copier enrollment," in its ancestry.
-- **devman has already crossed over locally.** `.agents` in this repository is
-  a symlink to `/home/andrew/.config/devman/projects/devman/agents`, not a
-  real directory — the state project 035 §9.1 names as the trigger that makes
-  "whatever copyroom previously wrote inside it … superseded wholesale."
-  `.claude/skills` is the matching symlink into the same pool.
-- **The pool's skill set has no `my-ai` entry.**
-  `/home/andrew/.config/devman/projects/devman/agents/skills/` lists
-  `copyroom`, `copyroom-adopt`, `copyroom-template-edit`, `devman`,
-  `devman-adopt`, `devman-workflow`, `gitman`, `writing` — no `my-ai`.
-- **The citation move (§9.3 steps 1–2) already happened.** `devman/AGENTS.md:111`
-  reads *"See `.agents/skills/writing/SKILL.md`"*, and the user's own global
-  `~/.claude/CLAUDE.md` likewise cites `.agents/skills/writing/SKILL.md` for
-  the full writing rules — both already point at the new `writing` skill, not
-  `my-ai`. Project 035 §9.2 named this exact citation move as the one thing
-  that must happen before `my-ai` could be safely retired, and it is done.
-
-### What `.copier-answers.my-ai.yml` is for, and the consequence of deleting it
-
-It is Copier's per-layer answers file, recording that this repository is
-enrolled in the `my-ai` personal-layer template at `gh:Bullish-Design/my-ai`,
-pinned to `v0.2.0` (the file's own header: *"This is the my-ai personal layer
-link… `copyroom update --layer my-ai`"*). Deleting it un-enrolls devman from
-that layer: a future `copyroom update --layer my-ai` would have no record to
-act on for this repository and would skip it rather than recreate the file
-(copier's update path keys off the presence of the answers file; nothing in
-`copyroom`'s own docs or `devman/AGENTS.md` suggests it self-heals a deleted
-answers file). Project 035 §9's table marks `copyroom update --layer my-ai` as
-the thing this retirement explicitly intends to retire — so this is the
-intended, not an accidental, consequence.
-
-### Is it safe at this point in the §9.3 sequence?
-
-Yes. §9.3 step 4's warning — *"archive the template repo only once the
-`.agents` symlink is actuated fleet-wide… archiving it early would strand
-[repositories not yet crossed over]"* — is about the shared template repo
-`~/Documents/Projects/my-ai`, a fleet-wide, one-time, irreversible action. It
-is not about any individual repository dropping its own answers file; step 3
-explicitly describes that as the *per-repository*, safe, and expected unit of
-work, gated only on that repository's own `.agents` having become the
-symlink. devman meets that gate (confirmed above). This deletion is one
-repository's step 3, not an early step 4 — the ordering mistake the brief
-warned to check for does not apply here.
-
-### Who should land it, and when
-
-The lane's own describe message is explicit: *"Parked, not landed: the my-ai
-retirement is its own workstream and its owner should land this with the rest
-of it."* That is a coordination choice (batch devman's piece with the other
-~61 repositories' pieces for a consistent fleet-wide record), not a technical
-hold — nothing found here blocks landing it today. Recommendation: respect the
-parking and leave it for the my-ai retirement's owner, but note to that owner
-that devman has no outstanding prerequisite; it can be folded into their next
-batch, or landed standalone, with equal safety. Sync risk is zero (trunk has
-not touched this file since the lane branched).
+The original recommendation was to leave the lane parked for coordination. The
+2026-10-03 retirement request superseded that recommendation and authorized
+landing this deletion with the rest of the retirement work. The lane's deletion
+was independent of the central project's archive work.
 
 ### Cost if this recommendation is wrong
 

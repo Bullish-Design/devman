@@ -720,7 +720,7 @@ the plane generation identity, portable source identities, the absolute
 resolved overlay path, the explicit plane representation of Devman's overlay
 workflows, and the absence of compatibility link records. The dated report is
 `COMPARISON_2026-09-12.md`; it records the five old-only projects and three
-broken `my-ai` compatibility links as outstanding state, not as unexplained
+broken personal-layer compatibility links as outstanding state, not as unexplained
 common-project mismatches.
 
 **§8 wider canary.** Six real categories passed: a local overlay
@@ -1817,11 +1817,11 @@ canary passed for every edited central declaration.
 ### Archive TODO
 
 TODO(038-archive): review and remove active references to `fleetman`,
-`flora-037-part-e`, and the `my-ai` project when those libraries are
+`flora-037-part-e`, and the personal configuration project when those libraries are
 archived. They are intentionally excluded from this migration. Historical
-design records, generated registry state, and the shared `my-ai` skill remain
+design records, generated registry state, and the shared personal skill remain
 untouched. The active trigger inventory comments out `fleetman` and
-`my-ai` until that review.
+the personal configuration project until that review.
 
 ## Stage 38 — complete the remaining consumer fanout
 
@@ -1995,7 +1995,7 @@ the checkout still declares a `devman = { ... }` option block and imports
 | A | none | 45 | the migrated fleet — **item 3's gate has passed here** |
 | A | module | 1 | `tyo3` |
 | B | module | 5 | `allium-env`, `devman`, `forgelab`, `lodestar`, `repoman` |
-| B | no checkout | 4 | `fleetman`, `foreman`, `my-ai`, `siteman` |
+| B | no checkout | 4 | `fleetman`, `foreman`, `personal-configuration`, `siteman` |
 
 **Six checkouts still carry the module, and each has its own reason:**
 
@@ -2017,7 +2017,7 @@ the checkout still declares a `devman = { ... }` option block and imports
   It needs a decision about what "backburner" means without a module to disable.
 
 The four entries with no checkout are stale overlay directories. `fleetman` and
-`my-ai` are already named in the `TODO(038-archive)` note above.
+the personal configuration project is already named in the `TODO(038-archive)` note above.
 
 ### Baseline, re-measured rather than copied
 
@@ -2050,7 +2050,7 @@ and the compatibility-only projects.
 
 On 2026-09-14, the operator scoped the rest of item 3. **`allium-env`,
 `forgelab` and `lodestar` leave the plane and will be archived**, joining
-`fleetman` and `my-ai` in the `TODO(038-archive)` set. That left `tyo3` and
+`fleetman` and the personal configuration project in the `TODO(038-archive)` set. That left `tyo3` and
 `repoman` as the only live targets, and both are done.
 
 `devman` itself keeps the module by criterion 16 and was never item 3 work.
@@ -2111,7 +2111,7 @@ migration:
 
 - the three archive removals the operator authorized — `allium-env`,
   `forgelab`, `lodestar` — plus the four overlay directories with no checkout,
-  `fleetman`, `foreman`, `my-ai` and `siteman`;
+  `fleetman`, `foreman`, the personal configuration project and `siteman`;
 - `devman` itself, which keeps the module on purpose.
 
 **Items 2 and 4 sat behind item 3 and are now unblocked.** Item 5 remains
@@ -2122,7 +2122,7 @@ blocked on the operator decisions the removal prompt lists.
 The operator set two rules for the archive set on 2026-09-14. **Remove them from
 the registry**, and **move their central agent files into the repositories
 themselves** rather than deleting that content. The set is `allium-env`,
-`forgelab` and `lodestar`, plus the existing `fleetman` and `my-ai`.
+`forgelab` and `lodestar`, plus the existing `fleetman` and personal configuration project.
 
 The second rule matters because of the boundary test. `.agents/` goes central,
 so for these repositories the central overlay was the **only** home for 42

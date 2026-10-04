@@ -666,7 +666,7 @@ so it runs first and costs a day.
 | 5 | **`ingest` + `apply` for `authored`, plus `prose publish`.** The draft store, the overlay, the approval gate, the generation token, and the one command that crosses into tracked state. Lowest-risk route first. | the reverse path |
 | 6 | **`init` + `doctor` + the devenv module.** Family contract compliance; register roster key `dev` with repoman. | adoption by any repo |
 | 7 | **`chrome` route + the convergence guard + blast-radius preview.** | template correction |
-| 8 | **Packs + `lock.toml` + `sync --machine`.** First pack: `devenv-literacy`. Second: the my-ai personal pack. | distribution |
+| 8 | **Packs + `lock.toml` + `sync --machine`.** First pack: `devenv-literacy`. Second: the user's personal settings pack. | distribution |
 | 9 | **The agent prose pass** on `mirror-full`. | the assistant half |
 | 10 | **`activate` + the atuin emitters.** First step touching state outside the repo. | shell-surface assets |
 | 11 | **`derived` route.** Span splice, revision-guarded. Last, deliberately. | code correction |

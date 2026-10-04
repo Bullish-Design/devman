@@ -239,7 +239,7 @@ report any keyword claimed by two skills. Script: `triggers.py`.
 | `adopt a repo` | `copyroom`, `copyroom-adopt` | all 8 repos |
 | `personal layer` | `copyroom`, `copyroom-adopt` | all 8 repos |
 | `templatize` | `copyroom`, `copyroom-adopt` | all 8 repos |
-| `my-ai` | `copyroom`, `my-ai` | all 8 repos |
+| personal layer | `copyroom`, its source skill | all 8 repos |
 | `command not found` | `devenv-run-commands`, `devenv-troubleshoot` | shellij |
 
 Every repo carrying the copyroom skill set inherits four collisions. shellij

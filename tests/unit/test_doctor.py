@@ -229,11 +229,11 @@ def test_empty_surface_fires_on_a_hollow_target(plane, tmp_path):
     """C5 gets its own row, not a `link drift` line. A target holding no file
     and no symlink anywhere below it cannot be C3's "lane-only" — git never
     held it in any lane — but a live repository still links into it, so an
-    agent reading there finds nothing. Measured live on `mnemonix`, whose
-    central `agents/skills/my-ai/` is three levels of empty directory."""
+    agent reading there finds nothing. The fixture uses a retired-skill target
+    to test this condition."""
     overlay = tmp_path / "overlay"
     _git_repo(overlay)
-    (overlay / "projects/p/agents/skills/my-ai").mkdir(parents=True)
+    (overlay / "projects/p/agents/skills/retired-skill").mkdir(parents=True)
     repo = plane.repos / "p"
     repo.mkdir(parents=True)
     (repo / ".agents").symlink_to(overlay / "projects/p/agents")

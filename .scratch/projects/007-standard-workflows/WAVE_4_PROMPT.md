@@ -126,7 +126,7 @@ batch 2: knappy, nixbuild, templateer_v2, tyo3, zelligate,
 ```
 batch 3: eventic, flora, flora-core, flora-qc, foreman,
          gitman, image-gen-pipeline, interplay, llgym, lodestar
-batch 4: my-ai, mypi-agent, nix-nvim, nix-secrets, nixvim,
+batch 4: the personal configuration project, mypi-agent, nix-nvim, nix-secrets, nixvim,
          pytuin, repoman, shellij, structured-agents-v2, talkee
 batch 5: terminal-state, testee, vendomat
 ```

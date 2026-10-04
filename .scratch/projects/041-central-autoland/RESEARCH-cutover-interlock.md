@@ -9,7 +9,7 @@ mutated. All probes ran in `mktemp -d` under `/tmp` and were deleted.
 ## Executive result
 
 The two workstreams do not conflict in design. They share one gating
-dependency: an operator must run `gitman land m14-central-residue+retire-foreman-my-ai`
+dependency: an operator must land the archive-project sublane in `m14-central-residue`
 then `gitman land m14-central-residue` in `~/.config/devman`, because the
 permission classifier denies that `land` to an agent at any lane size
 (measured, not assumed — see §1). Until that land happens, workstream B's
@@ -223,7 +223,7 @@ indifferent to what the file's content is, only that it exists and parses.
 ## 4. The ordered plan
 
 ```
-0. OPERATOR: gitman land m14-central-residue+retire-foreman-my-ai, then
+0. OPERATOR: land the archive-project sublane in m14-central-residue, then
    gitman land m14-central-residue, in ~/.config/devman.
    WHY: both lanes are agent-denied by the permission classifier at any
    size (devman CONCEPT.md §14.1, measured against a 4-path pure-rename
@@ -306,8 +306,8 @@ indifferent to what the file's content is, only that it exists and parses.
     REVERSIBLE: activate the prior NixOS generation, then revert the
     devman commit.
 
-11. A: Lanes 10.1/10.2 — delete cutover tooling; take the foreman/my-ai
-    archive item only (Q5). INTERLEAVES freely with B at any point after
+11. A: Lanes 10.1/10.2 — delete cutover tooling; take the archived-project
+    item only (Q5). INTERLEAVES freely with B at any point after
     step 9, since it touches only devman's own repository and the two
     archived central directories.
 

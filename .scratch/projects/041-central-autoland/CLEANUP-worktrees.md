@@ -122,11 +122,11 @@ waste.
 
 ### talkee (12G) — almost entirely live, unlanded work; not waste
 
-- 5 registrations: `default` [no lane], `retire-my-ai-enrollment`
+- 5 registrations: `default` [no lane], the retired enrollment lane
   [no lane], and three **`[lane]`** workspaces —
   `17-devman-environment`, `17-full-pipeline`, `l3-structured-extraction`.
   `gitman status` confirms 5 live lanes, matching.
-- Only `retire-my-ai-enrollment` (2.5M) was no-lane; pruned it. The other
+- Only the retired enrollment lane (2.5M) was no-lane; pruned it. The other
   ~12G is the three live lanes and must not be touched.
 - What makes them large: Android build trees, duplicated per lane.
   `17-full-pipeline` (7.5G) is 7.2G `service/`, itself 7.1G
@@ -183,7 +183,7 @@ now). My own actions never called `rm`; they only removed jj workspace
 | **Total** | **16 registrations, 30.55 GB of directory content disowned by gitman** | **0 bytes actually freed** |
 
 **Why zero:** I attempted the follow-up `rm -rf` on one pruned, now-
-unregistered directory (`terminal-state/.worktrees/retire-my-ai-enrollment`,
+unregistered directory (a `terminal-state` enrollment-cleanup workspace,
 344K) to finish the reclaim, exactly as gitman's own "forgotten but kept
 ... delete it when done" message instructs. The harness's auto-mode
 permission classifier denied it: "Irreversible Local Destruction." I did
@@ -199,12 +199,12 @@ listed below, ready for a single manual pass.
 **Directories now safe to delete by hand** (registration already
 cleared, `gitman status` confirmed unaffected in every case):
 
-- `terminal-state/.worktrees/retire-my-ai-enrollment` (344K)
-- `forgelab/.worktrees/retire-my-ai-enrollment` (888K)
-- `talkee/.worktrees/retire-my-ai-enrollment` (2.5M)
+- `terminal-state` enrollment-cleanup workspace (344K)
+- `forgelab` enrollment-cleanup workspace (888K)
+- `talkee` enrollment-cleanup workspace (2.5M)
 - `flora-qc/.worktrees/inspect-flora-qc-trunk` (4.6M)
-- `structured-agents-v2/.worktrees/retire-my-ai-enrollment` (12M)
-- `siteman/.worktrees/retire-my-ai-enrollment` (8.5M)
+- `structured-agents-v2` enrollment-cleanup workspace (12M)
+- `siteman` enrollment-cleanup workspace (8.5M)
 - `siteman/.worktrees/syna-theme` (39M)
 - `gitman/.worktrees/65-inert-config-keys` (83M)
 - `flora/.worktrees/inspect-flora-trunk` (90M)

@@ -102,7 +102,7 @@ Read the target repository's AGENTS.md before changing it. Read the target
 repository's devenv.yaml, devenv.nix, .devman/project.toml, and central
 devenv.local.nix before editing any of them.
 
-Read the devman, devman-adopt, gitman, my-ai, and writing skills before using
+Read the devman, devman-adopt, gitman, and writing skills before using
 their commands or editing their files.
 
 ## 4. Session setup
@@ -239,7 +239,7 @@ flora-037-part-e
 mypi-agent
 ~~~
 
-It also contains three broken my-ai links. These are separate cleanup work.
+It also contains three broken personal-layer links. These are separate cleanup work.
 Do not delete them because the active plane has no matching project.
 
 ## 7. Establish the baseline

@@ -115,7 +115,8 @@ it from scratch.
 5. **`~/.claude/AGENTS.md` is missing the entire "Version control lanes"
    section** that `~/.claude/CLAUDE.md` carries. Claude Code reads CLAUDE.md and
    gets the policy; a tool reading AGENTS.md does not. The two files also
-   disagree on a skill path (`my-ai/SKILL.md` versus `writing/SKILL.md`). Decide
+   disagree on a skill path (the removed personal-layer skill versus
+   `writing/SKILL.md`). Decide
    whether this project owns that fix or only reports it.
 
 6. **`.devman-link-state.json` survives the Linkman cutover.** It is gitignored,
@@ -138,7 +139,7 @@ because landing was blocked:
 trunk: main @ 268c0a3
   m14-central-dead-fixtures   draft  18 paths  — dead docman/roundtrip fixtures, parked on purpose
 * m14-central-residue         draft  59 paths  — LIVE central content, described, awaiting land
-    m14-central-residue+retire-foreman-my-ai  draft  — stacked; retires two archived projects
+    m14-central-residue+archive-projects     draft  — stacked; retires two archived projects
   parked-paloma-*  × 3        — unrelated, do not touch
 ```
 

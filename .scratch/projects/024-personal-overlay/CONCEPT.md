@@ -88,7 +88,7 @@ All seven plausible owners were surveyed and scored 1-3 out of 5. Each would hav
 to reverse a documented decision. Not re-surveyed here. Summary retained:
 copyroom (managed⇒tracked⇒committed), repoman (fleet scope refused), fleetman
 (read-only by charter), vendomat (read-only store path), gitman (repo-scoped),
-siteman (documented decision against symlinks), my-ai (deleted its own file
+siteman (documented decision against symlinks), the personal configuration project (deleted its own file
 distributor).
 
 ### 2.5 dotbot adds nothing

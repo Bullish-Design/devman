@@ -167,7 +167,7 @@ This is not a file-type split. It is one property — *does git track it* — an
 is not negotiable.
 
 **The one deliberate exception is the agent surface.** `.agents/skills` is tracked
-today in every repository sampled (gitman 5 files, testee 5, copyroom 5, my-ai 6,
+today in every repository sampled (gitman 5 files, testee 5, copyroom 5, the personal layer 6,
 foreman 13, shellij 14) — and §7 moves it to the link plane on purpose, because a
 skill is only *actionable* inside the devenv shell, so cold visibility buys
 nothing. `AGENTS.md` and `CLAUDE.md` stay tracked and become the cold entry point.
@@ -552,7 +552,7 @@ transparently for that.
   skills/                                      THE POOL — real files, tracked
     copyroom/  copyroom-adopt/  copyroom-template-edit/
     devenv-authoring/ … (the 7 literacy skills)
-    my-ai/    gitman/    testee/    docman/
+    personal-configuration/    gitman/    testee/    docman/
   agents/
     devenv/                                    the `.agents/devenv` docs export
 
@@ -796,7 +796,7 @@ Each was paid for once. A restructure that loses one has failed.
    refusal ever to pass `ignore_immutable=True` (`gitman/AGENTS.md:29-32,51-55`).
 8. **testee is a per-repo `uv` dependency** (`repoman/src/repoman/registry.py:96-97`).
 9. **Layers discovered by glob, never configured** (`copyroom/AGENTS.md:65-66`) —
-   why `my-ai` reaches 62 repositories with no registry.
+   why the personal layer reached 62 repositories with no registry.
 10. **`mkToolchain` fails evaluation on a duplicate executable name**
     (`vendomat/lib/mkToolchain.nix:3`).
 11. **The 0/1/2/3 exit contract**, and `AGENTS.md` canonical with `CLAUDE.md` a

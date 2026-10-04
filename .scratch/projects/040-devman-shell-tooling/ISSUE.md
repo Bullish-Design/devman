@@ -57,7 +57,7 @@ so the identical command fails. That asymmetry is what produced the report.
 
 **This repository ships instructions it cannot satisfy.** `.agents/skills/`
 carries `copyroom`, `copyroom-adopt`, `copyroom-template-edit`, `gitman` and
-`my-ai` — skills whose whole content is *run this command* — into a shell where
+the personal layer — skills whose whole content is *run this command* — into a shell where
 none of those commands exist. An agent following the routing table in
 `CLAUDE.md` hits `command not found` and, as happened here, reports the tool
 missing from the machine.

@@ -12,7 +12,7 @@ are:
 
 `copyroom`, `docman`, `fleetman`, `flora-037-part-e`, and `mypi-agent`.
 
-The old DAG directory also has three broken `my-ai` symlinks without a matching
+The old DAG directory also has three broken personal-layer symlinks without matching
 metadata project. They are stale compatibility output, not a project in the
 comparison set.
 
@@ -75,6 +75,6 @@ The 15 old-only regular DAGs belong to the five old-only metadata projects.
 ## Gate decision
 
 There are no unexplained projection mismatches in the 46-project intersection.
-The five old-only projects and the three broken `my-ai` links remain explicit
+The five old-only projects and the three broken personal-layer links remain explicit
 compatibility-state findings. Their removal requires the migration decisions
 recorded in `MIGRATION_2026-09-12.md` and a later cleanup phase.

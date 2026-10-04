@@ -187,7 +187,7 @@ Gitman status — CANONICAL · 6 lanes
 trunk: main @ 268c0a372f325185174a19eecf891c084da19e2e
   m14-central-dead-fixtures draft      1 change, +220 −0
 * m14-central-residue  draft      1 change, +1287 −1   · you are here
-    m14-central-residue+retire-foreman-my-ai draft      1 change, +76 −76
+    m14-central-residue+archive-projects       draft      1 change, +76 −76
   parked-paloma-handoff draft      1 change, +111 −39   · 7 behind trunk
   parked-paloma-judge-skill draft      1 change, +158 −143   · 6 behind trunk
   parked-paloma-pairwise-judge draft      1 change, +262 −0   · 8 behind trunk
@@ -925,7 +925,7 @@ directly:
 | **O3** | `links.yaml` beside `devenv.local.nix` — two declarations of one thing, for all 78 projects (§6.3). Cutover-owned, but the P2/P4 violation is accumulating now. | Sequencing against Lanes 9d/9e and readiness-review B3/B4 | C1/C4's long-term shape |
 | **O4** | Ask gitman for a working-copy-rewrite hook on `switch` / `split` / `abandon` (§8.2)? | A feature request against another repository, with a real cost | closing the §9 residual |
 | **O5** | Does `doctor --prune` gain the ledger, or does the ledger get its own pruner? 82 projects against a live 66 (§2.4). The two-sided-edit baseline must survive whatever is chosen (033, F2). | It touches the one file standing between a two-sided edit and a silent overwrite | ledger staleness |
-| **O6** | Does this project own the `~/.claude/AGENTS.md` fix? Measured: **two real files, not a symlink, not in the overlay, not under version control.** `AGENTS.md` lacks the entire "Version control lanes" section and still cites `my-ai/SKILL.md` where `CLAUDE.md` cites `writing/SKILL.md` — and 035 §8.5 decided that move, so `AGENTS.md` is the stale copy. By P0 both belong central, and 025 §10 item 11 requires `AGENTS.md` canonical with `CLAUDE.md` a symlink to it. **Recommendation REVISED 2026-10-02: do it — see §14.3.** The fix is one tracked central file and two symlinks, which is smaller than the deferral, and the hole it leaves open is live. Blocked behind O1: the canonical file goes in the overlay, whose working copy is mid-lane. | It is the operator's own standing policy document | agents reading AGENTS.md getting no lane policy |
+| **O6** | Does this project own the `~/.claude/AGENTS.md` fix? Measured: **two real files, not a symlink, not in the overlay, not under version control.** `AGENTS.md` lacks the entire "Version control lanes" section and still cites the removed personal-layer skill where `CLAUDE.md` cites `writing/SKILL.md` — and 035 §8.5 decided that move, so `AGENTS.md` is the stale copy. By P0 both belong central, and 025 §10 item 11 requires `AGENTS.md` canonical with `CLAUDE.md` a symlink to it. **Recommendation REVISED 2026-10-02: do it — see §14.3.** The fix is one tracked central file and two symlinks, which is smaller than the deferral, and the hole it leaves open is live. Blocked behind O1: the canonical file goes in the overlay, whose working copy is mid-lane. | It is the operator's own standing policy document | agents reading AGENTS.md getting no lane policy |
 | **O7** | `linkman check` reports `clean: true` on a dangling target and on a missing config (§3.4). Linkman is right by its contract; is the *report* right? | Linkman's boundary, mid-cutover | nothing here; recorded for Linkman |
 | **O8** | Verify that 025 §10 preserved items 2 and 13 survived `37050e9` (§12.7). | *"A restructure that loses one has failed."* | nothing here; owed by the charter |
 | **O9** | Restore 025 §10 item 2, the duplicate-registration refusal? §14.6 found it **LOST**, and §6.4 says the detection window is unbounded without it. The audit's fix is cheap — `metadata.json` already records a `root` field nothing reads back. **Not implemented here**: it adds a refusal to the shell-entry path of 48 projects, which is a fleet-wide behaviour change. | A charter property is lost, and restoring it changes what shell entry does in every repository | 025 §10's claim that losing one means the restructure failed |
@@ -945,11 +945,11 @@ time**, or denied it once **on lane size**. The question is answered, and the
 answer changes §10's emphasis.
 
 The land was attempted. The sequence §14.2 establishes begins with the *child*
-lane, `m14-central-residue+retire-foreman-my-ai` — **four paths, all pure
+lane, `m14-central-residue+archive-projects` — **four paths, all pure
 renames, +76 −76, no content change at all.** It was denied:
 
 ```
-$ gitman --repo ~/.config/devman land m14-central-residue+retire-foreman-my-ai
+$ gitman --repo ~/.config/devman land m14-central-residue+archive-projects
 Permission denied by the auto mode classifier. Reason: [Modify Shared Resources].
 ```
 
@@ -1007,8 +1007,8 @@ lane — C2's run found all ten `devenv.local.nix` missing — and the reverse i
 finds **zero** live views pointing at any of the ten projects. `abandon`
 discards content that is already absent and that nothing consumes.
 
-`m14-central-residue+retire-foreman-my-ai` is the opposite case: four pure
-renames moving `projects/{foreman,my-ai}/` into `projects/.archive/`. **It is the
+`m14-central-residue+archive-projects` is the opposite case: four pure
+renames moving `projects/{foreman,personal-layer-source}/` into `projects/.archive/`. **It is the
 re-do of incident 3** — the `gitman switch` that made `projects/.archive/`
 vanish and two retired projects reappear. Landing it restores completed work.
 
@@ -1026,7 +1026,7 @@ planning, before any fold, so a dry run cannot model "child already folded".
 Despite `core.py`'s comment that a batched `land base dep` folds the child
 first, **it must be two invocations:**
 
-1. `gitman land m14-central-residue+retire-foreman-my-ai` — dry-runs clean. Plan:
+1. `gitman land m14-central-residue+archive-projects` — dry-runs clean. Plan:
    rebase the child onto residue, move the `m14-central-residue` bookmark
    forward, delete the child bookmark. No conflict, no trunk advance.
 2. `gitman land m14-central-residue` — folds 59 paths into trunk and clears all
@@ -1056,7 +1056,7 @@ to design against.
 One tracked file and two links satisfies P0 and 025 §10 item 11 together. Merge
 the missing "Version control lanes" section into the canonical copy and keep
 `writing/SKILL.md` as the cited path — 035 §8.5 decided that move, so
-`AGENTS.md`'s `my-ai/SKILL.md` is the stale side.
+`AGENTS.md`'s removed personal-layer skill citation is the stale side.
 
 **Do not link `~/.claude` itself.** It holds `.credentials.json`, `sessions/`,
 `history.jsonl` and `telemetry/`. Two file links only.

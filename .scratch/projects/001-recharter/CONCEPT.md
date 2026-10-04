@@ -1,6 +1,9 @@
 # devman — Concept (re-charter)
 
 > **STATUS: REVISED (2026-08-19).** Supersedes the PROPOSED draft of 2026-08-13.
+> The personal configuration layer discussed below was retired on 2026-10-03.
+> Its historical design remains useful, but its project and deployment paths
+> are no longer active.
 > This document re-charters the `devman` repo from a tmuxp/Neovim workspace
 > orchestrator into the **developer-asset manager** of the `*man` family. It
 > supersedes repoman's project-02 (`repoman/.scratch/projects/02-devman-module/`)
@@ -51,7 +54,7 @@ The family splits into five roles, and one is empty:
 |---|---|
 | **doers** — perform a domain action | gitman, testee, docman |
 | **conductor** — orders the doers | repoman |
-| **transport** — moves files between repos | copyroom (+ my-ai as a layer) |
+| **transport** — moves files between repos | copyroom (+ a personal layer) |
 | **host** — where the shell lives | shellij |
 | **assets** — the scripts, skills, and prompts the work is made of | *(empty)* |
 
@@ -291,7 +294,7 @@ the cache. If a pinned version is absent, devman exits `2` and names the fix:
 devman compiles a **stack**, nearest wins:
 
 ```
-machine  →  user (my-ai)  →  pack  →  repo (.devman/assets/)
+machine  →  user configuration  →  pack  →  repo (.devman/assets/)
 ```
 
 A repo can shadow a pack asset by declaring the same `id`. `devman build` reports
@@ -300,17 +303,17 @@ as copyroom's layers, applied to assets instead of files.
 
 ### 7.3 The personal layer as a pack — decided
 
-The `my-ai` repo gains a `pack/` directory. It becomes the **personal pack**,
+The personal configuration project gains a `pack/` directory. It becomes the **personal pack**,
 resolved per machine like any other.
 
 | Asset | Owner | Delivery |
 |---|---|---|
-| `AGENTS.md` seed, `CLAUDE.md` symlink, `my-ai/SKILL.md` (the law) | my-ai | copyroom, per repo — unchanged |
-| the user's executable assets: scripts, aliases, prompts, personal skills | my-ai's devman pack | devman, once per machine |
+| `AGENTS.md` seed, `CLAUDE.md` symlink, personal rules skill | personal project | copyroom, per repo — unchanged |
+| the user's executable assets: scripts, aliases, prompts, personal skills | user's devman pack | devman, once per machine |
 
 Why not ship them through copyroom per repo: a personal alias set copied into 60
 repos means 60 merge lineages for one file, and a fix requires 60
-`copyroom update --layer my-ai` runs. One machine cache means one copy and one
+the personal layer update runs. One machine cache means one copy and one
 update. copyroom keeps the small, genuinely per-repo law file, where three-way
 merge earns its cost.
 
@@ -462,7 +465,7 @@ does.
 > **[spike] 33 colliding keywords found across 8 repos, present today,
 > undetected.** `copyroom` and `copyroom-adopt` collide on `adopt a repo`,
 > `personal layer`, and `templatize` in every repo that carries the set.
-> `copyroom` and `my-ai` collide on `my-ai`. In shellij, `devenv-run-commands`
+> `copyroom` and the personal layer collide on the word `personal`. In shellij, `devenv-run-commands`
 > and `devenv-troubleshoot` collide on `command not found`.
 
 ### 10.3 Why this ordering matters
@@ -529,7 +532,7 @@ This is the one capability no other family member can offer. Build it last (§15
 | Repo | devman consumes | devman provides | The hard boundary |
 |---|---|---|---|
 | **copyroom** | its CLI facts (§9); the bootstrap seed `.devman/devman.toml` + the devenv import line | drift and collision reports on its skills (§10) | copyroom transports *files between repos*; devman resolves *packs at build time*. copyroom keeps its 3 skills in v1. |
-| **my-ai** | the personal pack, resolved per machine (§7.3) | the pack format | my-ai keeps `AGENTS.md`, the `CLAUDE.md` symlink, and the law. |
+| **Personal layer** | the personal pack, resolved per machine (§7.3) | the pack format | the personal project keeps `AGENTS.md`, the `CLAUDE.md` symlink, and its rules. |
 | **repoman** | `registry.py` — the roster, `SPINE`, `route_when`; the `devenv shell` and `0/1/2/3` contracts | roster key `dev` | repoman owns the **facts of ordering**. devman never decides what comes before what. |
 | **shellij** | the `enterShell` activation trigger | the assets its panes run | shellij owns sessions and panes. devman owns what is on `PATH` inside them. |
 | **fleetman** | `registry.json` — which repos exist | fleet-wide asset queries: "which repos carry `db-reset`?" | fleetman indexes *repos*; devman indexes *assets*. Cross-repo execution stays `fleetman run`. |
@@ -635,7 +638,7 @@ devman status | doctor          # the family pair
 | 1 | **Asset model + `build`.** Pydantic models, the catalog loader, the layered stack, and two emitters: `devenv-script` and `skill`. Delete `src/devman/`; do not port it. | everything |
 | 2 | **The walker + the two checks** (§9, §10). Parameter-aware from day one — a names-only check is unusable. | `doctor`, and the evidence for 002 |
 | 3 | **`init` + `doctor` + the devenv module.** Family contract compliance; register roster key `dev` with repoman. | adoption by any repo |
-| 4 | **Packs + `lock.toml` + `sync --machine`.** First pack: `devenv-literacy`, moved from the genome (§4.4). Second: the my-ai personal pack. | distribution |
+| 4 | **Packs + `lock.toml` + `sync --machine`.** First pack: `devenv-literacy`, moved from the genome (§4.4). Second: the user's personal settings pack. | distribution |
 | 5 | **`activate` + the atuin emitters.** The first step that touches state outside the repo. Behind the manifest. | shell-surface assets |
 | 6 | **`propose`.** The harvester. | the assistant half |
 

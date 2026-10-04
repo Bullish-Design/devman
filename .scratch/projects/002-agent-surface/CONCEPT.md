@@ -2,6 +2,8 @@
 
 > **STATUS: PROPOSED (2026-08-19). BLOCKED ON 001.** Do not start this before
 > `001-recharter` step 4 ships. See §5 for the entry criteria.
+> The personal layer discussed below was retired on 2026-10-03. This proposal
+> is a historical design record; its deployment model is inactive.
 >
 > This proposal was §12.1 of the 2026-08-13 devman concept, where it sat as
 > **step 1 of the build order** — a cross-repo governance change gating every
@@ -20,7 +22,7 @@ This does not add devman as one more owner. It replaces the ownership protocol
 outright.
 
 `repoman/docs/AGENT-FILES.md` fixes one owner per file and names five classes:
-tool-shipped (copyroom's canonical set), genome, personal (my-ai), repoman's
+tool-shipped (copyroom's canonical set), genome, personal layer, repoman's
 generated router, and repo overlay. It needs a "two-writer rule" to keep those
 classes from fighting, and `repoman doctor` needs an ownership lint
 (`skill_ownership_checks`, wired at `repoman/src/repoman/cli.py:219`) to police
@@ -45,7 +47,7 @@ right one.
 |---|---|---|
 | **copyroom** | its CLI facts; its **domain prose** (001 §5.2); seeding `.devman/devman.toml`; `AGENTS.md` + the `CLAUDE.md` symlink | `src/copyroom/agent/assets/skills/` — the 3 canonical skills; `agent-files export` shrinks to the two convention files |
 | **repoman** | `registry.py` — the roster, `SPINE`, `route_when`. **repoman still decides lifecycle order.** | the Jinja template and `install_entrypoint`; `install-skills` becomes `skills render` or retires |
-| **my-ai** | the standing law as prose, authored as a devman skill asset in its pack | nothing structural — it was already a layer |
+| **Personal layer** | the standing rules as prose, authored as a devman skill asset in its pack | nothing structural — it was already a layer |
 | **testee, gitman, docman** | their CLI facts and their domain prose | their hand-written skills |
 
 The boundary that must hold: repoman owns the **facts of ordering** (`SPINE`,
@@ -182,7 +184,7 @@ Each step is reversible on its own. Do not batch them.
 6. The router skill moves. repoman keeps `registry.py` and loses the Jinja
    template. This is last, because the router is the one skill whose facts come
    from a live registry rather than a CLI walk.
-7. my-ai's law becomes a pack asset — or stays a hand-edited overlay. See §8.
+7. The personal rules become a pack asset — or stay a hand-edited overlay. See §8.
 
 Step 3 is the pilot. If it does not clearly improve on gitman's hand-written
 skill, stop and take the lint-only option.
@@ -191,7 +193,7 @@ skill, stop and take the lint-only option.
 
 ## 8. Open questions
 
-- **Does the my-ai law stay a hand-written file?** It is prose, so devman would
+- **Do the personal rules stay a hand-written file?** They are prose, so devman would
   author it. It is also the one skill the user edits directly and most often.
   Lean: permanent overlay. A generator between a user and their own standing
   instructions is friction with no payoff.

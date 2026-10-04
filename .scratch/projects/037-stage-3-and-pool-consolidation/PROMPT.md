@@ -336,7 +336,7 @@ so the failure mode changes rather than ending.**
 
 `CONCEPT.md` §11 Stage 0 lists `fleetman`, `foreman` and `siteman` as having
 zero consumers each. Move all three to `~/Documents/Projects/.archive/`, which
-already exists and holds `my-ai`.
+already exists and holds the preserved personal configuration source.
 
 **Before moving, confirm zero consumers.** Grep the fleet for each name in
 `devenv.yaml`, `devenv.nix`, flake inputs and skill content. A hit is not
@@ -385,7 +385,7 @@ them.**
 | Skill | Copies | Versions | State |
 |---|---|---|---|
 | `copyroom`, `copyroom-adopt`, `copyroom-template-edit` | 46 each | 1 | **all identical to the pool.** Trivial |
-| `my-ai` | 44 | 1 | all 44 identical to each other, all differ from the pool. **The pool is correct** — the difference is exactly the "Writing style" section that 035 split into `skills/writing/`. The 44 are one generation behind |
+| Personal layer | 44 | 1 | all 44 identical to each other, all differ from the pool. **The pool is correct** — the difference is exactly the "Writing style" section that 035 split into `skills/writing/`. The 44 are one generation behind |
 | `gitman` | 14 | 4 (incl. pool) | real drift. `gitman init` regenerates this file, so **take the pool copy** |
 | `testee`, `docman` | 1 each | 2 | inspect, then take the newest |
 
@@ -400,7 +400,7 @@ Present in `~/.config/devman/skills/` (16):
 copyroom  copyroom-adopt  copyroom-template-edit
 devenv-authoring  devenv-inputs  devenv-lock  devenv-module-edits
 devenv-processes  devenv-python-venv  devenv-run-commands  devenv-troubleshoot
-docman  gitman  my-ai  testee  writing
+docman  gitman  personal-configuration  testee  writing
 ```
 
 **`repoman` (17 copies) is a generated router and stays a real file**, per

@@ -258,7 +258,7 @@ devman doctor — 50 projects, 158 workflows
 ```
 
 Dagu reads `/home/andrew/.local/share/devman/dags`. It finds 164 symlink
-entries, 161 valid DAG names, and three broken `my-ai` links. The valid count
+entries, 161 valid DAG names, and three broken personal-layer compatibility links. The valid count
 is three above the normal 158 because the held `flora-037-part-e` workspace
 still has three projected links. Dagu reports those three broken links as
 warnings.

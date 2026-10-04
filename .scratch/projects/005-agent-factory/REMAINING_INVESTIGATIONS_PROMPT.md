@@ -20,7 +20,7 @@ support boundary, and naming every residual unknown. Do not use phrases such as
 
 Read these completely before planning or changing files:
 
-1. `AGENTS.md` and the standing `my-ai` skill.
+1. `AGENTS.md` and the standing user-instructions skill.
 2. `.scratch/projects/005-agent-factory/ORIGINAL_KICKOFF.md`
 3. `.scratch/projects/005-agent-factory/CONCEPT.md`
 4. `.scratch/projects/005-agent-factory/IDEAS_WORKFLOW.md`

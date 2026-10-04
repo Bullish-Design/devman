@@ -157,8 +157,8 @@ that did populate it are `devman`, `flora`, `pydantree`, and the held
 `flora-037-part-e` workspace.
 
 The old Dagu projection remains safe and live. Its `dags/` directory contains
-164 symlinks. Dagu resolves 161 valid names and warns on three broken `my-ai`
-links. The held Flora workspace contributes three valid names above the normal
+164 symlinks. Dagu resolves 161 valid names and warns on three broken personal-layer
+compatibility links. The held Flora workspace contributes three valid names above the normal
 158-workflow projection. No old registry entry or DAG link was deleted.
 
 The resync also recorded independent shell blockers. SecretSpec refused

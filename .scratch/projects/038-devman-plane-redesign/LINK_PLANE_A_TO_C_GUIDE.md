@@ -110,7 +110,7 @@ $RM_ROOT/AGENTS.md
 $NM_ROOT/AGENTS.md
 ~~~
 
-Read the Devman, Devman adoption, Gitman, my-ai, and writing skills before
+Read the Devman, Devman adoption, Gitman, and writing skills before
 using their commands or editing their files.
 
 Inspect every repository before work and before every commit:

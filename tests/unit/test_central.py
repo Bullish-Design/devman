@@ -251,7 +251,7 @@ def test_c3_does_not_fire_on_a_target_that_is_a_tree_of_empty_directories(tmp_pa
     fleet = tmp_path / "fleet"
     central_root = tmp_path / "central"
     _init_central(central_root)
-    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target = central_root / "projects/mnemonix/agents/skills/retired-skill"
     target.mkdir(parents=True)  # three levels deep; nothing in any of them
     _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
 
@@ -269,7 +269,7 @@ def test_c3_fires_on_a_lane_only_directory_holding_a_real_file(tmp_path):
     fleet = tmp_path / "fleet"
     central_root = tmp_path / "central"
     _init_central(central_root)
-    _commit_on_a_lane(central_root, "projects/linkman/agents/skills/my-ai/SKILL.md")
+    _commit_on_a_lane(central_root, "projects/linkman/agents/skills/retired-skill/SKILL.md")
     _symlink(fleet, "linkman", ".agents", central_root / "projects/linkman/agents")
 
     views = central.reverse_index(fleet=fleet, central=central_root)
@@ -384,7 +384,7 @@ def test_c5_fires_on_a_target_that_is_a_tree_of_empty_directories(tmp_path):
     fleet = tmp_path / "fleet"
     central_root = tmp_path / "central"
     _init_central(central_root)
-    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target = central_root / "projects/mnemonix/agents/skills/retired-skill"
     target.mkdir(parents=True)
     _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
 
@@ -399,7 +399,7 @@ def test_c5_does_not_fire_on_a_populated_target(tmp_path):
     fleet = tmp_path / "fleet"
     central_root = tmp_path / "central"
     _init_central(central_root)
-    target = central_root / "projects/linkman/agents/skills/my-ai"
+    target = central_root / "projects/linkman/agents/skills/retired-skill"
     target.mkdir(parents=True)
     (target / "SKILL.md").write_text("# skill\n")
     _symlink(fleet, "linkman", ".agents", central_root / "projects/linkman/agents")
@@ -538,7 +538,7 @@ def test_phase_pre_does_not_run_c5(tmp_path, capsys):
     fleet = tmp_path / "fleet"
     central_root = tmp_path / "central"
     _init_central(central_root)
-    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target = central_root / "projects/mnemonix/agents/skills/retired-skill"
     target.mkdir(parents=True)
     _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
 
@@ -557,7 +557,7 @@ def test_phase_post_runs_c5(tmp_path, capsys):
     fleet = tmp_path / "fleet"
     central_root = tmp_path / "central"
     _init_central(central_root)
-    target = central_root / "projects/mnemonix/agents/skills/my-ai"
+    target = central_root / "projects/mnemonix/agents/skills/retired-skill"
     target.mkdir(parents=True)
     _symlink(fleet, "mnemonix", ".agents", central_root / "projects/mnemonix/agents")
 

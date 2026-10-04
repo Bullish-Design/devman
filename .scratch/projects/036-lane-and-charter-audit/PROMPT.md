@@ -6,8 +6,8 @@ charter's open questions.
 Session 035 (`.scratch/projects/035-config-repo-cleanup/README.md`) closed out
 the `~/.config/devman` cleanup and the fleet-wide link-plane rollout: 44 of 49
 repositories migrated, 12 repos' `.claude/skills` drift resolved, 5 stragglers
-fixed or documented, `my-ai` retired as a devman project and moved to
-`~/Documents/Projects/.archive/my-ai`. That work is done and pushed. Nothing
+fixed or documented, the personal configuration project retired from devman
+and moved to the preserved source archive. That work is done and pushed. Nothing
 below depends on it beyond using the same conventions.
 
 This prompt starts a **new investigation**, not a continuation. Read this file,

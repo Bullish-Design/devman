@@ -434,7 +434,7 @@ weight, not a correction of fact.
 **Measured:** `~/.claude/AGENTS.md` and `~/.claude/CLAUDE.md` are **two real
 files, not a symlink pair**, not in the overlay, and under no version control.
 `diff` returns two differences: `AGENTS.md` lacks the entire **"Version control
-lanes"** section, and it still cites `.agents/skills/my-ai/SKILL.md` where
+lanes"** section, and it still cites the removed personal-layer skill where
 `CLAUDE.md` cites `.agents/skills/writing/SKILL.md` — and 035 §8.5 decided that
 move, so `AGENTS.md` is the stale copy of a decision already taken.
 
@@ -594,7 +594,7 @@ gitman beside O4.
 **Decided:** nothing in the design changes. The measurement settles an open
 question and promotes one prohibition from advice to fact.
 
-**Measured:** `gitman land m14-central-residue+retire-foreman-my-ai` — **four
+**Measured:** the archive sublane in `m14-central-residue` — **four
 paths, all pure renames, no content change** — was denied `[Modify Shared
 Resources]`. The denial follows the repository, not the lane's size or content.
 
@@ -725,4 +725,3 @@ holds at zero elsewhere.
 
 **Forced by:** the measurement in (2), which is the one that decides it, and by
 property 6, which had already decided it.
-

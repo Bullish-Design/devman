@@ -478,7 +478,7 @@ directories, two queue assignments and two history entries.
 | `copyroom`, `docman`, `mypi-agent` | on disk, **untracked** | **no** | Land the published Stage 37 branch, then rebuild the generation | implementer | none | the branch remains |
 | `fleetman` | none; literal Nix in `.archive/fleetman/devenv.nix:23` | no | **Archive.** Already moved to `.archive/` | operator | its 6 link declarations | central overlay retained |
 | `flora-037-part-e` | none; state-side entry points at `flora/.worktrees/037-part-e-flora`; not in `flora worktree list` | no | **Archive or re-register.** It is an orphaned worktree, and it is the source of doctor finding 1 | operator | the `devenv.local.nix` link | — |
-| `foreman`, `my-ai`, `siteman` | none | no | **Archive.** Central overlay only, no checkout | operator | none | overlay retained |
+| `foreman`, personal configuration project, `siteman` | none | no | **Archive.** Central overlay only, no checkout | operator | none | overlay retained |
 | `forgelab`, `lodestar` | none; **live literal `devman.project`** | no | **Archive** (already decided, `IMPLEMENTATION_LOG.md:2039-2044`); `lodestar`'s overlay waits on a corrupted index | operator | none | — |
 
 **The compatibility-only set is two live cases, not five** (R6).

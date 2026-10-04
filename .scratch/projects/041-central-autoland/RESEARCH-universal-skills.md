@@ -3,7 +3,7 @@
 Date: 2026-10-03
 Scope: `~/.config/devman/skills/` (the pool) and `~/.config/devman/projects/*/agents/skills/`
 (the 64 live link-plane surfaces), plus the 35 repository `AGENTS.md` files that still
-cite the retired `my-ai` path.
+cited the former personal-layer skill in the 2026-10-03 survey.
 Mode: read-only investigation. Nothing was edited, no `gitman`/`jj` mutating command ran,
 no file under `~/.config/devman` changed. All central reads used the trunk commit
 `ef1b3847f028dce07c70bc64b0dad7319982da01` (`gitman status`'s reported trunk), not `HEAD`.
@@ -87,30 +87,27 @@ skills by count alone — but that reading is wrong for `writing` specifically (
 
 ## 3. `writing` — never added, not selected against
 
-Of the 35 repositories whose `AGENTS.md` still cites the literal retired path
-`.agents/skills/my-ai/SKILL.md` (confirmed count, command below), exactly **7** have a working
+Of the 35 repositories whose `AGENTS.md` still cited the former personal-layer
+skill in the 2026-10-03 survey, exactly **7** have a working
 `.agents/skills/writing/SKILL.md` on disk today: `lodestar`, `pytuin-desktop`, `PyGentic`,
 `silverbullet-server`, `inferference`, `forgelab`, `template-py`. The other 28 have no
 `writing` link at all (not a broken symlink — the entry is simply absent).
 
-```
-grep -rl '\.agents/skills/my-ai/SKILL\.md' --include=AGENTS.md /home/andrew/Documents/Projects \
-  | grep -v archive | wc -l          # -> 35
-# then, per repo, test -e "$p/.agents/skills/writing/SKILL.md"   # -> 7 RESOLVES, 28 MISSING
-```
+The 2026-10-03 survey counted 35 files. It checked the writing link on disk
+in each repository and found 7 resolving links and 28 absent entries.
 
-For all 28 missing ones, `git log --all --oneline -- "projects/<repo>/agents/skills/writing"`
-in the devman repo returns **zero commits** — the path was never created, let alone removed.
-That rules out "selected against" (there is nothing to have reverted). Meanwhile
-`git log --all --oneline -- "projects/<repo>/agents/skills/my-ai"` for the same repos shows a
-real history ending in removal, and at trunk the `my-ai` link is confirmed absent for all of
-them — so the retirement half of the migration ran, and the replacement half did not.
+For all 28 missing ones, central history for `projects/<repo>/agents/skills/writing`
+returned **zero commits** — the path was never created, let alone removed. That
+rules out "selected against" (there is nothing to have reverted). History for the
+former skill paths shows real entries ending in removal, and at trunk those links
+were absent for all of them — so the removal half of the migration ran, and the
+replacement half did not.
 
 Timeline from commit messages (dates from `git log --date=short`):
-- 2026-09-11 `bf06e351`/`5d43caa2` — "split the STE writing rules out of my-ai into a pool skill" (`writing` created)
+- 2026-09-11 `bf06e351`/`5d43caa2` — moved the STE writing rules from the personal layer into a pool skill (`writing` created)
 - 2026-09-16 `e93ea4e9` — "distribute the gitman skill across the fleet" (this is the kind of commit `writing` never got)
 - 2026-09-19 `71344a42` — "link testee, docman and writing into repoman's agent surface" (one repo, not the fleet)
-- 2026-10-01 `ff7be524` et al. — "m14: retire foreman and my-ai into projects/.archive/" (citation target removed fleet-wide, with no `writing` fleet-wide rollout to replace it)
+- 2026-10-01 `ff7be524` et al. — archived two retired central projects (the citation target was removed fleet-wide, with no `writing` fleet-wide rollout to replace it)
 
 This is exactly the "universal-but-unrolled" case the brief warned about, now confirmed by
 `git log`, not inferred from counts.
@@ -166,8 +163,8 @@ substitutes for each other.
 - Why 5 surfaces lack `gitman` (`atuout`, `image-gen-pipeline`, `knappy`, `siteman`, `testee`)
   and 1 lacks `copyroom` (`tyo3`). Likely the same rollout-gap shape as `writing`, just smaller;
   not traced to specific commits.
-- Whether any of the 3 repos that mention `my-ai` in prose but not the literal SKILL.md path
-  (`allium-env`, `clinch`, `repoman`) have already been manually fixed versus simply phrased
+- Whether any of the 3 repos that mention the former personal layer in prose but not a skill path
+  (`allium-env`, `clinch`, `repoman`) had already been manually fixed versus simply phrased
   differently — not required for the headline count, so not chased further.
 
 ## What this investigation did not do

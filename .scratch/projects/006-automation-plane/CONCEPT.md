@@ -655,7 +655,7 @@ Everything else there is inert to the plane and belongs to that group's own
 workflows:
 
 ```
-groups/my-ai/
+groups/personal/
 ├── workflows/provision.yaml    # devman reads this
 └── skills/**                   # inert; the workflow knows where its files are
 ```

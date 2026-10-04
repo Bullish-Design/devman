@@ -185,8 +185,8 @@ git history if anyone needs the earlier phrasing later.
 - The central repository still carries `projects/paloma-text-pipeline/` on
   `main`, including the milestone-14 `links.yaml` and `devenv.local.nix`
   that *would* wire it up if the project were ever onboarded. It has not
-  been moved to `projects/.archive/` (unlike `foreman` and `my-ai`, which
-  have).
+  been moved to `projects/.archive/` (unlike `foreman` and the personal-layer
+  project, which have).
 - The reverse-index walk found no live symlink anywhere in the 65-repository
   fleet that resolves into `projects/paloma-text-pipeline/`. Nothing live
   depends on this project's central content today.

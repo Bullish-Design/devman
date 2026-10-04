@@ -2737,7 +2737,7 @@ enterTest       19   PyGentic atuout atuout-reconciler-test boomtube browsee
 suite, no task  28   allium-env argentic copyroom docman eventic flora
                      flora-core flora-qc foreman fsdantic gitman
                      image-gen-pipeline inferference interplay llgym loci.nvim
-                     lodestar my-ai mypi-agent poddantic pytuin repoman
+                     lodestar personal-configuration mypi-agent poddantic pytuin repoman
                      shellij structured-agents-v2 talkee terminal-state testee
                      vendomat
 no suite         4   nix-desktop nix-nvim nix-secrets nixvim
@@ -3754,7 +3754,8 @@ changes).
 ## R-7 wave 4, batch 4 — ten adopted, and the first no-suite repo that was miscounted
 
 **Answer: batch 4 is done — ten repositories, all registered, all pushed. The
-three Nix repositories adopted with the flake gate. One repository (`my-ai`)
+three Nix repositories adopted with the flake gate. One Copier template
+(`personal-configuration`)
 that I-4 counted as having a suite has none — pytest collects 0 items — and got
 a real end-to-end gate instead. Two recorded lint debts and one recorded
 failing own-gate.**
@@ -3768,7 +3769,7 @@ Every repository pins `ref=main&rev=f20a9c11cd6b062aa6646e8b72b9767d7e90a522`.
 
 | Repository | Commit | `check` | `test` |
 |---|---|---|---|
-| `my-ai` | `fc38860` | ok — ruff clean (whole tree) | ok — **copier render gate** (below) |
+| `personal-configuration` | `fc38860` | ok — ruff clean (whole tree) | ok — **copier render gate** (below) |
 | `mypi-agent` | `5011589` | **failed — 16 ruff findings** (recorded) | **2 failed, 54 passed** — see below |
 | `nix-nvim` | `835d2c7` | ok — `nix flake check --no-build` | ok — `nix flake check` |
 | `nix-secrets` | `c2eef93` | ok — flake check `--no-build` | ok — `nix flake check` |
@@ -3783,11 +3784,11 @@ All ten at `@{u}..HEAD = 0`.
 
 ### The measurement I-4 got wrong, corrected live
 
-**`my-ai` has no test suite.** I-4's static sweep counted it in "a suite, no
+**The Copier template has no test suite.** I-4's static sweep counted it in "a suite, no
 task" because `pyproject.toml` declares `testpaths = ["tests"]` — but the
 directory does not exist and never has (no `tests/` in git history). `uv run
-pytest` collects 0 items and exits 5. Its own comment says what it is: "my-ai
-is a Copier template, not a Python package" (`[tool.uv] package = false`).
+pytest` collects 0 items and exits 5. Its own comment says what it is: "a
+Copier template, not a Python package" (`[tool.uv] package = false`).
 
 **Its gate is the repository's deliverable, in the siteman shape:** render the
 layer with copier into a scratch dir and assert the seed files exist and the
@@ -3848,7 +3849,7 @@ scheduled for the coming night.
 
 Batch 4 passes. Ten of ten registered, ten of ten pushed, `doctor` clean at 51
 projects and 160 workflows. One live correction to I-4's classification
-(`my-ai`), two recorded lint debts, one recorded failing own-gate, one recorded
+(`personal-configuration`), two recorded lint debts, one recorded failing own-gate, one recorded
 code/test drift — all traced to their mechanism.
 
 ### Charter impact
@@ -3860,7 +3861,7 @@ repositories (7 template-default, 8 custom); the count stands.
 
 | Repository | Commit | State |
 |---|---|---|
-| `my-ai` | `fc38860` | committed, **pushed** to `origin/main` |
+| `personal-configuration` | `fc38860` | committed, **pushed** to `origin/main` |
 | `mypi-agent` | `5011589` | committed, **pushed** to `origin/main` |
 | `nix-nvim` | `835d2c7` | committed, **pushed** to `origin/main` |
 | `nix-secrets` | `c2eef93` | committed, **pushed** to `origin/main` |
@@ -3872,8 +3873,8 @@ repositories (7 template-default, 8 custom); the count stands.
 | `talkee` | `2dd0648` | committed, **pushed** to `origin/main` |
 
 **Left on the machine:** `nixvim`'s pre-existing modified `.devenv/gc/shell` and
-`.devenv/imports.txt` (devenv state files it tracks — untouched), `my-ai`'s
-warm copier cache, and the warmed Nix caches. `my-ai` and `nix-nvim` were
+`.devenv/imports.txt` (devenv state files it tracks — untouched), the template's
+warm Copier cache, and the warmed Nix caches. The template and `nix-nvim` were
 moved from detached HEAD to local `main`; all checkouts are clean apart from
 the noted pre-existing changes.
 
@@ -3975,7 +3976,7 @@ already running.
 | 1 | atuout `3ae56d0` · atuout-reconciler-test `b9b12a2` · boomtube `868d208` · browsee `55f5d28` · cairn `b2b4742` · embeddy `42cff82` · fleetman `98e1947` · forgelab `39f17b3` · fornix `0e5ca5e` · grail `7aad6f2` |
 | 2 | knappy `4eecc77` · nixbuild `6b1f13f` · templateer_v2 `9ce584f` · tyo3 `94d429f` · zelligate `06d0297` · loci-core `f3542a3` · allium-env `0cc8bd9` · argentic `8f32312` · copyroom `a45a50d` · docman `279b9cb` |
 | 3 | eventic `9bdecc8` · flora `d90a9fe8` · flora-core `3ada834` · flora-qc `9805484` · foreman `c7a21da` · gitman `3c49fa5` · image-gen-pipeline `dcc9d4f` · interplay `57ccdb8` · llgym `c6bcb19` · lodestar `6fbcac0` |
-| 4 | my-ai `fc38860` · mypi-agent `5011589` · nix-nvim `835d2c7` · nix-secrets `c2eef93` · nixvim `976a876` · pytuin `a0bde75` · repoman `e55ac7c` · shellij `7c5f70b` · structured-agents-v2 `febefd6` · talkee `2dd0648` |
+| 4 | personal-configuration `fc38860` · mypi-agent `5011589` · nix-nvim `835d2c7` · nix-secrets `c2eef93` · nixvim `976a876` · pytuin `a0bde75` · repoman `e55ac7c` · shellij `7c5f70b` · structured-agents-v2 `febefd6` · talkee `2dd0648` |
 | 5 | terminal-state `79c56dc` · testee `3df2617` · vendomat `bd1f207` |
 
 ## R-7 wave 4 tail — the `atuout` reconciler branch: salvaged, and the stale-entry lifecycle measured

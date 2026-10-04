@@ -54,7 +54,7 @@ Read these skills before using their commands or editing their files:
 Devman
 Devman adoption
 Gitman
-my-ai
+personal-configuration
 writing
 ~~~
 

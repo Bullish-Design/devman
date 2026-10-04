@@ -45,8 +45,9 @@ higher — 35 repos carry `gitman.toml`, 32 carry `.jj`, 21 declare `testee`, 21
 carry `.copier-answers.yml`.
 
 The single widest-reaching first-party artifact in the fleet is not a tool. It is
-**`my-ai`, a Copier layer with zero Python, present in 62 of 74 repositories**
-(`ls */.copier-answers.my-ai.yml | wc -l`). That number is the design.
+**The personal configuration layer, a Copier layer with zero Python, was present
+in 62 of 74 repositories.** The enrollment count is part of the historical
+measurement. That number is the design.
 
 **F3. The current shape costs almost nothing in time, and a real amount in
 correctness.**
@@ -189,7 +190,7 @@ Both repositories were first committed on **2026-06-18**.
   with many triggers. Two answers to one question.
 - **Durable terminal workbench** — shellij. 55 consumers. Unique.
 - **Work-item authoring** — foreman. Zero consumers.
-- **Personal configuration content** — `my-ai`. Zero Python. 62 repositories.
+- **Personal configuration content** — the retired personal layer. Zero Python. 62 repositories.
 
 ---
 
@@ -205,13 +206,13 @@ $ python3 … (diff of registry.json names vs ls ~/.local/share/devman/projects)
 fleetman only: PyGentic atuout-reconciler-test clinch foreman forgelab fsdantic
                lodestar nix-meta nix-terminal nixos-core paloma-story-generation
                pytuin-desktop silverbullet-server        (13)
-devman only:   argentic boomtube cairn changelog-e2e flora-qc grail llgym my-ai
+devman only:   argentic boomtube cairn changelog-e2e flora-qc grail llgym personal-configuration
                probe pyllij talkee templateer_v2 tyo3    (13)
 both:          39
 ```
 
 `.agents/index/registry.json` is dated **31 Jul 2026 17:20** — 40 days stale. It
-misses 23 directories that exist on disk today, including agentman, my-ai, vendor
+misses 23 directories that exist on disk today, including agentman, the personal project, vendor
 and tyo3, and it names one directory that does not exist
 (`atuout-reconciler-test`).
 
@@ -255,7 +256,7 @@ no list behind it.** Do not treat it as a target.
 | vendomat | its shared tree is a read-only `/nix/store` path | **Stands.** That is what build-once means. |
 | gitman | repo-scoped by invariant; nested `.gitignore` over `.git/info/exclude`, tests lock it in | **Stands.** Load-bearing, and enforced by construction (`gitman/AGENTS.md:51-55`). |
 | siteman | documented decision against symlinks — **the seed cites `siteman/CONCEPT.md:95-98`, and that file does not exist.** The decision is real but lives at `siteman/.scratch/projects/01-brainstorming/CONCEPT.md:96,189`, and it is a Hugo file-watching risk, not an architectural refusal | **Moot.** The repository goes. |
-| my-ai | deleted its own `my-ai-sync` file distributor on purpose (`my-ai/devenv.nix:35-38`) | **Stands, and it is the model for this whole project.** my-ai deleted its distributor, moved to a Copier layer, and reached 62 repositories. Copy that decision, do not reverse it. |
+| Personal configuration project | deleted its own file distributor on purpose (`devenv.nix`) | **Stands, and it is the model for this whole project.** The project deleted its distributor, moved to a Copier layer, and reached 62 repositories. Copy that decision, do not reverse it. |
 
 Two of seven refusals are territory rather than invariant. Both belong to
 repositories with zero consumers.
@@ -305,7 +306,7 @@ devenv module that holds the actual behaviour).
   to it. This convention works and is universal.
 - Skills an agent must read: **13 directories, 520 lines, 3935 words** in a
   typical repoman repo. **Seven of the thirteen are `devenv-*` literacy docs**, not
-  manager skills. Only `repoman`, three `copyroom-*` and `my-ai` are manager
+  manager skills. Only `repoman`, three `copyroom-*` and the personal layer are manager
   surface.
 - **The dangling-route defect: 18 of 18.** See F3.
 
@@ -503,7 +504,7 @@ This is the one duplicate that should stay.
 │ content repos: │   │                                │   │ agentman what one  │
 │  template-py   │   │                                │   │          model run │
 │  template-nix  │   │                                │   │          may be    │
-│  my-ai         │   │                                │   │                    │
+│  personal      │   │                                │   │                    │
 └────────────────┘   └────────────────────────────────┘   └────────────────────┘
 
   retired: fleetman → devman fleet index · siteman → the docs module
@@ -566,7 +567,7 @@ Each of these was paid for once. A consolidation that loses one has failed.
    code** (`repoman/src/repoman/registry.py:96-97`). Never promote it to the shared
    toolchain.
 8. **Layers are discovered by glob, never configured**, and converge independently
-   (`copyroom/AGENTS.md:65-66`). This is why `my-ai` reaches 62 repositories
+   (`copyroom/AGENTS.md:65-66`). This is why the personal layer reaches 62 repositories
    without a registry.
 9. **`mkToolchain` fails evaluation on a duplicate executable name**
    (`vendomat/lib/mkToolchain.nix:3`). Carry this into the merged Nix plane
@@ -577,8 +578,8 @@ Each of these was paid for once. A consolidation that loses one has failed.
     it already holds in all 12.
 12. **Absence is the boundary** — a capsule gets a grant; never write a
     prohibition where an absent capability will do (`agentman/AGENTS.md:54-57`).
-13. **my-ai's own deletion.** It removed its file distributor and became a Copier
-    layer (`my-ai/devenv.nix:35-38`). That single decision is the pattern this
+13. **The personal layer's own deletion.** It removed its file distributor and became a Copier
+    layer. That single decision is the pattern this
     whole consolidation is applying to the rest of the family.
 
 ---

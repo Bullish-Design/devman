@@ -261,8 +261,8 @@ text for repositories with no manifest. Tests pin it at
 
 - **`TODO(038-archive)` markers.** `IMPLEMENTATION_LOG.md:1807` and
   `.scratch/spikes/triggers.py:23`. The archive set is `allium-env`, `forgelab`,
-  `lodestar`, `fleetman`, `my-ai`. Overlay directories with no checkout:
-  `fleetman`, `foreman`, `my-ai`, `siteman`. Close these once the operator's two
+  `lodestar`, `fleetman`, the personal configuration project. Overlay directories with no checkout:
+  `fleetman`, `foreman`, the personal configuration project, `siteman`. Close these once the operator's two
   housekeeping steps land.
 - **A contradiction worth settling.** `025/CONCEPT.md` §13 #1 records the Claude
   settings write behaviour as settled by 037 Part A; `036/README.md` Part C item

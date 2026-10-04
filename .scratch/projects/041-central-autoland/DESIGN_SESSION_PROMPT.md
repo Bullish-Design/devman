@@ -136,7 +136,7 @@ Carry these eight open questions forward. The listed positions are hypotheses fr
 
 | ID | Decision | Provisional position to test |
 |---|---|---|
-| O1 | What should happen to the parked central lanes? | After fresh inspection and operator review, fold `m14-central-residue+retire-foreman-my-ai` into its parent, then land the residue. Abandon dead fixture output only after proving no live view consumes it. Remove dead fixture declarations in a separate named change. Do not execute these steps in this session. |
+| O1 | What should happen to the parked central lanes? | After fresh inspection and operator review, fold the archive-project sublane into its parent, then land the residue. Abandon dead fixture output only after proving no live view consumes it. Remove dead fixture declarations in a separate named change. Do not execute these steps in this session. |
 | O2a | What gates a land in the central overlay? | Use `[land.pre_hook]` for C1, C2, and C4. Use a post-land check for C3 because a successful land may be the action that cures lane-only targets. Keep the hook read-only. |
 | O2b | What gates a land in the devman source repository? | Keep `nix flake check` under `[publish] verify`. Add a separate, fast `[land.pre_hook]` using the existing passing `base:check`. Add `doctor` only after its findings are resolved and its result is useful. Do not confuse this gate with the central-overlay gate. |
 | O3 | How should `links.yaml` and `devenv.local.nix` relate? | Keep declarations in `links.yaml`. Retain a minimal central Nix file only if it provides the required shell-entry reconcile trigger. Remove declarations duplicated in that file. Reconcile this with Linkman's cutover Q3 before changing either repository. |
