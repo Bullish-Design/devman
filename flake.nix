@@ -160,6 +160,8 @@
                 fileset = nixpkgs.lib.fileset.unions [
                   ./src
                   ./tests
+                  # The cutover tests import tools/cutover. Remove this with that tooling.
+                  ./tools
                   ./pyproject.toml
                   ./groups
                   ./nix/nixos-module.nix
@@ -168,7 +170,8 @@
             in
             pkgs.runCommand "devman-python-tests"
               {
-                nativeBuildInputs = [ python (pkgs.callPackage ./nix/dagu.nix { }) ];
+                # Cutover and adapter tests evaluate fixtures with nix-instantiate.
+                nativeBuildInputs = [ python (pkgs.callPackage ./nix/dagu.nix { }) pkgs.nix ];
               } ''
               export HOME=$TMPDIR
               export DAGU_HOME=$TMPDIR/dagu
