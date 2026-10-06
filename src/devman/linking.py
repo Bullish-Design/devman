@@ -19,12 +19,12 @@ for.
 Step 4 exists because Nix reads `devenv.local.nix` before any shell hook
 runs, so a dangling link there fails shell entry with a trace nothing can
 intercept. `apply_plan` must never be the thing that first creates it.
-`excludes.py`, the copyroom call, and the bootstrap writer still live in
-`devman_link`; Phase D (Lane 8) moves them into devman proper, unchanged.
-This module reuses them rather than duplicating their logic ahead of that
-move — `_as_resolved_links` below is a narrow adapter from Linkman's desired
-state to `devman_link`'s domain shape, built only so
-`devman_link.excludes.ensure_local_gitignore` can run unmodified.
+
+Lane 4 of the Linkman cutover (project 044) moved the exclude projection
+into devman proper. `devman.excludes` now reads a project's `links.yaml`
+layers itself, with no dependency on the `linkman` package, and computes
+step 5 directly. This module still calls Linkman for the other five steps;
+Lane 5 replaces that engine.
 
 Two corrections to the concept document, found while wiring this flow.
 First, `linkman.load_layers` takes the two declaration file paths, not a
@@ -43,11 +43,9 @@ from pathlib import Path
 
 import linkman
 
-from devman_link.declarations import Declaration
-from devman_link.excludes import ensure_local_gitignore
+from devman.excludes import ensure_git_exclude
 from devman_link.identity import ProjectIdentity, resolve_project_identity
-from devman_link.paths import ResolvedLink
-from devman_link.reconcile import BOOTSTRAP_CENTRAL_FILE, link_path
+from devman_link.reconcile import BOOTSTRAP_CENTRAL_FILE
 from devman_link.state import read_state, write_state
 
 DEFAULT_OVERLAY = Path("~/.config/devman").expanduser()
@@ -102,46 +100,12 @@ def _ensure_bootstrap(desired: linkman.DesiredState) -> None:
     target.write_text(BOOTSTRAP_CENTRAL_FILE)
 
 
-def _as_resolved_links(
-    desired: linkman.DesiredState, *, root: Path, overlay: Path, project: str
-) -> list[ResolvedLink]:
-    """Adapt Linkman's desired state to `devman_link`'s domain shape.
-
-    Every link this module ever resolves is external to Linkman's own
-    classification (targets live under the overlay or elsewhere outside the
-    repository, never inside it), so `canonical="external"` is accurate for
-    all of them here — the only distinction `exclusion_entries` makes is
-    excluding a `canonical="repo"` link, and the Phase A converter already
-    refuses that kind at cutover.
-    """
-    return [
-        ResolvedLink(
-            declaration=Declaration(
-                view=link_rel, canonical="external", path=str(link.target_abs)
-            ),
-            project=project,
-            overlay=overlay,
-            root=root,
-            view_path=link.link_abs,
-            canonical_path=link.target_abs,
-        )
-        for link_rel, link in desired.links.items()
-    ]
-
-
-def _project_local_gitignore(
-    desired: linkman.DesiredState, *, root: Path, overlay: Path, project: str
-) -> None:
+def _project_local_gitignore(*, root: Path, overlay: Path, project: str) -> None:
     """`.local.gitignore` -> `.git/info/exclude`. devman's own feature,
     under D5 — Linkman never touches version control.
     """
     state = read_state(overlay)
-    resolved_links = _as_resolved_links(
-        desired, root=root, overlay=overlay, project=project
-    )
-    changed = ensure_local_gitignore(
-        root.resolve(), overlay, project, resolved_links, state, link_path=link_path
-    )
+    changed = ensure_git_exclude(root.resolve(), overlay, project, state)
     if changed:
         write_state(overlay, state)
 
@@ -186,7 +150,7 @@ def reconcile_with_linkman(
 
     # 5. the exclude projection, devman's own feature
     _project_local_gitignore(
-        desired, root=repository_root, overlay=overlay_root, project=identity.project
+        root=repository_root, overlay=overlay_root, project=identity.project
     )
 
     # 6. symlink topology only
