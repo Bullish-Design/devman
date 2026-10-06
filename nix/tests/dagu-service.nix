@@ -378,6 +378,10 @@
         assert "refusing" in refusal
         machine.succeed(f"echo '{entry}' > {STATE}/projects/demo/metadata.json")
 
+    # Doctor requires the shared skill pool even when no live surface exists (041).
+    tester(f"mkdir -p {HOME}/.config/devman/skills/writing")
+    tester(f'echo "# writing" > {HOME}/.config/devman/skills/writing/SKILL.md')
+
     with subtest("devman doctor reports nothing on a healthy plane"):
         report = machine.succeed(
             f"su tester -c '{ENV}devman doctor' 2>&1"

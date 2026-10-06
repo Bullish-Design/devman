@@ -43,6 +43,7 @@
 , python3Packages
 , dagu
 , watchexec
+, git
 , makeWrapper
 }:
 
@@ -66,7 +67,7 @@ python3Packages.buildPythonApplication {
 
   postFixup = ''
     wrapProgram $out/bin/devman \
-      --prefix PATH : ${lib.makeBinPath [ dagu watchexec ]}
+      --prefix PATH : ${lib.makeBinPath [ dagu watchexec git ]}
   '';
 
   # `--help` proves the entry point resolves and every module imports. The
