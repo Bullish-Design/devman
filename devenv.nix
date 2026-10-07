@@ -5,7 +5,17 @@ let
   # version, so this repo carries the expression and both interfaces call the
   # same file — this shell now, the NixOS module at stage 1 (§3.1).
   dagu = pkgs.callPackage ./nix/dagu.nix { };
-  devmanCli = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
+
+  # mancore (STEP7_PROMPT.md), wired through this shell's own
+  # devenv.yaml inputs rather than mancore's — see devenv.yaml's comment
+  # on the `mancore` input for why.
+  devmanCli = pkgs.callPackage ./nix/devman-cli.nix {
+    inherit pkgs dagu;
+    uv2nix = inputs.uv2nix;
+    pyprojectNix = inputs."pyproject-nix";
+    pyprojectBuildSystems = inputs."pyproject-build-systems";
+    mancoreSrc = inputs.mancore;
+  };
 
   # WHAT RUNS THE PYTHON TESTS, AND WHY IT IS NOT THE VENV (S-11).
   #

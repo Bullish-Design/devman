@@ -23,9 +23,43 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # mancore (STEP7_PROMPT.md's entry-point wrap step). Declared here too,
+    # separately from devenv.yaml's copy, because this flake does not read
+    # devenv.yaml (note above): `nix build .#devman` needs its own input
+    # graph. `flake: false`: mancore carries no flake.nix, only a
+    # devenv.nix/devenv.yaml pair, and devenv's cross-project
+    # `inputs.<name>.devenv.config` bridge does not evaluate a referenced
+    # project's own devenv.yaml (devenv issue #2205, confirmed by hand), so
+    # mancore's own uv2nix/pyproject-nix/pyproject-build-systems pins are
+    # unreachable that way. `nix/devman-cli.nix` instead builds mancore
+    # directly with uv2nix against this plain source checkout — the same
+    # recipe mancore's own `outputs.mancore` runs internally — fed by these
+    # three inputs.
+    mancore = {
+      # `git+https://`, not the `github:` shorthand: mancore is a private
+      # repo (confirmed by hand — the `github:` form 404s on GitHub's REST
+      # API without a token; `git+https://` instead uses the local git
+      # credential helper, same as mancore's own devenv.yaml says for its
+      # own private fleet inputs).
+      url = "git+https://github.com/Bullish-Design/mancore?ref=refs/tags/v0.1.0";
+      flake = false;
+    };
+    pyproject-nix = {
+      url = "github:pyproject-nix/pyproject.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    uv2nix = {
+      url = "github:pyproject-nix/uv2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    pyproject-build-systems = {
+      url = "github:pyproject-nix/build-system-pkgs";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, ... }:
+  outputs = { self, nixpkgs, mancore, uv2nix, pyproject-nix, pyproject-build-systems, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
@@ -49,8 +83,20 @@
           # §3.1's table: `packages.default` is the devman CLI, and the NixOS
           # module is what puts it on a machine's PATH. It is not offered by the
           # devenv module — see the note at the top of nix/devman-cli.nix.
-          devman = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
-          default = pkgs.callPackage ./nix/devman-cli.nix { inherit dagu; };
+          devman = pkgs.callPackage ./nix/devman-cli.nix {
+            inherit pkgs dagu;
+            uv2nix = uv2nix;
+            pyprojectNix = pyproject-nix;
+            pyprojectBuildSystems = pyproject-build-systems;
+            mancoreSrc = mancore;
+          };
+          default = pkgs.callPackage ./nix/devman-cli.nix {
+            inherit pkgs dagu;
+            uv2nix = uv2nix;
+            pyprojectNix = pyproject-nix;
+            pyprojectBuildSystems = pyproject-build-systems;
+            mancoreSrc = mancore;
+          };
 
           # The independent link adapter (038 Stage 16, B). A separate output
           # because it is a separate component: it holds no Dagu, no watchexec
