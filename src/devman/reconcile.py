@@ -327,9 +327,17 @@ def render_project(
     overlay_root: Path,
     generation: PlaneGeneration,
     plan: str | None = None,
+    checkout: Path | None = None,
 ) -> ProjectionBundle:
-    """Resolve and render one project into a Vendomat-consumable bundle."""
+    """Resolve and render one project into a Vendomat-consumable bundle.
 
+    ``root`` holds the project's ``.devman`` files. ``checkout`` is the path the
+    workflows run in. It defaults to ``root``. A registry that a Nix build
+    renders sets it, because the build cannot see the working tree and ``root``
+    is then a store path.
+    """
+
+    run_root = _checkout_root(root, checkout)
     resolved, record, sources = _resolve_identity(
         root,
         policy_root=policy_root,
@@ -340,7 +348,7 @@ def render_project(
 
     rendered: dict[str, bytes] = {}
     for name, workflow in sorted(workflows.items()):
-        body = render(workflow.source, root, source_label=workflow.source_label)
+        body = render(workflow.source, run_root, source_label=workflow.source_label)
         rendered[f"projects/{manifest.project}/workflows/{name}.yaml"] = body.encode()
 
     local_names = sorted(
@@ -348,7 +356,7 @@ def render_project(
     )
     metadata = entry_text(
         project=manifest.project,
-        root=root.expanduser().resolve(),
+        root=run_root,
         groups=list(manifest.groups),
         plan=plan if plan is not None else f"plane:{generation.generation}",
         local=local_names,
@@ -379,6 +387,17 @@ def render_project(
         links=links,
         sources=sources,
     )
+
+
+def _checkout_root(root: Path, checkout: Path | None) -> Path:
+    """The path a project's workflows run in."""
+
+    if checkout is None:
+        return root.expanduser().resolve()
+    path = checkout.expanduser()
+    if not path.is_absolute():
+        raise ReconcileError(f"the checkout path must be absolute: {checkout}")
+    return path
 
 
 def compatibility_apply(

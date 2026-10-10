@@ -11,6 +11,8 @@
   # interfaces, and the workflow groups:
   #
   #   nixosModules.default   one Dagu service, queues, state paths, ports
+  #   lib.<system>.mkRegistry  project inputs in, one registry store path out
+  #                          (`nix/registry.nix`); a store-path `registryDir`
   #   modules/link.nix       the repo interface; the machine installs it as
   #                          `link-module.nix` for `devenv.local.nix`
   #   groups/                workflow content, shadowed by name (§7.2, §7.3)
@@ -29,8 +31,50 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+      # The group files that a registry renders from. Only the files the
+      # renderer reads, so a README edit does not change a registry.
+      policyRoot = nixpkgs.lib.fileset.toSource {
+        root = ./.;
+        fileset = nixpkgs.lib.fileset.fileFilter
+          (f: f.hasExt "yaml" || f.hasExt "toml")
+          ./groups;
+      };
+
+      # One registry from project inputs: `nix/registry.nix` holds the
+      # argument shape. The renderer is the one in `nix/renderer.nix`.
+      mkRegistryFor = pkgs:
+        let
+          dagu = pkgs.callPackage ./nix/dagu.nix { };
+          devman = pkgs.callPackage ./nix/renderer.nix { inherit dagu; };
+          build = pkgs.callPackage ./nix/registry.nix { inherit dagu devman; };
+        in
+        args: build ({ inherit policyRoot; } // args);
+
+      # The registry the tests render. `demo` is inline and has a central
+      # overlay workflow that needs no devenv. `beta` comes from a source
+      # directory that holds `.devman/project.toml` and `triggers.toml`.
+      fixtureRegistry = pkgs: mkRegistryFor pkgs {
+        generation = 7;
+        overlayRoot = ./nix/tests/registry-fixture/overlay;
+        projects = {
+          demo = { path = "/home/tester/work/demo"; groups = [ "base" ]; };
+          beta = {
+            path = "/home/tester/work/beta";
+            source = ./nix/tests/registry-fixture/project-b;
+          };
+        };
+      };
     in
     {
+      # `lib.<system>.mkRegistry { projects = { <name> = { path; groups; ... }; }; }`
+      # returns ONE store path: `projects/*/`, `dags/*` and `generation.json`,
+      # the layout `services.devman-dagu` reads. Set `registryDir` to it.
+      # This is a function, not a service. See `nix/registry.nix`.
+      lib = forAllSystems (pkgs: {
+        mkRegistry = mkRegistryFor pkgs;
+      });
+
       # For a machine that already composes its own nixpkgs.
       overlays.default = final: _prev: {
         dagu = final.callPackage ./nix/dagu.nix { };
@@ -110,6 +154,48 @@
             assert table.grammar == "^${grammar}$";
             assert disagreeing == [ ];
             pkgs.runCommand "devman-identity-grammar" { } "touch $out";
+
+          # The registry function's output layout (`nix/registry.nix`). Building
+          # it runs `dagu validate` on every rendered workflow. The assertions
+          # read the files the module's `registryDir` would read.
+          registry-layout =
+            let registry = fixtureRegistry pkgs;
+            in pkgs.runCommand "devman-registry-layout"
+              { nativeBuildInputs = [ pkgs.python3 ]; } ''
+              cd ${registry}
+              python3 -I - <<'PY'
+              import json, os, pathlib
+              root = pathlib.Path(".")
+              assert sorted(p.name for p in root.iterdir()) == ["dags", "generation.json", "projects"]
+              gen = json.loads(pathlib.Path("generation.json").read_text())
+              assert gen["generation"] == 7 and gen["contract_schema"] == 1, gen
+              assert sorted(gen) == [
+                  "contract_schema", "dagu_digest", "devman_runtime", "generation",
+                  "policy_digest", "renderer_digest", "toolchain_digest"], sorted(gen)
+              assert sorted(p.name for p in pathlib.Path("projects").iterdir()) == ["beta", "demo"]
+              for project, path, want in (
+                  ("demo", "/home/tester/work/demo", {"check", "maintain", "test", "probe"}),
+                  ("beta", "/home/tester/work/beta", None),
+              ):
+                  entry = pathlib.Path("projects") / project
+                  meta = json.loads((entry / "metadata.json").read_text())
+                  assert meta["project"] == project and meta["path"] == path, meta
+                  assert meta["plan"] == "plane:7", meta["plan"]
+                  names = {p.stem for p in (entry / "workflows").glob("*.yaml")}
+                  assert want is None or names == want, (project, names)
+                  record = json.loads((entry / "projection.json").read_text())
+                  assert record["plane_generation"] == 7 and record["project"] == project
+                  for name in names:
+                      link = pathlib.Path("dags") / f"{project}.{name}.yaml"
+                      assert os.readlink(link) == f"../projects/{project}/workflows/{name}.yaml"
+                      text = (entry / "workflows" / f"{name}.yaml").read_text()
+                      assert f"working_dir: {path}\n" in text, (project, name)
+                      assert f"DEVMAN_PROJECT_DIR: {path}" in text, (project, name)
+              beta = json.loads(pathlib.Path("projects/beta/metadata.json").read_text())
+              assert beta["triggers"]["ignore"] == ["build/**"], beta["triggers"]
+              PY
+              touch $out
+            '';
 
           # The Python test layer (`tests/README.md`, `STAGE_7_LOG.md` S-11).
           #
@@ -196,18 +282,19 @@
           module-assertions =
             let
               lib = nixpkgs.lib;
+              configWith = args: (lib.nixosSystem {
+                modules = [
+                  ./nix/nixos-module.nix
+                  {
+                    nixpkgs.hostPlatform = pkgs.stdenv.hostPlatform.system;
+                    system.stateVersion = "25.05";
+                    services.devman-dagu = { enable = true; } // args;
+                  }
+                ];
+              }).config;
               failures = args:
                 let
-                  system = (lib.nixosSystem {
-                    modules = [
-                      ./nix/nixos-module.nix
-                      {
-                        nixpkgs.hostPlatform = pkgs.stdenv.hostPlatform.system;
-                        system.stateVersion = "25.05";
-                        services.devman-dagu = { enable = true; } // args;
-                      }
-                    ];
-                  }).config;
+                  system = configWith args;
                 in
                 # Only this module's own. A bare `nixosSystem` also fails
                 # NixOS's root-filesystem and boot-loader assertions, which say
@@ -233,12 +320,35 @@
             assert refusedBecause
               { queues = { light = 4; }; defaultQueue = "typo"; }
               "not a key in services.devman-dagu.queues";
+            # A store-path registry is read-only (see `nix/registry.nix`). The
+            # module installs no reload adapter for it, and refuses a state
+            # root inside the store. A mutable registry keeps the adapter.
+            assert evaluates { registryDir = "${pkgs.emptyDirectory}"; };
+            assert refusedBecause
+              { registryDir = "${pkgs.emptyDirectory}"; stateDir = "${pkgs.emptyDirectory}/state"; }
+              "stateDir";
+            assert
+              let c = configWith { registryDir = "${pkgs.emptyDirectory}"; };
+              in !(c.systemd.user.paths ? devman-dagu-reload)
+              && !(c.systemd.user.services ? devman-dagu-reload);
+            assert
+              let c = configWith { registryDir = "$HOME/.local/state/vendomat/devman/active"; };
+              in c.systemd.user.paths ? devman-dagu-reload
+              && c.systemd.user.services ? devman-dagu-reload;
             pkgs.runCommand "devman-module-assertions" { } "touch $out";
 
           # The machine module, run rather than evaluated (§9, rule 7). One VM,
           # one lingering user, one canonical compatibility publication —
           # because the devenv half cannot run inside a NixOS test — and one
           # real run.
+          # THE REGISTRY FUNCTION, RUN AS A STORE-PATH `registryDir`. One VM,
+          # one rendered registry, the Dagu API on loopback, one real run.
+          # `nix/tests/dagu-store-registry.nix` carries the assertions.
+          dagu-store-registry = pkgs.testers.runNixOSTest (import ./nix/tests/dagu-store-registry.nix {
+            module = ./nix/nixos-module.nix;
+            registry = fixtureRegistry pkgs;
+          });
+
           dagu-service = pkgs.testers.runNixOSTest (import ./nix/tests/dagu-service.nix {
             module = ./nix/nixos-module.nix;
             groups = ./groups;

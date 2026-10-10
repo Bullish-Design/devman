@@ -23,6 +23,14 @@ let
   cfg = config.services.devman-dagu;
   yaml = pkgs.formats.yaml { };
 
+  # A registry rendered by `lib.<system>.mkRegistry` is a store path. It is
+  # read-only and it never changes, so this module must not create a directory
+  # in it, watch its parent, or run the reload adapter for it. A new registry
+  # is a new store path, and the NixOS activation restarts Dagu with it.
+  # `/nix/store/` (the store directory) is the test: a mutable `registryDir`
+  # holds `$HOME` or an absolute path outside the store.
+  isStoreRegistry = lib.hasPrefix "${builtins.storeDir}/" cfg.registryDir;
+
   # `${DEVMAN_PROJECT_DIR}` is Dagu's own interpolation, resolved at run time
   # (A2, A3). Nix must not eat it, hence the escape. The value arrives as a
   # trigger-time parameter for `working_dir` and from the trigger's environment
@@ -33,6 +41,10 @@ let
   # user and Nix cannot know it. The ExecStartPre script below expands it in a
   # double-quoted bash assignment, and substitutes the result into config.yaml.
   registryToken = "@DEVMAN_REGISTRY@";
+
+  # `DAGU_HOME` is a systemd specifier in the options and a real path only in
+  # the unit's environment. ExecStartPre substitutes it, as it does the registry.
+  daguHomeToken = "@DAGU_HOME@";
 
   # Dagu's own run metadata, resolved per run. Written as a normal Nix string so
   # the `${` escape stays readable next to the shell quoting that surrounds it.
@@ -85,7 +97,16 @@ let
     # `dags/<project>.<workflow>.yaml` gives one machine-unique name that `ls`,
     # the scheduler and `enqueue` all agree on. It links to the per-project
     # projection under `projects/`, which stays exactly as §9.2 describes it.
-    paths.dags_dir = "${registryToken}/dags";
+    paths = {
+      dags_dir = "${registryToken}/dags";
+    }
+    # MEASURED (Dagu 2.15.0, `nix/tests/dagu-store-registry.nix`): Dagu puts its
+    # Wiki store at `<dags_dir>/wiki` and exits at start when `mkdir` fails
+    # there. A store-path registry is read-only, so the Wiki goes under
+    # DAGU_HOME. A mutable registry keeps Dagu's default.
+    // lib.optionalAttrs isStoreRegistry {
+      wiki_dir = "${daguHomeToken}/wiki";
+    };
 
     # Dagu seeds five example DAGs into an empty DAG directory on first start.
     # The DAG directory is the registry, so without this the registry acquires
@@ -242,11 +263,22 @@ let
     registry="${cfg.registryDir}"
     state="${cfg.stateDir}"
 
+    ${if isStoreRegistry then ''
+    # A store-path registry is complete and read-only. Create nothing in it.
+    # Refuse to start Dagu on a registry that is not there, because Dagu
+    # would otherwise serve an empty DAG directory and say nothing.
+    "${pkgs.coreutils}/bin/mkdir" -p "$DAGU_HOME" "$state/projects"
+    if [ ! -d "$registry/dags" ] || [ ! -f "$registry/generation.json" ]; then
+      echo "devman-dagu: $registry is not a rendered registry (no dags/ or generation.json)" >&2
+      exit 1
+    fi
+    '' else ''
     # The registry and the state root are the devenv module's to fill, but
     # their directories must exist before Dagu scans one of them (§11 Stage 3).
     "${pkgs.coreutils}/bin/mkdir" -p "$DAGU_HOME" "$registry/projects" "$registry/dags" "$state/projects"
+    ''}
 
-    "${pkgs.gnused}/bin/sed" "s|${registryToken}|$registry|g" ${configFile} \
+    "${pkgs.gnused}/bin/sed" -e "s|${registryToken}|$registry|g" -e "s|${daguHomeToken}|$DAGU_HOME|g" ${configFile} \
       > "$DAGU_HOME/.config.yaml.new"
     "${pkgs.coreutils}/bin/install" -m 0644 "$DAGU_HOME/.config.yaml.new" "$DAGU_HOME/config.yaml"
     "${pkgs.coreutils}/bin/rm" -f "$DAGU_HOME/.config.yaml.new"
@@ -476,6 +508,13 @@ in
         in every repository that registers.
 
         **Not moved to `~/.config/devman` yet** — §6.2a is the blocker.
+
+        **A store path is a registry that `lib.<system>.mkRegistry` rendered.**
+        The module then creates nothing in it, writes nothing to it, and
+        watches nothing. It installs no path unit and no reload adapter,
+        because the path never changes. A new registry is a new store path
+        and the activation restarts Dagu. The unit refuses to start when the
+        path holds no `dags/` and no `generation.json`.
       '';
     };
 
@@ -657,6 +696,15 @@ in
     # the service exists.
     assertions = [
       {
+        assertion = !(isStoreRegistry && lib.hasPrefix "${builtins.storeDir}/" cfg.stateDir);
+        message = ''
+          services.devman-dagu.stateDir is "${cfg.stateDir}", a store path.
+          A store-path registryDir is read-only, and Dagu needs a writable
+          state root for run history and reload markers. Set stateDir to a
+          path under $HOME.
+        '';
+      }
+      {
         assertion = isLoopback cfg.host;
         message = ''
           services.devman-dagu.host is "${cfg.host}", and the generated Dagu
@@ -774,14 +822,17 @@ in
       #
       # A new DAG *file* needs no restart: discovery is a directory scan and the
       # running daemon picks one up immediately (A5).
-      restartTriggers = [ configFile baseFile ];
+      #
+      # A store-path registry joins the list: a new registry is a new path, and
+      # the unit restarts at activation without the reload adapter.
+      restartTriggers = [ configFile baseFile ] ++ lib.optional isStoreRegistry cfg.registryDir;
     };
 
     # Vendomat changes the active registry by replacing one symlink. Watch that
     # pointer and restart Dagu after the replacement. The reload script waits
     # for active runs. The Dagu state directory stays outside the generation,
     # so this restart does not lose run history.
-    systemd.user.paths.devman-dagu-reload = {
+    systemd.user.paths.devman-dagu-reload = mkIf (!isStoreRegistry) {
       wantedBy = [ "paths.target" ];
       pathConfig = {
         PathChanged = registryChangePath;
@@ -789,7 +840,7 @@ in
       };
     };
 
-    systemd.user.services.devman-dagu-reload = {
+    systemd.user.services.devman-dagu-reload = mkIf (!isStoreRegistry) {
       description = "reload Dagu after the active devman plane changes";
       environment.DAGU_HOME = cfg.dagHome;
       path = cfg.servicePath;

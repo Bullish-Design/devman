@@ -1,0 +1,5 @@
+# A fixture workflow for the store-path registry test. It needs no devenv.
+queue: light
+steps:
+  - name: where
+    run: pwd

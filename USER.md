@@ -187,50 +187,61 @@ The command writes only `.devman/project.toml`. Review and commit it through
 the repository's normal lane. It does not update Devman, enter another shell,
 or create a machine generation.
 
-Vendomat owns the machine operation. The current migration slice supports one
-project or an explicit set of registered projects:
-
-```bash
-vendomat plane plan devman --to v0.6.0
-vendomat plane update devman --to v0.6.0
-vendomat plane show devman
-vendomat plane recover devman
-vendomat plane rollback --to 1
-```
-
-For a first canary across repositories, pass each root explicitly. The command
-reads each `.devman/project.toml` and puts all projections in one generation:
-
-```bash
-vendomat plane update devman --to v0.6.0 \
-  --project-root /path/to/devman \
-  --project-root /path/to/repoman \
-  --project-root /path/to/vendomat \
-  --policy-root /path/to/devman
-```
-
-The plan renders and validates without activating state. An update stages all
-generated Dagu files, validates them, and atomically moves the `active`
-pointer. Previous generations stay on disk. A failed render or validation
-leaves the active generation unchanged. The old shell-entry projection stays
-available until the comparison and canary phases are complete.
-
-The active generation is a complete registry root. It contains project
-metadata, the projected workflows, Dagu links, and the generation record under
-Vendomat's stable `active` symlink. On 2026-09-15 this machine runs generation 3
-with 48 projects and 152 DAG files. A canary machine can point the Dagu service
-and machine CLI at it:
+A Nix build renders the machine registry. The flake output
+`lib.<system>.mkRegistry` takes project inputs and returns one store path. The
+path holds `generation.json`, `projects/<project>/` and `dags/`. This is the
+layout `services.devman-dagu` reads. The function is a plain function. It runs
+no service and it needs no other tool. It calls the same renderer as
+`devman project render`, then runs `dagu validate` on every workflow.
 
 ```nix
-services.devman-dagu.registryDir = "$HOME/.local/state/vendomat/devman/active";
+registry = inputs.devman.lib.${system}.mkRegistry {
+  generation = 8;                          # recorded in generation.json
+  overlayRoot = inputs.devman-overlay;     # optional: projects/<name>/workflows/
+  projects = {
+    myproject = {
+      path = "/home/me/projects/myproject"; # the checkout the workflows run in
+      groups = [ "base" "format" ];
+    };
+    other = {
+      path = "/home/me/projects/other";
+      source = inputs.other;                # holds .devman/project.toml
+    };
+  };
+};
+```
+
+Each project sets `path`, the absolute checkout path. This is a run-time path,
+not a store path, because a run writes `.devman/.runs/` there. Then set either
+`groups` (with an optional `policy`, `triggers` and `writes`) or `source`, a
+directory that holds `.devman/project.toml`. The attribute name must equal the
+`project` field. `policyRoot` defaults to the `groups/` of the `devman` input,
+so a pinned tag selects the workflows. `nix/registry.nix` lists every argument.
+
+Give the store path to the module. A NixOS generation then switches the
+registry atomically, and a rollback restores the previous one:
+
+```nix
+services.devman-dagu.registryDir = "${registry}";
 services.devman-dagu.stateDir = "$HOME/.local/state/devman";
 ```
 
-Point only `registryDir` at the active generation. Keep `stateDir` stable so
-project metadata and watcher state survive an active-generation swap.
+The module treats a store-path `registryDir` as read-only. It creates nothing
+in it, writes nothing to it, and installs no path unit or reload adapter,
+because the path never changes. A new registry is a new store path, and the
+activation restarts Dagu. The unit refuses to start when the path holds no
+`dags/` or `generation.json`. Keep `stateDir` under `$HOME`: run history and
+watcher state live there and survive a registry change.
 
-The module watches the active pointer and reloads Dagu after active runs end.
-The stable Dagu home keeps run history across that restart.
+Dagu 2.15.0 logs a warning that it cannot write `.dag.index` into the
+read-only `dags/` directory. The service stays up. The module moves the Dagu
+Wiki under `DAGU_HOME`, because Dagu exits at start when it cannot create
+`dags/wiki`.
+
+The older form of `registryDir` is a mutable path, such as a registry that a
+tool replaces with an atomic `active` symlink. The module keeps that behavior.
+It watches the pointer and reloads Dagu after active runs end. The stable Dagu
+home keeps run history across that restart.
 
 **What the reload gate covers.** While a reload waits, the marker
 `reload.pending` exists under the stable state root, and `devman run` refuses to
@@ -249,7 +260,7 @@ runs.
 
 Keep the consumer shell hook on the compatibility registry during this phase.
 The old hook still writes its own registry projection. It must not write into
-the immutable active generation.
+an immutable registry, whether an old generation or a store path.
 
 ### 2.8 What registration creates
 
@@ -278,7 +289,7 @@ Machine-side data sits in three roots, and you rarely touch any of them:
 |---|---|
 | `~/.local/share/devman/` | the compatibility registry the shell hook writes — projected workflows and `dags/`. Still live |
 | `~/.local/state/devman/` | the stable state root — generated metadata, kept trigger and write copies, watcher state, run metadata |
-| `~/.local/state/vendomat/devman/active` | the active generation Vendomat builds |
+| `registryDir` | a store path from `mkRegistry`, or the older mutable active generation, such as `~/.local/state/vendomat/devman/active` |
 
 `registryDir` did not move to `~/.config/devman`, and direct workflow links have
 not shipped. Both remain deferred in
