@@ -62,28 +62,30 @@ unfinished changes, and one workspace has a stale jj working copy. The
 canonical checkout, so leave them unchanged and review them when their branches
 are resumed or discarded.
 
-## Preserve existing CopyRoom previews
+## Preserve existing CopyRoom previews during audit
 
 Before this migration, CopyRoom already had pending preview state for
 `agentman` and `flora-qc` under `.copyroom-previews/`, with journals in each
-project's `.copyroom-local/journal`. These are not migration previews. Leave
-them intact and inspect them before running a new update for either project.
-Both journals are prepared base-layer updates. Applying another marker update
-would make each preview stale, so their answer normalization is deferred until
-the existing previews are resolved by their owner.
+project's `.copyroom-local/journal`. At that point, both were preserved because
+their source would restore the RepoMan input. The final section records the
+fresh updates and the safe discard of those obsolete previews.
 
 ## Cleanup counts
 
-The current Gitman no longer reads project-root `gitman.toml` files. The initial
-fleet inventory found 61 tracked root configs in project repositories and one
-in `template-nix`. The current top-level project scan finds one physical file:
-`nix-meta-channel4/gitman.toml`. It remains because that checkout has unrelated
-staged work. The other 60 project-root files are absent, but some deletions are
-local-only or still uncommitted. The `template-nix` config is removed. A
-separate `atuout` deletion predates this task and was not changed. DevMan's
-central `~/.config/devman/gitman.toml` remains because DevMan reads it. The file
-sets `trunk = "main"`, which matches the fallback. `template-py` has no root
-config file.
+The current Gitman no longer reads project-root `gitman.toml` files. The earlier
+inventory counted 61 tracked project-root configs and one in `template-nix`; a
+wider history scan found 65 jj repositories with a historical file plus the
+non-jj `nix-meta-channel4` repo. These counts cover different scopes. The
+current immediate-root scan finds four physical files:
+`nix-meta-channel4/gitman.toml`, `terminal-state/gitman.toml`,
+`testee/gitman.toml`, and `webdantic/gitman.toml`. `nix-meta-channel4` remains
+because that checkout has unrelated staged work. The other three remain on
+preserved active worktrees; their deletion commits are already pushed on `main`,
+while their active branches hold unrelated changes. The `template-nix` file is
+removed. `atuout` was already deleted before this task and was not changed.
+DevMan's central `~/.config/devman/gitman.toml` remains because DevMan reads it.
+The file sets `trunk = "main"`, which matches the fallback. `template-py` has
+no root config file.
 
 ## 2026-10-13: project tool pin migration
 
@@ -168,21 +170,19 @@ nix-paseo, and nix-secrets. Each reviewed preview changed only its marker,
 removed the module layer's `devman_ref` and `repoman_dev_root` answers and
 template pin, and preserved project module files.
 
-The Nix base layer update failed for all six Nix markers, including loci.nvim,
-with `output path collision: .devman/project.toml and .devman/project.toml`.
-The promoted base source now emits `.devman/project.toml`, which collides with
-the existing repo-owned manifest. CopyRoom created no preview. Preserve all six
-manifests and leave their base layer markers unchanged until CopyRoom supports a
-safe ownership transition. A read-only CopyRoom source audit confirmed there is
-no supported safe workflow for this state: `update` has no path omission
-option, its preflight classifies the existing manifest as project-only and
-rejects the rendered output, and `adopt --template-only keep` refuses projects
-that already have a CopyRoom marker. Do not edit marker answers directly. The
-lowest-risk next step is an explicit base-layer omission option on `update`,
-applied through the existing preview and guarded apply flow. loci.nvim has no
-`module` layer, so neither layer's answers could be normalized. The audit also
-found existing module render-marker mismatches in five projects; these are
-separate findings and were left unchanged.
+The initial Nix base-layer update failed with an output path collision because
+the base source emits `.devman/project.toml`, which each repository already
+owns. CopyRoom now supports repeated `--omit-path` values per layer. Commit
+`c4ee8f41` adds that feature. `nix-meta` pins it in commit `28a17360`.
+Its server build passed and the built CopyRoom command accepts `--omit-path`.
+
+All six base markers now use the guarded preview and apply flow. Their five
+omitted project paths match the original trees. Their Testee module records did
+not change. Main is pushed in all six repositories: mnemonix `34273b2b`,
+loci.nvim `21ba6c83`, nix-desktop `3268647b`, nix-nvim `f57b653d`,
+nix-paseo `a0d668fa`, and nix-secrets `8cf72cbd`. Four Nix repositories keep
+their earlier module-layer render mismatch. Mnemonix also keeps its older
+conflicting preview.
 
 The other ten eligible Python markers were normalized through CopyRoom. The two
 existing prepared previews for agentman and flora-qc remain untouched. The
@@ -191,9 +191,12 @@ across top-level and per-layer records; all updated Python markers retain their
 Testee answers. Five Nix module layers were normalized, but their base-layer
 answers still retain legacy fields due to the manifest collision.
 
-The remaining tracked legacy answer occurrences are 4 `repoman_ref` values in
-agentman and flora-qc, plus 12 each of `devman_ref` and `repoman_dev_root` in
-the six Nix base layers. All 28 Testee answer occurrences remain.
+At this checkpoint, four tracked legacy answer occurrences remained: two
+`repoman_ref` copies in each of agentman and flora-qc. The final section records
+their removal. All 28 Testee answer occurrences remain. Scopeman's
+Testee answer now records `v0.6.1`; its project pin and checks remain.
+Scopeman's update is on local bookmark `toolbelt-testee-answer` at `6822007b`.
+Testee has no verdict for that commit, so it remains unpushed.
 
 ## 2026-10-13: nix-terminal machine input audit
 
@@ -214,22 +217,25 @@ The final nix-meta change makes Vendomat's DevMan and RepoMan inputs follow
 nix-meta's canonical root inputs. The lock has no duplicate `devman_2` or
 `repoman_2` nodes. Vendomat's older RepoMan and Gitman commands remain filtered
 from interactive PATH. Its built renderer and runtime use canonical DevMan
-0.6.0 and RepoMan 0.14.1. Vendomat's active generation 4 was not updated; no
-plane plan or update was run.
+0.6.0 and RepoMan 0.14.1.
 
-## Host activation needs interactive sudo authentication
+## 2026-10-13: CopyRoom feature build and activation check
 
-The final nix-meta server build passed at
+The canonical `nix-meta` main commit `28a17360` pins CopyRoom commit
+`c4ee8f41`, which adds base-layer path omissions. The server toplevel build
+passed at
+`/nix/store/yqhvqy6ckx8l2kcrfvds6z16wcrp3nyp-nixos-system-server-26.11.20260705.d407951`.
+The built CopyRoom command accepts `update --omit-path`.
+
+The user reported a rebuild. At the next inspection, `/run/current-system`
+still resolved to the earlier generation
 `/nix/store/8qniji16qglv6x43xcki973xnymdg9xp-nixos-system-server-26.11.20260705.d407951`.
-The live system still points to
-`/nix/store/bqm07rlvmdavvpm52hsarww8x22q520r-nixos-system-server-26.11.20260705.d407951`.
-`sudo -n true` failed because sudo needs an interactive password. The system
-switch and Vendomat plane update were not run. To activate the built config,
-run:
+The active `copyroom` command also lacked `--omit-path`. This confirms the new
+generation was not active in that shell at inspection. The user can activate it
+with `sudo nixos-rebuild switch --flake /home/andrew/Documents/Projects/nix-meta#server`.
 
-```sh
-sudo nixos-rebuild switch --flake /home/andrew/Documents/Projects/nix-meta#server
-```
+Project Testee pins remain because project tests use them. The host Testee
+runner is `0.7.0`; the project Testee module remains pinned at `0.6.1`.
 
 ## Preserve existing project work while landing Gitman config deletions
 
@@ -245,8 +251,71 @@ remote. Their deletion commits are local and the ancestry/remote state remains
 unchanged. Talkee-futo also has a local-only remote, so its deletion commit is
 local. No remote force push was used.
 
-Vendomat's root deletion is still an uncommitted working-copy change. Its
-`AGENTS.md` forbids raw Git and jj. The installed Gitman exposes only `work` and
-`done`; `done` removes a workspace only after commits are already on trunk, so
-it cannot commit or push this default-checkout deletion. Leave the change in
-place and use an approved repository workflow when Vendomat provides one.
+Vendomat's `AGENTS.md` forbids raw Git and jj. Its installed Gitman exposes only
+`work` and `done`, so it has no command to commit this deletion. The user later
+authorized landing the required cleanup on `main`. The deletion was isolated,
+rebased onto current `main`, and pushed as `cf86ab1a`. The remote ref now points
+to that commit. No other Vendomat files changed in that commit.
+
+## `nix-meta-channel4` alternate config
+
+This checkout still pins DevMan `v0.7.0` and RepoMan `v0.9.2`. Every repository
+file is staged on a no-commit local branch whose upstream is gone. Preserve the
+staged state. `nix-meta` is the canonical machine config; retire or clean this
+alternate after its staged work is resolved.
+
+## 2026-10-13: changes landed for the next nix-meta rebuild
+
+CopyRoom main is pushed at `c4ee8f41`. `nix-meta` main is pushed at
+`28a17360`, and its lock pins that CopyRoom commit. The lock metadata confirms
+the commit is on `refs/heads/main`. The server toplevel build passed for this
+lock.
+
+The template cleanups are also on main. `template-py` is at
+`696bce412acaf67ad5b82c4e15034bc55567c8ea`; `template-nix` is at
+`5eec9b94ad53a88ab106f82d9df37eae507c`. These source changes do not affect the
+NixOS rebuild. No tests or template checks ran for these commits.
+
+The template-py remote main is current, but its default checkout remains
+behind and dirty. Its goldens have the landed edits; `.copyroom_sim/` is
+untracked, and JJ reports deletions inside the nested `source` checkout.
+Preserve this checkout until its nested-repository state is reviewed.
+
+The user then switched to the built generation. `/run/current-system` now
+resolves to the server build path above.
+
+The active Home Manager session file adds the candidate
+`developer-toolchain-commands/bin` path to `PATH`. A clean shell resolves
+CopyRoom there and exposes `--omit-path`. This agent shell still has the old
+toolchain path appended to `PATH`; start a new login shell to use the active
+toolbelt consistently.
+
+## 2026-10-13: final main pin and marker cleanup
+
+CopyRoom main now includes `1805d197`, which updates its module header to
+describe the host toolbelt and the central RepoMan import. It follows the
+path-omission feature commit `c4ee8f41`. `nix-meta` main is `55d052b8`; its flake
+and lock now pin `1805d197`. The remote main ref matches. This CopyRoom commit
+changes guidance only. The prior server build used `c4ee8f41` and remains the
+active generation. No build or tests ran after the guidance-only pin update.
+
+The active CopyRoom command resolves to
+`/nix/store/1ifamjw7pdsax38pjlw1nh0hrbzng302-developer-toolchain-commands/bin/copyroom`.
+Its help lists `update --omit-path`. `/run/current-system` resolves to the
+server generation built with the path-omission feature.
+
+The old prepared previews for agentman and flora-qc were stale and would restore
+the removed RepoMan module input. A first fresh preview attempt passed
+`--source` and could not resolve the root-repo commit through the nested
+`template-py/source` repository. The correct route was `--ref` without
+`--source`; CopyRoom then reused each marker's recorded repo root and `source`
+subdirectory.
+
+Both fresh previews used template-py main `696bce41` and preserved their
+omitted test files. Their six generated-file conflicts were resolved with the
+current project files. The reviewed diff against each `main` changed only
+`.copyroom-local.json`: it removed both `repoman_ref` answer copies, retained
+Testee `v0.6.1`, and moved the template pin to `696bce41`. CopyRoom applied the
+previews. The changes are pushed to main: agentman `5ec4227d`, flora-qc
+`7c0774a2`. CopyRoom inspect reports no conflicts, marker mismatches, or pending
+previews. The two obsolete previews were discarded through CopyRoom.
