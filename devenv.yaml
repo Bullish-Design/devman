@@ -10,8 +10,6 @@ inputs:
     url: github:rrbutani/nix-mk-shell-bin
   codex-cli:
     url: "github:sadjow/codex-cli-nix?ref=main"
-  claude-code:
-    url: "github:sadjow/claude-code-nix?ref=main"
 
   # mancore (STEP7_PROMPT.md's entry-point wrap step). `flake: false`: mancore
   # carries no flake.nix, only a devenv.nix/devenv.yaml pair, and devenv's own

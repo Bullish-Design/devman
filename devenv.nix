@@ -60,7 +60,6 @@ in
     pkgs.hyperfine
     pkgs.watchexec
     inputs.codex-cli.packages.${pkgs.system}.default
-    inputs.claude-code.packages.${pkgs.system}.default
   ];
 
   # https://devenv.sh/languages/
