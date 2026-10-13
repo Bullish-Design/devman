@@ -172,12 +172,16 @@ with `output path collision: .devman/project.toml and .devman/project.toml`.
 The promoted base source now emits `.devman/project.toml`, which collides with
 the existing repo-owned manifest. CopyRoom created no preview. Preserve all six
 manifests and leave their base layer markers unchanged until CopyRoom supports a
-safe ownership transition. `copyroom update --answers` only overrides schema
-answers; it has no output omission or ownership transfer option. CopyRoom's
-preflight classifies the existing manifest as a project-only path and rejects
-the rendered output. `copyroom adopt` is an initial adoption flow and does not
-provide a safe path to replace an existing layered marker. loci.nvim has no
-`module` layer, so neither layer's answers could be normalized.
+safe ownership transition. A read-only CopyRoom source audit confirmed there is
+no supported safe workflow for this state: `update` has no path omission
+option, its preflight classifies the existing manifest as project-only and
+rejects the rendered output, and `adopt --template-only keep` refuses projects
+that already have a CopyRoom marker. Do not edit marker answers directly. The
+lowest-risk next step is an explicit base-layer omission option on `update`,
+applied through the existing preview and guarded apply flow. loci.nvim has no
+`module` layer, so neither layer's answers could be normalized. The audit also
+found existing module render-marker mismatches in five projects; these are
+separate findings and were left unchanged.
 
 The other ten eligible Python markers were normalized through CopyRoom. The two
 existing prepared previews for agentman and flora-qc remain untouched. The
