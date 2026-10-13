@@ -76,13 +76,14 @@ the existing previews are resolved by their owner.
 
 The current Gitman no longer reads project-root `gitman.toml` files. The initial
 fleet inventory found 61 tracked root configs in project repositories and one
-in `template-nix`. The current top-level project scan finds one file:
+in `template-nix`. The current top-level project scan finds one physical file:
 `nix-meta-channel4/gitman.toml`. It remains because that checkout has unrelated
-staged work. Thus 60 project-root configs and the `template-nix` config have
-been removed; the final project config is deferred. DevMan's central
-`~/.config/devman/gitman.toml` remains because DevMan reads it. The file sets
-`trunk = "main"`, which matches the fallback. `template-py` has no root config
-file.
+staged work. The other 60 project-root files are absent, but some deletions are
+local-only or still uncommitted. The `template-nix` config is removed. A
+separate `atuout` deletion predates this task and was not changed. DevMan's
+central `~/.config/devman/gitman.toml` remains because DevMan reads it. The file
+sets `trunk = "main"`, which matches the fallback. `template-py` has no root
+config file.
 
 ## 2026-10-13: project tool pin migration
 
@@ -243,3 +244,9 @@ commit has a pre-existing undescribed ancestor, and nvim-review has no Git
 remote. Their deletion commits are local and the ancestry/remote state remains
 unchanged. Talkee-futo also has a local-only remote, so its deletion commit is
 local. No remote force push was used.
+
+Vendomat's root deletion is still an uncommitted working-copy change. Its
+`AGENTS.md` forbids raw Git and jj. The installed Gitman exposes only `work` and
+`done`; `done` removes a workspace only after commits are already on trunk, so
+it cannot commit or push this default-checkout deletion. Leave the change in
+place and use an approved repository workflow when Vendomat provides one.
