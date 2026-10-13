@@ -108,7 +108,7 @@ let
       (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;
 in
 {
-  imports = [ /run/current-system/sw/share/devman/link-module.nix ];
+  imports = [ ../../common/devlayer.nix ];
   devman.link = {
     ".devman/workflows" = {
       canonical = "central";

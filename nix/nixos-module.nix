@@ -405,6 +405,11 @@ in
         devenv module at `/run/current-system/sw/share/devman/link-module.nix`
         (038 Stage 16).
 
+        Overlay files do not import that path directly. devenv does not track
+        an import whose final path component is a symlink into the store, so
+        an upgrade can go unseen. Overlay files import `common/devlayer.nix`,
+        which reads a pointer file (vendomat project 22, OI-08).
+
         It is the independent link adapter, and it is a SEPARATE package from
         `devman` on purpose: it holds no Dagu, no watchexec and no workflow
         renderer, and it reads no compatibility registry entry and no active

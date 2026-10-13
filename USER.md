@@ -66,8 +66,17 @@ import `devman/modules`. The plane is link-only.
 
 The NixOS module installs the link adapter at
 `/run/current-system/sw/share/devman/link-module.nix`. The central config
-repository keeps one `projects/<project>/devenv.local.nix` that imports it and
-declares `devman.link`. Materialize the repository-side links once:
+repository keeps one `projects/<project>/devenv.local.nix`. It imports the
+module through `common/devlayer.nix` and declares `devman.link`.
+
+Do not import the system path directly. Its final component is a symlink into
+the store, and devenv does not track such an import. After an upgrade the shell
+can keep the old module. `common/devlayer.nix` is a regular file. It imports a
+pointer file, `~/.local/state/devlayer/current.nix`, that holds the store path
+of the module. The pointer is a regular file too, so devenv tracks it. When the pointer does
+not exist, `common/devlayer.nix` falls back to the system path.
+
+Materialize the repository-side links once:
 
 ```bash
 devman-link reconcile --root "$PWD"
@@ -110,7 +119,7 @@ let
       (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;
 in
 {
-  imports = [ /run/current-system/sw/share/devman/link-module.nix ];
+  imports = [ ../../common/devlayer.nix ];
   devman.link = {
     ".devman/workflows" = {
       canonical = "central";

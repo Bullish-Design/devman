@@ -35,6 +35,12 @@ STATES = ("ok", "repoint", "promote", "link", "create")
 # the next shell entry can evaluate anything (025 §5.5): Nix reads
 # `devenv.local.nix` before any hook runs, so a dangling one fails shell entry
 # with a trace nothing can intercept.
+#
+# The file imports the link module through the overlay's `common/devlayer.nix`,
+# a regular file that names the devlayer pointer. devenv tracks a regular file and
+# does not track a symlink into the store, so a direct import of the system path
+# can keep an old module after an upgrade (vendomat project 22, OI-08, W9). The
+# overlay must hold `common/devlayer.nix`. Its absence fails shell entry loudly.
 BOOTSTRAP_CENTRAL_FILE = (
     "{ config, project ? null, ... }:\n\n"
     "let\n"
@@ -43,7 +49,7 @@ BOOTSTRAP_CENTRAL_FILE = (
     '      (builtins.readFile "${config.devenv.root}/.devman/project.toml")).project;\n'
     "in\n"
     "{\n"
-    "  imports = [ /run/current-system/sw/share/devman/link-module.nix ];\n"
+    "  imports = [ ../../common/devlayer.nix ];\n"
     "  devman.link = {\n"
     '    ".envrc" = { canonical = "central"; path = "common/envrc"; };\n'
     '    ".loci" = { canonical = "external";'

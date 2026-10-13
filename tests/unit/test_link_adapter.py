@@ -1041,7 +1041,7 @@ def test_a_bootstrapped_central_file_is_valid_nix(tmp_path: Path):
 
     body = (overlay / "projects/newcomer/devenv.local.nix").read_text()
     assert "{ config, project ? null, ... }:" in body
-    assert "imports = [ /run/current-system/sw/share/devman/link-module.nix ];" in body
+    assert "imports = [ ../../common/devlayer.nix ];" in body
     assert "config.devman.project" not in body
     assert configuration.declarations[".agents"]["path"] == "projects/newcomer/agents"
 
