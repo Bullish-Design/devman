@@ -143,7 +143,9 @@ def main() -> None:
     args = ap.parse_args()
 
     spec = json.loads(Path(args.spec).read_text())
-    spec["daguDigest"] = "sha256:" + hashlib.sha256(Path(args.dagu).read_bytes()).hexdigest()
+    spec["daguDigest"] = (
+        "sha256:" + hashlib.sha256(Path(args.dagu).read_bytes()).hexdigest()
+    )
     out = Path(args.out)
     (out / "projects").mkdir(parents=True)
     (out / "dags").mkdir()

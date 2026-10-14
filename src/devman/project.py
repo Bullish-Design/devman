@@ -444,9 +444,7 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--dagu", help="the dagu binary to validate with")
 
 
-def add_render_arguments(
-    p: argparse.ArgumentParser, *, checkout: bool = True
-) -> None:
+def add_render_arguments(p: argparse.ArgumentParser, *, checkout: bool = True) -> None:
     """Arguments for the public machine-plane renderer boundary.
 
     ``inspect`` passes ``checkout=False``: no identity depends on that path.
