@@ -158,7 +158,12 @@
         tester(f"ln -sfn {PROJ}/hold.yaml {REG}/projects/demo/workflows/hold.yaml")
         tester(f"ln -sfn ../projects/demo/workflows/hold.yaml {REG}/dags/demo.hold.yaml")
         machine.succeed(
-            f"printf 'steps:\n  - name: hold-long\n    run: sleep 20\n' > {PROJ}/hold-long.yaml"
+            # MEASURED (2026-10-14, load average 14-20): each pass of the reload
+            # loop costs one second of sleep plus one `dagu ps`, so the 15
+            # counted seconds took 20 s of wall time. A 20 s run ended first, the
+            # reload succeeded, and the blocked path never ran. The run must
+            # outlast the loop with wide margin.
+            f"printf 'steps:\n  - name: hold-long\n    run: sleep 60\n' > {PROJ}/hold-long.yaml"
         )
         tester(f"ln -sfn {PROJ}/hold-long.yaml {REG}/projects/demo/workflows/hold-long.yaml")
         tester(f"ln -sfn ../projects/demo/workflows/hold-long.yaml {REG}/dags/demo.hold-long.yaml")
@@ -280,7 +285,7 @@
         )
         machine.wait_until_succeeds(
             f"su tester -c '{ENV}dagu ps | grep -q demo.hold-long; test $? -ne 0'",
-            timeout=40,
+            timeout=120,
         )
         tester("systemctl --user restart devman-dagu-reload.service")
         machine.wait_until_succeeds(

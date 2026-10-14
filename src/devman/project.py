@@ -326,11 +326,13 @@ def render_main(args) -> int:
         generation = _render_generation(
             args, policy.digest, renderer_digest, runtime_version, digest_bytes
         )
+        checkout = getattr(args, "checkout", None)
         bundle = render_project(
             root,
             policy_root=policy_root,
             overlay_root=overlay_root,
             generation=generation,
+            checkout=Path(checkout) if checkout else None,
         )
         output = getattr(args, "output", None)
         if output:
@@ -442,8 +444,13 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--dagu", help="the dagu binary to validate with")
 
 
-def add_render_arguments(p: argparse.ArgumentParser) -> None:
-    """Arguments for the public machine-plane renderer boundary."""
+def add_render_arguments(
+    p: argparse.ArgumentParser, *, checkout: bool = True
+) -> None:
+    """Arguments for the public machine-plane renderer boundary.
+
+    ``inspect`` passes ``checkout=False``: no identity depends on that path.
+    """
 
     p.add_argument("--root", required=True, help="the repository root")
     p.add_argument("--policy-root", required=True, help="the Devman policy checkout")
@@ -461,12 +468,20 @@ def add_render_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--dagu-digest", help="the packaged Dagu digest")
     p.add_argument("--toolchain-digest", help="the shared toolchain digest")
     p.add_argument("--output", help="write the bundle to this file instead of stdout")
+    if checkout:
+        p.add_argument(
+            "--checkout",
+            help=(
+                "the absolute path the workflows run in; defaults to --root. "
+                "Use it when --root only holds the .devman files"
+            ),
+        )
 
 
 def add_inspect_arguments(p: argparse.ArgumentParser) -> None:
     """Add the identity-only renderer boundary arguments."""
 
-    add_render_arguments(p)
+    add_render_arguments(p, checkout=False)
 
 
 # ---------------------------------------------------------------------------

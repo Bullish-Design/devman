@@ -40,16 +40,52 @@
 # home and seed five example DAGs (S2). The NixOS module wraps this with
 # `--dagu-home` and `--registry` when the machine moves either directory.
 { lib
+, pkgs
 , python3Packages
 , dagu
 , watchexec
 , git
 , makeWrapper
+, uv2nix
+, pyprojectNix
+, pyprojectBuildSystems
+, mancoreSrc
 }:
+
+let
+  # mancore, built directly with uv2nix against mancoreSrc (the `mancore`
+  # devenv.yaml input, `flake: false` — see devenv.yaml's own comment on
+  # `mancore`). This is the same recipe mancore's own `outputs.mancore`
+  # (its devenv.nix) runs internally via `languages.python.import`, run here
+  # by hand because devenv's cross-project `inputs.<name>.devenv.config`
+  # bridge cannot reach mancore's own devenv.yaml (devenv issue #2205) to
+  # resolve the uv2nix/pyproject-nix/pyproject-build-systems inputs that
+  # recipe needs — so this derivation supplies them itself, from devman's
+  # own devenv.yaml/flake.nix inputs instead.
+  mancoreWorkspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = mancoreSrc; };
+  mancoreOverlay = mancoreWorkspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
+  mancorePythonSet =
+    (pkgs.callPackage pyprojectNix.build.packages {
+      python = python3Packages.python;
+    }).overrideScope
+      (lib.composeManyExtensions [
+        pyprojectBuildSystems.overlays.default
+        mancoreOverlay
+      ]);
+
+  # A self-contained venv carrying mancore and its own runtime deps
+  # (pydantic, typer). Not added to `dependencies` below: uv2nix's package
+  # set does not propagate through `buildPythonApplication`'s own dependency
+  # resolution (confirmed by hand — mixing the two directly drops pydantic),
+  # so this venv's site-packages is put on `devman`'s PYTHONPATH in
+  # `postFixup` instead, the same way `dagu`/`watchexec`/`git` are put on
+  # its PATH.
+  mancoreEnv = mancorePythonSet.mkVirtualEnv "mancore-env" mancoreWorkspace.deps.default;
+in
 
 python3Packages.buildPythonApplication {
   pname = "devman";
-  version = "0.6.0";
+  version = "0.8.0";
   pyproject = true;
 
   # Only the CLI's own files. The repository also holds `.scratch/` (a quarter
@@ -67,7 +103,8 @@ python3Packages.buildPythonApplication {
 
   postFixup = ''
     wrapProgram $out/bin/devman \
-      --prefix PATH : ${lib.makeBinPath [ dagu watchexec git ]}
+      --prefix PATH : ${lib.makeBinPath [ dagu watchexec git ]} \
+      --prefix PYTHONPATH : ${mancoreEnv}/${python3Packages.python.sitePackages}
   '';
 
   # `--help` proves the entry point resolves and every module imports. The
@@ -78,6 +115,13 @@ python3Packages.buildPythonApplication {
     runHook preInstallCheck
     $out/bin/devman --help > /dev/null
     $out/bin/devman doctor --help > /dev/null
+    # mancore is on PYTHONPATH (postFixup above) but not yet imported by
+    # cli.py's entry point (STEP7_PROMPT.md's wrap() step is deferred) — this
+    # proves the closure makes it importable, ready for whenever that lands.
+    # `devman` itself is a wrapped entry point, not a `-c`-capable
+    # interpreter, so this checks the venv's own site-packages directly.
+    PYTHONPATH="${mancoreEnv}/${python3Packages.python.sitePackages}" \
+      ${python3Packages.python.interpreter} -c "import mancore" > /dev/null
     runHook postInstallCheck
   '';
 

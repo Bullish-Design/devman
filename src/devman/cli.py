@@ -443,9 +443,9 @@ def _link_reconcile_with_linkman(args) -> int:
         for failure in apply_result.failed:
             print(f"fail                 {failure.link_rel}: {failure.message}")
     if apply_result.failed:
-        return 13
+        return 1
     if apply_result.refused:
-        return 11
+        return 1
     return 0
 
 

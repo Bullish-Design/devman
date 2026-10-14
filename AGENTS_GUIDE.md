@@ -331,6 +331,9 @@ systemctl --user status dagu devman-watch
 - A queue rename is a migration across every workflow that names it. Dagu accepts
   an undeclared name silently and gives it concurrency 1, so a missed file
   serialises rather than runs free.
+- A machine imports the flake's `nixosModules.default`. That wrapper sets
+  `services.devman-dagu.cliInputs` (the uv2nix inputs and mancore) for the CLI
+  build. Importing `nix/nixos-module.nix` alone fails: the option has no default.
 
 ### `src/devman/`
 

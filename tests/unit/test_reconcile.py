@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -114,6 +115,45 @@ def test_render_project_resolves_overlay_and_emits_metadata(tmp_path):
     assert metadata["local"] == ["check", "local"]
     assert bundle.record.overlay_digest is not None
     assert bundle.links["dags/fixture.check.yaml"].endswith("check.yaml")
+
+
+def test_render_project_runs_workflows_in_the_given_checkout(tmp_path):
+    policy_root = _policy_root(tmp_path)
+    manifest_root = tmp_path / "manifest-only"
+    _manifest(manifest_root)
+    policy = resolve_policy(ProjectManifest.from_root(manifest_root), policy_root)
+
+    bundle = render_project(
+        manifest_root,
+        policy_root=policy_root,
+        overlay_root=tmp_path / "overlay",
+        generation=_generation(policy.digest),
+        checkout=Path("/work/fixture"),
+    )
+
+    projected = bundle.files["projects/fixture/workflows/check.yaml"].decode()
+    metadata = json.loads(bundle.files["projects/fixture/metadata.json"])
+    assert metadata["path"] == "/work/fixture"
+    assert "working_dir: /work/fixture\n" in projected
+    assert "log_dir: /work/fixture/.devman/.runs/logs\n" in projected
+    assert "DEVMAN_PROJECT_DIR: /work/fixture" in projected
+    assert str(manifest_root) not in projected
+
+
+def test_render_project_refuses_a_relative_checkout(tmp_path):
+    policy_root = _policy_root(tmp_path)
+    project_root = tmp_path / "project"
+    _manifest(project_root)
+    policy = resolve_policy(ProjectManifest.from_root(project_root), policy_root)
+
+    with pytest.raises(ReconcileError, match="must be absolute"):
+        render_project(
+            project_root,
+            policy_root=policy_root,
+            overlay_root=tmp_path / "overlay",
+            generation=_generation(policy.digest),
+            checkout=Path("relative/path"),
+        )
 
 
 def test_renderer_bundle_round_trips_without_losing_bytes(tmp_path):
