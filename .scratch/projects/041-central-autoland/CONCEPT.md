@@ -1,6 +1,13 @@
 # 041 — the central guard: drift detection and lane safety for `~/.config/devman`
 
 **Date:** 2026-10-01
+**Status, 2026-10-15:** shipped in devman. `devman central-verify` exists
+(`src/devman/central.py`). The repaired `link drift` check reports
+`304 live views into the overlay are present and on main`. The `universal pool`
+and `universal skills` checks pass in `devman doctor`. D17 (the
+`~/.claude/AGENTS.md` and `~/.claude/CLAUDE.md` symlinks) is in progress,
+session 2026-10-15: both are still regular files. The fleet lane items are in
+progress, session 2026-10-15.
 **Scope:** the central configuration repository `~/.config/devman`, the gitman
 verbs that rewrite its working copy, and the devman checks that watch it.
 **Mode:** investigation and concepting. **Nothing in `~/.config/devman` was

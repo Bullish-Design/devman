@@ -1,5 +1,12 @@
 # Lockfile churn investigation — 2026-10-03
 
+**Status, 2026-10-15:** diagnosed, and fix (a) landed in 21 of 26 repositories (four more have ignored locks)
+(see "Project status by repository"). Five repositories wait on an owner
+decision (forgelab, lodestar, nix-nvim, nixvim) or a real verification gate
+(PyGentic). The fleet follow-up for those is in progress, session 2026-10-15.
+`uv.lock` churn is a separate matter; only `interplay` reproduced it, and
+`--locked` fixed it there.
+
 ## Finding
 
 The installed `devenv 2.2.2+b8030c5` validates `devenv.lock` during startup.

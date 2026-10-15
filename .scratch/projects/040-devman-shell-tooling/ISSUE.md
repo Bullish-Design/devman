@@ -2,7 +2,13 @@
 
 **Date:** 2026-09-16
 **Found:** an agent session reported it "cannot access gitman" in this repository.
-**Status:** open, diagnosed, not started.
+**Status:** resolved, 2026-10-15. Inside `devenv shell`, `gitman`, `jj`,
+`linkman`, `repoman` and `testee` now resolve to `/etc/profiles/per-user/andrew/bin`.
+`copyroom` stays missing from the shell, by design: RepoMan invokes CopyRoom by
+absolute path, so the shell needs no `copyroom` on `PATH`. Check:
+`devenv shell -- which gitman jj linkman repoman testee copyroom`.
+The machine toolbelt (project 045) replaced the options below. The text that
+follows is the original diagnosis. It stays as history.
 
 ## 1. TL;DR
 

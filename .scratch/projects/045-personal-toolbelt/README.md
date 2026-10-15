@@ -2,6 +2,14 @@
 
 Date: 2026-10-13.
 
+Status, 2026-10-15: the machine toolbelt is installed. `gitman`, `jj`,
+`linkman`, `repoman` and `testee` resolve inside the devman shell
+(`/etc/profiles/per-user/andrew/bin`). The installed Testee is 0.8.0, newer than
+the 0.7.0 pin recorded below. The live system path also differs from the build
+paths recorded below, so the machine was rebuilt after this note. The remaining
+items in `ISSUES.md` (alternate nix-meta configs, the unreviewed workspace
+snapshots, the `scopeman` Testee commit) are in progress, session 2026-10-15.
+
 This project moves personal development tools to the canonical `nix-meta`
 machine config. It removes personal tool pins and stale config from project
 repositories while keeping project-owned tasks and tool contracts.

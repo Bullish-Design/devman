@@ -2,6 +2,9 @@
 
 **Date:** 2026-10-02.
 
+**Status:** done. Live `devman doctor` output names its project source on a
+`projects` line. Re-checked 2026-10-15.
+
 ## Defect and decision
 
 `Registry.load()` reads project metadata from the state root in compatibility
