@@ -317,8 +317,10 @@ Measure each one before the code depends on it:
 
 1. ~~Run output~~ — decided 2026-10-15: logs live under
    `~/.local/state/devman/runs/<project>/`, linked into `<repo>/.devman/runs`.
-2. Removing `.devman/project.toml` and `.devman/triggers.toml` is a tracked
-   edit in about 33 repositories. One lane per repository, or one fleet
-   script?
+2. ~~Removing the tracked manifests~~ — done 2026-10-15 with
+   `remove-manifests.sh`: 60 repositories pushed. testee was skipped, because
+   its local `main` holds one unpushed commit. forgelab is archived. The
+   central `common/devlayer.nix` no longer imports the devman link module,
+   which read the manifest; existing links stay until linkman takes over.
 3. ~~Charter timing~~ — decided 2026-10-15: this concept is the only charter,
    now.
