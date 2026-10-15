@@ -81,7 +81,7 @@ keeps a change from re-learning something the plane already paid for.**
    |---|---|---|
    | `~/.local/share/devman/` | the **compatibility registry**: `dags/` and the shell-entry projection | live. Nothing deleted it |
    | `~/.local/state/devman/` | the **stable state root**: generated metadata, kept `triggers.toml` and `writes.toml` copies, watcher state, run metadata, the reload markers | Stage 3 item 1, deployed |
-   | `~/.local/state/vendomat/devman/active` | the **active generation**: a complete registry root — project metadata, projected workflows, Dagu links, `generation.json` | generation 3 since 2026-09-15 (Stage 44) |
+   | `~/.local/state/vendomat/devman/active` | the **active generation**: a complete registry root — project metadata, projected workflows, Dagu links, `generation.json` | generation 4 since 2026-10-03 |
 
    `registryDir` may point at the active generation. `stateDir` stays stable, so
    run metadata and watcher state survive an active-pointer swap.
@@ -95,9 +95,11 @@ keeps a change from re-learning something the plane already paid for.**
    `.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a and Stage 3 items 2
    and 6.
 
-   **Dated machine evidence, 2026-09-15 (Stage 44, Stage 46):** generation 3,
-   48 projects, 152 DAG files, `dagu_digest`
-   `sha256:d3bbe557424a1137700d5cad5b35f983489313227ea1f8c92161be7ee5cf1278`.
+   **Dated machine evidence, 2026-10-15:** generation 4 (created 2026-10-03,
+   `devman_runtime` v0.6.0), 44 projects, 141 DAG files, `dagu_digest`
+   `sha256:5d8f5986127563269769ad25198cdffc8bd334022e3f3a50759ae74e10d83665`.
+   The earlier reading, 2026-09-15 (Stage 44, Stage 46), was generation 3 with
+   48 projects and 152 DAG files.
    Read the counts as evidence, not as architecture.
 7. **Python for core logic; shell stays a thin wrapper.** Shell that grows past a
    wrapper is shell nobody can test.

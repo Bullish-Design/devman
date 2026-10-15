@@ -177,8 +177,8 @@ repository and reaches the machine at the next system rebuild.
   hand-authored overlay workflow. Stage 41 added the refusal. Render-to-link,
   which would remove the write side, stays deferred
   (`.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a, Stage 3 items 2 and 6).
-- **Live on 2026-09-15:** generation 3, 48 projects, 152 DAG files. Dated
-  evidence, not architecture.
+- **Live on 2026-10-15:** generation 4, 44 projects, 141 DAG files. Dated
+  evidence, not architecture. (2026-09-15: generation 3, 48 projects, 152 files.)
 - `dags/` is Dagu's flat view; `projects/` is devman's.
 - A DAG is keyed by its file's base name, so `<project>.<workflow>` is what
   `dagu ls`, the scheduler and `dagu enqueue` all agree on.

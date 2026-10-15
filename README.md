@@ -310,7 +310,7 @@ one shared root makes the projection overwrite a hand-authored overlay workflow.
 Direct registry links (render-to-link) have not shipped. Both gates are in
 `.scratch/projects/025-the-link-plane/CONCEPT.md` §6.2a and Stage 3 items 2 and 6.
 
-Live on 2026-09-15: generation 3, 48 projects, 152 DAG files. Read those counts
+Live on 2026-10-15: generation 4, 44 projects, 141 DAG files. Read those counts
 as dated evidence.
 
 **The registry is derived.** Group sources and central overlay files are
