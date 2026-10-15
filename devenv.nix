@@ -192,12 +192,13 @@ in
     # `agent:review`: the diff is piped in as the whole prompt, the agent gets
     # no tools and no repo access, and `head -c` bounds the input.
     #
-    # `git diff --staged` reads jj's colocated git index, which gitman keeps in
-    # sync on every `save` — so this sees the change a lane is about to record,
-    # not the change it already did.
+    # `git diff --staged` reads jj's colocated git index, so this sees the change
+    # a lane is about to record, not the change it already did.
     #
     # $MESSAGE_FILE holds nothing but the message: no report header, no run id,
-    # so `gitman save -m "$(cat "$MESSAGE_FILE")"` can use it unmodified.
+    # so `jj describe -m "$(cat "$MESSAGE_FILE")"` can use it unmodified. The
+    # retired `gitman save` verb did the same job; gitman now only opens and
+    # closes workspaces.
     #
     # Runs on the local GPU rather than `claude -p` — `scripts/gpu_complete.py`
     # is a standalone `uv run --script` (PEP 723 inline deps: pydantic-ai +

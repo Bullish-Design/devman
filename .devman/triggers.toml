@@ -16,4 +16,9 @@
 # THE RULE THIS FOLLOWS. A repository that excludes a path from its formatter
 # excludes it here too. `groups/format/README.md` states it; this is the file
 # that states it back.
-ignore = [".scratch/**"]
+#
+# `.worktrees/` and `.gitman/` hold other workspaces of this repository: full
+# checkouts that carry their own `.py` files. A save there is another lane's
+# work. On 2026-10-14 the watcher fired `format` for files in other workspaces.
+# Their owners format them in their own workspaces.
+ignore = [".scratch/**", ".worktrees/**", ".gitman/**"]
