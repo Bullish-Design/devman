@@ -61,12 +61,15 @@ devman/                            this repository
 ```
 ~/.local/state/devman/
   dags/<project>/<project>.<name>.yaml   compiled files. Dagu's dags_dir
+  runs/<project>/                        run logs. Each compiled file's log_dir
   events.jsonl                           every event and what the router did
   compile.json                           the last compile result per project
 ```
 
-Dagu keeps its own state in `DAGU_HOME` (`~/.local/share/dagu`), including run
-logs. devman writes no run metadata of its own.
+Dagu keeps its own state in `DAGU_HOME` (`~/.local/share/dagu`). The compiled
+header sets `log_dir` to `runs/<project>/`, so each project's run logs sit in
+one directory that linkman can link (§6). devman writes no run metadata of its
+own; the run index stays in Dagu.
 
 The subdirectory per project matters. Under `recursive: true`, two files with
 one base name in two subdirectories make Dagu report "No DAGs found". The
@@ -116,7 +119,7 @@ library changes. A person can run it by hand.
 For each project, compile does this:
 
 1. **Resolve** each workflow: the project's own file, else the library file.
-2. **Render** the file. Prepend a header: `working_dir`, `env:
+2. **Render** the file. Prepend a header: `working_dir`, `log_dir`, `env:
    DEVMAN_PROJECT_DIR`, `group: <project>` and `labels: project=<project>`. The
    header adds keys and never overwrites a key the source sets.
 3. **Validate** each changed file with `dagu validate`.
@@ -144,9 +147,15 @@ four-line header works on every version.
 
 ## 6. The repository view
 
-linkman links `<repo>/.devman/workflows` to
-`~/.local/state/devman/dags/<project>/`. The repository then shows the exact
-files that Dagu runs, header included. The header names the source file.
+linkman makes two links in each repository:
+
+| Link | Target | Shows |
+|---|---|---|
+| `<repo>/.devman/workflows` | `~/.local/state/devman/dags/<project>/` | the exact files Dagu runs, header included. The header names the source file |
+| `<repo>/.devman/runs` | `~/.local/state/devman/runs/<project>/` | the run logs of this project's workflows |
+
+Both are machine-local views, so linkman also adds them to
+`.git/info/exclude`. Dagu's `hist_retention_days` prunes the logs.
 
 `devman status`, run in a repository, prints for each workflow:
 
@@ -289,8 +298,8 @@ Measure each one before the code depends on it:
 
 ## 14. Open questions for the owner
 
-1. Run output: Dagu's own log directory only (this concept), or a copy under
-   `<repo>/.devman/`?
+1. ~~Run output~~ — decided 2026-10-15: logs live under
+   `~/.local/state/devman/runs/<project>/`, linked into `<repo>/.devman/runs`.
 2. Removing `.devman/project.toml` and `.devman/triggers.toml` is a tracked
    edit in about 33 repositories. One lane per repository, or one fleet
    script?
