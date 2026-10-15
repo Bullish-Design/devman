@@ -1,5 +1,8 @@
 # Decisions — 044 Linkman integration
 
+> **SUPERSEDED, 2026-10-15.** `.scratch/projects/047-greenfield/CONCEPT.md` is
+> the only charter. This document is history. Do not design against it.
+
 Every decision this session reached, with the rejected alternative and the
 reason. Operator calls are marked and left undecided.
 

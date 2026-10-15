@@ -1,5 +1,8 @@
 # The development system — full concept
 
+> **SUPERSEDED, 2026-10-15.** `.scratch/projects/047-greenfield/CONCEPT.md` is
+> the only charter. This document is history. Do not design against it.
+
 **Status:** implemented in devman v0.5.1 for the bootstrap link, declared link
 reconciliation, central agent surface, and central per-repository workflow
 source overlay. Directly linking registry DAGs to central files remains deferred

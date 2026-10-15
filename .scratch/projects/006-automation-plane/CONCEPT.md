@@ -1,5 +1,8 @@
 # devman — Concept (the automation plane)
 
+> **SUPERSEDED, 2026-10-15.** `.scratch/projects/047-greenfield/CONCEPT.md` is
+> the only charter. This document is history. Do not design against it.
+
 > **STATUS: PROPOSED (2026-08-21). Reconciled against Investigations A, E, B, C
 > and D (2026-08-22). Amended twice during stage 1, twice during stage 2, twice
 > during stage 3, twice during stage 4, once during stage 5 and three times

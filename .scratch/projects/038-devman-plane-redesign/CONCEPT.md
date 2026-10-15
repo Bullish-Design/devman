@@ -1,5 +1,8 @@
 # Devman plane redesign — concept
 
+> **SUPERSEDED, 2026-10-15.** `.scratch/projects/047-greenfield/CONCEPT.md` is
+> the only charter. This document is history. Do not design against it.
+
 > **STATUS: IMPLEMENTING (2026-09-12).** This document defines the new boundary
 > for Devman, Vendomat, RepoMan, and the repository contract. The implementation
 > log records the measurements and decisions that start the migration.

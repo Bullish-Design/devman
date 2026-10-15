@@ -1,5 +1,8 @@
 # 041 — the central guard: drift detection and lane safety for `~/.config/devman`
 
+> **SUPERSEDED, 2026-10-15.** `.scratch/projects/047-greenfield/CONCEPT.md` is
+> the only charter. This document is history. Do not design against it.
+
 **Date:** 2026-10-01
 **Status, 2026-10-15:** shipped in devman. `devman central-verify` exists
 (`src/devman/central.py`). The repaired `link drift` check reports

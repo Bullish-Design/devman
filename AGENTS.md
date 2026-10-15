@@ -48,12 +48,12 @@ keeps a change from re-learning something the plane already paid for.**
    `.scratch/projects/007-standard-workflows/STAGE_7_LOG.md`. The log holds the
    answer, the versions, the exact command, the evidence, and what the charter
    had to change. Keep a comment that cites one.
-2. **The charter governs.** `.scratch/projects/006-automation-plane/CONCEPT.md`
-   is the design, amended by `007-standard-workflows/PROPOSAL.md`. **A second
-   charter governs how files reach a repository:**
-   `.scratch/projects/025-the-link-plane/CONCEPT.md`. A change that contradicts
-   any of the three changes that document in the same commit, with the
-   measurement that forced it.
+2. **One charter governs: `.scratch/projects/047-greenfield/CONCEPT.md`.**
+   Since 2026-10-15 it replaces every earlier concept, proposal and plan
+   (006, 007, 025, 038, 041, 044, 046). Those stay as history only. The code
+   in this repository still implements the old design until the 047 rewrite
+   replaces it. Write new work against 047. A change that contradicts 047
+   changes 047 in the same commit, with the measurement that forced it.
 3. **The shared contract is closed**: six queue names, `DEVMAN_PROJECT_DIR`,
    `DEVMAN_SELF_DIR`, and the `.devman/.runs/` path shape. Everything else is
    repository content or central per-repository overlay content. Adding another
@@ -119,8 +119,8 @@ keeps a change from re-learning something the plane already paid for.**
     stays and `devenv.local.nix` goes; `AGENTS.md` stays and `.agents/skills/`
     goes; a `base:check` task stays and the workflow that runs it at 3am goes.
     **Never decide this per file type** — every placement is one application of the
-    one rule. The charter is `.scratch/projects/025-the-link-plane/CONCEPT.md` §P0,
-    and it is written down because the question was re-litigated five times before
+    one rule. The charter is `.scratch/projects/047-greenfield/CONCEPT.md` §2.1
+    (first stated in 025 §P0), and it is written down because the question was re-litigated five times before
     anyone stated it.
 
 ## Verify before you save

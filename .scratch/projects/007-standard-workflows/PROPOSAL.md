@@ -1,5 +1,8 @@
 # Proposal — the standard workflow set
 
+> **SUPERSEDED, 2026-10-15.** `.scratch/projects/047-greenfield/CONCEPT.md` is
+> the only charter. This document is history. Do not design against it.
+
 > **Design session. No implementation code was written.** Every number below is
 > either measured on this machine on 2026-08-23, quoted from a stage log, or
 > labelled as arithmetic over a measurement.

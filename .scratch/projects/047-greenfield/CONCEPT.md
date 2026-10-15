@@ -1,7 +1,9 @@
 # 047 — devman, from scratch: a Dagu-native reactive runner
 
-**Status:** concept, 2026-10-15. Owner rulings taken in session. Supersedes
-`046-one-registry/PLAN.md` (option C). Evidence: `SPIKES.md` and
+**Status:** the charter, 2026-10-15. It is the only concept devman follows. It
+replaces every earlier concept, proposal and plan: 006, 007, 025, 038, 041, 044
+and 046 (option C). Those stay in `.scratch/` as history only. Owner rulings
+taken in session. Evidence: `SPIKES.md` and
 `DAGU_RELEASES.md` in this directory.
 
 ## 1. What devman is
@@ -38,6 +40,21 @@ including the repository view in §6.
 | R10 | **Safety is minimal:** correctness refusals only. No write tiers, no reload gate. | The owner's ruling. A refusal still beats a silent wrong result (property 4). |
 | R11 | **Home Manager installs devman:** the CLI, the Dagu user service and the watcher user service. No NixOS module. | A devman change needs no system rebuild. This matches the 045 toolbelt. |
 | R12 | **No migration.** Old registry roots, generations and compatibility data are deleted. | devman has one user and nothing worth carrying. |
+
+### 2.1 The boundary test
+
+One question decides where a file lives: **would this still be true for someone
+else who cloned the repository?**
+
+- **Yes:** it is the project. It stays in the repository, tracked. Example: a
+  `base:check` task in `devenv.nix`.
+- **No, it is true for this user or this machine:** it goes central, under
+  `~/.config/devman`, and reaches the repository as a link with its own
+  `.git/info/exclude` line. Example: the workflow that runs that task at 3am.
+
+Never decide this per file type. Every placement applies this one rule. It was
+first stated in 025 §P0, after the question was argued five times. R2 and R3
+are applications of it.
 
 ## 3. The files
 
@@ -303,5 +320,5 @@ Measure each one before the code depends on it:
 2. Removing `.devman/project.toml` and `.devman/triggers.toml` is a tracked
    edit in about 33 repositories. One lane per repository, or one fleet
    script?
-3. Does this concept replace 006, 007 and 025 as the charter now, or after the
-   code ships?
+3. ~~Charter timing~~ — decided 2026-10-15: this concept is the only charter,
+   now.

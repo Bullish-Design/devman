@@ -372,7 +372,7 @@ systemctl --user status dagu devman-watch
 | why is this line here at all? | the stage log entry its comment cites |
 | what does Dagu do on cancellation, on timeout, and to a secret in a log? | `.scratch/projects/022-agentman-integration/EVIDENCE.md`, M2–M5 |
 | why does nothing expensive carry a `schedule:`? | `.scratch/projects/020-scheduling-metered-work/RESULT.md` |
-| what is the design? | `.scratch/projects/006-automation-plane/CONCEPT.md` |
+| what is the design? | `.scratch/projects/047-greenfield/CONCEPT.md` — the only charter since 2026-10-15 |
 | why five workflows and not nine? | `.scratch/projects/007-standard-workflows/PROPOSAL.md` |
 | what is still unsettled? | `.scratch/projects/007-standard-workflows/OPEN_QUESTIONS.md` |
 | what did the rollout to 53 repositories measure? | `.scratch/projects/007-standard-workflows/STAGE_7_LOG.md` |
