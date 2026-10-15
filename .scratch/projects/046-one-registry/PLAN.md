@@ -1,6 +1,6 @@
 # 046 — one registry, built by devman
 
-**Status:** open, 2026-10-15. Owner ruling in session: option C.
+**Status:** superseded, 2026-10-15, by `047-greenfield/CONCEPT.md`. Owner ruling in session had been option C.
 
 ## Goal
 
