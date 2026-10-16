@@ -90,6 +90,23 @@ def emit_cmd(
     raise typer.Exit(outcome.code)
 
 
+@app.command("watch")
+def watch_cmd(
+    debounce: Annotated[
+        str, typer.Option("--debounce", help="Quiet time, such as 300ms or 2s.")
+    ] = "300ms",
+) -> None:
+    """Watch saves and overlay changes. The user service runs this."""
+    from devman import watch
+
+    try:
+        watch.seconds(debounce)
+    except ValueError as exc:
+        typer.echo(f"devman: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    raise typer.Exit(watch.watch(Paths.from_env(), debounce))
+
+
 def main() -> None:
     """Console entry point. Typer exits with the command's exit code."""
     app(prog_name="devman")

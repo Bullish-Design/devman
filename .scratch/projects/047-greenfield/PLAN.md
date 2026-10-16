@@ -880,6 +880,50 @@ watchexec still watches ignored directories. So:
   `save`. `devman doctor` reports the watch count against
   `fs.inotify.max_user_watches` when it passes 50%.
 
+**As built (2026-10-15).** Each item changes or fills in the plan above.
+
+- **The ignore patterns are `**/<name>` and `**/<name>/**`, not `<name>`.**
+  Measured with watchexec 2.5.1: with `--project-origin=<state>` a bare `--ignore
+  node_modules` or `--ignore .devman` filtered nothing, because watchexec matches
+  the pattern against the path relative to the origin, and a project is not under
+  the state directory. Only `.git` and `__pycache__` looked ignored, and that was
+  watchexec's own default list. The watcher passes two patterns per name (the
+  directory and its contents).
+- **A missing watch path kills watchexec** (`No such file or directory`). So the
+  watch set holds only paths that exist now. `workflows/` and `library/` join the
+  set when they exist.
+- **The overlay is watched non-recursively** (`--watch-non-recursive <overlay>`),
+  in addition to `workflows/` and `library/`. An editor replaces `projects.toml`
+  by rename, and a folder created later (`workflows/`) must start a compile. Any
+  file directly in the overlay starts a compile, which is a no-op when nothing
+  changed. After each compile, the watcher rebuilds the set; a new `workflows/`
+  folder then restarts watchexec once.
+- **Skipped events.** The watcher ignores `access` and `remove` events and any
+  path whose `filetype` is `dir`. A new folder is not a save.
+- **No ready signal.** watchexec 2.5.1 logs nothing when its watches are in place
+  (checked at `-vvv`). So the watcher watches one more directory, `<state>/watch/`
+  (non-recursive), and writes `canary` there every 0.5 s. The first event for it
+  logs `devman watch: watchexec ready`. The start line counts the canary:
+  `watchexec starting, <n> paths`. The canary proves its own path only; on a large
+  tree watchexec may still be setting up another path. Treat `ready` as the
+  earliest sign, not as proof.
+- **Batches.** The watcher waits for the debounce time with no new line (at most
+  5 s), then handles the whole batch. It compiles first, then sends one `save`
+  per project, then compares the watch set with the old one.
+- **Exit.** When watchexec exits, the watcher exits with its code, and with 1
+  when that code is 0 or a signal, so `Restart=on-failure` always restarts it. It
+  exits 1 when the overlay does not exist, and 2 when `watchexec` is not on `PATH`.
+  SIGTERM stops watchexec and exits 143.
+- **Compile errors do not stop the watcher.** A refused compile logs
+  `devman watch: compile exited 1`. A Python error in compile logs its traceback.
+- **Option.** `--debounce` takes a watchexec duration (`300ms`, `2s`, `1m`; a bare
+  number is ms). The default is `300ms`. The watcher passes it to watchexec and
+  uses it as its own quiet time.
+- **Tests.** The integration tests start `devman watch` as a child process, with
+  the fake `dagu` on `PATH`. `tests/conftest.py` now holds the `fake` fixture.
+- **Size.** `watch.py` has 256 lines against a budget of 200 (+28%). It holds the
+  canary, the batch reader and the restart logic.
+
 **Interfaces fixed:** the watcher command line, the fixed ignore list.
 
 ---

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 from devman.paths import Paths
 
 FIXTURES = Path(__file__).parent / "fixtures"
+FAKES = Path(__file__).parent / "fakes"
 STEP = "steps:\n  - name: s\n    run: echo hi\n"
 
 
@@ -76,3 +78,19 @@ def plane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Plane:
     paths.library.mkdir(parents=True)
     shutil.copy(FIXTURES / "library" / "base.yaml", paths.base_src)
     return Plane(tmp_path, paths, env)
+
+
+@pytest.fixture
+def fake(plane: Plane, monkeypatch: pytest.MonkeyPatch) -> Path:
+    log = plane.root / "dagu.log"
+    # The build sandbox has no /usr/bin/env, so the copy names bash directly.
+    bin_dir = plane.root / "fake-bin"
+    bin_dir.mkdir()
+    body = (FAKES / "dagu").read_text().split("\n", 1)[1]
+    script = bin_dir / "dagu"
+    script.write_text(f"#!{shutil.which('bash')}\n{body}")
+    script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_DAGU_LOG", str(log))
+    monkeypatch.delenv("FAKE_DAGU_EXIT", raising=False)
+    return log

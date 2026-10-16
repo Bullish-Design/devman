@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,28 +11,11 @@ from devman import dagu
 from devman.compile import compile
 from devman.router import Event, emit, find_project
 
-FAKES = Path(__file__).parent / "fakes"
 SRC = Path(__file__).resolve().parent.parent / "src"
 ON = (
     '[[{p}.on]]\nevent = "save"\nmatch = "**/*.py"\nexclude = [".scratch/**"]\n'
     'run = "check"\n'
 )
-
-
-@pytest.fixture
-def fake(plane: Plane, monkeypatch: pytest.MonkeyPatch) -> Path:
-    log = plane.root / "dagu.log"
-    # The build sandbox has no /usr/bin/env, so the copy names bash directly.
-    bin_dir = plane.root / "fake-bin"
-    bin_dir.mkdir()
-    body = (FAKES / "dagu").read_text().split("\n", 1)[1]
-    script = bin_dir / "dagu"
-    script.write_text(f"#!{shutil.which('bash')}\n{body}")
-    script.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("FAKE_DAGU_LOG", str(log))
-    monkeypatch.delenv("FAKE_DAGU_EXIT", raising=False)
-    return log
 
 
 def calls(log: Path) -> list[list[str]]:
