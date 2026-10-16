@@ -55,6 +55,41 @@ def compile_cmd(
     raise typer.Exit(run_compile(Paths.from_env(), projects or None, validate_all))
 
 
+@app.command("emit")
+def emit_cmd(
+    event: Annotated[str, typer.Argument(help="Event name, such as save or land.")],
+    fields: Annotated[
+        list[str] | None,
+        typer.Argument(help="Extra KEY=VALUE fields passed to the run."),
+    ] = None,
+    project: Annotated[
+        str | None, typer.Option("--project", help="Default: from the directory.")
+    ] = None,
+    subject: Annotated[
+        list[str] | None,
+        typer.Option("--subject", help="A path or ref name. Repeat for many."),
+    ] = None,
+    source: Annotated[
+        str, typer.Option("--source", help="Who sent the event.")
+    ] = "cli",
+) -> None:
+    """Route one event to the workflows that match it."""
+    from devman import router
+
+    parsed, error = router.parse_fields(fields or [])
+    error = router.check_event(event) or error
+    if error:
+        typer.echo(f"devman: {error}", err=True)
+        raise typer.Exit(2)
+    outcome = router.emit(
+        Paths.from_env(),
+        router.Event(event, project, tuple(subject or ()), source, parsed),
+    )
+    for line in outcome.lines:
+        typer.echo(line, err=outcome.code == 2)
+    raise typer.Exit(outcome.code)
+
+
 def main() -> None:
     """Console entry point. Typer exits with the command's exit code."""
     app(prog_name="devman")

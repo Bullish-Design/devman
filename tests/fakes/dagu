@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# A fake `dagu` for router tests. It appends its argv to $FAKE_DAGU_LOG, one
+# call per line, with the unit separator (0x1f) after each argument. It exits
+# with $FAKE_DAGU_EXIT (default 0).
+# `validate` (from compile) passes and is not logged.
+[ "$3" = validate ] && exit 0
+printf '%s\x1f' "$@" >> "$FAKE_DAGU_LOG"
+echo >> "$FAKE_DAGU_LOG"
+if [ "${FAKE_DAGU_EXIT:-0}" != 0 ]; then
+  echo "Error: fake dagu failure" >&2
+fi
+exit "${FAKE_DAGU_EXIT:-0}"

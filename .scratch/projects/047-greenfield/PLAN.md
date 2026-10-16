@@ -773,6 +773,36 @@ rendered file **declares** both (§A.2), so a run that the router did not start
 Extra `KEY=VALUE` fields pass through undeclared; a workflow that relies on one
 declares it in its own `params:`.
 
+**As built (2026-10-15).**
+
+- **Signatures.** `dagu.enqueue(config, dag_file, run_id, event, params)` takes
+  the config path and the event name, because it builds `--labels` itself.
+  `router.emit(paths, Event) -> Outcome` returns the exit code, the lines to
+  print and the event record. `Event` holds `name`, `project`, `subjects`,
+  `source`, `fields` and `cwd`. `router.parse_fields` and `router.check_event`
+  hold the §A.5 grammar. A usage error exits 2 and writes no event line; every
+  router refusal exits 2 and does write one.
+- **Refusals** (each one a line with `refusal` set, `matches: []`): no or bad
+  `compile.json`, no project for the directory, unknown `--project`, a project
+  `path` that is not a directory, and a match with no `DEVMAN_DAGU_CONFIG`.
+  The path check runs before matching, so a vanished checkout is refused even
+  when nothing would match. A compiled file missing on disk fails that match
+  (`result: failed`, exit 1) and runs no `dagu`.
+- **One subject per run.** `DEVMAN_SUBJECT` is the first subject that matches the
+  first `on` entry that names the workflow. A later entry for the same workflow
+  adds no run. With no subject, the router matches against the empty string.
+- **The fake `dagu`** (`tests/fakes/dagu`) also answers `validate` with exit 0
+  and no log line, so a router test can compile with it on `PATH`.
+- **Labels in the REST record.** The header sets `labels: project=<p>`, so the
+  run's `labels` list holds `project=<p>` and `devman.event=<event>`. The e2e
+  test asserts membership.
+- **The e2e "scheduled run"** is `dagu start <file>` with no parameters. It reads
+  the same declared defaults as a schedule, and it needs no wait for a cron tick.
+- **Measured latency.** The e2e harness measures 2.8 s from the call of
+  `router.emit` to the first step (three runs, 2.76 to 2.78 s). Most of it is
+  the scheduler's queue poll.
+- **Size.** `router.py` has 182 lines against a budget of 180.
+
 **Interfaces fixed:** §A.4, §A.5.
 
 ---

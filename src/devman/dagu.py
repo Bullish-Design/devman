@@ -1,4 +1,4 @@
-"""Calls to Dagu. Stage 4 and Stage 6 add `enqueue`, `last_run` and `version`."""
+"""Calls to Dagu. Stage 6 adds `last_run` and `version`."""
 
 from __future__ import annotations
 
@@ -34,3 +34,36 @@ def validate(config: Path, file: Path) -> str | None:
         ln.strip("- ").strip() for ln in lines if ln and not ln.startswith("time=")
     )
     return text or f"dagu validate exited {result.returncode}"
+
+
+def enqueue(
+    config: Path, dag_file: Path, run_id: str, event: str, params: list[str]
+) -> str | None:
+    """Run `dagu enqueue` on the absolute path of a compiled file.
+
+    Return the error text, or None when Dagu queued the run. The path form is
+    required: the CLI does not find a subdirectory DAG by name (M4). `--name`
+    and `--default-working-dir` are never used (M6).
+    """
+    dagu = shutil.which("dagu")
+    if dagu is None:
+        return "dagu is not on PATH"
+    argv = [
+        dagu,
+        "--config",
+        str(config),
+        "enqueue",
+        "--run-id",
+        run_id,
+        "--labels",
+        f"devman.event={event}",
+        str(dag_file),
+        "--",
+        *params,
+    ]
+    result = subprocess.run(argv, capture_output=True, text=True, check=False)
+    if result.returncode == 0:
+        return None
+    lines = (result.stdout + result.stderr).splitlines()
+    text = "; ".join(ln.strip() for ln in lines if ln.strip() and "time=" not in ln)
+    return text or f"dagu enqueue exited {result.returncode}"
