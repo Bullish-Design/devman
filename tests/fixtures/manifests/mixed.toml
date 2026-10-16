@@ -1,0 +1,7 @@
+# One good project, one with an unknown key. The good one must still load.
+[good]
+path = "/work/good"
+
+[typo]
+path = "/work/typo"
+tkae = ["check"]

@@ -488,6 +488,25 @@ and the loop check (§A.1, rule 9) both need it. It uses
   removes `.scratch/x/a.py`; `main` matches `main` only.
 - Loop check: `on = [{event="done", match="check", run="check"}]` is refused.
 
+**As built (2026-10-15).**
+
+- `Paths` also holds `tmp` (`<state>/tmp`), `dagu_version`, and the three token
+  values `bash`, `guard` and `bin` (each `None` when unset). `projects_toml` and
+  `workflows` are properties. Stage 3 needs all of them, and no other module may
+  read the environment.
+- The loop check (rule 9) cannot see the files in `workflows/<project>/`. It
+  tests each `done`/`failed` `match` against the names the table itself holds:
+  `take` and every `run`, in sorted order. A cycle through a workflow that only a
+  file defines is found by no one; no real manifest does that.
+- A missing or unreadable `projects.toml` gives a file-level error
+  (`cannot read <path>: …`), the same as a syntax error.
+- Reason texts for rules the plan leaves open: `path is required`, `path must be
+  a string`, `path <p> is not absolute`, `take must be a list of workflow names`,
+  `on must be an array of tables`, `on[i] is not a table`, `on[i] needs <key>`,
+  `on[i] event <e> does not match …`, `on[i] match must be a string or a list of
+  strings, none empty`, `on[i] exclude must be a list of non-empty strings`.
+  Tests assert each one.
+
 **Verify:** the common verify command.
 
 **Interfaces fixed:** §A.1.

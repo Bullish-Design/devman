@@ -1,0 +1,19 @@
+# The example in CONCEPT §4, with PLAN §A.1 additions (exclude, a list match).
+[devman]
+path = "/work/devman"
+take = ["check", "test", "format"]
+
+[[devman.on]]
+event = "save"
+match = "**/*.py"
+exclude = [".scratch/**"]
+run = "format"
+
+[[devman.on]]
+event = "land"
+match = ["main", "release/*"]
+run = "check"
+
+[gitman]
+path = "/work/gitman"
+take = ["check", "test"]
