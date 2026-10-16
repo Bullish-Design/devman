@@ -1,6 +1,0 @@
-env:
-  FOO: bar
-  DEVMAN_PROJECT_DIR: /tmp
-steps:
-  - name: s
-    run: echo hi

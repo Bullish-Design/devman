@@ -1,7 +1,0 @@
-params:
-  - name: A
-    enum: [x, y]
-    default: y
-steps:
-  - name: s
-    run: echo hi
