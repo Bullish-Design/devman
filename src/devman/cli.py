@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -105,6 +106,74 @@ def watch_cmd(
         typer.echo(f"devman: {exc}", err=True)
         raise typer.Exit(2) from exc
     raise typer.Exit(watch.watch(Paths.from_env(), debounce))
+
+
+@app.command("run")
+def run_cmd(
+    workflow: Annotated[str, typer.Argument(help="Workflow name, such as check.")],
+    fields: Annotated[
+        list[str] | None, typer.Argument(help="Extra KEY=VALUE fields.")
+    ] = None,
+    project: Annotated[
+        str | None, typer.Option("--project", help="Default: from the directory.")
+    ] = None,
+) -> None:
+    """Run one workflow now. This is a manual event with an implicit match."""
+    from devman import router
+
+    parsed, error = router.parse_fields(fields or [])
+    if error:
+        typer.echo(f"devman: {error}", err=True)
+        raise typer.Exit(2)
+    outcome = router.emit(
+        Paths.from_env(),
+        router.Event("manual", project, (workflow,), "manual", parsed, implicit=True),
+    )
+    if outcome.record["stale"]:
+        typer.echo("devman: warning: the project is stale; the old file runs", err=True)
+    for line in outcome.lines:
+        typer.echo(line, err=outcome.code == 2)
+    raise typer.Exit(outcome.code)
+
+
+@app.command("status")
+def status_cmd(
+    project: Annotated[
+        str | None, typer.Argument(help="Default: the project of this directory.")
+    ] = None,
+    as_json: Annotated[bool, typer.Option("--json", help="Print JSON.")] = False,
+) -> None:
+    """Show what runs in a project, and the last result of each workflow."""
+    from devman import status
+
+    code, text = status.status(Paths.from_env(), project, as_json, Path.cwd())
+    typer.echo(text, err=code == 2)
+    raise typer.Exit(code)
+
+
+@app.command("show")
+def show_cmd(
+    workflow: Annotated[str, typer.Argument(help="Workflow name.")],
+    project: Annotated[
+        str | None, typer.Option("--project", help="Default: from the directory.")
+    ] = None,
+) -> None:
+    """Print the compiled file of a workflow, with its source path."""
+    from devman import status
+
+    code, text = status.show(Paths.from_env(), workflow, project, Path.cwd())
+    typer.echo(text, err=code != 0)
+    raise typer.Exit(code)
+
+
+@app.command("doctor")
+def doctor_cmd() -> None:
+    """Check the services, the Dagu version, `dags/` and the library."""
+    from devman import doctor
+
+    code, lines = doctor.doctor(Paths.from_env())
+    typer.echo("\n".join(lines))
+    raise typer.Exit(code)
 
 
 def main() -> None:

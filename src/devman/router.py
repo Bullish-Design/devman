@@ -30,6 +30,7 @@ class Event:
     source: str = "cli"
     fields: dict[str, str] = field(default_factory=dict)
     cwd: Path | None = None  # finds the project when `project` is None
+    implicit: bool = False  # `devman run`: subject 0 is the workflow, no `on` table
 
 
 @dataclass(frozen=True)
@@ -145,7 +146,11 @@ def emit(paths: Paths, event: Event) -> Outcome:
 
     # One enqueue per workflow, whatever the number of entries and subjects.
     chosen: dict[str, str] = {}
-    for entry in _entries(rec):
+    if event.implicit:
+        if subjects[0] not in rec.get("workflows", {}):
+            return _refuse(paths, record, f"{name} has no workflow {subjects[0]}")
+        chosen[subjects[0]] = subjects[0]
+    for entry in [] if event.implicit else _entries(rec):
         run = entry.run
         if entry.event != event.name or run in chosen:
             continue

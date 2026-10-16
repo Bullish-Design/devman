@@ -17,7 +17,10 @@ from pathlib import Path
 
 import pytest
 from conftest import Plane
+from typer.testing import CliRunner
 
+from devman import doctor
+from devman.cli import app
 from devman.compile import compile
 from devman.router import Event, emit
 
@@ -153,3 +156,26 @@ def test_an_event_becomes_a_successful_run(plane: Plane, server: int):
     )
     event, subject, _ = plain.read_text().split("|")
     assert (event, subject) == ("", "")
+
+
+def test_run_then_status_shows_the_result(plane: Plane, server: int):
+    plane.library("check", workflow(plane.root / "check.out"))
+    plane.add_project("alpha", '"check"')
+    assert compile(plane.paths) == 0
+    runner = CliRunner()
+    res = runner.invoke(app, ["run", "check", "--project", "alpha"], env=plane.env)
+    assert res.exit_code == 0, res.output
+
+    def succeeded():
+        res = runner.invoke(app, ["status", "alpha", "--json"], env=plane.env)
+        run = json.loads(res.output)["workflows"][0]["last_run"]
+        return run if run and run["status"] in TERMINAL else None
+
+    run = wait_for(succeeded)
+    assert run is not None, "the run did not finish in 30 s"
+    assert run["status"] == "succeeded"
+    info = json.loads(
+        runner.invoke(app, ["status", "alpha", "--json"], env=plane.env).output
+    )
+    assert info["dagu"] == "reachable"
+    assert doctor.check_api(plane.paths) is None

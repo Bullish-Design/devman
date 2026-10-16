@@ -1001,6 +1001,39 @@ One line per check, `ok` or `FAIL <reason>`. Exit 0 only when every check passes
 The first task of this stage is one `curl` against the e2e server. If the shape
 differs, adapt `last_run` and nothing else.
 
+**As built (2026-10-15).** Each item changes or fills in the plan above.
+
+- **The REST shape of a run, confirmed on 2.20.1 with one real call** against a
+  temporary Dagu (ports 18120 and 51120). `GET /api/v1/dag-runs?name=<dag>&limit=5`
+  returns `{"dagRuns": [...]}`, newest first. A run holds `dagRunId`, `name`,
+  `statusLabel` (`succeeded`), `status` (4), `startedAt`, `finishedAt`, `queuedAt`,
+  `params`, `labels` and `triggerType`. `GET /api/v1/dags/<file>/dag-runs` answers
+  404. `last_run` filters on the exact `name`, because `name` is a filter and the
+  plan does not rely on it being exact. The plan's path (`/dags/<file>/dag-runs`)
+  was wrong; the code uses `/dag-runs?name=`.
+- **`dagu.get(config, path)`** is the one REST call. It reads host and port from
+  the Dagu config (defaults `127.0.0.1:8080`). `last_run`, `version` and doctor's
+  API check use it.
+- **`Event.implicit`** carries `devman run`. The router then skips the `on` table
+  and matches `subjects[0]` against `compile.json` `workflows`. An unknown name
+  is a refusal (exit 2) and writes an event line. `run` prints a warning on stderr
+  when the project is stale.
+- **Doctor has eight checks, not eleven.** The watcher check scans `/proc` for a
+  `watchexec` process that carries `--project-origin=<state>`; it needs no
+  `systemctl`, so it works in tests and in any shell. The watch budget sums the
+  `inotify wd:` lines of that process's inotify descriptors and compares them
+  with `fs.inotify.max_user_watches` (fails above 50 %, M5). The checks:
+  Dagu answers, Dagu version (skipped without `DEVMAN_DAGU_VERSION`), watcher
+  runs, watch budget, compile clean, `dags/` matches `compile.json` (hash per
+  file, no stray file), checkouts hold `.git` or `.jj` (the guard's condition),
+  library actions. Dropped: "Dagu sees every DAG", "repository view" (Stage 10
+  adds the links), and "handler log" (Stage 7 adds it with the handler).
+- **`status` with no project and no match** prints one line per project; `--json`
+  prints the full list. A missing `compile.json` exits 2.
+- **Size.** `status.py` 148 (budget 160), `doctor.py` 176 (budget 160, +10 %),
+  `dagu.py` 101 (budget 130), `cli.py` 181 (budget 170). `src/devman/` totals
+  1,781 lines against 1,600 (+11 %). No module passes its budget by 30 %.
+
 **Interfaces fixed:** §A.5, §A.7, doctor exit codes.
 
 ---

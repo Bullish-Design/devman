@@ -1,10 +1,14 @@
-"""Calls to Dagu. Stage 6 adds `last_run` and `version`."""
+"""Calls to Dagu: the CLI (`validate`, `enqueue`, `version`) and the REST API."""
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+import urllib.parse
+import urllib.request
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -67,3 +71,31 @@ def enqueue(
     lines = (result.stdout + result.stderr).splitlines()
     text = "; ".join(ln.strip() for ln in lines if ln.strip() and "time=" not in ln)
     return text or f"dagu enqueue exited {result.returncode}"
+
+
+def version() -> str | None:
+    """The version `dagu version` prints, or None when it cannot run."""
+    dagu = shutil.which("dagu")
+    if dagu is None:
+        return None
+    result = subprocess.run([dagu, "version"], capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def get(config: Path, path: str) -> Any:
+    """GET one REST path. Raise OSError or ValueError when Dagu does not answer."""
+    data = yaml.safe_load(Path(config).read_text()) or {}
+    host, port = data.get("host") or "127.0.0.1", data.get("port") or 8080
+    with urllib.request.urlopen(f"http://{host}:{port}/api/v1{path}", timeout=3) as r:
+        return json.load(r)
+
+
+def last_run(config: Path, dag: str) -> dict[str, Any] | None:
+    """The newest run of one DAG, or None. Raise OSError when Dagu is down.
+
+    Measured on 2.20.1: `name` is a filter, the list is newest first, and a run
+    holds `dagRunId`, `statusLabel`, `startedAt` and `finishedAt`.
+    """
+    query = urllib.parse.urlencode({"name": dag, "limit": 5})
+    runs = get(config, f"/dag-runs?{query}")["dagRuns"]
+    return next((r for r in runs if r["name"] == dag), None)
