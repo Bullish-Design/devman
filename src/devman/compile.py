@@ -26,11 +26,6 @@ from devman.paths import Paths
 from devman.render import check_source, render
 
 TOKEN_RE = re.compile(r"@([A-Za-z][A-Za-z0-9]*)@")
-TOKEN_ENV = {
-    "bash": "DEVMAN_BASH",
-    "devman": "DEVMAN_BIN",
-    "stateDir": "DEVMAN_STATE",
-}
 
 
 def _now() -> str:
@@ -53,22 +48,23 @@ def fill_base(paths: Paths) -> tuple[bool, str | None]:
         text = paths.base_src.read_text()
     except OSError as exc:
         return False, f"cannot read {paths.base_src}: {exc.strerror}"
+    # token -> (value, the variable that supplies it)
     values = {
-        "bash": paths.bash,
-        "devman": paths.bin,
-        "stateDir": str(paths.state),
+        "bash": (paths.bash, "DEVMAN_BASH"),
+        "devman": (paths.bin, "DEVMAN_BIN"),
+        "stateDir": (str(paths.state), "DEVMAN_STATE"),
     }
     # A comment may name a token (the seed file does); only code needs a value.
     code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
     for token in dict.fromkeys(TOKEN_RE.findall(code)):
         if token not in values:
             return False, f"{paths.base_src}: unknown token @{token}@"
-        if not values[token]:
-            return (
-                False,
-                f"{paths.base_src}: @{token}@ has no value; set {TOKEN_ENV[token]}",
-            )
-    filled = TOKEN_RE.sub(lambda m: values.get(m.group(1)) or m.group(0), text)
+        value, variable = values[token]
+        if not value:
+            return False, f"{paths.base_src}: @{token}@ has no value; set {variable}"
+    filled = TOKEN_RE.sub(
+        lambda m: values.get(m.group(1), ("",))[0] or m.group(0), text
+    )
     try:
         if not isinstance(yaml.safe_load(filled) or {}, dict):
             return False, f"{paths.base_src}: base.yaml is not a mapping"
@@ -113,13 +109,13 @@ def _resolve(
 
 def _compile_project(
     paths: Paths, queues: list[str], project: Project, validate_all: bool
-) -> tuple[dict[str, Any] | None, list[str], int]:
-    """Return (record, reasons, files changed). The record is None when refused."""
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Return (record, reasons). The record is None when the project is refused."""
     if not project.path.is_dir():
-        return None, [f"path {project.path} is not a directory"], 0
+        return None, [f"path {project.path} is not a directory"]
     sources, reasons = _resolve(paths, project)
     if reasons:
-        return None, reasons, 0
+        return None, reasons
 
     out_dir = paths.dags / project.name
     tmp_dir = paths.tmp / project.name
@@ -146,20 +142,18 @@ def _compile_project(
                 paths.guard or "",
             )
     if reasons:
-        return None, reasons, 0
+        return None, reasons
 
-    def published(name: str) -> Path:
-        return out_dir / f"{project.name}.{name}.yaml"
+    files = {n: out_dir / f"{project.name}.{n}.yaml" for n in rendered}
 
     def changed(name: str) -> bool:
-        file = published(name)
-        return not file.exists() or file.read_text() != rendered[name]
+        return not files[name].exists() or files[name].read_text() != rendered[name]
 
     todo = [n for n in rendered if validate_all or changed(n)]
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     def check(name: str) -> str | None:
-        file = tmp_dir / f"{project.name}.{name}.yaml"
+        file = tmp_dir / files[name].name
         file.write_text(rendered[name])
         error = dagu.validate(paths.dagu_config, file)
         return f"{project.name}.{name}: {error}" if error else None
@@ -168,26 +162,23 @@ def _compile_project(
         reasons = [r for r in pool.map(check, todo) if r]
     if reasons:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        return None, reasons, 0
+        return None, reasons
 
     out_dir.mkdir(parents=True, exist_ok=True)
     (paths.runs / project.name).mkdir(parents=True, exist_ok=True)
-    count = 0
     for name in todo:
         if changed(name):
-            os.replace(tmp_dir / f"{project.name}.{name}.yaml", published(name))
-            count += 1
+            os.replace(tmp_dir / files[name].name, files[name])
     shutil.rmtree(tmp_dir, ignore_errors=True)
-    keep = {published(n).name for n in rendered}
+    keep = {f.name for f in files.values()}
     for stale in out_dir.glob(f"{project.name}.*.yaml"):
         if stale.name not in keep:
             stale.unlink()
-            count += 1
 
     workflows = {
         name: {
             "dag": f"{project.name}.{name}",
-            "file": str(published(name)),
+            "file": str(files[name]),
             "origin": sources[name][1],
             "source": str(sources[name][0]),
             "sha256": hashlib.sha256(rendered[name].encode()).hexdigest(),
@@ -212,30 +203,29 @@ def _compile_project(
         "on": on,
         "workflows": workflows,
     }
-    return record, [], count
+    return record, []
+
+
+def _without(doc: dict[str, Any] | None, key: str) -> dict[str, Any] | None:
+    """A copy of `doc` without `key`, so two records compare apart from the clock."""
+    return {k: v for k, v in doc.items() if k != key} if doc else None
 
 
 def _refused(
     prev: dict[str, Any] | None, reasons: list[str], path: Path | None
 ) -> dict[str, Any]:
     """A refused record. It keeps the last good `on` and `workflows` (A.3)."""
-    stale = bool(prev and prev.get("workflows"))
+    prev = prev or {}
+    stale = bool(prev.get("workflows"))
     return {
         "status": "refused",
         "stale": stale,
         "at": _now(),
-        "path": str(path) if path else (prev or {}).get("path"),
+        "path": str(path) if path else prev.get("path"),
         "reasons": reasons,
-        "on": prev["on"] if stale and prev else [],
-        "workflows": prev["workflows"] if stale and prev else {},
+        "on": prev["on"] if stale else [],
+        "workflows": prev["workflows"] if stale else {},
     }
-
-
-def _read_doc(paths: Paths) -> dict[str, Any]:
-    try:
-        return json.loads(paths.compile_json.read_text())
-    except (OSError, ValueError):
-        return {}
 
 
 def compile(
@@ -273,20 +263,19 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
         print(f"devman: cannot read {paths.dagu_config}: {exc}", file=sys.stderr)
         return 1
 
-    previous = _read_doc(paths).get("projects", {})
+    old_doc = paths.compile_doc()
+    previous = old_doc.get("projects", {})
     records = dict(previous)
     refused: dict[str, list[str]] = {}
-    written = 0
 
     for name in sorted(manifest.projects.keys() | manifest.errors.keys() - {""}):
         if names and name not in names:
             continue
         project = manifest.projects.get(name)
         if project:
-            record, reasons, count = _compile_project(
+            record, reasons = _compile_project(
                 paths, queues, project, validate_all or changed
             )
-            written += count
         else:
             record, reasons = None, manifest.errors[name]
         if record is None:
@@ -324,19 +313,15 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
     # A run with no change writes nothing: keep each unchanged record, and
     # skip the file when nothing but the clock moved.
     for name, record in records.items():
-        old = previous.get(name)
-        if old and {k: v for k, v in old.items() if k != "at"} == {
-            k: v for k, v in record.items() if k != "at"
-        }:
-            records[name] = old
-    old_doc = _read_doc(paths)
+        if _without(previous.get(name), "at") == _without(record, "at"):
+            records[name] = previous.get(name, record)
     core = {
         "version": 1,
         "devman": __version__,
         "orphans": orphans if full else old_doc.get("orphans", []),
         "projects": dict(sorted(records.items())),
     }
-    if {k: v for k, v in old_doc.items() if k != "compiled_at"} != core:
+    if _without(old_doc, "compiled_at") != core:
         doc = {"version": 1, "compiled_at": _now(), **core}
         _write_atomic(paths.compile_json, json.dumps(doc, indent=2) + "\n")
     for name, reasons in refused.items():

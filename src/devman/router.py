@@ -121,7 +121,7 @@ def emit(paths: Paths, event: Event) -> Outcome:
         "refusal": None,
     }
     try:
-        projects = json.loads(paths.compile_json.read_text())["projects"]
+        projects = paths.records()
     except (OSError, ValueError, KeyError) as exc:
         return _refuse(paths, record, f"cannot read {paths.compile_json}: {exc}")
 
@@ -164,12 +164,12 @@ def emit(paths: Paths, event: Event) -> Outcome:
     code, lines = 0, []
     for run, subject in chosen.items():
         flow = rec.get("workflows", {}).get(run, {})
+        run_id = str(uuid.uuid4())
         match: dict[str, Any] = {
             "workflow": run,
             "dag": flow.get("dag", f"{name}.{run}"),
+            "run_id": run_id,
         }
-        run_id = str(uuid.uuid4())
-        match["run_id"] = run_id
         file = Path(flow.get("file", ""))
         if not file.is_file():
             error = f"compiled file {file} is missing; run devman compile"

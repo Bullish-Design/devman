@@ -17,16 +17,6 @@ from devman.paths import Paths
 from devman.router import find_project
 
 
-def load(paths: Paths) -> dict[str, dict]:
-    """The project records of the last compile. Raise OSError or ValueError."""
-    return json.loads(paths.compile_json.read_text())["projects"]
-
-
-def pick(projects: dict[str, dict], name: str | None, cwd: Path) -> str | None:
-    """The named project, else the one that holds `cwd`."""
-    return name if name else find_project(projects, cwd)
-
-
 def _yaml(path: str) -> dict:
     try:
         return yaml.safe_load(Path(path).read_text()) or {}
@@ -35,10 +25,7 @@ def _yaml(path: str) -> dict:
 
 
 def _base_queue(paths: Paths) -> str | None:
-    try:
-        return (yaml.safe_load(paths.base_out.read_text()) or {}).get("queue")
-    except (OSError, yaml.YAMLError):
-        return None
+    return _yaml(str(paths.base_out)).get("queue")
 
 
 def describe(paths: Paths, name: str, rec: dict, reach: bool) -> dict[str, Any]:
@@ -110,10 +97,10 @@ def _text(info: dict[str, Any]) -> list[str]:
 def status(paths: Paths, name: str | None, as_json: bool, cwd: Path) -> tuple[int, str]:
     """Return (exit code, output). Unreachable Dagu is not an error."""
     try:
-        projects = load(paths)
+        projects = paths.records()
     except (OSError, ValueError, KeyError) as exc:
         return 2, f"devman: cannot read {paths.compile_json}: {exc}"
-    name = pick(projects, name, cwd)
+    name = name or find_project(projects, cwd)
     if name is not None and name not in projects:
         return 2, f"devman: unknown project {name}"
     reach = paths.dagu_config is not None
@@ -132,10 +119,10 @@ def status(paths: Paths, name: str | None, as_json: bool, cwd: Path) -> tuple[in
 def show(paths: Paths, flow: str, name: str | None, cwd: Path) -> tuple[int, str]:
     """Return (exit code, output): the compiled path, the source path, the file."""
     try:
-        projects = load(paths)
+        projects = paths.records()
     except (OSError, ValueError, KeyError) as exc:
         return 2, f"devman: cannot read {paths.compile_json}: {exc}"
-    name = pick(projects, name, cwd)
+    name = name or find_project(projects, cwd)
     if name is None or name not in projects:
         return 2, f"devman: no project {name or os.fspath(cwd)}"
     info = projects[name]["workflows"].get(flow)

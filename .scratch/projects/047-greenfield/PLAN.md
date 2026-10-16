@@ -1752,19 +1752,19 @@ repository. The devman entry then needs only `exclude = [".scratch/**"]`.
 
 Core Python in `src/devman/`, counted by `wc -l`, comments included:
 
-| Module | Lines | Holds |
-|---|---|---|
-| `cli.py` | 170 | Typer app, one function per command, exit codes |
-| `paths.py` | 50 | `Paths` from the environment |
-| `manifest.py` | 180 | TOML load, rules 1 to 9, `matches` |
-| `render.py` | 110 | the header, source checks |
-| `compile.py` | 260 | resolve, validate, publish, record, lock |
-| `dagu.py` | 130 | `validate`, `enqueue`, `last_run`, `version`, config read |
-| `router.py` | 180 | find project, match, enqueue, record |
-| `watch.py` | 200 | watchexec, batching, restart |
-| `status.py` | 160 | `status`, `show`, `run` |
-| `doctor.py` | 160 | the eleven checks |
-| **Total** | **1,600** | concept target ~1,500 |
+| Module | Budget | As built | Holds |
+|---|---|---|---|
+| `cli.py` | 170 | 182 | Typer app, one function per command, exit codes |
+| `paths.py` | 50 | 78 | `Paths` from the environment |
+| `manifest.py` | 180 | 208 | TOML load, rules 1 to 9, `matches` |
+| `render.py` | 110 | 117 | the header, source checks |
+| `compile.py` | 260 | 329 | resolve, validate, publish, record, lock |
+| `dagu.py` | 130 | 90 | `validate`, `enqueue`, `last_run`, `version`, config read |
+| `router.py` | 180 | 191 | find project, match, enqueue, record |
+| `watch.py` | 200 | 251 | watchexec, batching, restart |
+| `status.py` | 160 | 135 | `status`, `show`, `run` |
+| `doctor.py` | 160 | 168 | the eleven checks |
+| **Total** | **1,600** | **1,749** (plus 6 in `__init__` and `__main__`) | concept target ~1,500 |
 
 Other files: `dagu/guard.sh` ~10, `nix/hm-module.nix` ~160, `nix/package.nix` ~70, `nix/dagu.nix`
 ~70, `flake.nix` ~120, `dagu/config.yaml` ~20; the overlay library ~60 (outside this repository). Tests ~1,200.

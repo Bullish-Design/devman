@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -45,13 +44,6 @@ def inotify_watches(pid: int) -> int:
     return total
 
 
-def _records(paths: Paths) -> dict[str, Any]:
-    try:
-        return json.loads(paths.compile_json.read_text())
-    except (OSError, ValueError):
-        return {}
-
-
 def check_api(paths: Paths) -> str | None:
     if paths.dagu_config is None:
         return "DEVMAN_DAGU_CONFIG is not set"
@@ -87,7 +79,7 @@ def check_budget(paths: Paths) -> str | None:
 
 
 def check_compile(paths: Paths) -> str | None:
-    doc = _records(paths)
+    doc = paths.compile_doc()
     if not doc:
         return f"no readable {paths.compile_json}; run devman compile"
     bad = [n for n, r in doc["projects"].items() if r["status"] != "ok"]
@@ -98,7 +90,7 @@ def check_compile(paths: Paths) -> str | None:
 def check_dags(paths: Paths) -> str | None:
     """Every compiled file exists with its hash, and no other file is in `dags/`."""
     expect: dict[Path, str] = {}
-    for rec in _records(paths).get("projects", {}).values():
+    for rec in paths.compile_doc().get("projects", {}).values():
         for info in rec["workflows"].values():
             expect[Path(info["file"])] = info["sha256"]
     problems = []
@@ -120,7 +112,7 @@ def check_checkouts(paths: Paths) -> str | None:
     """Every project path holds `.git` or `.jj`, so the guard passes."""
     gone = [
         n
-        for n, r in _records(paths).get("projects", {}).items()
+        for n, r in paths.compile_doc().get("projects", {}).items()
         if not any(os.path.exists(Path(r["path"]) / m) for m in (".git", ".jj"))
     ]
     return f"no .git or .jj in: {', '.join(gone)}" if gone else None

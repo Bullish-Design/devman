@@ -72,13 +72,9 @@ def seconds(text: str) -> float:
 
 def save_projects(paths: Paths) -> dict[str, dict]:
     """The `compile.json` records of the projects with a `save` entry."""
-    try:
-        records = json.loads(paths.compile_json.read_text())["projects"]
-    except (OSError, ValueError, KeyError):
-        return {}
     return {
         name: rec
-        for name, rec in records.items()
+        for name, rec in paths.compile_doc().get("projects", {}).items()
         if rec.get("path") and any(e.get("event") == "save" for e in rec.get("on", []))
     }
 
@@ -185,7 +181,7 @@ def _read(stream, lines: queue.Queue) -> None:
     lines.put(None)
 
 
-def _stop(proc: subprocess.Popen) -> int:
+def _stop(proc: subprocess.Popen) -> None:
     if proc.poll() is None:
         proc.terminate()
         try:
@@ -193,7 +189,6 @@ def _stop(proc: subprocess.Popen) -> int:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-    return proc.returncode
 
 
 def _serve(paths: Paths, debounce: str, wanted: Targets) -> int | None:

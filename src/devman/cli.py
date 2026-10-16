@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, NoReturn
 
 import typer
 
 from devman import __version__
 from devman.paths import Paths
+
+if TYPE_CHECKING:
+    from devman.router import Outcome
+
+ProjectOption = Annotated[
+    str | None, typer.Option("--project", help="Default: from the directory.")
+]
+Fields = Annotated[
+    list[str] | None, typer.Argument(help="Extra KEY=VALUE fields passed to the run.")
+]
 
 app = typer.Typer(
     name="devman",
@@ -39,6 +49,12 @@ def root(
     """Compile, route and show Dagu workflows across repositories."""
 
 
+def _finish(outcome: Outcome) -> NoReturn:
+    for line in outcome.lines:
+        typer.echo(line, err=outcome.code == 2)
+    raise typer.Exit(outcome.code)
+
+
 @app.command("compile")
 def compile_cmd(
     projects: Annotated[
@@ -59,13 +75,8 @@ def compile_cmd(
 @app.command("emit")
 def emit_cmd(
     event: Annotated[str, typer.Argument(help="Event name, such as save or land.")],
-    fields: Annotated[
-        list[str] | None,
-        typer.Argument(help="Extra KEY=VALUE fields passed to the run."),
-    ] = None,
-    project: Annotated[
-        str | None, typer.Option("--project", help="Default: from the directory.")
-    ] = None,
+    fields: Fields = None,
+    project: ProjectOption = None,
     subject: Annotated[
         list[str] | None,
         typer.Option("--subject", help="A path or ref name. Repeat for many."),
@@ -86,9 +97,7 @@ def emit_cmd(
         Paths.from_env(),
         router.Event(event, project, tuple(subject or ()), source, parsed),
     )
-    for line in outcome.lines:
-        typer.echo(line, err=outcome.code == 2)
-    raise typer.Exit(outcome.code)
+    _finish(outcome)
 
 
 @app.command("watch")
@@ -111,12 +120,8 @@ def watch_cmd(
 @app.command("run")
 def run_cmd(
     workflow: Annotated[str, typer.Argument(help="Workflow name, such as check.")],
-    fields: Annotated[
-        list[str] | None, typer.Argument(help="Extra KEY=VALUE fields.")
-    ] = None,
-    project: Annotated[
-        str | None, typer.Option("--project", help="Default: from the directory.")
-    ] = None,
+    fields: Fields = None,
+    project: ProjectOption = None,
 ) -> None:
     """Run one workflow now. This is a manual event with an implicit match."""
     from devman import router
@@ -131,9 +136,7 @@ def run_cmd(
     )
     if outcome.record["stale"]:
         typer.echo("devman: warning: the project is stale; the old file runs", err=True)
-    for line in outcome.lines:
-        typer.echo(line, err=outcome.code == 2)
-    raise typer.Exit(outcome.code)
+    _finish(outcome)
 
 
 @app.command("status")
@@ -154,9 +157,7 @@ def status_cmd(
 @app.command("show")
 def show_cmd(
     workflow: Annotated[str, typer.Argument(help="Workflow name.")],
-    project: Annotated[
-        str | None, typer.Option("--project", help="Default: from the directory.")
-    ] = None,
+    project: ProjectOption = None,
 ) -> None:
     """Print the compiled file of a workflow, with its source path."""
     from devman import status
