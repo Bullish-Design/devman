@@ -37,6 +37,7 @@ DAGU_HOME=<root>/home /tmp/dagu-dl.XXXX/x/dagu --config <root>/config.yaml <star
 4. **M4.** Both projects load as `<project>.<name>`. A symlink outside `dags_dir` changes nothing. Two files with one base name make Dagu list neither, report an error and exclude both from the scheduler. `group:` and `labels:` work, but Dagu lowercases label values. New finding: `dagu start` and `dagu enqueue` do not find a DAG in a subdirectory by name. They need the file path.
 5. **M5.** One watchexec over the 33 directories sets 90 461 inotify watches (17% of the limit 524 288). Start-up takes about 14 s at one full core. Then it uses 75 MB and about 0.5 s of CPU per idle minute.
 6. **M6.** Yes. `dagu enqueue <dag> -- KEY=value` passes the parameter. A step reads `${KEY}` or `$KEY`, even when the DAG does not declare it. `--name`, `--labels`, `--queue` and `--run-id` work. `--default-working-dir` has no effect on `enqueue`. Two quick enqueues of one DAG are both kept and run one after the other.
+7. **M7.** Yes. A running Dagu rereads a changed `base.yaml` for the next run (scheduled, REST or CLI), after an in-place edit or a rename. No restart.
 
 ---
 
@@ -418,6 +419,35 @@ To let the same DAG run in parallel, define a queue with `max_concurrency: N` in
 
 ---
 
+## M7. Does a running Dagu reread a changed `base.yaml`?
+
+Date: 2026-10-15. Dagu 2.20.1 (`nix build .#dagu`). Added in Stage 3 (Q7 open point).
+
+**Answer.** Yes. A running `dagu start-all` applies a changed `base_config` file to the next run without a restart. This held for a scheduled run, for a REST enqueue and for a CLI enqueue. It held for an in-place edit (`sed -i`) and for a replacement by rename (`mv`), which is how compile writes the file. So compile restarts nothing, and `devman doctor` needs no "restart needed" finding for `base.yaml`.
+
+**Setup.** A temporary root (`mktemp -d`), its own `DAGU_HOME`, config and ports 18100 and 51100. `base_config` held `queue: light` and `env: [MARK: one]`. Two DAGs under `dags/p/`: `p.sched` (`schedule: "* * * * *"`) and `p.api` (no schedule). Each step appended `<name> MARK=$MARK <time>` to a file. Command: `dagu --config <root>/config.yaml start-all`, in the background.
+
+**Evidence** (the output file, in order; the server never restarted):
+
+```
+sched MARK=one   22:15:49    start-up catch-up run
+api   MARK=one   22:15:58    REST enqueue, before the change
+sched MARK=one   22:16:01
+                             22:16:02  base.yaml edited in place: MARK one -> two
+api   MARK=two   22:16:04    REST enqueue, 2 s after the edit
+api   MARK=two   22:16:10    CLI `dagu enqueue <file>`
+sched MARK=two   22:17:00    the next scheduled tick
+                             22:17:34  base.yaml replaced by `mv`: MARK two -> three
+sched MARK=three 22:18:00    the next scheduled tick
+api   MARK=three 22:18:24    REST enqueue
+```
+
+**What it means.** Dagu loads `base_config` at the start of each run, not at server start. The scheduler holds the DAG list in memory, but it does not hold the base. Stage 3 therefore writes `<state>/base.yaml` and does nothing else. Edge not measured: a run already in flight when the file changes keeps the base it started with (it read the file once).
+
+**Processes.** I killed the server after the test and checked `ps` and `ss`: nothing left on 18100 or 51100. I deleted the temporary root.
+
+---
+
 ## Summary
 
 | # | Measurement | Answer | Concept change needed |
@@ -428,5 +458,6 @@ To let the same DAG run in parallel, define a queue with `max_concurrency: N` in
 | M4 | Subdirectory discovery, symlink, duplicates, `group`, `labels` | `<project>.<name>` loads. External symlink changes nothing. Duplicate base name hides both and excludes both from the scheduler. `group` and `labels` work (lowercased). CLI cannot start a subdirectory DAG by name | Yes: §7 router passes the file path (or uses the REST API) |
 | M5 | One watchexec over 33 directories | 90 461 watches of 524 288. About 14 s and 15 s CPU at start. 75 MB. About 0.5 s CPU per idle minute. One touch gave one event | Small: §7/§10 note start cost, restart only on path change |
 | M6 | `dagu enqueue` parameters | `-- KEY=value` works, read as `${KEY}`. `--name`, `--labels`, `--queue`, `--run-id` work. `--default-working-dir` is ignored by `enqueue`. Quick double enqueue keeps both, run serially | Yes: §7 records `--labels`/`--run-id` use, no `--name`, declared `params:` |
+| M7 | A running Dagu and a changed `base.yaml` | The next run uses the new file: scheduled, REST and CLI runs, after an in-place edit and after a rename | Small: compile only writes `<state>/base.yaml`. No restart and no doctor finding |
 
 Report path: `/home/andrew/Documents/Projects/devman/.scratch/projects/047-greenfield/MEASUREMENTS.md`

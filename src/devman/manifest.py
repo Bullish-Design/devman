@@ -51,16 +51,20 @@ def matches(on: OnEntry, subject: str) -> bool:
     )
 
 
+def workflow_name_error(name: Any) -> str | None:
+    """The reason a workflow name is refused (rule 4), or None."""
+    if isinstance(name, str) and WORKFLOW_RE.match(name):
+        return None
+    if isinstance(name, str) and "." in name:
+        return f"workflow name {name} must not contain a dot"
+    return f"workflow name {name} does not match [A-Za-z0-9][A-Za-z0-9_-]*"
+
+
 def _workflow_name(name: Any, reasons: list[str]) -> bool:
-    if not isinstance(name, str) or not WORKFLOW_RE.match(name):
-        if isinstance(name, str) and "." in name:
-            reasons.append(f"workflow name {name} must not contain a dot")
-        else:
-            reasons.append(
-                f"workflow name {name} does not match [A-Za-z0-9][A-Za-z0-9_-]*"
-            )
-        return False
-    return True
+    error = workflow_name_error(name)
+    if error:
+        reasons.append(error)
+    return error is None
 
 
 def _globs(value: Any, *, single: bool) -> tuple[str, ...] | None:

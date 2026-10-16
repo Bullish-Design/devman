@@ -360,8 +360,9 @@ Measure each one before the code depends on it:
 | M4 | Does recursive discovery accept `dags/<project>/` subdirectories when linkman links one of them into a repository? | §3.2, §6 |
 | M5 | How much does one `watchexec` cost over 33 repositories? | §7 `save` |
 | M6 | Does `dagu enqueue` take parameters and a run name, so the router can pass event fields? | §7 |
+| M7 | Does a running Dagu reread a changed `base.yaml` without a restart? Yes: the next run uses it. | §5 (compile writes `base.yaml`, restarts nothing) |
 
-All six are measured on 2.20.1. The answers are in `MEASUREMENTS.md`, and
+All seven are measured on 2.20.1. The answers are in `MEASUREMENTS.md`, and
 `PLAN.md` §B folds them into the sections above.
 
 ## 14. Open questions for the owner

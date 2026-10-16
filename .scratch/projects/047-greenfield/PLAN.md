@@ -52,9 +52,10 @@ library/
   `@guard@`, `@devman@` and `@stateDir@`. `devman compile` fills them from the
   environment (`DEVMAN_BASH`, `DEVMAN_GUARD`, `DEVMAN_BIN`, `DEVMAN_STATE`) and
   writes `<state>/base.yaml`. `config.yaml` sets `paths.base_config` to that
-  file. The Home Manager wrapper sets the variables. Stage 3 measures whether a
-  running Dagu reads a changed `base.yaml` without a restart. If it does not,
-  compile restarts nothing and `devman doctor` reports the gap (Stage 6).
+  file. The Home Manager wrapper sets the variables. A running Dagu reads a
+  changed `base.yaml` for its next run without a restart (M7, measured in
+  Stage 3). So compile restarts nothing, and `devman doctor` needs no finding
+  for it.
 - `devman doctor` checks that every `action:` a library workflow names exists
   in `base.yaml`.
 - `DEVMAN_LIBRARY` stays as a test override. When set, it replaces
@@ -537,8 +538,8 @@ a broken project without touching its files, and record the result.
    watcher and a person may compile at the same time.
    **Base.** Fill the four tokens of `<library>/base.yaml` and write the result
    to `<state>/base.yaml` when it differs. Refuse the whole run (exit 1) when
-   the file is missing or a token has no value. Measure whether a running Dagu
-   reads the changed file without a restart; record the answer in `MEASUREMENTS.md`.
+   the file is missing or a token has no value. M7: a running Dagu rereads the
+   file for its next run, so nothing restarts.
 2. **Parse** the manifest (Stage 2). A project with parse errors is refused.
 3. **Resolve.** The workflow set is the union of every `*.yaml` stem in
    `<overlay>/workflows/<project>/` and every name in `take`. For each name, the
@@ -618,6 +619,55 @@ label values. Two files with one base name hide both and drop both from the
 scheduler. The `<project>.<name>` stem and rule 4 (§A.1) prevent that by
 construction. Keep the layout of CONCEPT §3.2 unchanged. Never put a link inside
 `dags_dir`.
+
+**Depends on M7 (answered: yes).** A running `dagu start-all` applies a changed
+`base_config` file to the next run: scheduled, REST-enqueued and CLI-enqueued
+runs all did, after an in-place edit and after a rename. Compile therefore
+writes `<state>/base.yaml` with `os.replace` and restarts nothing. Doctor needs
+no "restart needed" finding for it.
+
+**As built (2026-10-15).** Each item changes or fills in the plan above.
+
+- **Signatures.** `render.check_source(text, queues, label)` takes the queue list
+  and the label that prefixes each reason. `render.render(project, workflow,
+  project_path, log_dir, origin, source_path, source_text)` takes the facts it
+  writes, so it reads neither `Paths` nor the disk. `dagu.validate(config, file)`
+  takes the config path, because only `Paths` reads the environment.
+  `dagu.configured_queues(config)` reads the queue names.
+  `compile.compile(paths, names, validate_all)` returns the exit code.
+- **Exit codes.** `2` for no `DEVMAN_DAGU_CONFIG` and for an unknown project
+  argument. `1` for everything refused, including the whole-run refusals.
+- **Whole-run refusals** (printed as `devman: compile refused library: …`, no
+  project touched, no `compile.json` written): a missing or unreadable
+  `library/base.yaml`, a token with no value (`@guard@ has no value; set
+  DEVMAN_GUARD`), an unknown token, and a `base.yaml` that is not a YAML mapping.
+  A token inside a comment needs no value. A bad `base.yaml` is live the moment
+  it is written (M7), so compile parses it before it writes. Compile does not
+  run `dagu validate` on the base itself; the next step does: a base change
+  forces validation of every file (`validate_all`).
+- **A broken `projects.toml`** (file-level error) refuses with
+  `compile refused projects.toml: …`, and a full compile then removes no
+  project, because the file proves nothing about who left.
+- **Orphans** are refused only in a full compile. A partial compile keeps the
+  previous `orphans` list.
+- **A project refused at parse time** has no `Project`, so its record keeps the
+  previous `path`, `on` and `workflows` (stale) or none (first compile).
+- **No-op compile.** A record that differs from the previous one only in `at`
+  keeps the old record, and `compile.json` is rewritten only when something
+  other than `compiled_at` changed. So a second compile writes no file at all.
+- **Reason texts** the plan leaves open: `path <p> is not a directory`,
+  `on entry runs <w>, which is not a workflow of this project`,
+  `workflows/<project>/<file>.yaml: workflow name … must not contain a dot`,
+  `<project>/<workflow>: top-level env|log_dir|shell is set by devman; <advice>`,
+  `<project>/<workflow>: handler_on.exit is set by devman; use handler_on.success
+  or handler_on.failure`, `<project>.<workflow>: <dagu validate error>`.
+- **`dagu validate` needs `skip_examples: true`** in the config it reads. Without
+  it, Dagu writes example DAGs into `dags_dir` on first use. The test config sets
+  it, as the real one does.
+- **Size.** `compile.py` has 341 lines against a budget of 260 (+31%). It holds
+  the base fill, the token rules, the orphan and removed-project handling and the
+  no-op rule. No Dagu feature does any of these, so the module stays whole.
+  Stage 4 onward keeps the 30% rule.
 
 **Interfaces fixed:** §A.2, §A.3, the compile exit codes.
 
