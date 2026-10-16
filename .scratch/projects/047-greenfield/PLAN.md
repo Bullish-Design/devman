@@ -1325,6 +1325,25 @@ Rewrite them in an overlay commit in the same stage:
 
 **Verify:** the common verify command; read each document once against §A.
 
+**As built (2026-10-16).** Each item changes or fills in the plan above.
+
+- **Files.** `README.md` (175 lines), `USER.md`, `AGENTS_GUIDE.md` and `AGENTS.md`
+  describe the new design only. `AGENTS.md` keeps the charter pointer, the verify
+  commands, the version-control rules and the writing rule. It drops the tier
+  table and the properties of the old design.
+- **The skills** are real directories in the overlay, not links:
+  `~/.config/devman/projects/devman/agents/skills/{devman,devman-workflow,devman-adopt}/SKILL.md`.
+  One overlay commit rewrites all three.
+- **The overlay `library/README.md`** had its content in Stage 7 and Stage 8.
+  Stage 9 changes nothing there.
+- **Deferred to Stage 10.** The view links. `projects/devman/links.yaml` still
+  links `.devman/workflows` to the old `projects/devman/workflows/`, and that
+  directory still holds the old overlay README. `devman-adopt` step 5 says the
+  new links arrive with the cutover. The skills name no `devman` repository file
+  that Stage 10 removes.
+- **No change to `src/devman/`.** Verify ran `base:check`, `base:unit`,
+  `base:e2e`, `base:test` and `nix build .#devman`.
+
 ---
 
 ## Stage 10 — the cutover
