@@ -70,11 +70,16 @@ devenv tasks run -v base:unit    # pytest
 devenv tasks run -v base:e2e     # pytest against a real Dagu on loopback ports
 devenv tasks run -v base:test    # nix flake check
 nix build .#devman
+devman doctor                    # the plane's own health; must exit 0
 ```
 
 All must pass. In a gitman workspace, run `git add -A` first: Nix ignores
 untracked files. Never run `systemctl`, `home-manager` or a rebuild from a
-stage. The live machine changes only at the cutover (Stage 10).
+stage. The cutover (Stage 10) is done. `devman doctor` checks the live plane,
+so run it by its absolute path when a stale venv `devman` is first on PATH.
+
+**Machine evidence, 2026-10-16:** 33 projects, 72 compiled DAG files, Dagu
+2.20.1, devman 0.9.0. Read the counts as evidence, not as architecture.
 
 ## Version control
 

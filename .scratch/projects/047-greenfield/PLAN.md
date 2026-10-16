@@ -1348,6 +1348,8 @@ Rewrite them in an overlay commit in the same stage:
 
 ## Stage 10 — the cutover
 
+**Status: done, 2026-10-16.** See `CUTOVER_LOG.md`.
+
 **Goal:** switch the machine to the new plane, remove every trace of the old
 one, and prove one run per event source.
 
