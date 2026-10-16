@@ -1,6 +1,7 @@
 # 047 — implementation plan
 
-**Status:** draft for the owner, 2026-10-15. The charter is
+**Status:** draft for the owner, 2026-10-15. The owner decided Q1 to Q10 the
+same day (§E). Q7 moved the library into the central overlay. The charter is
 [`CONCEPT.md`](CONCEPT.md). Every stage below names the concept section it
 implements. Evidence: [`SPIKES.md`](SPIKES.md), [`DAGU_RELEASES.md`](DAGU_RELEASES.md)
 and [`MEASUREMENTS.md`](MEASUREMENTS.md) (M1 to M6 on Dagu 2.20.1, all answered).
@@ -31,6 +32,36 @@ devenv tasks run -v base:test    # nix flake check
 
   `devman doctor` is not part of verify until Stage 10, because the new doctor
   arrives in Stage 6 and the new plane runs only after the cutover.
+
+## Where the library lives (decision Q7, 2026-10-15)
+
+The library is **overlay content**, not package content. The package ships the
+mechanism only: compiler, router, watcher, CLI, `dagu/config.yaml` and
+`dagu/guard.sh`. Layout, under the overlay (`~/.config/devman`):
+
+```
+library/
+  base.yaml            shared defaults, actions and handlers (a template, see below)
+  workflows/<name>.yaml   shared workflows a project can take
+  README.md            what each library file does
+```
+
+- An edit to the library is live. The watcher sees the change and recompiles.
+  No Home Manager switch and no devman release is needed.
+- `base.yaml` holds four tokens that only the machine knows: `@bash@`,
+  `@guard@`, `@devman@` and `@stateDir@`. `devman compile` fills them from the
+  environment (`DEVMAN_BASH`, `DEVMAN_GUARD`, `DEVMAN_BIN`, `DEVMAN_STATE`) and
+  writes `<state>/base.yaml`. `config.yaml` sets `paths.base_config` to that
+  file. The Home Manager wrapper sets the variables. Stage 3 measures whether a
+  running Dagu reads a changed `base.yaml` without a restart. If it does not,
+  compile restarts nothing and `devman doctor` reports the gap (Stage 6).
+- `devman doctor` checks that every `action:` a library workflow names exists
+  in `base.yaml`.
+- `DEVMAN_LIBRARY` stays as a test override. When set, it replaces
+  `<overlay>/library`.
+- The repository keeps a seed copy of the library under
+  `tests/fixtures/library/`. Tests and `checks.library-validate` use it. Stage 7
+  writes the live copy into the overlay in one overlay commit.
 
 ## Stage list
 
@@ -70,7 +101,7 @@ passes `nix flake check` with nothing but `devman --version`.
 | `nix/link-adapter.nix` | linkman's job |
 | `nix/tests/` | tests of the registry and the NixOS service |
 | `modules/link.nix` | the old repository link module |
-| `groups/` (all) | groups, policies, `writes.toml` (§12). Workflow content moves to `library/` in Stage 7 |
+| `groups/` (all) | groups, policies, `writes.toml` (§12). Workflow content moves to the overlay `library/` in Stage 7 |
 | `packaging/` | the `devman-link` package |
 | `tools/cutover/` | an old migration tool (R12) |
 | `tests/` (all) | tests of deleted code. Stage 0 writes a new `tests/` |
@@ -114,8 +145,7 @@ devman/
     __init__.py              __version__ = "0.9.0"
     __main__.py              from devman.cli import main; raise SystemExit(main())
     cli.py                   argparse; only --version in Stage 0
-  library/                   empty until Stage 7 (keep a .gitkeep)
-  dagu/                      config.yaml and base.yaml arrive in Stage 1
+  dagu/                      config.yaml arrives in Stage 1, guard.sh in Stage 7 (.gitkeep)
   nix/
     dagu.nix
     package.nix              the CLI package
@@ -190,7 +220,7 @@ No `[project.optional-dependencies]`, no `tool.uv.sources`, no `linkman`.
 | `overlays.default` | adds `dagu` and `devman` to a package set |
 | `checks.<system>.python-tests` | pytest over `src/` and `tests/`, with Dagu and watchexec on `PATH`, `-m "not e2e"` |
 | `checks.<system>.e2e` | pytest `-m e2e` (Stage 4). Drop it from `checks` if the Nix sandbox refuses loopback ports, and keep it in `base:e2e` |
-| `checks.<system>.library-validate` | renders and validates every library file (Stage 7) |
+| `checks.<system>.library-validate` | renders and validates every file in `tests/fixtures/library/` (Stage 7). The live library sits in the overlay, outside the flake |
 | `checks.<system>.hm-module` | evaluates the Home Manager module (Stage 1) |
 
 Inputs: `nixpkgs` and `home-manager` (for `checks.hm-module` only, with
@@ -198,10 +228,10 @@ Inputs: `nixpkgs` and `home-manager` (for `checks.hm-module` only, with
 `pyproject-nix` and `pyproject-build-systems` inputs.
 
 **`nix/package.nix`:** `python313Packages.buildPythonApplication`, build system
-hatchling, dependency pyyaml. It installs `library/` and `dagu/` to
-`$out/share/devman/`. `postFixup` wraps `bin/devman` with
-`--prefix PATH : dagu watchexec` and `--set-default DEVMAN_LIBRARY
-$out/share/devman/library`. Install check: `devman --version`.
+hatchling, dependency pyyaml. It installs `dagu/` to
+`$out/share/devman/`. It does not install a library (decision Q7). `postFixup`
+wraps `bin/devman` with `--prefix PATH : dagu watchexec`. Install check:
+`devman --version`.
 
 **`devenv.yaml`:** keep `nixpkgs`, `nixpkgs-python` and `codex-cli`. Delete
 `mancore`, `pyproject-nix`, `uv2nix` and `pyproject-build-systems`. Delete
@@ -255,8 +285,10 @@ CLI, the Dagu user service and the watcher user service with a generated
   `0d5c1612cd842931fe6d4e598fc2e43fb912a94122e571c62a8f73691ea49837`. Keep the install check `dagu version`. Update the header
   comment: the Go-version reason may no longer hold; record what does.
 - `dagu/config.yaml`: a template. `pkgs.replaceVars` fills `@name@` tokens.
-- `dagu/base.yaml`: a template. Stage 1 holds the defaults only. Stage 7 adds
-  the handlers and the actions.
+- `base.yaml` is **not** in this repository. It lives in the overlay at
+  `library/base.yaml` (decision Q7). Stage 1 writes a seed copy with the
+  defaults only, at `tests/fixtures/library/base.yaml`. Stage 7 adds the
+  handlers and the actions.
 - `nix/hm-module.nix`: the module.
 - `flake.nix`: `homeManagerModules.default`, `checks.hm-module`.
 
@@ -283,13 +315,16 @@ queues:
 stray link. `data_dir` and the log paths keep Dagu's defaults under
 `DAGU_HOME`. Since 2.17.2 the DAG index lives under `data_dir`.
 
-### `dagu/base.yaml` (Stage 1 part)
+### `library/base.yaml` (Stage 1 part; the overlay holds the live copy)
 
 ```yaml
 queue: light
 shell: "@bash@"               # Dagu reads $SHELL from the enqueuing process otherwise
-hist_retention_days: @histRetentionDays@
+hist_retention_days: 7
 ```
+
+The retention value is plain content now. The module has no
+`histRetentionDays` option.
 
 ### Module options: `services.devman`
 
@@ -303,7 +338,6 @@ hist_retention_days: @histRetentionDays@
 | `coordinatorPort` | port | `50055` |
 | `queues` | attrsOf positive int | `{ light = 4; normal = 2; heavy = 1; gpu = 1; exclusive = 1; llm = 2; }` |
 | `defaultQueue` | str | `"light"` |
-| `histRetentionDays` | positive int | `7` |
 | `overlayDir` | str | `"${config.home.homeDirectory}/.config/devman"` |
 | `stateDir` | str | `"${config.home.homeDirectory}/.local/state/devman"` |
 | `daguHome` | str | `"${config.home.homeDirectory}/.local/share/dagu"` |
@@ -321,17 +355,19 @@ hist_retention_days: @histRetentionDays@
 
 **What the module writes:**
 
-- The filled `config.yaml` and `base.yaml` in the store. `base.yaml` tokens:
-  `@bash@`, `@histRetentionDays@`, and from Stage 7 `@guard@`, `@devman@`
-  (the wrapped CLI) and `@stateDir@`.
+- The filled `config.yaml` in the store. Its `paths.base_config` is
+  `<stateDir>/base.yaml`, which `devman compile` writes from the overlay
+  `library/base.yaml` (decision Q7). The module does not generate `base.yaml`.
 - `home.packages = [ wrappedDevman cfg.dagu.package ]`. `wrappedDevman` is the
   package wrapped with `--set DEVMAN_OVERLAY`, `DEVMAN_STATE`, `DAGU_HOME`,
-  `DEVMAN_DAGU_CONFIG` (the store path of the filled `config.yaml`) and
-  `DEVMAN_DAGU_VERSION` (`cfg.dagu.package.version`).
+  `DEVMAN_DAGU_CONFIG` (the store path of the filled `config.yaml`),
+  `DEVMAN_DAGU_VERSION` (`cfg.dagu.package.version`), `DEVMAN_BASH`,
+  `DEVMAN_GUARD` (the store path of `guard.sh`, filled by `pkgs.replaceVars`)
+  and `DEVMAN_BIN` (the wrapped CLI).
 - `systemd.user.services.devman-dagu`: `ExecStart = dagu start-all --config
   <config.yaml>`, `Environment = DAGU_HOME=…`, `PATH` from `servicePath` plus
   `wrappedDevman`, `UnsetEnvironment = SHELL`, `Restart = on-failure`,
-  `X-Restart-Triggers` on both generated files, `WantedBy = default.target`.
+  `X-Restart-Triggers` on the filled `config.yaml`, `WantedBy = default.target`.
 - `systemd.user.services.devman-watch`: `ExecStart = devman watch --debounce
   <watch.debounce>`, `After = devman-dagu.service`, `Restart = on-failure`,
   `X-Restart-Triggers` on the package. Only when `watch.enable`.
@@ -349,7 +385,7 @@ NixOS module owned `dagu.service`, `devman-watch.service` and
   `services.devman.enable = true`. Assert both unit files exist and that the
   filled `config.yaml` has no `@` token left.
 - The same check runs `dagu validate` on an empty DAG under the filled
-  `config.yaml` and `base.yaml`, with a temporary `DAGU_HOME`.
+  `config.yaml` and the seed `base.yaml`, with a temporary `DAGU_HOME`.
 - Negative evaluations: `host = "0.0.0.0"` and `defaultQueue = "typo"` each fail
   with their assertion text.
 - `nix build .#dagu && ./result/bin/dagu version` prints `2.20.1`.
@@ -361,7 +397,7 @@ NixOS module owned `dagu.service`, `devman-watch.service` and
 the queue and runs at once with no limit. A DAG with no `queue:` uses its own
 name as a queue of concurrency 1. So `base.yaml` sets `queue: light` for every
 DAG, and Stage 3 refuses an undefined `queue:` (B6). Record the M1 answer in
-`dagu/base.yaml` as a comment beside `queue:`.
+`library/base.yaml` (overlay and seed) as a comment beside `queue:`.
 
 **Interfaces fixed:** the option names, the unit names, the six queue names,
 the environment variables in §A.6.
@@ -378,8 +414,9 @@ against the project it belongs to.
 ### Files
 
 - `src/devman/paths.py`: one frozen dataclass `Paths` built from the
-  environment (§A.6): `overlay`, `state`, `library`, `dags`, `runs`,
-  `events`, `compile_json`, `lock`, `dagu_config`. No other module reads the
+  environment (§A.6): `overlay`, `state`, `library` (default `<overlay>/library`),
+  `base_src` (`<library>/base.yaml`), `base_out` (`<state>/base.yaml`),
+  `dags`, `runs`, `events`, `compile_json`, `lock`, `dagu_config`. No other module reads the
   environment.
 - `src/devman/manifest.py`: `load(path) -> Manifest`.
 - `tests/test_manifest.py`, `tests/fixtures/manifests/*.toml`.
@@ -444,7 +481,8 @@ a broken project without touching its files, and record the result.
   str`, and `check_source(text) -> list[str]` (the reasons a source is refused).
 - `src/devman/dagu.py`: `validate(path) -> str | None` (the error text or
   `None`). Stage 4 and Stage 6 add more calls here.
-- `src/devman/compile.py`: `compile(paths, names: list[str] | None) -> int`.
+- `src/devman/compile.py`: `compile(paths, names: list[str] | None) -> int`. It
+  also fills and writes `base.yaml` (step 1).
 - `cli.py`: `devman compile [project…]`.
 - `tests/test_render.py`, `tests/test_compile.py`.
 
@@ -452,11 +490,15 @@ a broken project without touching its files, and record the result.
 
 1. **Lock.** Take `fcntl.flock` on `<state>/compile.lock` for the whole run. The
    watcher and a person may compile at the same time.
+   **Base.** Fill the four tokens of `<library>/base.yaml` and write the result
+   to `<state>/base.yaml` when it differs. Refuse the whole run (exit 1) when
+   the file is missing or a token has no value. Measure whether a running Dagu
+   reads the changed file without a restart; record the answer in `MEASUREMENTS.md`.
 2. **Parse** the manifest (Stage 2). A project with parse errors is refused.
 3. **Resolve.** The workflow set is the union of every `*.yaml` stem in
    `<overlay>/workflows/<project>/` and every name in `take`. For each name, the
    source is `<overlay>/workflows/<project>/<name>.yaml` if it exists, else
-   `<library>/<name>.yaml`. A `take` name with neither file, or an `on.run` name
+   `<library>/workflows/<name>.yaml`. A `take` name with neither file, or an `on.run` name
    outside the set, refuses the project. Files that do not end in `.yaml` are
    ignored (a `README.md` may sit there).
 4. **Check** each source (§A.2): a mapping as the first document, no
@@ -654,13 +696,13 @@ recompiles when a source changes.
 
 ### Behaviour
 
-1. **Start:** run a full compile. This picks up a new library after a Home
-   Manager switch, because the switch restarts the service.
+1. **Start:** run a full compile. This picks up library edits made while the
+   watcher was down.
 2. **Build the watch set** from `compile.json`:
    - every project that has at least one `on` entry with `event = "save"`
      (today: one project, devman);
-   - `<overlay>/projects.toml` and `<overlay>/workflows/`;
-   - `<library>`, only when it is not under `/nix/store`.
+   - `<overlay>/projects.toml`, `<overlay>/workflows/` and `<overlay>/library/`
+     (always; the library is overlay content, so an edit is live).
 3. **Start one watchexec** with `--only-emit-events --emit-events-to=json-stdio`,
    `--project-origin=<state>` (without it watchexec walked a common parent at
    99% of a core, old Stage 3 S5), `--debounce <debounce>`, one `--watch` per
@@ -741,6 +783,11 @@ A manual event: `router.emit(event="manual", subjects=[workflow], implicit=True)
 (exit 2) when the project has no such workflow in `compile.json`. When the
 project is stale, print a warning to stderr and run the old file.
 
+**Doctor and the library (decision Q7).** Add a check: every `action:` named in
+`<library>/workflows/*.yaml` exists as a key under `actions:` in
+`<library>/base.yaml`. A missing action fails the check and names the file and
+the action. The count of doctor checks rises by one.
+
 ### `devman status [project] [--json]`
 
 Default project: found from the current directory. With no project and no
@@ -792,25 +839,25 @@ differs, adapt `last_run` and nothing else.
 ## Stage 7 — the library and the `base.yaml` actions
 
 **Goal:** the shared workflows and the shared actions that every project can
-take, and the `done`/`failed` event source.
+take, and the `done`/`failed` event source. The library is overlay content
+(decision Q7); this repository ships the guard and a seed copy for tests.
 
 **Concept:** R6, R7, §7 (`done`, `failed`), §8. **Depends on M1, M2 and M3.**
 
 ### Files
 
-- `dagu/base.yaml`: add `handler_on` and `actions`, and point `shell` at the
-  checkout guard.
-- `dagu/guard.sh`: the checkout guard (§A.8). `nix/hm-module.nix` installs it
-  with `pkgs.replaceVars` (fills `@bash@`) and puts its store path in
-  `base.yaml`.
-- `library/check.yaml`, `library/test.yaml`, `library/format.yaml`,
-  `library/release.yaml`.
-- `library/README.md`: what each library workflow does and what it asks of a
-  repository (the task names). This is the content README, by the
-  library-versus-content rule in AGENTS.md.
-- `flake.nix`: `checks.library-validate`.
+- `dagu/guard.sh` (this repository): the checkout guard (§A.8). It is
+  mechanism. `nix/hm-module.nix` installs it with `pkgs.replaceVars` (fills
+  `@bash@`) and sets `DEVMAN_GUARD` to its store path.
+- In the overlay, one commit: `library/base.yaml` (add `handler_on` and
+  `actions`, and point `shell` at `@guard@`), `library/workflows/check.yaml`,
+  `test.yaml`, `format.yaml`, `release.yaml`, and `library/README.md` (what each
+  file does and what it asks of a repository; the content README).
+- In this repository: the same files under `tests/fixtures/library/` as the
+  seed, and `flake.nix` `checks.library-validate`.
+- `devman doctor` already checks the action names (Stage 6).
 
-### `dagu/base.yaml` additions
+### `library/base.yaml` additions
 
 ```yaml
 shell: "@guard@"            # replaces "@bash@" from Stage 1; §A.8
@@ -889,8 +936,11 @@ No library file has a `schedule:`. Fleet upkeep is one overlay workflow (Stage 1
 
 ### Tests
 
-- `checks.library-validate`: render each library file for a fixture project and
-  run `dagu validate` with the filled `config.yaml` and `base.yaml`.
+- `checks.library-validate`: render each file in `tests/fixtures/library/` for a
+  fixture project and run `dagu validate` with the filled `config.yaml` and the
+  compiled `base.yaml`.
+- A test edits a file in a temporary overlay `library/workflows/` while the
+  watcher runs and sees a recompile (the live-edit property of Q7).
 - e2e: a fixture project (made with `git init`, so the guard passes) with a
   `devenv`-free stand-in for `devenv tasks run` (a script named `devenv` first
   on `PATH` that exits with a set code). A
@@ -919,7 +969,7 @@ guard in §A.8 is the result.
 **Depends on M1:** see Stage 1.
 
 **Interfaces fixed:** the action name `devman.task` and its input, the library
-names, the `done`/`failed` subject.
+names, the library layout in the overlay, the `done`/`failed` subject.
 
 ---
 
@@ -932,8 +982,9 @@ test, with no devman code.
 
 ### Files
 
-- `library/examples/agent-task.yaml`: not a library workflow (compile reads only
-  `library/*.yaml`, so `examples/` is never taken). An owner copies it into
+- `library/examples/agent-task.yaml` in the overlay (and a copy under
+  `tests/fixtures/library/examples/`): not a library workflow (compile reads
+  only `library/workflows/*.yaml`, so `examples/` is never taken). An owner copies it into
   `workflows/<project>/`. Steps: `git.worktree.add` on a new branch with a fixed
   `path` under `.worktrees/`; `harness.run` with `provider`, `model`,
   `max-budget-usd` and `permission-mode`, with an explicit `working_dir` (the
@@ -968,7 +1019,7 @@ test, with no devman code.
 | `USER.md` | the developer view: read `.devman/workflows`, read `.devman/runs`, `devman status`, `devman run`, add a workflow, take a library workflow, add an event source |
 | `AGENTS_GUIDE.md` | the map: modules and their budget, the data flow (manifest → compile → `dags/` → Dagu; event → router → `dagu enqueue`), the interfaces in §A, how to test, how to diagnose |
 | `AGENTS.md` | the law, rewritten: what the repository is, the scope table (mechanism docs here; `library/README.md` for content; the overlay for per-project workflows), the properties that still hold (boundary test, property 4, Python for logic, secrets declared, STE writing, read the log before you delete a line), verify, choosing what to automate (drop the tier table; keep the questions and the measured trade-offs that still apply) |
-| `library/README.md` | already written in Stage 7 and Stage 8 |
+| overlay `library/README.md` | already written in Stage 7 and Stage 8, in the overlay |
 
 Delete any statement about registries, generations, groups, tiers, link
 modules, `.devman/project.toml` or `triggers.toml`.
@@ -1007,6 +1058,8 @@ lane in that repository.
 1. **Release.** Tag this repository `v0.9.0` and push the tag (open question
    Q3).
 2. **Overlay content** (`~/.config/devman`, one commit):
+   - Copy the Stage 7 library into `library/` (`base.yaml`, `workflows/`,
+     `README.md`). A library edit is live from here on.
    - Move `projects/devman/workflows/*.yaml` to `workflows/devman/`. Rewrite
      each to the new contract: no `.devman/.runs/` path, no `env:`, steps through
      `devman.task` where a task exists. Drop the ones that only served the old
@@ -1136,7 +1189,7 @@ dot.
 ```yaml
 # devman: compiled file. Do not edit. Edit the source and run `devman compile`.
 # devman: project=devman workflow=check origin=library
-# devman: source=/nix/store/…-devman-0.9.0/share/devman/library/check.yaml
+# devman: source=/home/andrew/.config/devman/library/workflows/check.yaml
 # devman: source-sha256=3f1c…
 working_dir: "/home/andrew/Documents/Projects/devman"
 log_dir: "/home/andrew/.local/state/devman/runs/devman"
@@ -1215,7 +1268,7 @@ Rules:
           "dag": "devman.check",
           "file": "/home/andrew/.local/state/devman/dags/devman/devman.check.yaml",
           "origin": "library",
-          "source": "/nix/store/…/share/devman/library/check.yaml",
+          "source": "/home/andrew/.config/devman/library/workflows/check.yaml",
           "sha256": "9a0e…"
         }
       }
@@ -1298,7 +1351,8 @@ from a checkout for tests.
 |---|---|
 | `DEVMAN_OVERLAY` | `~/.config/devman` |
 | `DEVMAN_STATE` | `~/.local/state/devman` |
-| `DEVMAN_LIBRARY` | `<package>/share/devman/library` (set by `nix/package.nix`) |
+| `DEVMAN_LIBRARY` | `<overlay>/library`. A test override only |
+| `DEVMAN_BASH`, `DEVMAN_GUARD`, `DEVMAN_BIN` | none; fill the `base.yaml` tokens. `compile` refuses without them |
 | `DEVMAN_DAGU_CONFIG` | none; commands that need Dagu refuse without it |
 | `DEVMAN_DAGU_VERSION` | none; doctor skips the version check without it |
 | `DAGU_HOME` | Dagu's own default |
@@ -1319,7 +1373,7 @@ A run sees `DEVMAN_PROJECT_DIR` (header), `DEVMAN_EVENT` and `DEVMAN_SUBJECT`
       "name": "check",
       "dag": "devman.check",
       "origin": "library",
-      "source": "/nix/store/…/check.yaml",
+      "source": "/home/andrew/.config/devman/library/workflows/check.yaml",
       "triggers": [{"event": "land", "match": ["main"], "exclude": []}],
       "schedule": null,
       "queue": "light",
@@ -1384,6 +1438,10 @@ directory before the first step. An empty directory has neither marker.
 Each resolves an ambiguity in `CONCEPT.md`. Apply each to `CONCEPT.md` in the
 stage that first depends on it.
 
+**Applied 2026-10-15.** The owner accepted B1 to B22. The author applied them to
+`CONCEPT.md` the same day, with B11 changed by decision Q7 (the library lives in
+the overlay; see R13 there). A later stage that changes one still edits both files.
+
 | # | Section | Amendment | Reason | Stage |
 |---|---|---|---|---|
 | B1 | §4 | A workflow name matches `[A-Za-z0-9][A-Za-z0-9_-]*`: no dot. | Project `a.b` with workflow `c` and project `a` with workflow `b.c` both give stem `a.b.c`. Without a dot in workflow names the stem is unique and splits at the last dot. | 2 |
@@ -1395,8 +1453,8 @@ stage that first depends on it.
 | B7 | §5 | A full compile deletes `dags/<p>/` of a project that left the manifest, using the previous `compile.json`. `runs/<p>/` stays. | §5 covers removed workflows and orphan sources, not removed projects. | 3 |
 | B8 | §7 | The router reads `compile.json`, not `projects.toml`. | The `on` entries then always match the files Dagu runs, also for a stale project. | 4 |
 | B9 | §7 | One emit enqueues each matched workflow once, however many subjects match. The run gets `DEVMAN_EVENT` and `DEVMAN_SUBJECT`. `DEVMAN_` is a reserved parameter prefix. | A save of 20 files must give one format run, not 20. | 4 |
-| B10 | §7 | The watcher watches only projects with a `save` entry, compiles at start, and recompiles on a change to `projects.toml`, `workflows/` or a non-store library. | Start-up compile picks up a new store library after a switch. A smaller watch set lowers the M5 cost. | 5 |
-| B11 | §3.1, §10 | The library and `base.yaml` ship in the package (`share/devman/`). `DEVMAN_LIBRARY` overrides the library for development. | One pin for the code, the library and the Dagu version. | 0, 7 |
+| B10 | §7 | The watcher watches only projects with a `save` entry, compiles at start, and recompiles on a change to `projects.toml`, `workflows/` or `library/`. | Start-up compile picks up edits made while it was down. A smaller watch set lowers the M5 cost. | 5 |
+| B11 | §3.1, §10 | The library and `base.yaml` live in the overlay at `library/` (`library/base.yaml`, `library/workflows/<name>.yaml`). The package ships the mechanism and `dagu/guard.sh`. `compile` fills the `base.yaml` tokens and writes `<state>/base.yaml`. `doctor` checks that every named action exists. `DEVMAN_LIBRARY` is a test override. (Q7, decided 2026-10-15.) | A library edit is live, with no switch and no release. The library is per-user content (boundary test). | 0, 3, 7 |
 | B12 | §7 | `done` is Dagu success and `failed` is Dagu failure. The subject is the workflow name; the project comes from the DAG name. | §7 names the events but not their subject. | 7 |
 | B13 | §8 | `format` keeps no loop receipt; `release` runs the test as its first step. | The `.devman/.runs` receipt and `metadata.jsonl` go (§12). | 7 |
 | B14 | §12 | The cutover deletes `~/.local/share/dagu` too. | Old history and a 2.15 DAG index have no value (R12). | 10 |
@@ -1450,7 +1508,7 @@ Core Python in `src/devman/`, counted by `wc -l`, comments included:
 | **Total** | **1,600** | concept target ~1,500 |
 
 Other files: `dagu/guard.sh` ~10, `nix/hm-module.nix` ~160, `nix/package.nix` ~40, `nix/dagu.nix`
-~70, `flake.nix` ~120, `dagu/*.yaml` ~70, `library/*.yaml` ~60. Tests ~1,200.
+~70, `flake.nix` ~120, `dagu/config.yaml` ~20; the overlay library ~60 (outside this repository). Tests ~1,200.
 
 If a module passes its budget by more than 30%, stop and look for a Dagu feature
 that does the same job before you continue.
@@ -1465,6 +1523,7 @@ that does the same job before you continue.
 | A step-level `shell:` bypasses the guard | A run in a vanished checkout can succeed | Documented as an explicit opt-out (§A.8); the router refusal and `devman doctor` still report the missing path |
 | The REST shape of a run differs on 2.20.1 | `status` and `doctor` misread | Stage 6 starts with one `curl`; only `dagu.last_run` adapts |
 | The action template input syntax is unknown | `devman.task` fails to validate | Stage 7 reads `dagu schema dag` first; the library check catches it |
+| A live library edit breaks every project at once | One bad `base.yaml` or action name fails all compiles or runs | Compile refuses a bad `base.yaml` before publishing; `doctor` names a missing action; the library is a git repository, so `jj undo` reverts |
 | Old and new unit names coexist during the switch | Two Dagu servers on one port | New names; Stage 10 stops the old units first |
 | vendomat's `inputs.devman.follows` reads a deleted file | nix-meta fails to evaluate | Stage 10 step 4 checks; drop the `follows` |
 | The devlayer pointer imports a garbage-collected store path | Shell entry breaks in some repositories | Q5; remove the pointer step in the same nix-meta lane |
@@ -1476,15 +1535,15 @@ that does the same job before you continue.
 
 ## E. Open questions for the owner
 
-| # | Question | Options | Recommendation |
+| # | Question | Options | Decision |
 |---|---|---|---|
-| Q1 | What emits `commit` and `land`? jj runs no hooks, and a git hook does not fire on a jj operation. | 1. A git hook linked by linkman (misses jj). 2. gitman calls `devman emit land --subject <trunk>` after it lands. 3. The watcher watches `.git/refs/heads/<trunk>`. | 2 for `land`. Drop `commit` until a workflow needs it. Stage 10 ships without both if this is open. |
-| Q2 | Where does a fleet upkeep finding go? | 1. A Dagu notification channel (Telegram, email, webhook). 2. Only the upkeep log and `devman status`. | 2 now; add 1 when a channel exists. |
-| Q3 | How does nix-meta pin the new devman? | 1. Tag `v0.9.0` and pin `git+https…?ref=refs/tags/v0.9.0`. 2. Pin a `git+file:` revision. | 1. It matches the current pin style and gives a rollback name. |
-| Q4 | Delete `~/.local/share/dagu` at the cutover? | 1. Yes. 2. Keep the old history. | 1 (R12). |
-| Q5 | Remove the devlayer pointer step in nix-meta `profiles/devlayer.nix`? It names the devman link module, which goes. | 1. Remove it with the cutover. 2. Leave it; it only warns. | 1, after a grep shows no reader of `current.nix`. |
-| Q6 | Rotate `events.jsonl`? | 1. No rotation now. 2. The upkeep workflow keeps the last 30 days. | 1 now; 2 when the file passes 50 MB. |
-| Q7 | Library from the store or from the live checkout? | 1. The store (pinned), with `DEVMAN_LIBRARY` for development. 2. The live checkout (unpinned). | 1. A library change then ships with the code that renders it. |
-| Q8 | Refuse a top-level `env` in a source (B5)? | 1. Refuse. 2. Merge into the source by rewriting its YAML (loses comments). | 1. Step `env` and `params` cover the need. |
-| Q9 | Home Manager as a NixOS module now, or standalone first? | 1. Import into today's `home-manager.users.andrew`. 2. Wait for vendomat 22 phase 4 (standalone home). | 1. The module is the same in both; phase 4 moves one import line. |
-| Q10 | Coalesce a burst? M6: two quick enqueues of one DAG both run, one after the other. | 1. No coalescing; accept the extra runs. 2. The router skips an enqueue when the same DAG already has a run in state `queued` (not running), and records `"result": "coalesced"`. The queued run sees the newer files anyway. | 1 now. 2 after Stage 6 pins the REST shape, if `events.jsonl` shows bursts. |
+| Q1 | What emits `commit` and `land`? jj runs no hooks, and a git hook does not fire on a jj operation. | 1. A git hook linked by linkman (misses jj). 2. gitman calls `devman emit land --subject <trunk>` after it lands. 3. The watcher watches `.git/refs/heads/<trunk>`. | **Decided 2026-10-15: the recommendation stands.** 2 for `land`. Drop `commit` until a workflow needs it. Stage 10 ships without both if this is open. |
+| Q2 | Where does a fleet upkeep finding go? | 1. A Dagu notification channel (Telegram, email, webhook). 2. Only the upkeep log and `devman status`. | **Decided 2026-10-15: the recommendation stands.** 2 now; add 1 when a channel exists. |
+| Q3 | How does nix-meta pin the new devman? | 1. Tag `v0.9.0` and pin `git+https…?ref=refs/tags/v0.9.0`. 2. Pin a `git+file:` revision. | **Decided 2026-10-15: the recommendation stands.** 1. It matches the current pin style and gives a rollback name. |
+| Q4 | Delete `~/.local/share/dagu` at the cutover? | 1. Yes. 2. Keep the old history. | **Decided 2026-10-15: the recommendation stands.** 1 (R12). |
+| Q5 | Remove the devlayer pointer step in nix-meta `profiles/devlayer.nix`? It names the devman link module, which goes. | 1. Remove it with the cutover. 2. Leave it; it only warns. | **Decided 2026-10-15: the recommendation stands.** 1, after a grep shows no reader of `current.nix`. |
+| Q6 | Rotate `events.jsonl`? | 1. No rotation now. 2. The upkeep workflow keeps the last 30 days. | **Decided 2026-10-15: the recommendation stands.** 1 now; 2 when the file passes 50 MB. |
+| Q7 | Library from the store, the live checkout, or the overlay? | 1. The store (pinned), with `DEVMAN_LIBRARY` for development. 2. The live checkout (unpinned). 3. The central overlay (added by the owner). | **Decided 2026-10-15: option 3, the central overlay.** The library lives in `~/.config/devman/library/`. The package ships the mechanism only. Edits are live. Neither option 1 nor option 2 stands. |
+| Q8 | Refuse a top-level `env` in a source (B5)? | 1. Refuse. 2. Merge into the source by rewriting its YAML (loses comments). | **Decided 2026-10-15: option 1, refuse.** |
+| Q9 | Home Manager as a NixOS module now, or standalone first? | 1. Import into today's `home-manager.users.andrew`. 2. Wait for vendomat 22 phase 4 (standalone home). | **Decided 2026-10-15: the recommendation stands.** 1. The module is the same in both; phase 4 moves one import line. |
+| Q10 | Coalesce a burst? M6: two quick enqueues of one DAG both run, one after the other. | 1. No coalescing; accept the extra runs. 2. The router skips an enqueue when the same DAG already has a run in state `queued` (not running), and records `"result": "coalesced"`. The queued run sees the newer files anyway. | **Decided 2026-10-15: the recommendation stands.** 1 now. 2 after Stage 6 pins the REST shape, if `events.jsonl` shows bursts. |

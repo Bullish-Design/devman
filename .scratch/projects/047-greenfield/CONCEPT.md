@@ -39,6 +39,7 @@ including the repository view in §6.
 | R9 | **Agent work is Dagu-native:** `harness.run`, `git.worktree.*`, `human.task`. No Agentman. | `SPIKES.md` spike 3: a real `claude` call worked in a linked work tree. |
 | R10 | **Safety is minimal:** correctness refusals only. No write tiers, no reload gate. | The owner's ruling. A refusal still beats a silent wrong result (property 4). |
 | R11 | **Home Manager installs devman:** the CLI, the Dagu user service and the watcher user service. No NixOS module. | A devman change needs no system rebuild. This matches the 045 toolbelt. |
+| R13 | **The library is overlay content,** not package content. | It is true for this user (boundary test), and an edit then needs no switch and no release. `devman doctor` checks that every action a library file names exists in `base.yaml`. |
 | R12 | **No migration.** Old registry roots, generations and compatibility data are deleted. | devman has one user and nothing worth carrying. |
 
 ### 2.1 The boundary test
@@ -64,14 +65,21 @@ are applications of it.
 ~/.config/devman/                  the central overlay (a git repository)
   projects.toml                    the one manifest (§4)
   workflows/<project>/<name>.yaml  workflows for one project only
+  library/base.yaml                shared actions, handlers, defaults (a template)
+  library/workflows/<name>.yaml    shared workflows a project can take
 ```
 
 ```
-devman/                            this repository
-  library/<name>.yaml              shared workflows a project can take
-  dagu/base.yaml                   shared actions, handlers, defaults
+devman/                            this repository (the mechanism)
   dagu/config.yaml                 queues and paths (a template; Nix fills it)
+  dagu/guard.sh                    the checkout guard (§5.1)
 ```
+
+The library is overlay content (ruling R13). An edit to it is live: the watcher
+recompiles. `library/base.yaml` holds four tokens that only the machine knows
+(`@bash@`, `@guard@`, `@devman@`, `@stateDir@`). Compile fills them and writes
+`~/.local/state/devman/base.yaml`, which `config.yaml` names as the base
+config.
 
 ### 3.2 What devman writes
 
@@ -119,6 +127,10 @@ take = ["check", "test"]
 
 - The table key is the project name. It must match
   `[A-Za-z0-9][A-Za-z0-9._-]*`.
+- A workflow name must match `[A-Za-z0-9][A-Za-z0-9_-]*`. It has no dot, so the
+  DAG name `<project>.<workflow>` splits at the last dot.
+- An unknown key refuses the project. Two projects with one `path` are both
+  refused. A `done`/`failed` cycle refuses the project.
 - `take` names library workflows. A file in `workflows/<project>/` with the
   same name replaces the library file for that project. There are two levels
   only: the project, then the library.
@@ -126,6 +138,8 @@ take = ["check", "test"]
   glob against the event's subject. A file event's subject is a path relative
   to the project. A ref event's subject is a ref name. `run` names a workflow
   that the project has.
+- `match` takes a glob or a list of globs. `exclude` is an optional list of
+  globs. There is no brace expansion.
 
 ## 5. Compile
 
@@ -135,10 +149,16 @@ library changes. A person can run it by hand.
 
 For each project, compile does this:
 
+0. **Base.** Fill the tokens of `library/base.yaml` and write
+   `<state>/base.yaml`.
 1. **Resolve** each workflow: the project's own file, else the library file.
 2. **Render** the file. Prepend a header: `working_dir`, `log_dir`, `env:
-   DEVMAN_PROJECT_DIR`, `group: <project>` and `labels: project=<project>`. The
-   header adds keys and never overwrites a key the source sets.
+   DEVMAN_PROJECT_DIR`, `group: <project>` and `labels: project=<project>`, and
+   `params:` `DEVMAN_EVENT` and `DEVMAN_SUBJECT` with empty defaults. The header
+   never sets `name:`. For `working_dir`, `group` and `labels` the source wins.
+   Top-level `env`, `log_dir` and `shell`, and `handler_on.exit`, belong to the
+   header and the base: a source that sets one is refused (ruling Q8). A source
+   with its own `params:` must declare both event parameters.
 3. **Validate** each changed file with `dagu validate`.
 4. **Publish** each changed file by atomic rename into
    `dags/<project>/`. Delete the files of workflows the project no longer has.
@@ -146,16 +166,31 @@ For each project, compile does this:
 
 **Compile refuses a project, and changes none of its files, when:**
 
-- its `path` does not exist or is not a directory;
+- its `path` does not exist or is not a directory. Compile tests it read-only
+  and never creates it, because Dagu creates a missing `working_dir` and the
+  run then succeeds in an empty directory;
+- a source sets a header-owned key (above), or names a `queue:` that
+  `config.yaml` does not define (Dagu runs such a queue at once, with no limit);
 - a `take` entry or an `on.run` entry names a workflow that does not exist;
 - any of its rendered files fails `dagu validate`;
 - `workflows/<project>/` exists but the project has no manifest entry (this
   refuses the orphan directory).
 
+A project that left the manifest loses its `dags/<project>/` directory at the
+next full compile. Its `runs/<project>/` stays.
+
 A refusal is per project, so one broken project does not block the others. A
 refusal is loud: compile exits non-zero, writes the reason to
 `compile.json`, and `devman status` shows it. The project keeps its previous
 files, and status says they are stale.
+
+### 5.1 The checkout guard
+
+Compile checks `path` only at compile time. A checkout that vanishes later
+gives green runs that did nothing. So `base.yaml` sets the DAG shell to
+`dagu/guard.sh`. The guard fails a step when `DEVMAN_PROJECT_DIR` has neither
+`.git` nor `.jj`. The router also refuses an event for a missing path. A step
+with its own `shell:` opts out, and so do built-in action steps.
 
 **Why a header, and not Dagu workspaces.** A `workspace=<project>` label plus
 `workspaces/<project>/base.yaml` can set the same values without rendering, and
@@ -192,9 +227,12 @@ entry point. When `--project` is missing, the router finds the project whose
 
 The router:
 
-1. matches the event against the project's `on` entries;
-2. enqueues each match with `dagu enqueue`, and passes the event fields as
-   parameters;
+1. matches the event against the project's `on` entries, as `compile.json`
+   records them;
+2. enqueues each matched workflow once, however many subjects match, with
+   `dagu enqueue` on the absolute path of the compiled file, and passes
+   `DEVMAN_EVENT` and `DEVMAN_SUBJECT` as parameters (`DEVMAN_` is a reserved
+   parameter prefix);
 3. appends one line to `events.jsonl`: the event, the matches, and the run IDs
    or the refusal.
 
@@ -204,9 +242,9 @@ So "why did this run?" always has an answer in one file.
 
 | Event | Source |
 |---|---|
-| `save` | the watcher: one `watchexec` over the listed project paths |
+| `save` | the watcher: one `watchexec` over the paths of projects that have a `save` entry. It ignores `.git .jj .devenv .direnv .venv node_modules __pycache__ .gitman .worktrees .devman`, compiles at start, and recompiles when `projects.toml`, `workflows/` or `library/` change |
 | `commit`, `land` | a jj or git hook that linkman installs; it calls `devman emit` |
-| `done`, `failed` | Dagu's `handler_on` in `base.yaml` calls `devman emit` |
+| `done`, `failed` | one `handler_on.exit` in `base.yaml` maps the run status and calls `devman emit` detached, and always exits 0. The subject is the workflow name |
 | schedule | Dagu's own `schedule:`. Since 2.17.0 it passes through the queue |
 | external | a Dagu webhook on the workflow, or `devman emit` from any script |
 
@@ -220,17 +258,21 @@ event name, and a manifest entry matches it.
 
 Two mechanisms, each for one job:
 
-- **Actions** in `dagu/base.yaml` hold shared steps. Example: `devman.task`
+- **Actions** in the overlay's `library/base.yaml` hold shared steps. Example: `devman.task`
   runs `devenv tasks run -v <task>` and names the failing task on stderr.
-- **Library workflows** in `library/` are short files that call actions:
+- **Library workflows** in the overlay's `library/workflows/` are short files
+  that call actions:
 
 ```yaml
-# library/check.yaml
+# library/workflows/check.yaml
 queue: light
 steps:
   - action: devman.task
     with: { task: base:check }
 ```
+
+`format` keeps no loop receipt, because `format:fmt` is idempotent. `release`
+runs the test as its first step and builds without publishing.
 
 A multi-step shared workflow can become a Dagu action package
 (`source:target@version`) later. It runs in its own work directory, so the
@@ -264,13 +306,15 @@ The devman flake exports one Home Manager module. It installs:
 
 - the `devman` CLI;
 - Dagu 2.20.1, built by `nix/dagu.nix`;
-- a user service that runs `dagu start-all` with the generated `config.yaml`
-  and `base.yaml`;
+- a user service that runs `dagu start-all` with the generated `config.yaml`,
+  which names the compiled `base.yaml` (§3.1);
 - a user service that runs the watcher.
 
 `config.yaml` sets `paths.dags_dir` to `~/.local/state/devman/dags`, turns on
 recursive discovery, and defines every queue. Since 2.17.0 a scheduled run
 waits in its queue only when the config defines that queue.
+
+The package ships no library. The library is overlay content (R13).
 
 nix-meta pins devman once. A repository pins nothing.
 
@@ -283,7 +327,7 @@ nix-meta pins devman once. A repository pins nothing.
 | `devman run <workflow>` | a manual event |
 | `devman status [project]` | §6 |
 | `devman show <workflow>` | prints the compiled file and its source path |
-| `devman doctor` | checks the services, the Dagu version, and that `dags/` matches the last compile |
+| `devman doctor` | checks the services, the Dagu version, that `dags/` matches the last compile, and that every action a library file names exists in `base.yaml` |
 
 ## 12. What goes
 
@@ -313,6 +357,9 @@ Measure each one before the code depends on it:
 | M5 | How much does one `watchexec` cost over 33 repositories? | §7 `save` |
 | M6 | Does `dagu enqueue` take parameters and a run name, so the router can pass event fields? | §7 |
 
+All six are measured on 2.20.1. The answers are in `MEASUREMENTS.md`, and
+`PLAN.md` §B folds them into the sections above.
+
 ## 14. Open questions for the owner
 
 1. ~~Run output~~ — decided 2026-10-15: logs live under
@@ -324,3 +371,6 @@ Measure each one before the code depends on it:
    which read the manifest; existing links stay until linkman takes over.
 3. ~~Charter timing~~ — decided 2026-10-15: this concept is the only charter,
    now.
+4. ~~Plan questions Q1 to Q10~~ — decided 2026-10-15; see `PLAN.md` §E. The
+   recommendations stand, except Q7: the library lives in the central overlay
+   (R13). Q8: a source with a top-level `env` is refused.
