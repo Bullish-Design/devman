@@ -3,16 +3,12 @@
 let
   # One Dagu expression for the shell, the package and the Home Manager module.
   dagu = pkgs.callPackage ./nix/dagu.nix { };
-
-  # The interpreter that runs the tests. It is an explicit store path, not the
-  # venv: `flake.nix` `python-tests` takes pytest from nixpkgs too, so the fast
-  # loop and the check run the same pytest and pyyaml. A bare `pytest` on PATH
-  # would resolve against the venv first.
-  pytestPython = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ]);
 in
 {
   # The shell does not install the devman package. Two `devman` binaries on
   # one PATH was a measured hazard. Tests run the source with `python -m devman`.
+  # Development uses `uv` against `pyproject.toml` and `uv.lock`. The shell does
+  # not need uv2nix; `flake.nix` owns that (nix/package.nix).
   packages = [
     pkgs.git
     pkgs.ruff
@@ -36,9 +32,10 @@ in
   # Task names are part of the contract (PLAN.md Stage 0): library workflows
   # call them. devenv owns each implementation; Dagu owns the composition.
   tasks = {
-    "base:check".exec = "ruff check . && ruff format --check .";
-    "base:unit".exec = "${pytestPython}/bin/pytest -m 'not e2e'";
-    "base:e2e".exec = "${pytestPython}/bin/pytest -m e2e";
+    # `uv lock --check` fails when `uv.lock` is stale against `pyproject.toml`.
+    "base:check".exec = "ruff check . && ruff format --check . && uv lock --check";
+    "base:unit".exec = "uv run --frozen pytest -m 'not e2e'";
+    "base:e2e".exec = "uv run --frozen pytest -m e2e";
     "base:test".exec = "nix flake check";
     "format:fmt".exec = "ruff format .";
     "release:build".exec = "nix build .#devman --out-link result-devman";

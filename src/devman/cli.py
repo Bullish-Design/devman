@@ -1,22 +1,42 @@
-"""The devman command line. Stage 0 has only --version."""
+"""The devman command line. One typed function per command (Typer)."""
 
 from __future__ import annotations
 
-import argparse
-from collections.abc import Sequence
+from typing import Annotated
+
+import typer
 
 from devman import __version__
 
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="devman",
-        description="Compile, route and show Dagu workflows across repositories.",
-    )
-    parser.add_argument("--version", action="version", version=f"devman {__version__}")
-    return parser
+app = typer.Typer(
+    name="devman",
+    help="Compile, route and show Dagu workflows across repositories.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    build_parser().parse_args(argv)
-    return 0
+def _show_version(value: bool) -> None:
+    if value:
+        typer.echo(f"devman {__version__}")
+        raise typer.Exit(0)
+
+
+@app.callback()
+def root(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_show_version,
+            is_eager=True,
+            help="Print the version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Compile, route and show Dagu workflows across repositories."""
+
+
+def main() -> None:
+    """Console entry point. Typer exits with the command's exit code."""
+    app(prog_name="devman")

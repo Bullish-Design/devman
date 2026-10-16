@@ -1,7 +1,7 @@
 # 047 — implementation plan
 
 **Status:** draft for the owner, 2026-10-15. The owner decided Q1 to Q10 the
-same day (§E). Q7 moved the library into the central overlay. The charter is
+same day (§E; Q11 and Q12 added later that day: Typer and uv2nix). Q7 moved the library into the central overlay. The charter is
 [`CONCEPT.md`](CONCEPT.md). Every stage below names the concept section it
 implements. Evidence: [`SPIKES.md`](SPIKES.md), [`DAGU_RELEASES.md`](DAGU_RELEASES.md)
 and [`MEASUREMENTS.md`](MEASUREMENTS.md) (M1 to M6 on Dagu 2.20.1, all answered).
@@ -25,7 +25,7 @@ and no compatibility layer (R12).
 - The common verify command, from Stage 0 on, is:
 
 ```bash
-devenv tasks run -v base:check   # ruff check and ruff format --check
+devenv tasks run -v base:check   # ruff check, ruff format --check, uv lock --check
 devenv tasks run -v base:unit    # pytest
 devenv tasks run -v base:test    # nix flake check
 ```
@@ -144,7 +144,7 @@ devman/
   src/devman/
     __init__.py              __version__ = "0.9.0"
     __main__.py              from devman.cli import main; raise SystemExit(main())
-    cli.py                   argparse; only --version in Stage 0
+    cli.py                   Typer; only --version in Stage 0
   dagu/                      config.yaml arrives in Stage 1, guard.sh in Stage 7 (.gitkeep)
   nix/
     dagu.nix
@@ -159,17 +159,33 @@ concept verb (Stage 2 to Stage 6 add them, §C lists the budget). No
 sub-packages. Three packages became one because the other two existed for
 linking and the old contract, which both leave.
 
-**The CLI library: `argparse`.** Reasons:
+**The CLI library: Typer (decision 2026-10-15, replaces argparse).** One typed
+function per command. The command grammar in §A.5 stays the same. Reasons and
+costs:
 
-1. It is the existing choice. `src/devman/cli.py` and every old sub-command
-   used it.
-2. It is in the standard library. The package then has one dependency, PyYAML.
-   The old build needed uv2nix, pyproject-nix and mancore for a CLI wrapper.
-3. Start-up cost matters: the watcher and the `handler_on` hook call devman for
-   every event. The old measurement (cli.py notes, hyperfine) put an import of
-   the full old CLI at 133 ms and a lean one at 81 ms. Typer adds click and
-   rich on every call. Memory note: Typer vendors click, which broke
-   `isinstance` checks before.
+1. Typed signatures give the argument checks for free, and the help text comes
+   from the code.
+2. The package has two runtime dependencies: PyYAML and Typer (with click and
+   rich below it). The lock file pins all of them.
+3. Start-up cost grew. Measured on this machine: Typer 0.24 imports in about
+   73 ms against 20 ms for argparse; `devman --version` through the built
+   wrapper takes about 70 ms in all. The watcher calls the router in process, so
+   only the `handler_on` hook and a person pay it per call. The owner accepted
+   the cost.
+4. Typer vendors click, and `isinstance` against click fails silently. Code that
+   walks a Typer app must duck-type.
+5. `main()` calls the Typer app, which exits with the command's code. A command
+   raises `typer.Exit(code)` for exit codes 1 and 2.
+
+**Packaging: `pyproject.toml`, `uv` and uv2nix (decision 2026-10-15).** The
+repository commits `uv.lock`. `nix/package.nix` builds the package with uv2nix
+(`sourcePreference = "wheel"`, interpreter `python313` from nixpkgs), not with
+nixpkgs Python packages. `uv2nix`, `pyproject-nix` and `pyproject-build-systems`
+are declared in `flake.nix` **only**, each following `nixpkgs`. The old
+repository declared them in `devenv.yaml` too, and the two copies broke
+independently. The devenv shell uses `uv` directly (`uv run --frozen`) and does
+not need uv2nix. `uv lock --check` is part of `base:check`, so a stale lock
+fails. `.gitignore` re-includes `uv.lock`.
 
 **`pyproject.toml`:**
 
@@ -179,7 +195,10 @@ name = "devman"
 version = "0.9.0"
 description = "Compile, route and show Dagu workflows across repositories"
 requires-python = ">=3.13"          # PurePath.full_match, used for `**` globs
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml", "typer"]
+
+[dependency-groups]
+dev = ["pytest"]
 
 [project.scripts]
 devman = "devman.cli:main"
@@ -223,19 +242,21 @@ No `[project.optional-dependencies]`, no `tool.uv.sources`, no `linkman`.
 | `checks.<system>.library-validate` | renders and validates every file in `tests/fixtures/library/` (Stage 7). The live library sits in the overlay, outside the flake |
 | `checks.<system>.hm-module` | evaluates the Home Manager module (Stage 1) |
 
-Inputs: `nixpkgs` and `home-manager` (for `checks.hm-module` only, with
-`inputs.nixpkgs.follows = "nixpkgs"`). Delete the `mancore`, `uv2nix`,
-`pyproject-nix` and `pyproject-build-systems` inputs.
+Inputs: `nixpkgs`, `home-manager` (for `checks.hm-module` only), `pyproject-nix`,
+`uv2nix` and `pyproject-build-systems`. Each follows `nixpkgs`. Delete the
+`mancore` input. `checks.python-tests` runs pytest from a uv2nix virtual
+environment of the locked runtime and dev dependencies.
 
-**`nix/package.nix`:** `python313Packages.buildPythonApplication`, build system
-hatchling, dependency pyyaml. It installs `dagu/` to
-`$out/share/devman/`. It does not install a library (decision Q7). `postFixup`
-wraps `bin/devman` with `--prefix PATH : dagu watchexec`. Install check:
-`devman --version`.
+**`nix/package.nix`:** uv2nix. It loads the workspace from a fileset
+(`pyproject.toml`, `uv.lock`, `src`, `dagu`), builds a virtual environment of
+the locked runtime dependencies, and wraps `bin/devman` with
+`--prefix PATH : dagu watchexec`. It installs `dagu/` to `$out/share/devman/`.
+It does not install a library (decision Q7). The version comes from
+`pyproject.toml`. Install check: `devman --version`.
 
 **`devenv.yaml`:** keep `nixpkgs`, `nixpkgs-python` and `codex-cli`. Delete
-`mancore`, `pyproject-nix`, `uv2nix` and `pyproject-build-systems`. Delete
-`nix2container` and `mk-shell-bin` if nothing reads them.
+`mancore`. Do not declare `pyproject-nix`, `uv2nix` or
+`pyproject-build-systems` there; `flake.nix` owns them. Delete `nix2container` and `mk-shell-bin` if nothing reads them.
 
 **`devenv.nix`:**
 
@@ -244,9 +265,9 @@ packages = [ pkgs.git pkgs.ruff dagu pkgs.watchexec pkgs.hyperfine
              inputs.codex-cli.packages.${pkgs.system}.default ];
 languages.python = { enable = true; version = "3.13"; venv.enable = true; uv.enable = true; };
 tasks = {
-  "base:check".exec = "ruff check . && ruff format --check .";
-  "base:unit".exec  = "${pytestPython}/bin/pytest -m 'not e2e'";
-  "base:e2e".exec   = "${pytestPython}/bin/pytest -m e2e";
+  "base:check".exec = "ruff check . && ruff format --check . && uv lock --check";
+  "base:unit".exec  = "uv run --frozen pytest -m 'not e2e'";
+  "base:e2e".exec   = "uv run --frozen pytest -m e2e";
   "base:test".exec  = "nix flake check";
   "format:fmt".exec = "ruff format .";
   "release:build".exec = "nix build .#devman --out-link result-devman";
@@ -255,7 +276,6 @@ tasks = {
 };
 ```
 
-`pytestPython = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ])`.
 The devenv shell does **not** install the devman package. Two `devman`
 binaries on one `PATH` was a measured hazard. Tests run the source with
 `python -m devman`.
@@ -1501,7 +1521,7 @@ Core Python in `src/devman/`, counted by `wc -l`, comments included:
 
 | Module | Lines | Holds |
 |---|---|---|
-| `cli.py` | 170 | argparse, dispatch, exit codes |
+| `cli.py` | 170 | Typer app, one function per command, exit codes |
 | `paths.py` | 50 | `Paths` from the environment |
 | `manifest.py` | 180 | TOML load, rules 1 to 9, `matches` |
 | `render.py` | 110 | the header, source checks |
@@ -1513,7 +1533,7 @@ Core Python in `src/devman/`, counted by `wc -l`, comments included:
 | `doctor.py` | 160 | the eleven checks |
 | **Total** | **1,600** | concept target ~1,500 |
 
-Other files: `dagu/guard.sh` ~10, `nix/hm-module.nix` ~160, `nix/package.nix` ~40, `nix/dagu.nix`
+Other files: `dagu/guard.sh` ~10, `nix/hm-module.nix` ~160, `nix/package.nix` ~70, `nix/dagu.nix`
 ~70, `flake.nix` ~120, `dagu/config.yaml` ~20; the overlay library ~60 (outside this repository). Tests ~1,200.
 
 If a module passes its budget by more than 30%, stop and look for a Dagu feature
@@ -1553,3 +1573,5 @@ that does the same job before you continue.
 | Q8 | Refuse a top-level `env` in a source (B5)? | 1. Refuse. 2. Merge into the source by rewriting its YAML (loses comments). | **Decided 2026-10-15: option 1, refuse.** |
 | Q9 | Home Manager as a NixOS module now, or standalone first? | 1. Import into today's `home-manager.users.andrew`. 2. Wait for vendomat 22 phase 4 (standalone home). | **Decided 2026-10-15: the recommendation stands.** 1. The module is the same in both; phase 4 moves one import line. |
 | Q10 | Coalesce a burst? M6: two quick enqueues of one DAG both run, one after the other. | 1. No coalescing; accept the extra runs. 2. The router skips an enqueue when the same DAG already has a run in state `queued` (not running), and records `"result": "coalesced"`. The queued run sees the newer files anyway. | **Decided 2026-10-15: the recommendation stands.** 1 now. 2 after Stage 6 pins the REST shape, if `events.jsonl` shows bursts. |
+| Q11 | Which CLI library? | 1. argparse (standard library, 20 ms import). 2. Typer (typed functions, 73 ms import). | **Decided 2026-10-15: option 2, Typer.** The grammar in §A.5 stays. The cost is accepted. |
+| Q12 | How is the package built for Nix? | 1. nixpkgs Python packages. 2. `pyproject.toml` plus `uv`, built with uv2nix. | **Decided 2026-10-15: option 2.** `uv.lock` is committed. The three uv2nix inputs live in `flake.nix` only. The shell uses `uv`. `uv lock --check` is in `base:check`. |

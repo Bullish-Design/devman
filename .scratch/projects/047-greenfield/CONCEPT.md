@@ -316,9 +316,13 @@ waits in its queue only when the config defines that queue.
 
 The package ships no library. The library is overlay content (R13).
 
+The package is a Python project (`pyproject.toml`, `uv.lock`) built for Nix with uv2nix. The interpreter comes from nixpkgs. The uv2nix inputs live in `flake.nix` only. Decided 2026-10-15 (PLAN Q12).
+
 nix-meta pins devman once. A repository pins nothing.
 
 ## 11. The CLI
+
+The CLI uses Typer: one typed function per command (PLAN Q11, decided 2026-10-15).
 
 | Command | Does |
 |---|---|

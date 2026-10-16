@@ -1,39 +1,65 @@
-# The devman CLI. It installs the mechanism only: the Python package and
-# `dagu/` (config template, checkout guard). The library is overlay content
-# (PLAN.md, decision Q7), so this package ships none.
+# The devman CLI, built with uv2nix from `pyproject.toml` and `uv.lock`.
+# It installs the mechanism only: the Python package and `dagu/` (config
+# template, checkout guard). The library is overlay content (PLAN.md, decision
+# Q7), so this package ships none.
+#
+# The Python interpreter comes from nixpkgs (python313). The dependencies come
+# from `uv.lock`, as wheels. A stale lock fails `uv lock --check` in `base:check`.
 { lib
-, python313Packages
+, stdenvNoCC
+, callPackage
+, python313
 , makeWrapper
 , dagu
 , watchexec
+, uv2nix
+, pyproject-nix
+, pyproject-build-systems
 }:
 
-python313Packages.buildPythonApplication {
-  pname = "devman";
-  version = "0.9.0";
-  pyproject = true;
-
+let
+  # Only the files uv2nix and the build read. `.scratch/` and `.git` stay out
+  # of the closure.
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
       ../pyproject.toml
+      ../uv.lock
       ../src
       ../dagu
     ];
   };
 
-  build-system = [ python313Packages.hatchling ];
-  dependencies = [ python313Packages.pyyaml ];
+  workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
+
+  pythonSet =
+    (callPackage pyproject-nix.build.packages { python = python313; }).overrideScope
+      (lib.composeManyExtensions [
+        pyproject-build-systems.overlays.default
+        (workspace.mkPyprojectOverlay { sourcePreference = "wheel"; })
+      ]);
+
+  # Runtime dependencies only (no dependency groups).
+  venv = pythonSet.mkVirtualEnv "devman-env" workspace.deps.default;
+
+  # Runtime dependencies plus the dev group, for `checks.python-tests`.
+  testEnv = pythonSet.mkVirtualEnv "devman-test-env" workspace.deps.all;
+in
+(stdenvNoCC.mkDerivation {
+  pname = "devman";
+  version = (fromTOML (builtins.readFile ../pyproject.toml)).project.version;
+  inherit src;
+
   nativeBuildInputs = [ makeWrapper ];
+  dontBuild = true;
 
-  postInstall = ''
-    mkdir -p $out/share/devman
+  installPhase = ''
+    runHook preInstall
+    mkdir -p $out/bin $out/share/devman
     cp -r dagu $out/share/devman/
-  '';
-
-  postFixup = ''
-    wrapProgram $out/bin/devman \
+    makeWrapper ${venv}/bin/devman $out/bin/devman \
       --prefix PATH : ${lib.makeBinPath [ dagu watchexec ]}
+    runHook postInstall
   '';
 
   doInstallCheck = true;
@@ -42,4 +68,6 @@ python313Packages.buildPythonApplication {
   '';
 
   meta.mainProgram = "devman";
-}
+}).overrideAttrs (old: {
+  passthru = (old.passthru or { }) // { inherit testEnv pythonSet; };
+})

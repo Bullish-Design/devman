@@ -9,6 +9,8 @@ __pycache__/
 # A flake without a committed lock is not pinned: Nix re-resolves nixpkgs on
 # every command, so the stdenv that builds the Dagu package drifts.
 !flake.lock
+# `uv.lock` is committed: `nix/package.nix` builds from it (uv2nix).
+!uv.lock
 **.env
 **.agents/**
 **.hidden**

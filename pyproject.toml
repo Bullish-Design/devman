@@ -3,7 +3,10 @@ name = "devman"
 version = "0.9.0"
 description = "Compile, route and show Dagu workflows across repositories"
 requires-python = ">=3.13"          # PurePath.full_match, used for `**` globs
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml", "typer"]
+
+[dependency-groups]
+dev = ["pytest"]
 
 [project.scripts]
 devman = "devman.cli:main"
