@@ -2,13 +2,18 @@
   description = "devman - compile, route and show Dagu workflows";
 
   # The development shell comes from `devenv.yaml`, not from this flake.
-  # Outputs after Stage 0: the packages, one overlay and the Python check.
-  # Stage 1 adds the Home Manager module and its check. Stage 7 adds the
-  # library check.
+  # Outputs after Stage 1: the packages, one overlay, the Home Manager module
+  # and two checks. Stage 7 adds the library check.
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs, ... }:
+  # Used by `checks.hm-module` only.
+  inputs.home-manager = {
+    url = "github:nix-community/home-manager";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { self, nixpkgs, home-manager, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
@@ -22,12 +27,19 @@
         default = devman;
       });
 
+      homeManagerModules.default = import ./nix/hm-module.nix { inherit self; };
+
       overlays.default = final: _prev: {
         dagu = mkDagu final;
         devman = mkDevman final;
       };
 
       checks = forAllSystems (pkgs: {
+        hm-module = import ./nix/hm-module-check.nix {
+          inherit self pkgs home-manager;
+          dagu = mkDagu pkgs;
+        };
+
         # pytest over src/ and tests/, without the e2e tests (they start a
         # real Dagu server on loopback ports). `base:e2e` runs those.
         python-tests =

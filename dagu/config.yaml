@@ -1,0 +1,14 @@
+# Filled by nix/hm-module.nix. Do not edit the installed copy.
+host: "@host@"
+port: @port@
+coordinator: { host: "@host@", port: @coordinatorPort@ }
+auth: { mode: none }
+skip_examples: true
+default_shell: "@bash@"
+dag_discovery: { recursive: true, symlinks: false }
+paths:
+  dags_dir: "@stateDir@/dags"
+  base_config: "@baseConfig@"
+queues:
+  enabled: true
+  config: @queues@

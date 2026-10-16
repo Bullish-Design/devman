@@ -1,25 +1,23 @@
-# Dagu — the orchestrator the automation plane installs (CONCEPT.md §4).
+# Dagu 2.20.1, the orchestrator the plane installs (CONCEPT.md §10).
 #
-# nixpkgs does not package Dagu at any version, so the plane must carry its own
-# expression. One file, two consumers: `devenv.nix` calls it under the repo's
-# nixpkgs, and the NixOS module will call it under the machine's. That is the
-# §3.1 anti-drift rule applied to the one package both interfaces need.
+# nixpkgs does not package Dagu at any version, so the plane carries its own
+# expression. The flake, `devenv.nix` and the Home Manager module all call this
+# one file.
 #
-# This installs the upstream release tarball rather than building from source.
-# Two things block a source build today:
+# This installs the upstream release tarball and does not build from source.
+# The web UI is a pnpm/webpack build, and its output is not committed:
+# `internal/service/frontend/assets/` holds only a `.gitkeep` at the tag. A
+# source build would also need the Go version that the tag declares. The Go
+# reason of the 2.15.0 pin is not re-measured for 2.20.1. The UI reason holds.
 #
-#   * v2.15.0 declares `go 1.27.0`; nixpkgs ships 1.26.4.
-#   * The web UI is a pnpm/webpack build, and its output is not committed —
-#     `internal/service/frontend/assets/` holds only a `.gitkeep` at the tag.
-#
-# Revisit when nixpkgs has Go 1.27. The pin is a tag either way.
+# The pin is a tag either way.
 { lib
 , stdenvNoCC
 , fetchurl
 }:
 
 let
-  version = "2.15.0";
+  version = "2.20.1";
 
   # sha256 sums copied verbatim from the release's own checksums.txt, so a
   # bump is a diff against one upstream file:
@@ -27,19 +25,19 @@ let
   releases = {
     x86_64-linux = {
       platform = "linux_amd64";
-      sha256 = "7789fd5bf53101ff6442faf602ae404f3e64f438e982c86c57653277d93d1ad2";
+      sha256 = "0d5c1612cd842931fe6d4e598fc2e43fb912a94122e571c62a8f73691ea49837";
     };
     aarch64-linux = {
       platform = "linux_arm64";
-      sha256 = "a9426a580dbdaf4385d4528b717a83092d901e871ca455e9bf23a2a449b12fff";
+      sha256 = "eab7377c1b1993f8eb4c272f9383174effdf4caee0bf7e00def7f2e644fe3186";
     };
     x86_64-darwin = {
       platform = "darwin_amd64";
-      sha256 = "9420fd6102ffde74158775ef5c0577ae358e4bfe6e08868d04acdaa51049afd5";
+      sha256 = "51d003cb637c80af8f30142abd9e89de916ac56ab65f0740959b2f5530060ba6";
     };
     aarch64-darwin = {
       platform = "darwin_arm64";
-      sha256 = "bebf2bb0e9f8342790edb61a67c1a37de6508d290f2b8f784609fd765aa2ff6b";
+      sha256 = "f511a6d45d1a350ef3020695fad2fcea1237b39f4b24eccdc0100362dd230c29";
     };
   };
 

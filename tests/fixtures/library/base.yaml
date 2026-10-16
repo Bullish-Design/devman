@@ -1,0 +1,10 @@
+# Seed copy of the overlay file `library/base.yaml` (decision Q7). Stage 7 adds
+# the handlers and the actions. `devman compile` fills the @token@ values.
+
+# M1 (Dagu 2.20.1): a scheduled run on a queue that config.yaml defines waits
+# for a free slot. A run on an undefined queue skips the queue and runs at
+# once. A DAG with no `queue:` uses its own name as a queue of concurrency 1.
+# So every DAG gets a defined queue here.
+queue: light
+shell: "@bash@"               # Dagu reads $SHELL from the enqueuing process otherwise
+hist_retention_days: 7

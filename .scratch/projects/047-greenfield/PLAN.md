@@ -341,7 +341,7 @@ The retention value is plain content now. The module has no
 | `overlayDir` | str | `"${config.home.homeDirectory}/.config/devman"` |
 | `stateDir` | str | `"${config.home.homeDirectory}/.local/state/devman"` |
 | `daguHome` | str | `"${config.home.homeDirectory}/.local/share/dagu"` |
-| `servicePath` | listOf str | `[ "%h/.nix-profile" "/etc/profiles/per-user/%u" "/run/current-system/sw" "/nix/var/nix/profiles/default" ]` |
+| `servicePath` (profile roots; the module appends `/bin`) | listOf str | `[ "%h/.nix-profile" "/etc/profiles/per-user/%u" "/run/current-system/sw" "/nix/var/nix/profiles/default" ]` |
 | `watch.enable` | bool | `true` |
 | `watch.debounce` | str | `"300ms"` |
 
@@ -362,7 +362,7 @@ The retention value is plain content now. The module has no
   package wrapped with `--set DEVMAN_OVERLAY`, `DEVMAN_STATE`, `DAGU_HOME`,
   `DEVMAN_DAGU_CONFIG` (the store path of the filled `config.yaml`),
   `DEVMAN_DAGU_VERSION` (`cfg.dagu.package.version`), `DEVMAN_BASH`,
-  `DEVMAN_GUARD` (the store path of `guard.sh`, filled by `pkgs.replaceVars`)
+  `DEVMAN_GUARD` (`<package>/share/devman/dagu/guard.sh`; the file arrives in Stage 7, so the path dangles until then)
   and `DEVMAN_BIN` (the wrapped CLI).
 - `systemd.user.services.devman-dagu`: `ExecStart = dagu start-all --config
   <config.yaml>`, `Environment = DAGU_HOME=…`, `PATH` from `servicePath` plus
@@ -381,6 +381,12 @@ NixOS module owned `dagu.service`, `devman-watch.service` and
 
 ### Tests
 
+- **Stage 1 as built (2026-10-15).** Home Manager throws on a failed assertion
+  and hides its text, so the negative evaluations read `config.assertions` from
+  a bare `lib.evalModules` with stub options. The check lives in
+  `nix/hm-module-check.nix`. `dagu validate` runs on a DAG with one step. A
+  DAG with no steps is not a useful proof. `guard.sh` is not a `replaceVars`
+  input, because the file does not exist before Stage 7.
 - `checks.hm-module`: build a `home-manager.lib.homeManagerConfiguration` with
   `services.devman.enable = true`. Assert both unit files exist and that the
   filled `config.yaml` has no `@` token left.
