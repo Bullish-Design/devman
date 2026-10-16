@@ -1,421 +1,59 @@
 {
-  description = "devman - development automation plane";
+  description = "devman - compile, route and show Dagu workflows";
 
-  # The development environment is driven by `devenv.yaml` and entered with
-  # `devenv shell`. It is not duplicated here: an earlier `devShells` output
-  # re-declared a partial copy of devenv.yaml's inputs and had been broken for
-  # some time in two independent ways, which is what an unused second path
-  # looks like.
-  #
-  # What this flake carries is the Dagu package (`nix/dagu.nix`), the two module
-  # interfaces, and the workflow groups:
-  #
-  #   nixosModules.default   one Dagu service, queues, state paths, ports
-  #   lib.<system>.mkRegistry  project inputs in, one registry store path out
-  #                          (`nix/registry.nix`); a store-path `registryDir`
-  #   modules/link.nix       the repo interface; the machine installs it as
-  #                          `link-module.nix` for `devenv.local.nix`
-  #   groups/                workflow content, shadowed by name (§7.2, §7.3)
-  #
-  # Note what is NOT here: the NixOS module takes `pkgs` from the importing
-  # machine and the devenv module takes `pkgs` from the consuming repo. Neither
-  # reads this flake's own `nixpkgs` input. That input serves `packages` and
-  # `checks` only, and §3.1's first rule is what keeps one flake able to serve
-  # two nixpkgs without either constraining the other.
+  # The development shell comes from `devenv.yaml`, not from this flake.
+  # Outputs after Stage 0: the packages, one overlay and the Python check.
+  # Stage 1 adds the Home Manager module and its check. Stage 7 adds the
+  # library check.
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-    # mancore (STEP7_PROMPT.md's entry-point wrap step). Declared here too,
-    # separately from devenv.yaml's copy, because this flake does not read
-    # devenv.yaml (note above): `nix build .#devman` needs its own input
-    # graph. `flake: false`: mancore carries no flake.nix, only a
-    # devenv.nix/devenv.yaml pair, and devenv's cross-project
-    # `inputs.<name>.devenv.config` bridge does not evaluate a referenced
-    # project's own devenv.yaml (devenv issue #2205, confirmed by hand), so
-    # mancore's own uv2nix/pyproject-nix/pyproject-build-systems pins are
-    # unreachable that way. `nix/devman-cli.nix` instead builds mancore
-    # directly with uv2nix against this plain source checkout — the same
-    # recipe mancore's own `outputs.mancore` runs internally — fed by these
-    # three inputs.
-    mancore = {
-      # `git+https://`, not the `github:` shorthand: mancore is a private
-      # repo (confirmed by hand — the `github:` form 404s on GitHub's REST
-      # API without a token; `git+https://` instead uses the local git
-      # credential helper, same as mancore's own devenv.yaml says for its
-      # own private fleet inputs).
-      url = "git+https://github.com/Bullish-Design/mancore?ref=refs/tags/v0.1.0";
-      flake = false;
-    };
-    pyproject-nix = {
-      url = "github:pyproject-nix/pyproject.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    uv2nix = {
-      url = "github:pyproject-nix/uv2nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-    pyproject-build-systems = {
-      url = "github:pyproject-nix/build-system-pkgs";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-  };
-
-  outputs = { self, nixpkgs, mancore, uv2nix, pyproject-nix, pyproject-build-systems, ... }:
+  outputs = { self, nixpkgs, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-
-      # The group files that a registry renders from. Only the files the
-      # renderer reads, so a README edit does not change a registry.
-      policyRoot = nixpkgs.lib.fileset.toSource {
-        root = ./.;
-        fileset = nixpkgs.lib.fileset.fileFilter
-          (f: f.hasExt "yaml" || f.hasExt "toml")
-          ./groups;
-      };
-
-      # One registry from project inputs: `nix/registry.nix` holds the
-      # argument shape. The renderer is the one in `nix/renderer.nix`.
-      mkRegistryFor = pkgs:
-        let
-          dagu = pkgs.callPackage ./nix/dagu.nix { };
-          devman = pkgs.callPackage ./nix/renderer.nix { inherit dagu; };
-          build = pkgs.callPackage ./nix/registry.nix { inherit dagu devman; };
-        in
-        args: build ({ inherit policyRoot; } // args);
-
-      # The registry the tests render. `demo` is inline and has a central
-      # overlay workflow that needs no devenv. `beta` comes from a source
-      # directory that holds `.devman/project.toml` and `triggers.toml`.
-      fixtureRegistry = pkgs: mkRegistryFor pkgs {
-        generation = 7;
-        overlayRoot = ./nix/tests/registry-fixture/overlay;
-        projects = {
-          demo = { path = "/home/tester/work/demo"; groups = [ "base" ]; };
-          beta = {
-            path = "/home/tester/work/beta";
-            source = ./nix/tests/registry-fixture/project-b;
-          };
-        };
-      };
+      mkDagu = pkgs: pkgs.callPackage ./nix/dagu.nix { };
+      mkDevman = pkgs: pkgs.callPackage ./nix/package.nix { dagu = mkDagu pkgs; };
     in
     {
-      # `lib.<system>.mkRegistry { projects = { <name> = { path; groups; ... }; }; }`
-      # returns ONE store path: `projects/*/`, `dags/*` and `generation.json`,
-      # the layout `services.devman-dagu` reads. Set `registryDir` to it.
-      # This is a function, not a service. See `nix/registry.nix`.
-      lib = forAllSystems (pkgs: {
-        mkRegistry = mkRegistryFor pkgs;
+      packages = forAllSystems (pkgs: rec {
+        dagu = mkDagu pkgs;
+        devman = mkDevman pkgs;
+        default = devman;
       });
 
-      # For a machine that already composes its own nixpkgs.
       overlays.default = final: _prev: {
-        dagu = final.callPackage ./nix/dagu.nix { };
+        dagu = mkDagu final;
+        devman = mkDevman final;
       };
 
-      # The machine interface (§4). Evaluated under the importing machine's
-      # nixpkgs, never this flake's.
-      # The wrapper hands the module the flake inputs that the CLI build needs
-      # (mancore and the uv2nix trio). The module still evaluates them under
-      # the machine's nixpkgs.
-      nixosModules.default = {
-        imports = [ ./nix/nixos-module.nix ];
-        services.devman-dagu.cliInputs = {
-          inherit uv2nix;
-          pyprojectNix = pyproject-nix;
-          pyprojectBuildSystems = pyproject-build-systems;
-          mancoreSrc = mancore;
-        };
-      };
-      nixosModules.devman-dagu = self.nixosModules.default;
-
-      packages = forAllSystems (pkgs:
-        let dagu = pkgs.callPackage ./nix/dagu.nix { }; in
-        {
-          inherit dagu;
-
-          # §3.1's table: `packages.default` is the devman CLI, and the NixOS
-          # module is what puts it on a machine's PATH. It is not offered by the
-          # devenv module — see the note at the top of nix/devman-cli.nix.
-          devman = pkgs.callPackage ./nix/devman-cli.nix {
-            inherit pkgs dagu;
-            uv2nix = uv2nix;
-            pyprojectNix = pyproject-nix;
-            pyprojectBuildSystems = pyproject-build-systems;
-            mancoreSrc = mancore;
-          };
-          default = pkgs.callPackage ./nix/devman-cli.nix {
-            inherit pkgs dagu;
-            uv2nix = uv2nix;
-            pyprojectNix = pyproject-nix;
-            pyprojectBuildSystems = pyproject-build-systems;
-            mancoreSrc = mancore;
-          };
-
-          # The independent link adapter (038 Stage 16, B). A separate output
-          # because it is a separate component: it holds no Dagu, no watchexec
-          # and no workflow renderer, and its build cannot see `src/devman`.
-          # `nix/link-adapter.nix` carries the argument.
-          devman-link = pkgs.callPackage ./nix/link-adapter.nix { };
-        });
-
-      checks = forAllSystems (pkgs:
-        {
-          # The independent link adapter's build IS its independence check: the
-          # derivation cannot see `src/devman`, and its install check runs a
-          # real `status` against a repository no registry has heard of (038
-          # Stage 16). Naming it here is what puts both in `base:test`.
-          link-adapter = pkgs.callPackage ./nix/link-adapter.nix { };
-
-          # Every shipped workflow must load. Dagu rejects an unknown top-level
-          # key outright and rejects a top-level `name:`, and neither failure is
-          # visible until something tries to run the file (A5).
-          groups-validate = pkgs.runCommand "devman-groups-validate"
-            {
-              nativeBuildInputs = [ (pkgs.callPackage ./nix/dagu.nix { }) ];
-            } ''
-            export HOME=$TMPDIR
-            export DAGU_HOME=$TMPDIR/dagu
-            mkdir -p "$DAGU_HOME"
-            fail=0
-            for f in ${./groups}/*/workflows/*.yaml; do
-              echo "validating ''${f#${./groups}/}"
-              dagu validate "$f" || fail=1
-            done
-            [ "$fail" = 0 ]
-            touch $out
-          '';
-
-          # THE THIRD READER OF THE SHARED IDENTITY TABLE (009 P1-5).
-          #
-          # The grammar is stated twice — `src/devman/registry.py` for the CLI
-          # and `modules/link.nix` for the repo interface — because §3.1 says
-          # what the two interfaces share must be TEXT, and a Python function is
-          # not text. `tests/fixtures/identity.json` is that text.
-          #
-          # This check reads the same file with `fromJSON` and asserts the
-          # Nix-side pattern agrees with every case. The Python side asserts the
-          # same table in `tests/unit/test_registry.py`, and the conformance
-          # suite asserts the pinned Dagu accepts every name marked valid. That
-          # is what makes duplicating a small grammar at both boundaries safe.
-          identity-grammar =
-            let
-              table = builtins.fromJSON (builtins.readFile ./tests/fixtures/identity.json);
-              # The link module's own pattern, spelled as it is spelled there.
-              # `builtins.match` anchors, so the module carries no `^` or `$`.
-              grammar = "[A-Za-z0-9][A-Za-z0-9._-]*";
-              agrees = case: (builtins.match grammar case.name != null) == case.valid;
-              disagreeing = builtins.filter (c: !(agrees c)) table.cases;
-            in
-            assert table.grammar == "^${grammar}$";
-            assert disagreeing == [ ];
-            pkgs.runCommand "devman-identity-grammar" { } "touch $out";
-
-          # The registry function's output layout (`nix/registry.nix`). Building
-          # it runs `dagu validate` on every rendered workflow. The assertions
-          # read the files the module's `registryDir` would read.
-          registry-layout =
-            let registry = fixtureRegistry pkgs;
-            in pkgs.runCommand "devman-registry-layout"
-              { nativeBuildInputs = [ pkgs.python3 ]; } ''
-              cd ${registry}
-              python3 -I - <<'PY'
-              import json, os, pathlib
-              root = pathlib.Path(".")
-              assert sorted(p.name for p in root.iterdir()) == ["dags", "generation.json", "projects"]
-              gen = json.loads(pathlib.Path("generation.json").read_text())
-              assert gen["generation"] == 7 and gen["contract_schema"] == 1, gen
-              assert sorted(gen) == [
-                  "contract_schema", "dagu_digest", "devman_runtime", "generation",
-                  "policy_digest", "renderer_digest", "toolchain_digest"], sorted(gen)
-              assert sorted(p.name for p in pathlib.Path("projects").iterdir()) == ["beta", "demo"]
-              for project, path, want in (
-                  ("demo", "/home/tester/work/demo", {"check", "maintain", "test", "probe"}),
-                  ("beta", "/home/tester/work/beta", None),
-              ):
-                  entry = pathlib.Path("projects") / project
-                  meta = json.loads((entry / "metadata.json").read_text())
-                  assert meta["project"] == project and meta["path"] == path, meta
-                  assert meta["plan"] == "plane:7", meta["plan"]
-                  names = {p.stem for p in (entry / "workflows").glob("*.yaml")}
-                  assert want is None or names == want, (project, names)
-                  record = json.loads((entry / "projection.json").read_text())
-                  assert record["plane_generation"] == 7 and record["project"] == project
-                  for name in names:
-                      link = pathlib.Path("dags") / f"{project}.{name}.yaml"
-                      assert os.readlink(link) == f"../projects/{project}/workflows/{name}.yaml"
-                      text = (entry / "workflows" / f"{name}.yaml").read_text()
-                      assert f"working_dir: {path}\n" in text, (project, name)
-                      assert f"DEVMAN_PROJECT_DIR: {path}" in text, (project, name)
-              beta = json.loads(pathlib.Path("projects/beta/metadata.json").read_text())
-              assert beta["triggers"]["ignore"] == ["build/**"], beta["triggers"]
-              PY
-              touch $out
-            '';
-
-          # The Python test layer (`tests/README.md`, `STAGE_7_LOG.md` S-11).
-          #
-          # WHY A CHECK AND NOT ONLY A DEVENV TASK. `base:test` is `nix flake
-          # check`, so anything that must run before a change lands has to be
-          # here. `devenv tasks run base:unit` runs the same suite in about a
-          # second for the developer; this one runs it hermetically, with the
-          # pinned Dagu, on a machine that has never entered this shell.
-          #
-          # THE SUITE MUST NOT SEE THE INSTALLED PLANE, and the sandbox is what
-          # guarantees it rather than a rule the tests are asked to keep:
-          # `~/.local/share/devman` is not in the closure, and no Dagu service
-          # is running. Every test builds its own registry under `tmp_path`.
-          #
-          # `dagu` on `nativeBuildInputs` is what makes the conformance layer
-          # measure rather than skip — the same shape as `groups-validate`
-          # above, and the same `HOME`/`DAGU_HOME` discipline, because `dagu`
-          # seeds five example DAGs into an unset home on first use (S2).
-          #
-          # The source is copied out of the store because pytest writes
-          # `__pycache__` and `.pytest_cache` beside the files it collects, and
-          # a store path is read-only.
-          python-tests =
-            let
-              python = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ]);
-              # WHAT THE SUITE IS ALLOWED TO READ, AND WHY IT GREW (022).
-              #
-              # `tests/unit/test_agent.py` asserts things about files OUTSIDE
-              # `src/` and `tests/`: that `groups/agent/workflows/agent.yaml`
-              # names the `llm` queue and states no `retry_policy` or
-              # `schedule:`, that its `writes.toml` claims only tier A's agent
-              # surface, and that `nix/nixos-module.nix` declares the queue the
-              # workflow names. Every one of those is a claim a refactor can
-              # break silently, so every one of them belongs in the hermetic
-              # check rather than only in the developer's `base:unit`.
-              #
-              # **The fast loop reads the working tree and this reads the
-              # fileset, so they disagree by construction when this list is too
-              # narrow.** That is exactly how these five arrived green locally
-              # and red here. `tests/README.md`'s warning applies to this line:
-              # a row about coverage is a claim, and this is the claim.
-              #
-              # `./nix/nixos-module.nix` is named as one file rather than
-              # `./nix`, so a change to the Dagu package or the VM test does not
-              # rebuild the Python suite.
-              source = nixpkgs.lib.fileset.toSource {
-                root = ./.;
-                fileset = nixpkgs.lib.fileset.unions [
-                  ./src
-                  ./tests
-                  # The cutover tests import tools/cutover. Remove this with that tooling.
-                  ./tools
-                  ./pyproject.toml
-                  ./groups
-                  ./nix/nixos-module.nix
-                ];
-              };
-            in
-            pkgs.runCommand "devman-python-tests"
-              {
-                # Cutover and adapter tests evaluate fixtures with nix-instantiate.
-                nativeBuildInputs = [ python (pkgs.callPackage ./nix/dagu.nix { }) pkgs.nix ];
-              } ''
+      checks = forAllSystems (pkgs: {
+        # pytest over src/ and tests/, without the e2e tests (they start a
+        # real Dagu server on loopback ports). `base:e2e` runs those.
+        python-tests =
+          let
+            python = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ]);
+            source = nixpkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = nixpkgs.lib.fileset.unions [
+                ./src
+                ./tests
+                ./pyproject.toml
+              ];
+            };
+          in
+          pkgs.runCommand "devman-python-tests"
+            { nativeBuildInputs = [ python (mkDagu pkgs) pkgs.watchexec ]; }
+            ''
               export HOME=$TMPDIR
               export DAGU_HOME=$TMPDIR/dagu
               mkdir -p "$DAGU_HOME"
               cp -r ${source} ./suite
               chmod -R u+w ./suite
               cd ./suite
-              pytest
+              pytest -m "not e2e"
               touch $out
             '';
-        }
-        // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          # The machine module's ASSERTIONS (009 P1-6, P3-1).
-          #
-          # `nix flake check` does not evaluate a NixOS configuration that
-          # nobody builds, so an assertion with no test is unproved. This
-          # evaluates the module six ways and reads `config.assertions` — which
-          # is lazy, so nothing here builds a system.
-          #
-          # It asserts the MESSAGE as well as the failure. An assertion that
-          # fires for the wrong reason is not a test.
-          module-assertions =
-            let
-              lib = nixpkgs.lib;
-              configWith = args: (lib.nixosSystem {
-                modules = [
-                  self.nixosModules.default
-                  {
-                    nixpkgs.hostPlatform = pkgs.stdenv.hostPlatform.system;
-                    system.stateVersion = "25.05";
-                    services.devman-dagu = { enable = true; } // args;
-                  }
-                ];
-              }).config;
-              failures = args:
-                let
-                  system = configWith args;
-                in
-                # Only this module's own. A bare `nixosSystem` also fails
-                # NixOS's root-filesystem and boot-loader assertions, which say
-                # nothing about the option under test.
-                builtins.filter (m: lib.hasInfix "services.devman-dagu" m)
-                  (map (a: a.message)
-                    (builtins.filter (a: !a.assertion) system.assertions));
-
-              evaluates = args: failures args == [ ];
-              refusedBecause = args: text:
-                let msgs = failures args;
-                in msgs != [ ] && lib.any (m: lib.hasInfix text m) msgs;
-            in
-            assert evaluates { };                                    # the default
-            assert evaluates { host = "127.0.0.1"; };                # IPv4 loopback
-            assert evaluates { host = "127.0.0.53"; };               # 127.0.0.0/8
-            assert evaluates { host = "::1"; };                      # IPv6 loopback
-            assert evaluates { host = "localhost"; };
-            assert refusedBecause { host = "0.0.0.0"; } "authentication";
-            assert refusedBecause { host = "::"; } "authentication";
-            assert refusedBecause { host = "192.168.1.10"; } "authentication";
-            assert evaluates { queues = { light = 4; }; defaultQueue = "light"; };
-            assert refusedBecause
-              { queues = { light = 4; }; defaultQueue = "typo"; }
-              "not a key in services.devman-dagu.queues";
-            # A store-path registry is read-only (see `nix/registry.nix`). The
-            # module installs no reload adapter for it, and refuses a state
-            # root inside the store. A mutable registry keeps the adapter.
-            assert evaluates { registryDir = "${pkgs.emptyDirectory}"; };
-            assert refusedBecause
-              { registryDir = "${pkgs.emptyDirectory}"; stateDir = "${pkgs.emptyDirectory}/state"; }
-              "stateDir";
-            assert
-              let c = configWith { registryDir = "${pkgs.emptyDirectory}"; };
-              in !(c.systemd.user.paths ? devman-dagu-reload)
-              && !(c.systemd.user.services ? devman-dagu-reload);
-            assert
-              let c = configWith { registryDir = "$HOME/.local/state/vendomat/devman/active"; };
-              in c.systemd.user.paths ? devman-dagu-reload
-              && c.systemd.user.services ? devman-dagu-reload;
-            pkgs.runCommand "devman-module-assertions" { } "touch $out";
-
-          # The machine module, run rather than evaluated (§9, rule 7). One VM,
-          # one lingering user, one canonical compatibility publication —
-          # because the devenv half cannot run inside a NixOS test — and one
-          # real run.
-          # THE REGISTRY FUNCTION, RUN AS A STORE-PATH `registryDir`. One VM,
-          # one rendered registry, the Dagu API on loopback, one real run.
-          # `nix/tests/dagu-store-registry.nix` carries the assertions.
-          dagu-store-registry = pkgs.testers.runNixOSTest (import ./nix/tests/dagu-store-registry.nix {
-            module = self.nixosModules.default;
-            registry = fixtureRegistry pkgs;
-          });
-
-          dagu-service = pkgs.testers.runNixOSTest (import ./nix/tests/dagu-service.nix {
-            module = self.nixosModules.default;
-            groups = ./groups;
-            policy = ./.;
-            # P1-1's two source files, kept where the review wrote them. One
-            # mentions DEVMAN_SELF_DIR in a comment and must still be given
-            # DEVMAN_PROJECT_DIR; the other has an `env:` block naming neither
-            # reserved name and must be refused (009 stage 8, §9.2).
-            fixture = ./.scratch/projects/009-code-review/fixture-project;
-          });
-        });
+      });
     };
 }

@@ -4,50 +4,10 @@ inputs:
     url: github:cachix/devenv-nixpkgs/rolling
   nixpkgs-python:
     url: github:cachix/nixpkgs-python
-  nix2container:
-    url: github:nlewo/nix2container
-  mk-shell-bin:
-    url: github:rrbutani/nix-mk-shell-bin
   codex-cli:
     url: "github:sadjow/codex-cli-nix?ref=main"
 
-  # mancore (STEP7_PROMPT.md's entry-point wrap step). `flake: false`: mancore
-  # carries no flake.nix, only a devenv.nix/devenv.yaml pair, and devenv's own
-  # cross-project `inputs.<name>.devenv.config` bridge does not evaluate a
-  # referenced project's devenv.yaml (devenv issue #2205, confirmed by hand:
-  # referencing `inputs.mancore.devenv.config.outputs.mancore` here throws
-  # "nixpkgs input required", because mancore's own devenv.yaml — the file
-  # that pins the uv2nix/pyproject-nix/pyproject-build-systems inputs
-  # `languages.python.import` needs — is never read). `flake: false` instead
-  # gives `inputs.mancore` as a plain source tree, which `nix/devman-cli.nix`
-  # feeds to uv2nix directly as `workspaceRoot`, the same way mancore's own
-  # `outputs.mancore` line does internally. That needs its own copies of the
-  # same three uv2nix inputs below, which is also why they are declared here
-  # rather than inherited from mancore.
-  mancore:
-    url: "git+https://github.com/Bullish-Design/mancore?ref=refs/tags/v0.1.0"
-    flake: false
-  pyproject-nix:
-    url: github:pyproject-nix/pyproject.nix
-    inputs:
-      nixpkgs:
-        follows: nixpkgs
-  uv2nix:
-    url: github:pyproject-nix/uv2nix
-    inputs:
-      nixpkgs:
-        follows: nixpkgs
-  pyproject-build-systems:
-    url: github:pyproject-nix/build-system-pkgs
-    inputs:
-      nixpkgs:
-        follows: nixpkgs
-
 imports: []
-
-  # devman adopts itself through the machine's link plane. `.devman/project.toml`
-  # carries the identity, and the central overlay links the machine-local views.
-  # No plane-module import: it is deleted.
 
 # If you're using non-OSS software, you can set allowUnfree to true.
 # allowUnfree: true

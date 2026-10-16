@@ -1,102 +1,32 @@
-# pyproject.toml
-#
-# The CLI (CONCEPT.md §10). It ships from `nixosModules.default` only — see
-# `nix/devman-cli.nix` and the note at the top of `src/devman/cli.py` — so this
-# file describes the package and nothing installs it with pip.
-#
-# `devman 0.2.0` was a different program under the same name, removed from this
-# machine's profile at stage 1 (§3.3, `STAGE_1_LOG.md` S11). The version starts
-# at 0.3.0 so that the two are never confused in a profile listing.
-
 [project]
 name = "devman"
-version = "0.8.0"
-description = "The devman automation plane's CLI — run, show, doctor, watch"
-requires-python = ">=3.13"
+version = "0.9.0"
+description = "Compile, route and show Dagu workflows across repositories"
+requires-python = ">=3.13"          # PurePath.full_match, used for `**` globs
 dependencies = ["pyyaml"]
-
-# `linkman` joined at the M14 cutover, Lane 7 (Phase C): devman becomes a
-# consumer of the Linkman library behind the DEVMAN_LINK_ENGINE flag
-# (decisions.md D1). It is an optional group, not a base dependency, because
-# `nix/devman-cli.nix` builds the shipped CLI hermetically against a fixed
-# Nix dependency list (`python3Packages.pyyaml` only) — a base dependency
-# the Nix build cannot resolve fails `pythonRuntimeDepsCheckHook`, as it did
-# here on the first attempt. Lane 9 rewires the Nix packaging once the
-# engine flips to Linkman by default; until then this group exists for the
-# dev venv (`uv sync --extra cutover`) and for tests, not for the shipped
-# binary. It is not published anywhere; `tool.uv.sources` below points
-# `uv sync` at the sibling checkout.
-#
-# `pytest` rides along in this group for the same reason `base:unit` hands
-# its hermetic interpreter "pytest and pyyaml and nothing of devman's"
-# (devenv.nix): `tests/unit/test_linking.py` needs `linkman` to run for
-# real, so it runs here instead, under `uv sync --extra cutover` rather
-# than the fast loop.
-[project.optional-dependencies]
-cutover = ["linkman", "pytest"]
-
-[tool.uv.sources]
-linkman = { path = "../linkman", editable = true }
 
 [project.scripts]
 devman = "devman.cli:main"
-# The renderer package used by the devenv module at shell entry (009 stage 3).
-# It exposes the same `devman project apply` compatibility command and the
-# canonical `render`/`inspect` boundaries. Its store path is an evaluation-time
-# fact the shell-entry guard can observe. See `src/devman/reconcile.py`.
-devman-project = "devman.project:cli"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# Three packages, and two of them are the independent link adapter (038 Stage
-# 16). `devman_contract` holds the identity grammar and the manifest records;
-# `devman_link` holds the link adapter. Neither imports `devman`, and
-# `nix/link-adapter.nix` builds those two alone — so an accidental import of the
-# plane fails that build rather than passing here unnoticed.
 [tool.hatch.build.targets.wheel]
-packages = ["src/devman", "src/devman_contract", "src/devman_link"]
+packages = ["src/devman"]
 
 [tool.ruff]
 target-version = "py313"
 line-length = 88
 src = ["src"]
-
-# `.scratch/` is design work: investigation scripts, NixOS test bodies whose
-# globals the test driver injects, and vendored upstream clones. None of it is
-# code this repository owns, so the `base:check` task does not lint it.
 extend-exclude = [".scratch"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
-ignore = ["E501"] # line length is the formatter's job
+ignore = ["E501"]
 
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
-
-# The test layer (`tests/README.md`, `STAGE_7_LOG.md` S-11).
-#
-# `pythonpath` and not an editable install: nothing installs this package with
-# pip (the note at the top of this file), and both places that run the suite —
-# `devenv tasks run base:unit` and `flake.nix`'s `python-tests` check — hand
-# pytest a nixpkgs interpreter that holds pytest and pyyaml and nothing of
-# devman's. `src` is what makes `import devman` resolve; `tests` is what makes
-# `from helpers import ...` resolve without a package.
-#
-# `testpaths` so that a bare `pytest` in this repository collects `tests/` and
-# never `.scratch/`, which holds NixOS test bodies whose globals a driver
-# injects.
-#
-# `.` joined the list at the M14 cutover (tools/cutover/, Lane 2): those
-# scripts are a package at the repository root, not under `src`, because they
-# are one-shot cutover tooling rather than shipped library code.
 [tool.pytest.ini_options]
 addopts = "-v"
-python_files = ["test_*.py", "*_test.py"]
-pythonpath = [".", "src", "tests"]
+pythonpath = ["src", "tests"]
 testpaths = ["tests"]
-markers = [
-  "unit: fast, isolated tests",
-  "integration: integration or external dependency coverage",
-]
+markers = ["e2e: starts a real Dagu server on free loopback ports"]
