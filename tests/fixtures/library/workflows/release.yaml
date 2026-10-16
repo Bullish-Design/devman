@@ -1,0 +1,9 @@
+# Builds and does not publish: publishing is irreversible outside this machine.
+# Step 1 runs the test, so the gate holds something that can fail.
+queue: heavy
+type: chain
+steps:
+  - action: devman.task
+    with: { task: base:test }
+  - action: devman.task
+    with: { task: release:build }

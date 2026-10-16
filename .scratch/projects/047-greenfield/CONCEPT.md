@@ -76,8 +76,8 @@ devman/                            this repository (the mechanism)
 ```
 
 The library is overlay content (ruling R13). An edit to it is live: the watcher
-recompiles. `library/base.yaml` holds four tokens that only the machine knows
-(`@bash@`, `@guard@`, `@devman@`, `@stateDir@`). Compile fills them and writes
+recompiles. `library/base.yaml` holds three tokens that only the machine knows
+(`@bash@`, `@devman@`, `@stateDir@`). Compile fills them and writes
 `~/.local/state/devman/base.yaml`, which `config.yaml` names as the base
 config.
 
@@ -152,7 +152,8 @@ For each project, compile does this:
 0. **Base.** Fill the tokens of `library/base.yaml` and write
    `<state>/base.yaml`.
 1. **Resolve** each workflow: the project's own file, else the library file.
-2. **Render** the file. Prepend a header: `working_dir`, `log_dir`, `env:
+2. **Render** the file. Prepend a header: `working_dir`, `log_dir`, `shell`
+   (the guard, §5.1), `env:
    DEVMAN_PROJECT_DIR`, `group: <project>` and `labels: project=<project>`, and
    `params:` `DEVMAN_EVENT` and `DEVMAN_SUBJECT` with empty defaults. The header
    never sets `name:`. For `working_dir`, `group` and `labels` the source wins.
@@ -166,6 +167,7 @@ For each project, compile does this:
 
 **Compile refuses a project, and changes none of its files, when:**
 
+- `DEVMAN_GUARD` is not a file (compile then refuses all projects, exit 2);
 - its `path` does not exist or is not a directory. Compile tests it read-only
   and never creates it, because Dagu creates a missing `working_dir` and the
   run then succeeds in an empty directory;
@@ -187,8 +189,10 @@ files, and status says they are stale.
 ### 5.1 The checkout guard
 
 Compile checks `path` only at compile time. A checkout that vanishes later
-gives green runs that did nothing. So `base.yaml` sets the DAG shell to
-`dagu/guard.sh`. The guard fails a step when `DEVMAN_PROJECT_DIR` has neither
+gives green runs that did nothing. So the compiled header sets the DAG shell to
+`dagu/guard.sh`. A `shell:` in `base.yaml` does not reach a step on Dagu 2.20.1
+(measured in Stage 7: the step ran under `$SHELL`), so the header owns it. The
+guard fails a step when `DEVMAN_PROJECT_DIR` has neither
 `.git` nor `.jj`. The router also refuses an event for a missing path. A step
 with its own `shell:` opts out, and so do built-in action steps.
 

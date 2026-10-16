@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +16,8 @@ from devman.paths import Paths
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FAKES = Path(__file__).parent / "fakes"
+ROOT = Path(__file__).resolve().parent.parent
+BASH = shutil.which("bash") or "/bin/bash"
 STEP = "steps:\n  - name: s\n    run: echo hi\n"
 
 
@@ -42,6 +46,14 @@ class Plane:
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(text)
 
+    def seed(self) -> None:
+        """Copy the seed library workflows into the overlay library."""
+        shutil.copytree(
+            FIXTURES / "library" / "workflows",
+            self.paths.library / "workflows",
+            dirs_exist_ok=True,
+        )
+
     def own(self, project: str, name: str, text: str = STEP) -> Path:
         file = self.paths.workflows / project / f"{name}.yaml"
         file.parent.mkdir(parents=True, exist_ok=True)
@@ -55,6 +67,21 @@ class Plane:
         return self.paths.dags / project / f"{project}.{name}.yaml"
 
 
+def standin(root: Path, env: dict[str, str]) -> Path:
+    """The checkout guard (tokens filled) and a `devman` that runs the source."""
+    guard = root / "guard.sh"
+    guard.write_text((ROOT / "dagu" / "guard.sh").read_text().replace("@bash@", BASH))
+    guard.chmod(0o755)
+    exports = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in env.items())
+    devman = root / "devman"
+    devman.write_text(
+        f"#!{BASH}\n{exports}export PYTHONPATH={ROOT / 'src'}\n"
+        f'exec {sys.executable} -m devman "$@"\n'
+    )
+    devman.chmod(0o755)
+    return guard
+
+
 @pytest.fixture
 def plane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Plane:
     overlay, state = tmp_path / "overlay", tmp_path / "state"
@@ -65,6 +92,7 @@ def plane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Plane:
         "skip_examples: true\n"
         f"paths: {{dags_dir: {state}/dags, base_config: {state}/base.yaml}}\n"
         'queues: {enabled: true, config: [{"name": "light", "max_concurrency": 4},'
+        ' {"name": "normal", "max_concurrency": 2},'
         ' {"name": "heavy", "max_concurrency": 1}]}\n'
     )
     monkeypatch.setenv("DAGU_HOME", str(tmp_path / "dagu-home"))
@@ -72,8 +100,12 @@ def plane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Plane:
         "DEVMAN_OVERLAY": str(overlay),
         "DEVMAN_STATE": str(state),
         "DEVMAN_DAGU_CONFIG": str(config),
-        "DEVMAN_BASH": shutil.which("bash") or "/bin/bash",
+        "DEVMAN_BASH": BASH,
+        "DEVMAN_BIN": str(tmp_path / "devman"),
+        "DEVMAN_GUARD": str(tmp_path / "guard.sh"),
+        "DAGU_HOME": str(tmp_path / "dagu-home"),
     }
+    standin(tmp_path, env)
     paths = Paths.from_env(env)
     paths.library.mkdir(parents=True)
     shutil.copy(FIXTURES / "library" / "base.yaml", paths.base_src)

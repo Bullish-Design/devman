@@ -3,7 +3,7 @@
 
   # The development shell comes from `devenv.yaml`, not from this flake.
   # Outputs after Stage 1: the packages, one overlay, the Home Manager module
-  # and two checks. Stage 7 adds the library check.
+  # and three checks.
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -62,6 +62,43 @@
           dagu = mkDagu pkgs;
         };
 
+        # Compile the seed library for a fixture project: the real guard, the
+        # real `config.yaml` template, the real `dagu validate`. The live
+        # library sits in the overlay, outside this flake, and equals the seed.
+        library-validate =
+          let
+            devman = mkDevman pkgs;
+            dagu = mkDagu pkgs;
+            state = "/tmp/lv/state";
+            config = pkgs.replaceVars ./dagu/config.yaml {
+              host = "127.0.0.1";
+              port = "8080";
+              coordinatorPort = "50055";
+              bash = "${pkgs.bash}/bin/bash";
+              stateDir = state;
+              baseConfig = "${state}/base.yaml";
+              queues = builtins.toJSON [
+                { name = "light"; max_concurrency = 4; }
+                { name = "normal"; max_concurrency = 2; }
+                { name = "heavy"; max_concurrency = 1; }
+              ];
+            };
+          in
+          pkgs.runCommand "devman-library-validate" { nativeBuildInputs = [ devman dagu ]; } ''
+            export HOME=$TMPDIR DAGU_HOME=$TMPDIR/dagu
+            export DEVMAN_OVERLAY=$TMPDIR/overlay DEVMAN_STATE=${state}
+            export DEVMAN_DAGU_CONFIG=${config} DEVMAN_BASH=${pkgs.bash}/bin/bash
+            export DEVMAN_GUARD=${devman}/share/devman/dagu/guard.sh
+            export DEVMAN_BIN=${devman}/bin/devman
+            mkdir -p $DEVMAN_OVERLAY/library $DEVMAN_STATE $TMPDIR/work/p/.git
+            cp -r ${./tests/fixtures/library}/. $DEVMAN_OVERLAY/library/
+            printf '[p]\npath = "%s"\ntake = ["check", "test", "format", "release"]\n' \
+              $TMPDIR/work/p > $DEVMAN_OVERLAY/projects.toml
+            devman compile --all
+            test "$(ls $DEVMAN_STATE/dags/p | wc -l)" = 4
+            touch $out
+          '';
+
         # pytest over src/ and tests/, without the e2e tests (they start a
         # real Dagu server on loopback ports). `base:e2e` runs those.
         python-tests =
@@ -74,6 +111,7 @@
                 ./src
                 ./tests
                 ./pyproject.toml
+                ./dagu
               ];
             };
           in

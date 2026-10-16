@@ -1,0 +1,6 @@
+# format:fmt is idempotent. A format that writes files causes one more `save`;
+# the second run changes nothing and the loop ends. No loop receipt is needed.
+queue: light
+steps:
+  - action: devman.task
+    with: { task: format:fmt }

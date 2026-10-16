@@ -28,7 +28,6 @@ from devman.render import check_source, render
 TOKEN_RE = re.compile(r"@([A-Za-z][A-Za-z0-9]*)@")
 TOKEN_ENV = {
     "bash": "DEVMAN_BASH",
-    "guard": "DEVMAN_GUARD",
     "devman": "DEVMAN_BIN",
     "stateDir": "DEVMAN_STATE",
 }
@@ -56,7 +55,6 @@ def fill_base(paths: Paths) -> tuple[bool, str | None]:
         return False, f"cannot read {paths.base_src}: {exc.strerror}"
     values = {
         "bash": paths.bash,
-        "guard": paths.guard,
         "devman": paths.bin,
         "stateDir": str(paths.state),
     }
@@ -145,6 +143,7 @@ def _compile_project(
                 origin,
                 source,
                 text,
+                paths.guard or "",
             )
     if reasons:
         return None, reasons, 0
@@ -254,6 +253,10 @@ def compile(
 
 def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -> int:
     assert paths.dagu_config is not None
+    # A missing guard file would fail every step; refuse before any change.
+    if not (paths.guard and Path(paths.guard).is_file()):
+        print(f"devman: DEVMAN_GUARD {paths.guard} is not a file", file=sys.stderr)
+        return 2
     manifest = load(paths.projects_toml)
     unknown = [n for n in names or [] if n not in manifest.projects | manifest.errors]
     if unknown:

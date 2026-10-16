@@ -10,6 +10,7 @@
 , callPackage
 , python313
 , makeWrapper
+, bash
 , dagu
 , watchexec
 , uv2nix
@@ -57,6 +58,8 @@ in
     runHook preInstall
     mkdir -p $out/bin $out/share/devman
     cp -r dagu $out/share/devman/
+    # The guard is a template: its @bash@ token becomes this store path.
+    substituteInPlace $out/share/devman/dagu/guard.sh --replace-fail @bash@ ${bash}/bin/bash
     makeWrapper ${venv}/bin/devman $out/bin/devman \
       --prefix PATH : ${lib.makeBinPath [ dagu watchexec ]}
     runHook postInstall
@@ -65,6 +68,14 @@ in
   doInstallCheck = true;
   installCheckPhase = ''
     $out/bin/devman --version | grep -F "devman 0.9.0"
+
+    # The installed guard passes a checkout with a marker and fails one without.
+    guard=$out/share/devman/dagu/guard.sh
+    ! grep -F @bash@ $guard
+    mkdir -p $TMPDIR/ok/.git $TMPDIR/gone
+    DEVMAN_PROJECT_DIR=$TMPDIR/ok $guard -c true
+    ! DEVMAN_PROJECT_DIR=$TMPDIR/gone $guard -c true 2> $TMPDIR/err
+    grep -F "no .git, no .jj" $TMPDIR/err
   '';
 
   meta.mainProgram = "devman";

@@ -1,0 +1,4 @@
+queue: normal
+steps:
+  - action: devman.task
+    with: { task: base:test }

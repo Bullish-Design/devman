@@ -23,7 +23,7 @@ class Paths:
     lock: Path
     dagu_config: Path | None  # DEVMAN_DAGU_CONFIG, None when unset
     dagu_version: str | None
-    bash: str | None  # the four values that fill the base.yaml tokens
+    bash: str | None  # fill the base.yaml tokens; `guard` is the header shell
     guard: str | None
     bin: str | None
 

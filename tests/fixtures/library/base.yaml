@@ -1,10 +1,48 @@
-# Seed copy of the overlay file `library/base.yaml` (decision Q7). Stage 7 adds
-# the handlers and the actions. `devman compile` fills the @token@ values.
+# Seed copy of the overlay file `library/base.yaml` (decision Q7). The live copy
+# is `~/.config/devman/library/base.yaml` and is identical. `devman compile`
+# fills the @token@ values: @bash@, @devman@ and @stateDir@.
+#
+# The checkout guard (PLAN §A.8) is not set here. A `shell:` in base.yaml does not
+# reach a step on Dagu 2.20.1 (measured, Stage 7), so the compiled header sets it.
 
 # M1 (Dagu 2.20.1): a scheduled run on a queue that config.yaml defines waits
 # for a free slot. A run on an undefined queue skips the queue and runs at
 # once. A DAG with no `queue:` uses its own name as a queue of concurrency 1.
 # So every DAG gets a defined queue here.
 queue: light
-shell: "@bash@"               # Dagu reads $SHELL from the enqueuing process otherwise
 hist_retention_days: 7
+
+# The `done` and `failed` event source (M3). The run waits for this handler, and
+# a failing handler fails the run. So it detaches the emit and always exits 0.
+# It uses plain bash, not the guard: a run in a vanished checkout is already
+# failed, and the handler must still report `failed`. Other statuses send no event.
+handler_on:
+  exit:
+    shell: "@bash@"   # a step-level shell opts out of the header's guard shell
+    command: |        # Dagu 2.20.1 rejects `run` together with `shell`
+      case "$DAG_RUN_STATUS" in
+        succeeded) ev=done ;;
+        failed) ev=failed ;;
+        *) exit 0 ;;
+      esac
+      setsid -f "@devman@" emit "$ev" \
+        --project "${DAG_NAME%.*}" --subject "${DAG_NAME##*.}" --source dagu \
+        </dev/null >>"@stateDir@/handler.log" 2>&1 || true
+      exit 0
+
+actions:
+  # Run one repository task. The task name goes into the script text at build
+  # time, so the schema limits it to the characters a task name needs.
+  devman.task:
+    input_schema:
+      type: object
+      required: [task]
+      additionalProperties: false
+      properties:
+        task: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9:_.-]*$" }
+    template:
+      run: |
+        devenv tasks run -v {{ .input.task }} || {
+          echo "devman.task: task {{ .input.task }} failed" >&2
+          exit 1
+        }

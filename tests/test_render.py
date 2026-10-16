@@ -19,6 +19,7 @@ def make(text: str, project: str = "devman") -> str:
         "library",
         SRC,
         text,
+        "/g/guard.sh",
     )
 
 
@@ -32,6 +33,7 @@ def test_header_keys_are_added_when_absent() -> None:
     doc = yaml.safe_load(out)
     assert doc["working_dir"] == "/work/devman"
     assert doc["log_dir"] == "/s/runs/devman"
+    assert doc["shell"] == "/g/guard.sh"
     assert doc["group"] == "devman"
     assert doc["labels"] == {"project": "devman"}
     assert doc["env"] == [{"DEVMAN_PROJECT_DIR": "/work/devman"}]
@@ -74,7 +76,9 @@ def test_the_source_wins_for_working_dir_group_and_labels(key: str, value: str) 
 
 
 def test_a_path_with_odd_characters_is_quoted() -> None:
-    out = render("p", "w", Path('/a b/"c"'), Path("/s"), "project", SRC, "steps: []\n")
+    out = render(
+        "p", "w", Path('/a b/"c"'), Path("/s"), "project", SRC, "steps: []\n", "/g"
+    )
     assert yaml.safe_load(out)["working_dir"] == '/a b/"c"'
 
 

@@ -1,0 +1,4 @@
+queue: light
+steps:
+  - action: devman.task
+    with: { task: base:check }

@@ -86,8 +86,13 @@ def render(
     origin: str,
     source_path: Path,
     source_text: str,
+    guard: str,
 ) -> str:
-    """Return the compiled file: the header, then the source unchanged."""
+    """Return the compiled file: the header, then the source unchanged.
+
+    The header sets `shell` to the checkout guard. A `shell` in `base.yaml` does
+    not reach a step on Dagu 2.20.1 (measured in Stage 7), so the header owns it.
+    """
     keys = _first_document(source_text)
     q = json.dumps  # JSON strings are valid YAML, so any path is quoted correctly
     head = [
@@ -97,6 +102,7 @@ def render(
         f"# devman: source-sha256={hashlib.sha256(source_text.encode()).hexdigest()}",
         f"working_dir: {q(str(project_path))}" if "working_dir" not in keys else "",
         f"log_dir: {q(str(log_dir))}",
+        f"shell: {q(guard)}",
         f"group: {q(project)}" if "group" not in keys else "",
         f"labels:\n  project: {q(project)}" if "labels" not in keys else "",
         f"env:\n  - DEVMAN_PROJECT_DIR: {q(str(project_path))}",

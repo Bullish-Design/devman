@@ -1062,7 +1062,7 @@ take, and the `done`/`failed` event source. The library is overlay content
 ### `library/base.yaml` additions
 
 ```yaml
-shell: "@guard@"            # replaces "@bash@" from Stage 1; §A.8
+# no `shell:` here: the compiled header sets the guard shell (see "As built")
 
 handler_on:
   exit:
@@ -1169,6 +1169,60 @@ rules and the merge rule above are the result.
 guard in §A.8 is the result.
 
 **Depends on M1:** see Stage 1.
+
+**As built (2026-10-15).** Each item changes or fills in the plan above.
+
+- **A `shell:` in `base.yaml` is ignored by 2.20.1.** Measured with a probe step
+  (`echo $0`) on `dagu start` and on a server run: with `shell: <guard>` in the base
+  config, the step still ran under `$SHELL` (zsh) and the guard never ran. `env`
+  and `handler_on` from the same base config did reach the DAG. `default_shell` in
+  `config.yaml` only sets the `SHELL` variable of the step. A `shell:` in the DAG
+  file itself works (`-c <script>` for a `run:` step, a script path for `script:`).
+  So **the compiled header sets `shell:` to `DEVMAN_GUARD`** (`render` takes a
+  `guard` argument), the seed `base.yaml` has no `shell:` line, and the `@guard@`
+  token is gone (three tokens remain). Compile refuses with exit 2 when
+  `DEVMAN_GUARD` is not a file, because every step would fail. CONCEPT §3.1, §5
+  and §5.1 say the same. Stage 1's `shell: "@bash@"` base line is dropped: the
+  header's shell makes it dead.
+- **The package substitutes the guard's `@bash@`.** `nix/package.nix` runs
+  `substituteInPlace` on the installed copy and its install check runs the guard
+  on a directory with `.git` (passes) and one without (fails, names the marker).
+  The source file in `dagu/guard.sh` keeps the token, so tests fill it with the
+  test bash (`tests/conftest.py`, `standin`).
+- **The action input reference is `{{ .input.<name> }}`.** Dagu 2.20.1 expands a
+  custom action template with Go template syntax at build time, so the plan's
+  `<task input>` became `{{ .input.task }}`. `input_schema` is required. Because
+  the value lands in script text, the schema limits `task` to
+  `^[A-Za-z0-9][A-Za-z0-9:_.-]*$` and refuses other keys.
+- **The handler uses the legacy `command:` form.** Dagu 2.20.1 rejects `run`
+  together with `shell` ("run cannot be used together with shell"). The handler
+  needs its own `shell` to opt out of the guard, so it is `shell:` plus
+  `command:`. It validates and runs, and `DAG_RUN_STATUS` is `succeeded` or
+  `failed` as the plan says.
+- **Dagu lists runs by start second.** `GET /dag-runs?name=...&limit=1` is not a
+  safe "newest" when two runs start in one second. `last_run` takes the first of
+  five, which is newest to the second. The e2e tests pick a run by ID.
+- **Doctor gains no `handler.log` check.** The tail check needs a "last doctor
+  run" marker the plane does not keep. `handler.log` holds the stderr of a failed
+  emit; read it when a `done` event is missing. The router writes its own line for
+  every call it receives.
+- **e2e results** (real Dagu 2.20.1, temporary directories, ports from 18110/51110):
+  a library `check` through `devman run` ends `succeeded` and writes a `done` line
+  with `source: dagu`; a failing task ends `failed`, names `base:check` on stderr
+  and writes `failed`; `done` on `check` starts `test`; a handler that sleeps 10 s
+  and exits 1 leaves the run `succeeded` in under 8 s; a checkout renamed away
+  makes both a library step and a plain `run:` step fail with the guard message,
+  Dagu leaves an empty directory at the old path (M2), the handler still writes
+  `failed`, and the restored checkout runs green.
+- **The live library** is in the overlay, committed as `d72e3980` in
+  `~/.config/devman` (only `library/`; that repository is on a detached HEAD, so
+  the commit has no branch). It equals `tests/fixtures/library/`.
+- **Size.** Stage 7 added 9 lines to `src/devman/` (the guard check in `compile.py`,
+  the `shell` header line in `render.py`; the `guard` token left `compile.py`).
+  The total is 1,790 lines against 1,600 (+12 %). No module passes its budget by
+  30 %.
+- **`checks.library-validate`** compiles the seed library for a fixture project with
+  the packaged guard, the real `config.yaml` template and `dagu validate`.
 
 **Interfaces fixed:** the action name `devman.task` and its input, the library
 names, the library layout in the overlay, the `done`/`failed` subject.
@@ -1395,6 +1449,7 @@ dot.
 # devman: source-sha256=3f1c…
 working_dir: "/home/andrew/Documents/Projects/devman"
 log_dir: "/home/andrew/.local/state/devman/runs/devman"
+shell: "/nix/store/…-devman-0.9.0/share/devman/dagu/guard.sh"
 group: "devman"
 labels:
   project: "devman"
@@ -1420,7 +1475,8 @@ Rules:
 - **No `name:`.** The header never sets `name:`, and a source that sets it fails
   `dagu validate` ("entrypoint document must not define name", M2), which
   refuses the project. The DAG name is the file stem.
-- **Header-owned keys:** `env`, `log_dir` and `shell` at the top level, and
+- **Header-owned keys:** `env`, `log_dir` and `shell` at the top level (the header
+  sets `shell` to `DEVMAN_GUARD`; Stage 7 moved it there from `base.yaml`), and
   `handler_on.exit`. A source that sets one is refused:
   `"<file>: top-level env is set by devman; use step env or params"`, and the
   same form for the others. The reasons: without the header `env`,
@@ -1596,8 +1652,9 @@ succeeds in an empty directory. A checkout that is moved or deleted after the
 last compile then gives green runs that did nothing. This is the failure that
 property 4 exists to prevent.
 
-**Mechanism: a guard shell.** `base.yaml` sets the DAG shell to
-`dagu/guard.sh`:
+**Mechanism: a guard shell.** The compiled header sets the DAG shell to
+`dagu/guard.sh` (Stage 7 as built: a `shell:` in `base.yaml` did not reach a
+step on Dagu 2.20.1):
 
 ```bash
 #!@bash@

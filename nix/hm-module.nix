@@ -37,7 +37,7 @@ let
   };
 
   # The CLI with the machine facts that `compile`, `watch` and `doctor` read.
-  # `guard.sh` arrives in Stage 7, inside the package under share/devman/dagu.
+  # `guard.sh` sits inside the package under share/devman/dagu.
   wrappedDevman = pkgs.symlinkJoin {
     name = "devman-wrapped-${cfg.package.version}";
     paths = [ cfg.package ];

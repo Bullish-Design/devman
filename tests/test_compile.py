@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from conftest import STEP, Plane
 
 from devman import compile as compile_mod
 from devman import dagu
-from devman.compile import compile
+from devman.compile import compile, fill_base
 from devman.paths import Paths
 
 SRC = Path(__file__).resolve().parent.parent / "src"
@@ -342,8 +343,9 @@ def test_base_yaml_is_filled_and_written_to_the_state_directory(plane: Plane) ->
     plane.add_project("alpha")
     assert compile(plane.paths) == 0
     base = yaml.safe_load(plane.paths.base_out.read_text())
-    assert base["shell"] == plane.env["DEVMAN_BASH"]
+    assert base["handler_on"]["exit"]["shell"] == plane.env["DEVMAN_BASH"]
     assert "@bash@" not in plane.paths.base_out.read_text()
+    assert plane.env["DEVMAN_BIN"] in plane.paths.base_out.read_text()
 
 
 def test_a_changed_base_yaml_is_written_and_every_file_is_validated(
@@ -374,8 +376,6 @@ def test_a_missing_base_yaml_refuses_the_run(
 @pytest.mark.parametrize(
     ("text", "reason"),
     [
-        ("shell: '@guard@'\n", "@guard@ has no value; set DEVMAN_GUARD"),
-        ("run: '@devman@'\n", "@devman@ has no value; set DEVMAN_BIN"),
         ("x: '@nope@'\n", "unknown token @nope@"),
         ("- a\n", "base.yaml is not a mapping"),
         ("a: [\n", "invalid YAML"),
@@ -389,6 +389,24 @@ def test_a_bad_base_yaml_refuses_the_run_and_writes_nothing(
     assert compile(plane.paths) == 1
     assert reason in capsys.readouterr().err
     assert not plane.paths.base_out.exists()
+    assert not plane.dag("alpha", "check").exists()
+
+
+def test_a_token_with_no_value_refuses_the_run(plane: Plane) -> None:
+    two_projects(plane)
+    plane.paths.base_src.write_text("x: '@devman@'\n")
+    assert fill_base(replace(plane.paths, bin=None))[1] == (
+        f"{plane.paths.base_src}: @devman@ has no value; set DEVMAN_BIN"
+    )
+
+
+def test_a_missing_guard_file_refuses_the_whole_compile(
+    plane: Plane, capsys: pytest.CaptureFixture[str]
+) -> None:
+    two_projects(plane)
+    paths = replace(plane.paths, guard=str(plane.root / "nope.sh"))
+    assert compile(paths) == 2
+    assert "nope.sh is not a file" in capsys.readouterr().err
     assert not plane.dag("alpha", "check").exists()
 
 
