@@ -1,7 +1,9 @@
 """The seed library compiles, and its actions all exist (PLAN Stage 7)."""
 
+import shutil
+
 import yaml
-from conftest import Plane
+from conftest import FIXTURES, Plane
 
 from devman import doctor
 from devman.compile import compile
@@ -36,3 +38,37 @@ def test_release_runs_the_test_first(plane: Plane):
     doc = yaml.safe_load((plane.paths.library / "workflows/release.yaml").read_text())
     assert [s["with"]["task"] for s in doc["steps"]] == ["base:test", "release:build"]
     assert doc["type"] == "chain"
+
+
+def test_the_agent_example_commits_before_it_removes_the_work_tree():
+    text = (FIXTURES / "library/examples/agent-task.yaml").read_text()
+    doc = yaml.safe_load(text)
+    actions = [s.get("action", "run") for s in doc["steps"]]
+    assert actions == [
+        "git.worktree.add",
+        "harness.run",
+        "run",
+        "human.task",
+        "git.worktree.remove",
+    ]
+    commit = doc["steps"][2]["run"]
+    assert "git commit" in commit
+    assert "exit 1" in commit  # an agent that changed nothing must fail
+    assert "max-budget-usd" in doc["steps"][1]["with"]
+    assert "force" not in doc["steps"][4]["with"]
+
+
+def test_the_agent_example_compiles_as_a_project_workflow(plane: Plane):
+    text = (FIXTURES / "library/examples/agent-task.yaml").read_text()
+    plane.seed()
+    plane.add_project("alpha", '"check"')
+    plane.own("alpha", "agent-task", text)
+    assert compile(plane.paths) == 0
+    assert "agent-task" in plane.record()["projects"]["alpha"]["workflows"]
+
+
+def test_compile_never_takes_the_examples(plane: Plane):
+    plane.seed()
+    shutil.copytree(FIXTURES / "library/examples", plane.paths.library / "examples")
+    plane.add_project("alpha", '"agent-task"')
+    assert compile(plane.paths) != 0

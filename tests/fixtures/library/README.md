@@ -58,6 +58,33 @@ Each file is short, and each calls `devman.task`. A project takes one with
   fail. Publishing is irreversible outside this machine, so no library file does it.
 - No file has a `schedule:`. Fleet upkeep is one workflow in `workflows/devman/`.
 
+## `examples/`
+
+`examples/agent-task.yaml` is not a library workflow. Compile reads only
+`workflows/`, so a project cannot take it. Copy it to
+`workflows/<project>/agent-task.yaml` and edit the prompt.
+
+It runs one agent task on its own branch:
+
+1. `git.worktree.add` makes the branch `agent/task` and a work tree under
+   `.worktrees/`.
+2. `harness.run` runs `claude` in the work tree. The file sets a model, a cost cap
+   (`max-budget-usd`) and a permission mode. Dagu does not report cost, so the
+   cap is the only limit.
+3. A `run` step commits the work tree to the branch. It fails when the agent
+   changed nothing.
+4. `human.task` waits for a person. Complete it in the Dagu UI or with
+   `dagu human-task complete`.
+5. `git.worktree.remove` deletes the work tree. The branch stays. A person lands it
+   with gitman or by hand.
+
+**Step 3 is required.** `git.worktree.remove` with `force: true` deleted
+uncommitted output in the spike (SPIKES, spike 3). The example never sets `force`,
+so an uncommitted work tree also fails the remove step.
+
+The git and harness steps do not use the guard shell. A second run fails at step 1,
+because the branch exists. Add `.worktrees` to the repository's `.git/info/exclude`.
+
 ## Rules for a change
 
 - `devman doctor` checks that every `action:` a workflow here names exists in

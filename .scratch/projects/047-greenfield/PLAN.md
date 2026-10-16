@@ -1259,6 +1259,34 @@ test, with no devman code.
 
 **Verify:** the common verify command.
 
+**As built (2026-10-16).** Each item changes or fills in the plan above.
+
+- **`human.task` needs `id:`.** Dagu 2.20.1 refuses the step without an explicit
+  `id` ("action human.task requires an explicit id"). The example sets `id: review`.
+- **A step uses `run:`, not `command:`.** Dagu 2.20.1 warns that `command:` is
+  deprecated.
+- **`remove` never sets `force`.** The example is stricter than the plan: a work
+  tree with uncommitted output fails the remove step. The branch stays.
+- **A relative `path` for the git actions resolves from the repository root**
+  (`dagu schema dag`). The example uses `.worktrees/agent-task`. The `harness.run`
+  and `commit` steps use `${DEVMAN_PROJECT_DIR}/.worktrees/agent-task` as their
+  `working_dir`.
+- **The commit step fails when the agent changed nothing.** A run that succeeds
+  with no work would break property 4.
+- **`checks.library-validate`** copies the example into the fixture project's own
+  `workflows/p/` and expects five compiled files. Compile never takes the example
+  from the library (a unit test proves it).
+- **Manual check.** No model call. A stub `claude` first on `PATH` ran the example
+  on real Dagu 2.20.1 in a scratch repository. `harness.run` built
+  `claude -p <prompt> --max-budget-usd 2 --model sonnet --permission-mode
+  acceptEdits`. The commit step made one commit on `agent/task`. `human-task
+  complete` then `dagu retry` ran `remove`: the work tree went, the branch and its
+  commit stayed. The plan asked for a real `haiku` call; spike 3 already covers it.
+- **Unit tests.** `tests/test_library.py` gains three: the step order and the
+  commit guard, compile of the example as a project workflow, and refusal to take
+  it from the library.
+- **No change to `src/devman/`.**
+
 ---
 
 ## Stage 9 — documentation

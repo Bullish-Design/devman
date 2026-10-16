@@ -94,8 +94,12 @@
             cp -r ${./tests/fixtures/library}/. $DEVMAN_OVERLAY/library/
             printf '[p]\npath = "%s"\ntake = ["check", "test", "format", "release"]\n' \
               $TMPDIR/work/p > $DEVMAN_OVERLAY/projects.toml
+            # The agent example is not a library workflow. Copy it into the
+            # project's own workflows, as an owner does, so compile validates it.
+            mkdir -p $DEVMAN_OVERLAY/workflows/p
+            cp $DEVMAN_OVERLAY/library/examples/agent-task.yaml $DEVMAN_OVERLAY/workflows/p/
             devman compile --all
-            test "$(ls $DEVMAN_STATE/dags/p | wc -l)" = 4
+            test "$(ls $DEVMAN_STATE/dags/p | wc -l)" = 5
             touch $out
           '';
 

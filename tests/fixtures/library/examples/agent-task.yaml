@@ -1,0 +1,56 @@
+# Example: one agent task on its own branch, reviewed by a person.
+# This is not a library workflow. Compile reads only library/workflows/.
+# To use it, copy it to workflows/<project>/agent-task.yaml and edit the prompt.
+#
+# The branch is the lane. A person lands it, with gitman or by hand.
+# The commit step is required. `git.worktree.remove` with `force: true` deletes
+# uncommitted output (SPIKES spike 3), so this file never sets `force`.
+#
+# The git and harness actions do not use the guard shell. Compile has already
+# checked the path, and `git.worktree.add` fails outside a repository.
+# A second run fails at the first step, because the branch exists. Delete the
+# branch to run again. The work tree lives under .worktrees/ (the watcher
+# ignores it). Add .worktrees to .git/info/exclude of the repository.
+queue: heavy
+type: chain
+steps:
+  - name: add
+    action: git.worktree.add
+    with:
+      path: .worktrees/agent-task
+      branch: agent/task
+      create_branch: true
+
+  - name: work
+    action: harness.run
+    working_dir: ${DEVMAN_PROJECT_DIR}/.worktrees/agent-task
+    with:
+      provider: claude
+      model: sonnet
+      max-budget-usd: 2
+      permission-mode: acceptEdits
+      prompt: >-
+        Describe the task here. Change only what the task needs. Do not commit.
+
+  - name: commit
+    working_dir: ${DEVMAN_PROJECT_DIR}/.worktrees/agent-task
+    run: |
+      git add -A
+      if git diff --cached --quiet; then
+        echo "agent-task: the agent changed nothing" >&2
+        exit 1
+      fi
+      git commit -q -m "agent: work from the agent-task workflow"
+
+  - name: review
+    id: review
+    action: human.task
+    with:
+      prompt: >-
+        Review branch agent/task in .worktrees/agent-task. Complete the task to
+        remove the work tree. The branch stays, so land it with gitman.
+
+  - name: remove
+    action: git.worktree.remove
+    with:
+      path: .worktrees/agent-task
