@@ -1,0 +1,1490 @@
+# 047 — implementation plan
+
+**Status:** draft for the owner, 2026-10-15. The charter is
+[`CONCEPT.md`](CONCEPT.md). Every stage below names the concept section it
+implements. Evidence: [`SPIKES.md`](SPIKES.md), [`DAGU_RELEASES.md`](DAGU_RELEASES.md)
+and [`MEASUREMENTS.md`](MEASUREMENTS.md) (M1 to M6 on Dagu 2.20.1, all answered).
+§B folds each measurement that changes the design into a proposed concept
+amendment (B15 to B21).
+
+This plan writes a new core in this repository. It keeps `.scratch/` and the
+`.agents` link. It deletes or rewrites everything else. It has no migration code
+and no compatibility layer (R12).
+
+## How to use this plan
+
+- Execute one stage per gitman lane. Land each lane when its verify command
+  passes. Stages 0 to 9 change only this repository. The live machine keeps
+  running devman v0.7.0 from nix-meta until Stage 10, so no earlier stage can
+  break it.
+- Read §A (interfaces) before any stage. The interfaces are fixed there. A stage
+  that needs to change one changes §A and `CONCEPT.md` in the same lane.
+- A stage marked **Depends on Mn** builds on that measurement. Each such stage
+  states the answer and what the stage does because of it.
+- The common verify command, from Stage 0 on, is:
+
+```bash
+devenv tasks run -v base:check   # ruff check and ruff format --check
+devenv tasks run -v base:unit    # pytest
+devenv tasks run -v base:test    # nix flake check
+```
+
+  `devman doctor` is not part of verify until Stage 10, because the new doctor
+  arrives in Stage 6 and the new plane runs only after the cutover.
+
+## Stage list
+
+| # | Stage | Concept | Depends on |
+|---|---|---|---|
+| 0 | Clear the ground and lay the skeleton | §12 | — |
+| 1 | Dagu 2.20.1 and the Home Manager module | R1, R11, §10 | M1 |
+| 2 | Parse and validate `projects.toml` | R2, R4, §4 | — |
+| 3 | `devman compile` | R5, §3.2, §5 | M1, M2, M4 |
+| 4 | `devman emit` and the router | R8, §7 | M2, M4, M6 |
+| 5 | The watcher | §7 (`save`), §5 (trigger) | M5 |
+| 6 | `run`, `status`, `show`, `doctor` | §6, §11 | — |
+| 7 | The library, the `base.yaml` actions and the checkout guard | R6, R7, §7, §8 | M1, M2, M3 |
+| 8 | The agent workflow example | R9, §9 | — |
+| 9 | Documentation | §1, AGENTS.md law | — |
+| 10 | The cutover | R11, R12, §6, §10 | M4 |
+
+---
+
+## Stage 0 — clear the ground and lay the skeleton
+
+**Goal:** delete the old plane and leave a package that builds, tests and
+passes `nix flake check` with nothing but `devman --version`.
+
+**Concept:** §12.
+
+### Delete (tracked files)
+
+| Path | Why it goes |
+|---|---|
+| `src/devman/` (all 15 modules) | the old core: registry, projection, reconcile, agent, linking |
+| `src/devman_link/` | linkman owns links (§1, §12) |
+| `src/devman_contract/` | the old manifest contract (§12) |
+| `nix/devman-cli.nix` | replaced by `nix/package.nix` |
+| `nix/nixos-module.nix` | no NixOS module (R11) |
+| `nix/registry.nix`, `nix/renderer.nix`, `nix/mk-registry.py` | `mkRegistry` and the store registry (§12) |
+| `nix/link-adapter.nix` | linkman's job |
+| `nix/tests/` | tests of the registry and the NixOS service |
+| `modules/link.nix` | the old repository link module |
+| `groups/` (all) | groups, policies, `writes.toml` (§12). Workflow content moves to `library/` in Stage 7 |
+| `packaging/` | the `devman-link` package |
+| `tools/cutover/` | an old migration tool (R12) |
+| `tests/` (all) | tests of deleted code. Stage 0 writes a new `tests/` |
+| `RESEARCH_REPORT.md`, `STEP7_PROMPT.md` | old work notes. Their history stays in git |
+
+### Keep
+
+| Path | Note |
+|---|---|
+| `.scratch/` | history and stage logs. Never delete |
+| `.agents` | an untracked link into the overlay. Do not touch |
+| `CLAUDE.md` | a tracked link to `AGENTS.md` |
+| `.loci` | a tracked link for another tool. Not devman's |
+| `nix/dagu.nix` | Stage 1 bumps it |
+| `scripts/gpu_complete.py` | the `gitman:commit-message` task calls it |
+| `.gitignore` | trim the old `.devman/.runs` and `devenv.local.nix.devman-promoted` lines |
+
+### Rewrite in Stage 0
+
+- **`AGENTS.md`:** a short interim version. Keep the "Writing style",
+  "boundary test" and "Choosing what to automate" content. Replace "What this
+  repository is" with three sentences from CONCEPT §1. Replace the properties
+  that name deleted parts (registry roots, groups, `writes.toml`, tiers) with one
+  line: "The charter is `.scratch/projects/047-greenfield/CONCEPT.md`; the plan is
+  `PLAN.md` beside it." Replace "Verify before you save" with the common verify
+  command above. Stage 9 writes the full version.
+- **`README.md`, `USER.md`, `AGENTS_GUIDE.md`:** replace each with a five-line
+  stub that names the charter and the plan. Old text that describes deleted code
+  misleads an agent. Stage 9 writes the real files.
+
+### The new skeleton
+
+```
+devman/
+  pyproject.toml
+  flake.nix
+  flake.lock                 regenerated
+  devenv.nix
+  devenv.yaml
+  src/devman/
+    __init__.py              __version__ = "0.9.0"
+    __main__.py              from devman.cli import main; raise SystemExit(main())
+    cli.py                   argparse; only --version in Stage 0
+  library/                   empty until Stage 7 (keep a .gitkeep)
+  dagu/                      config.yaml and base.yaml arrive in Stage 1
+  nix/
+    dagu.nix
+    package.nix              the CLI package
+  tests/
+    conftest.py
+    test_cli.py              `python -m devman --version` prints the version
+```
+
+**The package layout.** One package, `devman`, under `src/`. One module per
+concept verb (Stage 2 to Stage 6 add them, §C lists the budget). No
+sub-packages. Three packages became one because the other two existed for
+linking and the old contract, which both leave.
+
+**The CLI library: `argparse`.** Reasons:
+
+1. It is the existing choice. `src/devman/cli.py` and every old sub-command
+   used it.
+2. It is in the standard library. The package then has one dependency, PyYAML.
+   The old build needed uv2nix, pyproject-nix and mancore for a CLI wrapper.
+3. Start-up cost matters: the watcher and the `handler_on` hook call devman for
+   every event. The old measurement (cli.py notes, hyperfine) put an import of
+   the full old CLI at 133 ms and a lean one at 81 ms. Typer adds click and
+   rich on every call. Memory note: Typer vendors click, which broke
+   `isinstance` checks before.
+
+**`pyproject.toml`:**
+
+```toml
+[project]
+name = "devman"
+version = "0.9.0"
+description = "Compile, route and show Dagu workflows across repositories"
+requires-python = ">=3.13"          # PurePath.full_match, used for `**` globs
+dependencies = ["pyyaml"]
+
+[project.scripts]
+devman = "devman.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/devman"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+src = ["src"]
+extend-exclude = [".scratch"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+addopts = "-v"
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]
+markers = ["e2e: starts a real Dagu server on free loopback ports"]
+```
+
+No `[project.optional-dependencies]`, no `tool.uv.sources`, no `linkman`.
+
+**`flake.nix` outputs (complete list after Stage 1):**
+
+| Output | Holds |
+|---|---|
+| `packages.<system>.dagu` | `nix/dagu.nix` |
+| `packages.<system>.devman` and `.default` | `nix/package.nix` |
+| `homeManagerModules.default` | `nix/hm-module.nix` (Stage 1) |
+| `overlays.default` | adds `dagu` and `devman` to a package set |
+| `checks.<system>.python-tests` | pytest over `src/` and `tests/`, with Dagu and watchexec on `PATH`, `-m "not e2e"` |
+| `checks.<system>.e2e` | pytest `-m e2e` (Stage 4). Drop it from `checks` if the Nix sandbox refuses loopback ports, and keep it in `base:e2e` |
+| `checks.<system>.library-validate` | renders and validates every library file (Stage 7) |
+| `checks.<system>.hm-module` | evaluates the Home Manager module (Stage 1) |
+
+Inputs: `nixpkgs` and `home-manager` (for `checks.hm-module` only, with
+`inputs.nixpkgs.follows = "nixpkgs"`). Delete the `mancore`, `uv2nix`,
+`pyproject-nix` and `pyproject-build-systems` inputs.
+
+**`nix/package.nix`:** `python313Packages.buildPythonApplication`, build system
+hatchling, dependency pyyaml. It installs `library/` and `dagu/` to
+`$out/share/devman/`. `postFixup` wraps `bin/devman` with
+`--prefix PATH : dagu watchexec` and `--set-default DEVMAN_LIBRARY
+$out/share/devman/library`. Install check: `devman --version`.
+
+**`devenv.yaml`:** keep `nixpkgs`, `nixpkgs-python` and `codex-cli`. Delete
+`mancore`, `pyproject-nix`, `uv2nix` and `pyproject-build-systems`. Delete
+`nix2container` and `mk-shell-bin` if nothing reads them.
+
+**`devenv.nix`:**
+
+```nix
+packages = [ pkgs.git pkgs.ruff dagu pkgs.watchexec pkgs.hyperfine
+             inputs.codex-cli.packages.${pkgs.system}.default ];
+languages.python = { enable = true; version = "3.13"; venv.enable = true; uv.enable = true; };
+tasks = {
+  "base:check".exec = "ruff check . && ruff format --check .";
+  "base:unit".exec  = "${pytestPython}/bin/pytest -m 'not e2e'";
+  "base:e2e".exec   = "${pytestPython}/bin/pytest -m e2e";
+  "base:test".exec  = "nix flake check";
+  "format:fmt".exec = "ruff format .";
+  "release:build".exec = "nix build .#devman --out-link result-devman";
+  "agent:review".exec = ...;            # unchanged; an overlay workflow calls it
+  "gitman:commit-message".exec = ...;   # unchanged
+};
+```
+
+`pytestPython = pkgs.python313.withPackages (ps: [ ps.pytest ps.pyyaml ])`.
+The devenv shell does **not** install the devman package. Two `devman`
+binaries on one `PATH` was a measured hazard. Tests run the source with
+`python -m devman`.
+
+**Tests:** `tests/test_cli.py`: `--version` prints `0.9.0` and exits 0; an
+unknown command exits 2.
+
+**Verify:** the common verify command, plus `nix build .#devman && ./result/bin/devman --version`.
+
+**Interfaces fixed:** the package name, the module layout, the CLI library, the
+devenv task names `base:check`, `base:unit`, `base:e2e`, `base:test`.
+
+---
+
+## Stage 1 — Dagu 2.20.1 and the Home Manager module
+
+**Goal:** pin Dagu 2.20.1 and ship one Home Manager module that installs the
+CLI, the Dagu user service and the watcher user service with a generated
+`config.yaml` and `base.yaml`.
+
+**Concept:** R1, R11, §10. **Depends on M1** (see below).
+
+### Files
+
+- `nix/dagu.nix`: version `2.20.1`. Copy the four sha256 sums from the release's
+  `checksums.txt`. M-run evidence: `linux_amd64` is
+  `0d5c1612cd842931fe6d4e598fc2e43fb912a94122e571c62a8f73691ea49837`. Keep the install check `dagu version`. Update the header
+  comment: the Go-version reason may no longer hold; record what does.
+- `dagu/config.yaml`: a template. `pkgs.replaceVars` fills `@name@` tokens.
+- `dagu/base.yaml`: a template. Stage 1 holds the defaults only. Stage 7 adds
+  the handlers and the actions.
+- `nix/hm-module.nix`: the module.
+- `flake.nix`: `homeManagerModules.default`, `checks.hm-module`.
+
+### `dagu/config.yaml`
+
+```yaml
+# Filled by nix/hm-module.nix. Do not edit the installed copy.
+host: "@host@"
+port: @port@
+coordinator: { host: "@host@", port: @coordinatorPort@ }
+auth: { mode: none }
+skip_examples: true
+default_shell: "@bash@"
+dag_discovery: { recursive: true, symlinks: false }
+paths:
+  dags_dir: "@stateDir@/dags"
+  base_config: "@baseConfig@"
+queues:
+  enabled: true
+  config: @queues@          # a JSON list: [{"name": "light", "max_concurrency": 4}, ...]
+```
+
+`symlinks: false`: compile writes regular files only. Dagu then ignores any
+stray link. `data_dir` and the log paths keep Dagu's defaults under
+`DAGU_HOME`. Since 2.17.2 the DAG index lives under `data_dir`.
+
+### `dagu/base.yaml` (Stage 1 part)
+
+```yaml
+queue: light
+shell: "@bash@"               # Dagu reads $SHELL from the enqueuing process otherwise
+hist_retention_days: @histRetentionDays@
+```
+
+### Module options: `services.devman`
+
+| Option | Type | Default |
+|---|---|---|
+| `enable` | bool | `false` |
+| `package` | package | this flake's `devman` |
+| `dagu.package` | package | this flake's `dagu` |
+| `host` | str | `"127.0.0.1"` |
+| `port` | port | `8080` |
+| `coordinatorPort` | port | `50055` |
+| `queues` | attrsOf positive int | `{ light = 4; normal = 2; heavy = 1; gpu = 1; exclusive = 1; llm = 2; }` |
+| `defaultQueue` | str | `"light"` |
+| `histRetentionDays` | positive int | `7` |
+| `overlayDir` | str | `"${config.home.homeDirectory}/.config/devman"` |
+| `stateDir` | str | `"${config.home.homeDirectory}/.local/state/devman"` |
+| `daguHome` | str | `"${config.home.homeDirectory}/.local/share/dagu"` |
+| `servicePath` | listOf str | `[ "%h/.nix-profile" "/etc/profiles/per-user/%u" "/run/current-system/sw" "/nix/var/nix/profiles/default" ]` |
+| `watch.enable` | bool | `true` |
+| `watch.debounce` | str | `"300ms"` |
+
+**Assertions** (correctness refusals only):
+
+- `defaultQueue` is a key of `queues`.
+- `host` is loopback (`127.0.0.0/8`, `::1`, `localhost`), because `auth.mode`
+  is `none`. A non-loopback host would expose an unauthenticated command runner.
+- `overlayDir` and `stateDir` differ, and neither contains the other. Stage 41
+  of the old plane measured what an overlay that is also an output does.
+
+**What the module writes:**
+
+- The filled `config.yaml` and `base.yaml` in the store. `base.yaml` tokens:
+  `@bash@`, `@histRetentionDays@`, and from Stage 7 `@guard@`, `@devman@`
+  (the wrapped CLI) and `@stateDir@`.
+- `home.packages = [ wrappedDevman cfg.dagu.package ]`. `wrappedDevman` is the
+  package wrapped with `--set DEVMAN_OVERLAY`, `DEVMAN_STATE`, `DAGU_HOME`,
+  `DEVMAN_DAGU_CONFIG` (the store path of the filled `config.yaml`) and
+  `DEVMAN_DAGU_VERSION` (`cfg.dagu.package.version`).
+- `systemd.user.services.devman-dagu`: `ExecStart = dagu start-all --config
+  <config.yaml>`, `Environment = DAGU_HOME=…`, `PATH` from `servicePath` plus
+  `wrappedDevman`, `UnsetEnvironment = SHELL`, `Restart = on-failure`,
+  `X-Restart-Triggers` on both generated files, `WantedBy = default.target`.
+- `systemd.user.services.devman-watch`: `ExecStart = devman watch --debounce
+  <watch.debounce>`, `After = devman-dagu.service`, `Restart = on-failure`,
+  `X-Restart-Triggers` on the package. Only when `watch.enable`.
+
+The unit names are new on purpose: `devman-dagu` and `devman-watch`. The old
+NixOS module owned `dagu.service`, `devman-watch.service` and
+`devman-dagu-reload.{path,service}`. Stage 10 removes those in the same switch.
+
+**Linger is not in the module.** Home Manager cannot set it. nix-meta keeps
+`users.users.<name>.linger = true` in its machine layer (Stage 10).
+
+### Tests
+
+- `checks.hm-module`: build a `home-manager.lib.homeManagerConfiguration` with
+  `services.devman.enable = true`. Assert both unit files exist and that the
+  filled `config.yaml` has no `@` token left.
+- The same check runs `dagu validate` on an empty DAG under the filled
+  `config.yaml` and `base.yaml`, with a temporary `DAGU_HOME`.
+- Negative evaluations: `host = "0.0.0.0"` and `defaultQueue = "typo"` each fail
+  with their assertion text.
+- `nix build .#dagu && ./result/bin/dagu version` prints `2.20.1`.
+
+**Verify:** the common verify command.
+
+**Depends on M1 (answered: yes).** On 2.20.1 a scheduled run on a queue that
+`config.yaml` defines waits for a free slot. A run on an undefined queue skips
+the queue and runs at once with no limit. A DAG with no `queue:` uses its own
+name as a queue of concurrency 1. So `base.yaml` sets `queue: light` for every
+DAG, and Stage 3 refuses an undefined `queue:` (B6). Record the M1 answer in
+`dagu/base.yaml` as a comment beside `queue:`.
+
+**Interfaces fixed:** the option names, the unit names, the six queue names,
+the environment variables in §A.6.
+
+---
+
+## Stage 2 — parse and validate `projects.toml`
+
+**Goal:** turn `projects.toml` into typed project records, and report each error
+against the project it belongs to.
+
+**Concept:** R2, R4, §4.
+
+### Files
+
+- `src/devman/paths.py`: one frozen dataclass `Paths` built from the
+  environment (§A.6): `overlay`, `state`, `library`, `dags`, `runs`,
+  `events`, `compile_json`, `lock`, `dagu_config`. No other module reads the
+  environment.
+- `src/devman/manifest.py`: `load(path) -> Manifest`.
+- `tests/test_manifest.py`, `tests/fixtures/manifests/*.toml`.
+
+### Interface
+
+```python
+@dataclass(frozen=True)
+class OnEntry:
+    event: str
+    match: tuple[str, ...]
+    exclude: tuple[str, ...]
+    run: str
+
+@dataclass(frozen=True)
+class Project:
+    name: str
+    path: Path            # expanded, absolute; not checked against the disk here
+    take: tuple[str, ...]
+    on: tuple[OnEntry, ...]
+
+@dataclass(frozen=True)
+class Manifest:
+    projects: dict[str, Project]        # the projects that parsed
+    errors: dict[str, list[str]]        # project name -> reasons; "" for file-level errors
+```
+
+`load` never raises for content. A TOML syntax error gives `errors[""]` and no
+projects. A bad table gives `errors[name]` and leaves the other projects intact.
+§A.1 lists every rule.
+
+`matches(on: OnEntry, subject: str) -> bool` lives here too, because the router
+and the loop check (§A.1, rule 9) both need it. It uses
+`PurePosixPath(subject).full_match(glob)` for each glob.
+
+### Tests
+
+- The example in CONCEPT §4 parses to the expected records.
+- One test per rule in §A.1, each asserting the exact reason text.
+- A bad table refuses only its own project.
+- `~` expansion; a relative `path` is refused.
+- `matches`: `**/*.py` matches `a.py` and `src/a.py`; `exclude = [".scratch/**"]`
+  removes `.scratch/x/a.py`; `main` matches `main` only.
+- Loop check: `on = [{event="done", match="check", run="check"}]` is refused.
+
+**Verify:** the common verify command.
+
+**Interfaces fixed:** §A.1.
+
+---
+
+## Stage 3 — `devman compile`
+
+**Goal:** resolve, render, validate and publish each project's workflows, refuse
+a broken project without touching its files, and record the result.
+
+**Concept:** R5, §3.2, §5. **Depends on M2 and M4.**
+
+### Files
+
+- `src/devman/render.py`: `render(project, workflow, source_path, source_text) ->
+  str`, and `check_source(text) -> list[str]` (the reasons a source is refused).
+- `src/devman/dagu.py`: `validate(path) -> str | None` (the error text or
+  `None`). Stage 4 and Stage 6 add more calls here.
+- `src/devman/compile.py`: `compile(paths, names: list[str] | None) -> int`.
+- `cli.py`: `devman compile [project…]`.
+- `tests/test_render.py`, `tests/test_compile.py`.
+
+### Steps (per project, in this order)
+
+1. **Lock.** Take `fcntl.flock` on `<state>/compile.lock` for the whole run. The
+   watcher and a person may compile at the same time.
+2. **Parse** the manifest (Stage 2). A project with parse errors is refused.
+3. **Resolve.** The workflow set is the union of every `*.yaml` stem in
+   `<overlay>/workflows/<project>/` and every name in `take`. For each name, the
+   source is `<overlay>/workflows/<project>/<name>.yaml` if it exists, else
+   `<library>/<name>.yaml`. A `take` name with neither file, or an `on.run` name
+   outside the set, refuses the project. Files that do not end in `.yaml` are
+   ignored (a `README.md` may sit there).
+4. **Check** each source (§A.2): a mapping as the first document, no
+   header-owned key (`env`, `log_dir`, `shell`, `handler_on.exit`), a `params:`
+   (if set) that declares `DEVMAN_EVENT` and `DEVMAN_SUBJECT`, a valid workflow
+   name, a `queue:` (if set) that names a configured queue. The queue list comes from
+   `DEVMAN_DAGU_CONFIG`.
+5. **Render** each file (§A.2).
+6. **Validate** each rendered file whose content differs from the published file.
+   Write it to `<state>/tmp/<project>/<project>.<name>.yaml` and run
+   `dagu --config $DEVMAN_DAGU_CONFIG validate <file>`. Run the validations in a
+   thread pool of 4. `--all` validates every file, changed or not.
+7. **Refuse or publish.** Any failure in steps 2 to 6 refuses the project: no
+   file under `dags/<project>/` changes. Otherwise create `dags/<project>/` and
+   `runs/<project>/`, move each changed file with `os.replace` from `tmp/` (one
+   file system), and delete each `dags/<project>/*.yaml` whose workflow left the
+   set.
+8. **Record** the project in `compile.json` (§A.3).
+
+After all projects:
+
+- **Orphans.** A directory `<overlay>/workflows/<name>/` with no manifest table
+  is refused under that name. Compile writes no file for it.
+- **Removed projects.** A project in the previous `compile.json` and not in the
+  manifest loses `dags/<project>/` and its `compile.json` entry. `runs/<project>/`
+  stays; Dagu's retention prunes it. Only a full compile (no `project` argument)
+  removes projects.
+- Write `compile.json` with `os.replace`.
+- Exit 0 when no project was refused, else 1. Print one line per refused project:
+  `devman: compile refused <project>: <reason>`.
+
+Compile never touches a file in `dags/` that it did not write. Dagu creates
+`dags/wiki/`; compile leaves it.
+
+### Tests
+
+- Header keys are added only when absent; `working_dir`, `group` and `labels`
+  set by the source win (§A.2).
+- A source with `env:` or `log_dir:` is refused with the §A.2 text.
+- A source that starts with `---` renders as one document.
+- Every refusal in CONCEPT §5 and §A.2: the project's files keep their bytes and
+  mtime; `compile.json` holds the reason and `stale: true`; another project in
+  the same run publishes.
+- A removed workflow file is deleted. A removed project's directory is deleted.
+- A second compile with no change writes nothing (mtimes unchanged) and
+  validates nothing.
+- Two compiles started at once both finish, one after the other.
+- With real Dagu 2.20.1 (from `PATH`): a rendered library-style file validates; a
+  file with `name:` fails validation and refuses its project.
+- A rendered file with `group:` and `labels:` validates (M4 measured both).
+- A source that sets `handler_on.exit` is refused with the §A.2 text.
+- A `queue: undefinedq` source is refused with the §A.2 text.
+- A `path` that names no directory refuses the project, and compile creates no
+  directory there.
+
+**Verify:** the common verify command.
+
+**Depends on M2 (answered: Dagu does not fail).** Dagu runs `mkdir -p` on a
+missing `working_dir` or `log_dir`, and the run succeeds in an empty directory.
+`dagu validate` checks no path. So:
+
+- Compile keeps its `path` refusal, and it checks with `os.path.isdir`, never by
+  creating anything. A typo in `path` must not create a directory.
+- A checkout that disappears after compile needs a run-time guard. Stage 7
+  builds it (§A.8). Stage 3 only renders `DEVMAN_PROJECT_DIR`, which the guard
+  reads.
+
+**Depends on M4 (answered: yes).** Both `dags/<project>/` subdirectories load as
+`<project>.<name>`. A linkman link to `dags/<project>/` placed outside
+`dags_dir` changes nothing. `group:` and `labels:` work, and Dagu lowercases
+label values. Two files with one base name hide both and drop both from the
+scheduler. The `<project>.<name>` stem and rule 4 (§A.1) prevent that by
+construction. Keep the layout of CONCEPT §3.2 unchanged. Never put a link inside
+`dags_dir`.
+
+**Interfaces fixed:** §A.2, §A.3, the compile exit codes.
+
+---
+
+## Stage 4 — `devman emit` and the router
+
+**Goal:** turn one event into zero or more queued Dagu runs, and record every
+event and its outcome in `events.jsonl`.
+
+**Concept:** R8, §7. **Depends on M6.**
+
+### Files
+
+- `src/devman/router.py`: `emit(paths, event: Event) -> Outcome`, and
+  `find_project(records, cwd) -> str | None`.
+- `src/devman/dagu.py`: add `enqueue(dag_file, run_id, params) -> str | None`
+  (the error text or `None`).
+- `cli.py`: `devman emit` (§A.5).
+- `tests/test_router.py`, `tests/fakes/dagu` (a fake `dagu` that appends its
+  `argv` to a file and exits with a code taken from an environment variable).
+- `tests/e2e/test_plane.py`: the end-to-end harness. It starts
+  `dagu start-all` on two free loopback ports with a temporary `DAGU_HOME` and
+  state root, compiles a fixture manifest, emits one event, and waits up to 30 s
+  for the run to succeed.
+
+### Behaviour
+
+1. Read `compile.json`. The router acts on the published state, not on the
+   manifest, so the `on` entries always agree with the files in `dags/`. A
+   project that is refused but has old files routes on its old entries; the
+   event line carries `"stale": true`.
+2. Find the project: `--project`, else the project whose `path` is the deepest
+   parent of the resolved current directory. No project: refuse (exit 2).
+3. Normalise each subject: an absolute path under the project path becomes
+   relative to it.
+4. Match: an `on` entry matches when its `event` equals the event and at least
+   one subject passes `match` and no `exclude` glob (§A.1). Each matched
+   workflow is enqueued **once** per emit, whatever the number of subjects.
+5. **Refuse a vanished checkout.** If the project `path` is not a directory,
+   refuse the event (exit 2, `refusal` in the event line). Dagu would create the
+   directory and succeed (M2).
+6. Enqueue each match:
+
+   ```
+   dagu --config $DEVMAN_DAGU_CONFIG enqueue \
+     --run-id <uuid4> --labels devman.event=<event> \
+     <state>/dags/<project>/<project>.<run>.yaml \
+     -- DEVMAN_EVENT=<event> DEVMAN_SUBJECT=<first matching subject> <KEY=VALUE…>
+   ```
+
+   - **The absolute file path, not the DAG name, and not the REST API.** M4: the
+     CLI looks only at the top of `dags_dir`, so `dagu enqueue devman.check`
+     fails with "no such file". The path form works with the server down (the
+     run waits on disk until the scheduler starts), needs no HTTP client in the
+     event path, and uses a path compile already wrote. The REST route needs a
+     live server and a request shape that no stage has pinned yet.
+   - **`--run-id`:** a `uuid.uuid4()` string that the router makes first, so
+     the event line names the run even when Dagu fails. Dagu refuses a
+     duplicate ID (M6); a uuid4 never repeats, so a refusal there means a bug and
+     shows as `"result": "failed"`.
+   - **`--labels devman.event=<event>`:** records why the run started, in the
+     Dagu UI. The event grammar (§A.1, rule 7) is inside the label character set
+     and is already lower case, so Dagu's lowercasing changes nothing. The
+     subject is not a label: a path can hold characters a label refuses.
+   - **Never `--name`.** It renames the run, splits the run history and the log
+     directory, and changes `DAG_NAME`, which the handler parses (M6).
+   - **Never `--default-working-dir`.** `enqueue` ignores it (M6). The header's
+     `working_dir` is the only route.
+7. Append one line to `events.jsonl` (§A.4) with `O_APPEND` and one `write` call.
+8. Print one line per match: `enqueued <dag> run=<id>` or
+   `failed <dag>: <error>`. Exit 0 if every enqueue worked (zero matches is
+   success), 1 if one failed, 2 for a refusal.
+
+**Loop safety.** Stage 2 refuses a `done`/`failed` cycle at parse time. The
+router adds no runtime guard.
+
+### Tests
+
+- Unit (fake `dagu`): match, exclude, deepest-path lookup, absolute subject
+  normalisation, one enqueue for many subjects, refusal for no project, the exact
+  `argv`, the exact `events.jsonl` line, exit codes.
+- Unit: a failed enqueue still writes its event line with `"result": "failed"`.
+- Unit: the `argv` holds the absolute file path, `--run-id`, `--labels`, and no
+  `--name` and no `--default-working-dir`.
+- Unit: an event for a project whose `path` is gone is refused and enqueues
+  nothing.
+- e2e: the run reaches `succeeded`, and its step sees `DEVMAN_EVENT` and
+  `DEVMAN_SUBJECT` (the step echoes them into a file). The run carries the label
+  `devman.event=<event>` in the REST record.
+- e2e: a scheduled run of the same file (no router) sees both names as empty
+  strings, from the declared `params:` defaults.
+
+**Verify:** the common verify command, plus `devenv tasks run -v base:e2e`.
+
+**Depends on M6 (answered: yes).** `-- KEY=value` reaches the run as `${KEY}`,
+also when the DAG does not declare it. `--labels` and `--run-id` work. `--name`
+works but splits history, so the router never uses it. `enqueue` ignores
+`--default-working-dir`. Two quick enqueues of one DAG are both kept and run one
+after the other. The router passes `DEVMAN_EVENT` and `DEVMAN_SUBJECT`, and the
+rendered file **declares** both (§A.2), so a run that the router did not start
+(a schedule, a manual `dagu start`) reads empty strings and not an unset name.
+Extra `KEY=VALUE` fields pass through undeclared; a workflow that relies on one
+declares it in its own `params:`.
+
+**Interfaces fixed:** §A.4, §A.5.
+
+---
+
+## Stage 5 — the watcher
+
+**Goal:** one long-running process that turns file saves into `save` events and
+recompiles when a source changes.
+
+**Concept:** §7 (`save`), §5 (when compile runs). **Depends on M5.**
+
+### Files
+
+- `src/devman/watch.py`: `devman watch [--debounce DURATION]`.
+- `tests/test_watch.py`.
+
+### Behaviour
+
+1. **Start:** run a full compile. This picks up a new library after a Home
+   Manager switch, because the switch restarts the service.
+2. **Build the watch set** from `compile.json`:
+   - every project that has at least one `on` entry with `event = "save"`
+     (today: one project, devman);
+   - `<overlay>/projects.toml` and `<overlay>/workflows/`;
+   - `<library>`, only when it is not under `/nix/store`.
+3. **Start one watchexec** with `--only-emit-events --emit-events-to=json-stdio`,
+   `--project-origin=<state>` (without it watchexec walked a common parent at
+   99% of a core, old Stage 3 S5), `--debounce <debounce>`, one `--watch` per
+   path, and one `--ignore` per fixed pattern (§A.1, rule 8).
+4. **Read** the JSON lines. Collect paths for one debounce window. Then:
+   - a path under the overlay or the library: run compile (in process, under
+     the compile lock);
+   - a path under a project: group by project, and call `router.emit` in
+     process with `event = "save"`, `source = "watcher"` and the relative paths
+     as subjects.
+5. **Restart watchexec only when the set of watched paths changes.** Compare
+   the sorted path list before and after each compile. A compile that changes
+   workflows but not paths leaves watchexec running. M5: a start over 33
+   repositories costs about 14 s of one full core and sets about 90,000 inotify
+   watches. `save` events are missing during that window; log
+   `devman watch: watchexec starting, <n> paths` and `… ready` so the gap is
+   visible.
+6. **Exit** when watchexec exits, with its exit code. systemd's
+   `Restart=on-failure` restarts the service, and a dead watchexec stays visible.
+
+The watcher calls the router and compile as functions, not as processes. One
+save costs no extra Python start-up.
+
+### Tests
+
+- Unit: the watch set from a fixture `compile.json`; grouping a batch of paths
+  by project; overlay paths trigger compile and not emit; the ignore list is on
+  the command line.
+- Integration (real watchexec, temporary directories, no Dagu): write a file in
+  a fixture project and see one `save` line in `events.jsonl` within 2 s; write
+  inside `.git/` and `.worktrees/` and see none; add a project with a `save`
+  entry to `projects.toml` and see the watch set grow.
+
+**Verify:** the common verify command.
+
+- Unit: a compile that changes a workflow but no path does not restart
+  watchexec; a compile that adds a `save` project does.
+
+**Depends on M5 (answered: affordable).** One watchexec over all 33
+repositories sets 90,461 inotify watches (17% of the 524,288 limit), takes about
+14 s of one core to start, then holds 75 MB and about 1% of a core when idle.
+One touch gave one event. The ignore patterns filter **events**, not watches:
+watchexec still watches ignored directories. So:
+
+- One process is enough. Keep the design.
+- The watch set holds only projects with a `save` entry (B10). Today that is one
+  project, so the real cost is far below the M5 number.
+- Restart only on a path-set change (step 5).
+- The next limit is the inotify budget, at about 150 repositories that all take
+  `save`. `devman doctor` reports the watch count against
+  `fs.inotify.max_user_watches` when it passes 50%.
+
+**Interfaces fixed:** the watcher command line, the fixed ignore list.
+
+---
+
+## Stage 6 — `run`, `status`, `show`, `doctor`
+
+**Goal:** the person-facing commands that start a run and show what runs where,
+and a doctor that checks the whole plane.
+
+**Concept:** §6, §11.
+
+### Files
+
+- `src/devman/dagu.py`: add `last_run(dag_name) -> dict | None` (Dagu REST
+  `GET /api/v1/dags/<file>/dag-runs`, one result, through `urllib`; host and
+  port from `DEVMAN_DAGU_CONFIG`) and `version() -> str`.
+- `src/devman/status.py`: `status` and `show`.
+- `src/devman/doctor.py`.
+- `cli.py`: the four commands (§A.5).
+- `tests/test_status.py`, `tests/test_doctor.py`, e2e additions.
+
+### `devman run <workflow> [--project P] [KEY=VALUE…]`
+
+A manual event: `router.emit(event="manual", subjects=[workflow], implicit=True)`.
+`implicit` skips the `on` table and matches the named workflow directly. Refuse
+(exit 2) when the project has no such workflow in `compile.json`. When the
+project is stale, print a warning to stderr and run the old file.
+
+### `devman status [project] [--json]`
+
+Default project: found from the current directory. With no project and no
+match, show every project, one line each. For one project, print per workflow:
+source (`project` or `library`), triggers (`event match`), schedule (read from
+the compiled file), queue (the file's `queue:` or the base default), last run
+(time and status from Dagu), and the compile state. `--json` prints §A.7. When
+Dagu does not answer, print `last run: Dagu unreachable` and exit 0 — status
+still has local facts to show.
+
+### `devman show <workflow> [--project P]`
+
+Print `# compiled: <path>` and `# source: <path>`, then the compiled file.
+
+### `devman doctor`
+
+One line per check, `ok` or `FAIL <reason>`. Exit 0 only when every check passes.
+
+| Check | How |
+|---|---|
+| services | `systemctl --user is-active devman-dagu devman-watch` |
+| Dagu version | `dagu version` equals `DEVMAN_DAGU_VERSION` |
+| Dagu answers | the REST API on the configured port |
+| compile clean | `compile.json` has no refused project and no orphan |
+| `dags/` matches | every file in `compile.json` exists with its sha256; no other `*.yaml` under `dags/` |
+| Dagu sees every DAG | the REST DAG list contains every compiled DAG name. This catches the "No DAGs found" collision |
+| project paths | every `path` exists |
+| repository view | for each project, `<path>/.devman/workflows` and `<path>/.devman/runs` resolve to the expected targets (warn only before Stage 10) |
+| checkout markers | every `path` holds `.git` or `.jj`, so the guard (§A.8) passes |
+| handler log | `<state>/handler.log` is empty or holds no line newer than the last doctor run |
+| watch budget | the watcher's inotify watch count is under 50% of `fs.inotify.max_user_watches` (M5) |
+
+### Tests
+
+- Unit with a fake REST server (`http.server` on a free port): status text and
+  JSON, unreachable Dagu, doctor pass and each doctor failure.
+- e2e: `devman run` then `devman status --json` shows `succeeded` for that run.
+
+**Verify:** the common verify command, plus `devenv tasks run -v base:e2e`.
+
+**Risk:** the REST shape of a run on 2.20.1 is read from the API file, not run.
+The first task of this stage is one `curl` against the e2e server. If the shape
+differs, adapt `last_run` and nothing else.
+
+**Interfaces fixed:** §A.5, §A.7, doctor exit codes.
+
+---
+
+## Stage 7 — the library and the `base.yaml` actions
+
+**Goal:** the shared workflows and the shared actions that every project can
+take, and the `done`/`failed` event source.
+
+**Concept:** R6, R7, §7 (`done`, `failed`), §8. **Depends on M1, M2 and M3.**
+
+### Files
+
+- `dagu/base.yaml`: add `handler_on` and `actions`, and point `shell` at the
+  checkout guard.
+- `dagu/guard.sh`: the checkout guard (§A.8). `nix/hm-module.nix` installs it
+  with `pkgs.replaceVars` (fills `@bash@`) and puts its store path in
+  `base.yaml`.
+- `library/check.yaml`, `library/test.yaml`, `library/format.yaml`,
+  `library/release.yaml`.
+- `library/README.md`: what each library workflow does and what it asks of a
+  repository (the task names). This is the content README, by the
+  library-versus-content rule in AGENTS.md.
+- `flake.nix`: `checks.library-validate`.
+
+### `dagu/base.yaml` additions
+
+```yaml
+shell: "@guard@"            # replaces "@bash@" from Stage 1; §A.8
+
+handler_on:
+  exit:
+    shell: "@bash@"         # the handler must not depend on the guard
+    run: |
+      case "$DAG_RUN_STATUS" in
+        succeeded) ev=done ;;
+        failed)    ev=failed ;;
+        *)         exit 0 ;;
+      esac
+      setsid -f "@devman@" emit "$ev" \
+        --project "${DAG_NAME%.*}" --subject "${DAG_NAME##*.}" --source dagu \
+        </dev/null >>"@stateDir@/handler.log" 2>&1 || true
+      exit 0
+
+actions:
+  devman.task:
+    input_schema:
+      type: object
+      required: [task]
+      properties: { task: { type: string, minLength: 1 } }
+    template:
+      run: |
+        devenv tasks run -v "<task input>" || {
+          echo "devman.task: task <task input> failed" >&2; exit 1; }
+```
+
+**The handler rules (M3).** A base `handler_on` reaches every DAG, from `start`
+and from the queue. The run's final status waits for the handler, and a failing
+handler turns a succeeded run into a failed one. So the handler:
+
+- uses one key, `exit`, and maps `DAG_RUN_STATUS` to the event. `succeeded`
+  gives `done`, `failed` gives `failed`, any other status (aborted, partially
+  succeeded) gives no event;
+- detaches the emit with `setsid -f` and closes its input, so the run never
+  waits for the router (M3 round 4: a detached child ended 10 s after the run);
+- always exits 0, so a router failure never changes the run's result. The
+  router writes its own event line, and `handler.log` holds its stderr;
+- runs with plain bash, not the guard. A run in a vanished checkout is already
+  failed by the guard; the handler must still report `failed`.
+
+**The merge rule (M3).** A DAG's own `handler_on` replaces the base handler **of
+the same key only**. Base keys the DAG does not set stay. devman uses only
+`exit`, so a source may set `success`, `failure` and `cancel` freely. Compile
+refuses a source that sets `handler_on.exit` (§A.2), because it would drop the
+`done`/`failed` event silently.
+
+`<task input>` stands for the input reference that `dagu schema dag` documents
+for `actions.*.template` on 2.20.1. The stage test proves it with one real run.
+`${DAG_NAME%.*}` works because a workflow name has no dot (§A.1, rule 4). M3
+confirmed that the handler sees `DAG_NAME`, `DAG_RUN_STATUS` and `DAG_RUN_ID`.
+
+### The library
+
+| File | Queue | Steps |
+|---|---|---|
+| `check.yaml` | `light` | `action: devman.task`, `task: base:check` |
+| `test.yaml` | `normal` | `action: devman.task`, `task: base:test` |
+| `format.yaml` | `light` | `action: devman.task`, `task: format:fmt` |
+| `release.yaml` | `heavy` | step 1 `devman.task base:test`; step 2 `devman.task release:build`; `type: chain` |
+
+**`format` has no loop receipt.** The old file stored a tree hash in
+`.devman/.runs/`. That path goes. `format:fmt` is idempotent: a format that
+writes files causes one more `save`, the second run changes nothing, writes
+nothing, and the loop ends. The cost is one extra light run per save.
+
+**`release` runs the test itself.** The old gate read `metadata.jsonl` to find
+the last test run. That file goes (§12). Running the test as step 1 gives the
+gate something that can fail, with no state to read. `release` builds and does
+not publish (AGENTS.md: irreversible work stays out).
+
+No library file has a `schedule:`. Fleet upkeep is one overlay workflow (Stage 10).
+
+### Tests
+
+- `checks.library-validate`: render each library file for a fixture project and
+  run `dagu validate` with the filled `config.yaml` and `base.yaml`.
+- e2e: a fixture project (made with `git init`, so the guard passes) with a
+  `devenv`-free stand-in for `devenv tasks run` (a script named `devenv` first
+  on `PATH` that exits with a set code). A
+  passing `check` emits `done`; a failing one emits `failed` and names the task
+  on stderr. Both lines appear in `events.jsonl`.
+- e2e: an `on` entry `event = "done", match = "check", run = "test"` makes a
+  `check` run start a `test` run.
+- e2e: with `devman` replaced by a script that sleeps 10 s and exits 1, a
+  passing `check` still ends `succeeded` in under 2 s.
+- e2e, the guard: compile a fixture project, then rename its checkout away. A
+  `check` run ends **`failed`** and its log names the missing checkout. Dagu
+  does create an empty directory at the old path (M2); the guard fails anyway,
+  because that directory has no `.git` and no `.jj`. Delete it, restore the
+  checkout, and the run succeeds.
+- e2e, the guard: a project workflow with a plain `run:` step (no action) fails
+  the same way.
+
+**Verify:** the common verify command, plus `devenv tasks run -v base:e2e`.
+
+**Depends on M3 (answered: inherited; blocking; can fail the run).** The handler
+rules and the merge rule above are the result.
+
+**Depends on M2 (answered: Dagu creates the directory and succeeds).** The
+guard in §A.8 is the result.
+
+**Depends on M1:** see Stage 1.
+
+**Interfaces fixed:** the action name `devman.task` and its input, the library
+names, the `done`/`failed` subject.
+
+---
+
+## Stage 8 — the agent workflow example
+
+**Goal:** prove the Dagu-native agent pattern with one example workflow and a
+test, with no devman code.
+
+**Concept:** R9, §9.
+
+### Files
+
+- `library/examples/agent-task.yaml`: not a library workflow (compile reads only
+  `library/*.yaml`, so `examples/` is never taken). An owner copies it into
+  `workflows/<project>/`. Steps: `git.worktree.add` on a new branch with a fixed
+  `path` under `.worktrees/`; `harness.run` with `provider`, `model`,
+  `max-budget-usd` and `permission-mode`, with an explicit `working_dir` (the
+  built-in actions do not pass through the guard shell, §A.8); a step
+  that commits the work tree to the branch; `human.task` for review;
+  `git.worktree.remove`.
+- `library/README.md`: one section on the pattern and the reason for step 3
+  (SPIKES spike 3: `remove` with `force: true` deleted uncommitted output).
+
+### Tests
+
+- `checks.library-validate` validates the example.
+- No test calls a real model. A manual check before landing: one run with
+  `model: haiku` and `max-budget-usd: 0.25` in a scratch repository. Record the
+  result in the lane description.
+
+**Verify:** the common verify command.
+
+---
+
+## Stage 9 — documentation
+
+**Goal:** rewrite every document to describe the new design and nothing else.
+
+**Concept:** §1; AGENTS.md law (library versus content split).
+
+### Files in this repository
+
+| File | Content |
+|---|---|
+| `README.md` | what devman is (§1), install (§10), the manifest (§4), the CLI (§11), the files (§3). Under 200 lines |
+| `USER.md` | the developer view: read `.devman/workflows`, read `.devman/runs`, `devman status`, `devman run`, add a workflow, take a library workflow, add an event source |
+| `AGENTS_GUIDE.md` | the map: modules and their budget, the data flow (manifest → compile → `dags/` → Dagu; event → router → `dagu enqueue`), the interfaces in §A, how to test, how to diagnose |
+| `AGENTS.md` | the law, rewritten: what the repository is, the scope table (mechanism docs here; `library/README.md` for content; the overlay for per-project workflows), the properties that still hold (boundary test, property 4, Python for logic, secrets declared, STE writing, read the log before you delete a line), verify, choosing what to automate (drop the tier table; keep the questions and the measured trade-offs that still apply) |
+| `library/README.md` | already written in Stage 7 and Stage 8 |
+
+Delete any statement about registries, generations, groups, tiers, link
+modules, `.devman/project.toml` or `triggers.toml`.
+
+### The skills
+
+The `devman`, `devman-workflow` and `devman-adopt` skills are **not** in this
+repository. They live in the overlay at
+`~/.config/devman/projects/devman/agents/skills/`, and `.agents` links to them.
+Rewrite them in an overlay commit in the same stage:
+
+- `devman`: the concept in one page, the CLI, the diagnosis order (`devman
+  status`, `devman doctor`, `events.jsonl`, the Dagu UI).
+- `devman-workflow`: how to write `workflows/<project>/<name>.yaml`, the header
+  rules (§A.2), the `on` entries, a test loop (`devman compile <p>`, `devman run`,
+  `devman status`).
+- `devman-adopt`: becomes "add a project": one table in `projects.toml`, the
+  task names the library calls, the linkman lines. A repository commits nothing.
+
+**Verify:** the common verify command; read each document once against §A.
+
+---
+
+## Stage 10 — the cutover
+
+**Goal:** switch the machine to the new plane, remove every trace of the old
+one, and prove one run per event source.
+
+**Concept:** R11, R12, §6, §10. **Depends on M4** (answered: a linkman link to
+`dags/<project>/` outside `dags_dir` is safe, so the links in step 3 point
+straight at the compiled directory).
+
+Run it as one session. Steps 2 to 5 change other repositories; each is its own
+lane in that repository.
+
+1. **Release.** Tag this repository `v0.9.0` and push the tag (open question
+   Q3).
+2. **Overlay content** (`~/.config/devman`, one commit):
+   - Move `projects/devman/workflows/*.yaml` to `workflows/devman/`. Rewrite
+     each to the new contract: no `.devman/.runs/` path, no `env:`, steps through
+     `devman.task` where a task exists. Drop the ones that only served the old
+     plane (`plane-report`, `stack-validate` if it checks the old registry).
+   - Add `workflows/devman/upkeep.yaml`: `schedule: "20 0 * * *"`, `queue:
+     light`. It runs `devman doctor` and loops over `devman status --json` to
+     list failed last runs. It exits 0 when it ran. Findings go to a notification
+     (open question Q2).
+   - Delete `dags/` (the old link farm) and every `projects/*/workflows/`.
+   - Remove the `dags/` and `**/.runs/` lines from the overlay `.gitignore`.
+3. **linkman declarations:** in each `projects/<p>/links.yaml`, set
+   `.devman/workflows` to `${env.HOME}/.local/state/devman/dags/${repo.name}/`
+   and add `.devman/runs` with `${env.HOME}/.local/state/devman/runs/${repo.name}/`.
+   Confirm for all 33 projects that `repo.name` equals the manifest name. A
+   mismatch needs an explicit target, not `${repo.name}`. Add the commit and land
+   hook links only if Q1 is answered.
+4. **nix-meta** (one lane):
+   - Bump the `devman` input to the tag. Check that `vendomat`'s
+     `inputs.devman.follows` still evaluates. If vendomat reads a deleted devman
+     file, drop that `follows` line.
+   - Replace `profiles/devman.nix`: import `inputs.devman.homeManagerModules.default`
+     into `home-manager.users.${username}`, set `services.devman.enable = true`,
+     and set `users.users.${username}.linger = true` at the machine level.
+     Delete the `nixosModules` import and `registryDir`.
+   - `profiles/devlayer.nix` reads `share/devman/link-module.nix`, which no
+     longer exists. Remove its pointer step after `grep -r current.nix
+     ~/.config/devman` shows no reader (open question Q5).
+5. **Stop the old plane:** `systemctl --user stop devman-watch dagu
+   devman-dagu-reload.path`. Wait for no `dagu` process (`pgrep -u $USER dagu`).
+6. **Delete the old state** (R12):
+   - `~/.local/share/devman`
+   - `~/.local/state/vendomat/devman`
+   - everything in `~/.local/state/devman` (the old `projects/`, `watch/`,
+     `reload.target`)
+   - `~/.local/share/dagu` (old history and DAG index; open question Q4)
+   - in each of the 33 repositories: `.devman/.runs/`, the old
+     `.devman/workflows` link, and the `.devman/.runs/` line in
+     `.git/info/exclude`
+7. **Switch:** `sudo nixos-rebuild switch --flake ~/Documents/Projects/nix-meta#server`
+   (Home Manager still runs as a NixOS module on this machine). Then
+   `systemctl --user list-unit-files 'dagu*' 'devman*'` shows only
+   `devman-dagu` and `devman-watch`.
+8. **Links:** run linkman's reconcile for each repository. Check that
+   `.devman/workflows` and `.devman/runs` resolve and are in `.git/info/exclude`.
+9. **Prove it:**
+   - `devman doctor` exits 0.
+   - `devman status` in this repository lists check, test, format and release.
+   - `devman run check` in this repository succeeds; its log is under
+     `.devman/runs/`.
+   - Save a `.py` file here: one `save` line and one `format` run in
+     `events.jsonl`. A save under `.scratch/` gives a `save` line with no match.
+   - The `check` run's `done` event appears in `events.jsonl`.
+   - The Dagu UI groups the workflows by project.
+10. **Record** the dated machine evidence in `AGENTS.md` (number of projects,
+    number of DAG files, Dagu version) and write `CUTOVER_LOG.md` in this
+    directory. Restore `devman doctor` in the AGENTS.md verify section.
+
+**Rollback:** pin nix-meta's `devman` input back to `v0.7.0` and switch. The
+old state is gone, so the old plane would start empty. R12 accepts this.
+
+---
+
+## A. Interfaces
+
+### A.1 `projects.toml`
+
+```toml
+# ~/.config/devman/projects.toml
+
+[devman]                                  # table key = project name
+path = "~/Documents/Projects/devman"      # required
+take = ["check", "test", "format", "release"]   # optional, default []
+
+[[devman.on]]                             # optional, any number
+event   = "save"                          # required
+match   = "**/*.py"                       # required: a glob or a list of globs
+exclude = [".scratch/**"]                 # optional: a list of globs
+run     = "format"                        # required
+```
+
+Rules. Each broken rule refuses that project only, with the quoted reason.
+
+1. Every top-level item is a table. Else: file-level error `"<key> is not a
+   table"`.
+2. The project name matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`. Else `"project name
+   <name> does not match [A-Za-z0-9][A-Za-z0-9._-]*"`. TOML needs quotes for a
+   name with a dot: `["loci.nvim"]`.
+3. Allowed keys: `path`, `take`, `on`. In `on`: `event`, `match`, `exclude`,
+   `run`. Else `"unknown key <key>"`. A typo must not become a silent no-op.
+4. A workflow name (in `take`, in `run`, or a file stem in `workflows/<project>/`)
+   matches `^[A-Za-z0-9][A-Za-z0-9_-]*$` — **no dot**. Else `"workflow name
+   <name> must not contain a dot"` or the grammar text.
+5. `path` is a string. After `~` expansion it is absolute. Compile (not the
+   parser) refuses a path that is not a directory.
+6. Two projects with the same resolved `path` are both refused: `"path shared
+   with <other>"`. A nested path is allowed; the deepest match wins.
+7. `event` matches `^[a-z][a-z0-9._-]*$`. `match` is a non-empty string or a
+   non-empty list of non-empty strings. `exclude` is a list of non-empty strings.
+8. **The watcher ignores these directories in every project, always:** `.git`,
+   `.jj`, `.devenv`, `.direnv`, `.venv`, `node_modules`, `__pycache__`, `.gitman`,
+   `.worktrees`, `.devman`. They are generated or tool-owned in every repository,
+   and `.devman` holds the links to compiled files and run logs.
+9. **Loop refusal.** Build a graph: an `on` entry with event `done` or `failed`
+   is an edge from each workflow its `match` accepts to its `run`. A cycle refuses
+   the project: `"on entries form a loop: check -> test -> check"`.
+
+Glob semantics: `PurePosixPath(subject).full_match(glob)`. `*` does not cross
+`/`. `**` matches zero or more path parts. There is no brace expansion; use a
+list.
+
+What each event's subject is:
+
+| Event | Subject |
+|---|---|
+| `save` | a path relative to the project |
+| `commit`, `land` | a ref name, such as `main` |
+| `done`, `failed` | the workflow name, without the project prefix |
+| `manual` | the workflow name (implicit match) |
+| any other | whatever the source passes |
+
+### A.2 The rendered file
+
+File: `<state>/dags/<project>/<project>.<workflow>.yaml`. The DAG name is the
+stem, `<project>.<workflow>`. Rule 4 makes it unique and splittable at the last
+dot.
+
+```yaml
+# devman: compiled file. Do not edit. Edit the source and run `devman compile`.
+# devman: project=devman workflow=check origin=library
+# devman: source=/nix/store/…-devman-0.9.0/share/devman/library/check.yaml
+# devman: source-sha256=3f1c…
+working_dir: "/home/andrew/Documents/Projects/devman"
+log_dir: "/home/andrew/.local/state/devman/runs/devman"
+group: "devman"
+labels:
+  project: "devman"
+env:
+  - DEVMAN_PROJECT_DIR: "/home/andrew/Documents/Projects/devman"
+params:
+  - DEVMAN_EVENT: ""
+  - DEVMAN_SUBJECT: ""
+# devman: source text follows
+queue: light
+steps:
+  - action: devman.task
+    with: { task: base:check }
+```
+
+Rules:
+
+- The header is comments, then the keys, then the source text unchanged.
+  Values are JSON strings (valid YAML), so any path is quoted correctly.
+- Compile parses the source's first YAML document to learn its top-level keys.
+  The first document must be a mapping. Else refuse: `"<file>: the first document
+  is not a mapping"`.
+- **No `name:`.** The header never sets `name:`, and a source that sets it fails
+  `dagu validate` ("entrypoint document must not define name", M2), which
+  refuses the project. The DAG name is the file stem.
+- **Header-owned keys:** `env`, `log_dir` and `shell` at the top level, and
+  `handler_on.exit`. A source that sets one is refused:
+  `"<file>: top-level env is set by devman; use step env or params"`, and the
+  same form for the others. The reasons: without the header `env`,
+  `DEVMAN_PROJECT_DIR` is silently missing and the guard cannot work; without
+  the header `log_dir`, the run logs leave `.devman/runs`; a top-level `shell`
+  replaces the base guard shell (§A.8); a DAG `handler_on.exit` replaces the base
+  handler and drops the `done`/`failed` event (M3: the merge is per key).
+- **`params`:** the header declares `DEVMAN_EVENT` and `DEVMAN_SUBJECT` with
+  empty defaults (M6: declared names give a run that the router did not start a
+  defined empty value). A source that sets its own `params:` must declare both
+  names in it, in list or map form. Else refuse: `"<file>: params must declare
+  DEVMAN_EVENT and DEVMAN_SUBJECT"`. Compile cannot merge two `params:` keys
+  without rewriting the source.
+- **Source-wins keys:** `working_dir`, `group`, `labels`. The header adds each
+  only when the source does not set it.
+- **Labels are lowercased by Dagu** (M4). The header writes the project name as
+  given; a filter on the REST API uses the lowercase form,
+  `project=<project, lowercased>`.
+- A source whose first non-blank, non-comment line is `---` loses that line, so
+  the header and the source stay one document. Later `---` documents (local
+  sub-DAGs) stay as written.
+- `queue:`, if the source sets it, must name a queue in the Dagu config. Else
+  refuse: `"<file>: queue <q> is not configured; configured: light, normal, …"`.
+  M1: a run on an undefined queue skips the queue and runs at once with no
+  limit, and Dagu accepts the file silently.
+
+### A.3 `compile.json`
+
+```json
+{
+  "version": 1,
+  "compiled_at": "2026-10-15T21:04:11+00:00",
+  "devman": "0.9.0",
+  "orphans": ["oldproject"],
+  "projects": {
+    "devman": {
+      "status": "ok",
+      "stale": false,
+      "at": "2026-10-15T21:04:11+00:00",
+      "path": "/home/andrew/Documents/Projects/devman",
+      "reasons": [],
+      "on": [
+        {"event": "save", "match": ["**/*.py"], "exclude": [".scratch/**"], "run": "format"}
+      ],
+      "workflows": {
+        "check": {
+          "dag": "devman.check",
+          "file": "/home/andrew/.local/state/devman/dags/devman/devman.check.yaml",
+          "origin": "library",
+          "source": "/nix/store/…/share/devman/library/check.yaml",
+          "sha256": "9a0e…"
+        }
+      }
+    },
+    "broken": {
+      "status": "refused",
+      "stale": true,
+      "at": "2026-10-15T21:04:11+00:00",
+      "path": "/home/andrew/Documents/Projects/broken",
+      "reasons": ["take names check2, which is neither in workflows/broken/ nor in the library"],
+      "on": [],
+      "workflows": {}
+    }
+  }
+}
+```
+
+- `status`: `"ok"` or `"refused"`.
+- `stale`: `true` when refused and the project still has files from an earlier
+  compile. Then `on` and `workflows` keep the values of the last good compile, so
+  the router and status describe the files Dagu runs. A project refused on its
+  first compile has `stale: false`, empty `on` and empty `workflows`.
+- `sha256` is the hash of the rendered file.
+
+### A.4 `events.jsonl`
+
+One JSON object per line, one line per `devman emit` or `devman run` call:
+
+```json
+{"at": "2026-10-15T21:05:02.114+00:00", "event": "save", "project": "devman", "source": "watcher", "subjects": ["src/devman/compile.py"], "fields": {}, "stale": false, "matches": [{"workflow": "format", "dag": "devman.format", "run_id": "0b6c…", "result": "enqueued"}], "refusal": null}
+```
+
+- `source`: the `--source` value; default `"cli"`. The watcher writes
+  `"watcher"`, the base handlers `"dagu"`, `devman run` writes `"manual"`.
+- `fields`: the `KEY=VALUE` arguments.
+- `matches[].result`: `"enqueued"` or `"failed"`; a failed one adds `"error"`.
+- `refusal`: `null`, or a string when the router refused the whole event (no
+  project found, unknown project, unknown workflow for `run`). Then `project` may
+  be `null` and `matches` is `[]`.
+- An event with no match has `"matches": []` and `"refusal": null`.
+
+Nothing rotates the file. Open question Q6.
+
+### A.5 The CLI
+
+```
+devman --version
+devman compile [--all] [PROJECT ...]
+devman emit EVENT [--project P] [--subject S]... [--source NAME] [KEY=VALUE]...
+devman run WORKFLOW [--project P] [KEY=VALUE]...
+devman status [PROJECT] [--json]
+devman show WORKFLOW [--project P]
+devman doctor
+devman watch [--debounce DURATION]
+```
+
+`emit` grammar:
+
+- `EVENT`: `^[a-z][a-z0-9._-]*$`.
+- `--subject` repeats. Zero subjects is allowed; then only an `on` entry with
+  `match = "**"` can match, because `full_match` needs a subject. In that case
+  the router matches against the empty string, which `**` accepts.
+- `KEY=VALUE`: `KEY` matches `^[A-Za-z_][A-Za-z0-9_]*$`. The prefix `DEVMAN_` is
+  reserved and refused. `VALUE` is passed as given.
+- The router adds `DEVMAN_EVENT` and `DEVMAN_SUBJECT` (the first subject that
+  matched; empty when there is none).
+
+Exit codes for every command: `0` success; `1` the work ran and something failed
+(a refused project, a failed enqueue, a doctor finding); `2` a usage error or a
+refusal before any work (bad arguments, no project for the current directory).
+
+`watch` is the service entry point. A person does not type it.
+
+### A.6 Environment
+
+The Home Manager wrapper sets these. Each has a default, so the CLI also runs
+from a checkout for tests.
+
+| Variable | Default |
+|---|---|
+| `DEVMAN_OVERLAY` | `~/.config/devman` |
+| `DEVMAN_STATE` | `~/.local/state/devman` |
+| `DEVMAN_LIBRARY` | `<package>/share/devman/library` (set by `nix/package.nix`) |
+| `DEVMAN_DAGU_CONFIG` | none; commands that need Dagu refuse without it |
+| `DEVMAN_DAGU_VERSION` | none; doctor skips the version check without it |
+| `DAGU_HOME` | Dagu's own default |
+
+A run sees `DEVMAN_PROJECT_DIR` (header), `DEVMAN_EVENT` and `DEVMAN_SUBJECT`
+(router).
+
+### A.7 `devman status --json`
+
+```json
+{
+  "project": "devman",
+  "path": "/home/andrew/Documents/Projects/devman",
+  "compile": {"status": "ok", "stale": false, "at": "…", "reasons": []},
+  "dagu": "reachable",
+  "workflows": [
+    {
+      "name": "check",
+      "dag": "devman.check",
+      "origin": "library",
+      "source": "/nix/store/…/check.yaml",
+      "triggers": [{"event": "land", "match": ["main"], "exclude": []}],
+      "schedule": null,
+      "queue": "light",
+      "last_run": {"run_id": "…", "status": "succeeded", "started_at": "…", "finished_at": "…"}
+    }
+  ]
+}
+```
+
+With no project, the output is a list of these objects.
+
+---
+
+### A.8 The checkout guard
+
+**Problem (M2).** Dagu runs `mkdir -p` on a missing `working_dir` and the run
+succeeds in an empty directory. A checkout that is moved or deleted after the
+last compile then gives green runs that did nothing. This is the failure that
+property 4 exists to prevent.
+
+**Mechanism: a guard shell.** `base.yaml` sets the DAG shell to
+`dagu/guard.sh`:
+
+```bash
+#!@bash@
+# devman checkout guard (PLAN §A.8, MEASUREMENTS M2). Do not edit the installed copy.
+if [ -n "${DEVMAN_PROJECT_DIR:-}" ] \
+   && [ ! -e "$DEVMAN_PROJECT_DIR/.git" ] && [ ! -e "$DEVMAN_PROJECT_DIR/.jj" ]; then
+  echo "devman: checkout $DEVMAN_PROJECT_DIR is gone (no .git, no .jj); refusing to run" >&2
+  exit 1
+fi
+exec "@bash@" "$@"
+```
+
+It checks for `.git` or `.jj`, not for the directory, because Dagu creates the
+directory before the first step. An empty directory has neither marker.
+
+**Why this mechanism:**
+
+| Option | Verdict |
+|---|---|
+| A DAG-level `preconditions:` in `base.yaml` or the header | Rejected. Dagu's documentation says an unmet precondition **skips** the DAG or step; it does not fail it. M2 did not measure it. A skip is a quiet non-result, not a loud failure. |
+| A first step in the header | Impossible. The header cannot add to the source's `steps:` without rewriting the source. |
+| A check inside `devman.task` only | Covers library workflows only. A project workflow with a plain `run:` step would still succeed in an empty directory. |
+| The router refuses an event for a missing path | Kept (Stage 4), but it does not cover a scheduled run, which never passes the router. |
+| **A guard shell in `base.yaml`** | **Chosen.** Every `run:` step of every workflow passes through the DAG shell, from any trigger, schedule included. It fails the step with a reason on stderr. It is one file of seven lines and needs no change to any source. |
+
+**Limits, stated in `library/README.md`:**
+
+- A step that sets its own `shell:` opts out of the guard. Compile refuses a
+  top-level `shell:` (§A.2); a step-level `shell:` is the owner's explicit choice.
+- Built-in action steps (`git.worktree.*`, `harness.run`) do not use the shell.
+  The agent pattern (Stage 8) starts with `git.worktree.add`, which fails in a
+  directory that is not a repository, so it is loud there too.
+- The stage-7 e2e test confirms how Dagu calls the shell (`-c <script>` or a
+  script path). `exec "@bash@" "$@"` passes both forms through.
+
+---
+
+## B. Proposed concept amendments
+
+Each resolves an ambiguity in `CONCEPT.md`. Apply each to `CONCEPT.md` in the
+stage that first depends on it.
+
+| # | Section | Amendment | Reason | Stage |
+|---|---|---|---|---|
+| B1 | §4 | A workflow name matches `[A-Za-z0-9][A-Za-z0-9_-]*`: no dot. | Project `a.b` with workflow `c` and project `a` with workflow `b.c` both give stem `a.b.c`. Without a dot in workflow names the stem is unique and splits at the last dot. | 2 |
+| B2 | §4 | `on.match` takes a glob or a list of globs. `on.exclude` is an optional list of globs. | No brace expansion in the glob engine. The old `format` trigger excluded `.scratch/**`; 16 of 252 fires there did nothing. | 2 |
+| B3 | §7 | The watcher ignores a fixed list in every project: `.git .jj .devenv .direnv .venv node_modules __pycache__ .gitman .worktrees .devman`. | See below. | 5 |
+| B4 | §4 | Unknown keys refuse the project. Two projects with one `path` are both refused. A `done`/`failed` cycle refuses the project. | A typo or a loop would otherwise fail silently or run forever (property 4). | 2 |
+| B5 | §5 | Top-level `env`, `log_dir` and `shell`, and `handler_on.exit`, are header-owned; a source that sets one is refused. `working_dir`, `group` and `labels` follow "the source wins". | Skipping `env` would drop `DEVMAN_PROJECT_DIR`; skipping `log_dir` would hide the logs from `.devman/runs`; `shell` and `handler_on.exit` would remove the guard and the `done`/`failed` event (B17, B18). | 3 |
+| B6 | §5 | A `queue:` must name a queue that `config.yaml` defines; compile refuses any other. | M1: a run on an undefined queue skips the queue and runs at once with no limit, and Dagu accepts the file silently. | 3 |
+| B7 | §5 | A full compile deletes `dags/<p>/` of a project that left the manifest, using the previous `compile.json`. `runs/<p>/` stays. | §5 covers removed workflows and orphan sources, not removed projects. | 3 |
+| B8 | §7 | The router reads `compile.json`, not `projects.toml`. | The `on` entries then always match the files Dagu runs, also for a stale project. | 4 |
+| B9 | §7 | One emit enqueues each matched workflow once, however many subjects match. The run gets `DEVMAN_EVENT` and `DEVMAN_SUBJECT`. `DEVMAN_` is a reserved parameter prefix. | A save of 20 files must give one format run, not 20. | 4 |
+| B10 | §7 | The watcher watches only projects with a `save` entry, compiles at start, and recompiles on a change to `projects.toml`, `workflows/` or a non-store library. | Start-up compile picks up a new store library after a switch. A smaller watch set lowers the M5 cost. | 5 |
+| B11 | §3.1, §10 | The library and `base.yaml` ship in the package (`share/devman/`). `DEVMAN_LIBRARY` overrides the library for development. | One pin for the code, the library and the Dagu version. | 0, 7 |
+| B12 | §7 | `done` is Dagu success and `failed` is Dagu failure. The subject is the workflow name; the project comes from the DAG name. | §7 names the events but not their subject. | 7 |
+| B13 | §8 | `format` keeps no loop receipt; `release` runs the test as its first step. | The `.devman/.runs` receipt and `metadata.jsonl` go (§12). | 7 |
+| B14 | §12 | The cutover deletes `~/.local/share/dagu` too. | Old history and a 2.15 DAG index have no value (R12). | 10 |
+| B15 | §5 | Compile checks `path` with a read-only test and never creates it. State the reason: Dagu creates a missing `working_dir` or `log_dir` and the run succeeds (M2). | M2. | 3 |
+| B16 | §5, new §5.1 | A run-time checkout guard: `base.yaml` sets the DAG shell to a guard that fails a step when `DEVMAN_PROJECT_DIR` has neither `.git` nor `.jj` (§A.8). The router also refuses an event for a missing path. | M2: compile's check holds only at compile time. A precondition would skip, not fail. | 4, 7 |
+| B17 | §7 | The `done`/`failed` source is one base `handler_on.exit` that maps `DAG_RUN_STATUS`, detaches `devman emit` with `setsid -f`, and always exits 0. | M3: the run waits for its handler, and a failing handler fails the run. | 7 |
+| B18 | §5, §7 | Merge rule: a DAG's own `handler_on.<key>` replaces the base handler of that key only. devman uses `exit` only, so compile refuses a source that sets `handler_on.exit`; other keys are free. | M3. | 3, 7 |
+| B19 | §7 | The router calls `dagu enqueue` with the absolute path of the compiled file, `--run-id <uuid4>` and `--labels devman.event=<event>`, and passes fields as `-- KEY=value`. It never uses `--name` or `--default-working-dir`. | M4: the CLI does not find a subdirectory DAG by name. M6: `--name` splits history; `enqueue` ignores `--default-working-dir`; a duplicate run ID is refused. | 4 |
+| B20 | §5 | The header never sets `name:`; it declares `params:` `DEVMAN_EVENT` and `DEVMAN_SUBJECT` with empty defaults. A source with its own `params:` must declare both. Label values are lowercased by Dagu; filters use the lowercase form. | M2 (`validate` rejects `name:`), M4 (lowercase labels), M6 (undeclared params pass silently). | 3 |
+| B21 | §7, §10 | The watcher restarts watchexec only when the watched path set changes. A start costs about 14 s of one core and about 90,000 inotify watches for 33 repositories; ignore patterns filter events, not watches. | M5. | 5 |
+| B22 | §13 | Close M1 to M6 with the answers in `MEASUREMENTS.md`. | All six are measured on 2.20.1. | 1 |
+
+**B3, the exclusion decision.** Two layers, each for one job:
+
+- **The fixed watcher ignore list** holds directories that are generated or
+  owned by a tool in *every* repository. A write there is never a save. Filtering
+  them in watchexec means no event, no Python work and no `events.jsonl` line.
+  The old watcher had the same list and needed it, because `--project-origin`
+  turns off `.gitignore` discovery (old Stage 3 S5). `.devman` is new: it holds
+  the links to run logs, and a run that writes a log must not become its own
+  next event. The list is fixed in code, not configurable, because no project
+  wants a save event from these directories.
+- **`exclude` on an `on` entry** holds what is true for one project and one
+  trigger, such as devman's `.scratch/**`. It lives in the router, so it works for
+  every event type, not only `save`, and `events.jsonl` still records the event
+  with no match. That record answers "why did this not run?".
+
+One layer alone fails: a fixed list cannot know `.scratch/`, and an `exclude` on
+every entry would repeat `.git/**` in 33 tables. `.gitman` and `.worktrees` go
+in the fixed list because gitman and agent work trees create them in every
+repository. The devman entry then needs only `exclude = [".scratch/**"]`.
+
+---
+
+## C. Size budget
+
+Core Python in `src/devman/`, counted by `wc -l`, comments included:
+
+| Module | Lines | Holds |
+|---|---|---|
+| `cli.py` | 170 | argparse, dispatch, exit codes |
+| `paths.py` | 50 | `Paths` from the environment |
+| `manifest.py` | 180 | TOML load, rules 1 to 9, `matches` |
+| `render.py` | 110 | the header, source checks |
+| `compile.py` | 260 | resolve, validate, publish, record, lock |
+| `dagu.py` | 130 | `validate`, `enqueue`, `last_run`, `version`, config read |
+| `router.py` | 180 | find project, match, enqueue, record |
+| `watch.py` | 200 | watchexec, batching, restart |
+| `status.py` | 160 | `status`, `show`, `run` |
+| `doctor.py` | 160 | the eleven checks |
+| **Total** | **1,600** | concept target ~1,500 |
+
+Other files: `dagu/guard.sh` ~10, `nix/hm-module.nix` ~160, `nix/package.nix` ~40, `nix/dagu.nix`
+~70, `flake.nix` ~120, `dagu/*.yaml` ~70, `library/*.yaml` ~60. Tests ~1,200.
+
+If a module passes its budget by more than 30%, stop and look for a Dagu feature
+that does the same job before you continue.
+
+---
+
+## D. Risks
+
+| Risk | Effect | Mitigation |
+|---|---|---|
+| The guard shell is called in a form `exec bash "$@"` does not pass through | Every step fails, or the guard is skipped | The Stage 7 e2e tests run a passing and a failing case through the real scheduler before landing |
+| A step-level `shell:` bypasses the guard | A run in a vanished checkout can succeed | Documented as an explicit opt-out (§A.8); the router refusal and `devman doctor` still report the missing path |
+| The REST shape of a run differs on 2.20.1 | `status` and `doctor` misread | Stage 6 starts with one `curl`; only `dagu.last_run` adapts |
+| The action template input syntax is unknown | `devman.task` fails to validate | Stage 7 reads `dagu schema dag` first; the library check catches it |
+| Old and new unit names coexist during the switch | Two Dagu servers on one port | New names; Stage 10 stops the old units first |
+| vendomat's `inputs.devman.follows` reads a deleted file | nix-meta fails to evaluate | Stage 10 step 4 checks; drop the `follows` |
+| The devlayer pointer imports a garbage-collected store path | Shell entry breaks in some repositories | Q5; remove the pointer step in the same nix-meta lane |
+| `events.jsonl` grows without bound | Disk use | Q6 |
+| A detached `handler_on` emit fails | `done`/`failed` lost; the run result stays correct | `@devman@` is an absolute store path; the router writes an event line for every call it receives, and `handler.log` holds the stderr of a call that died earlier. `devman doctor` reports a non-empty `handler.log` tail |
+| A burst of events queues many runs of one workflow | M6: Dagu keeps every enqueue and runs them one after another | Q10 |
+
+---
+
+## E. Open questions for the owner
+
+| # | Question | Options | Recommendation |
+|---|---|---|---|
+| Q1 | What emits `commit` and `land`? jj runs no hooks, and a git hook does not fire on a jj operation. | 1. A git hook linked by linkman (misses jj). 2. gitman calls `devman emit land --subject <trunk>` after it lands. 3. The watcher watches `.git/refs/heads/<trunk>`. | 2 for `land`. Drop `commit` until a workflow needs it. Stage 10 ships without both if this is open. |
+| Q2 | Where does a fleet upkeep finding go? | 1. A Dagu notification channel (Telegram, email, webhook). 2. Only the upkeep log and `devman status`. | 2 now; add 1 when a channel exists. |
+| Q3 | How does nix-meta pin the new devman? | 1. Tag `v0.9.0` and pin `git+https…?ref=refs/tags/v0.9.0`. 2. Pin a `git+file:` revision. | 1. It matches the current pin style and gives a rollback name. |
+| Q4 | Delete `~/.local/share/dagu` at the cutover? | 1. Yes. 2. Keep the old history. | 1 (R12). |
+| Q5 | Remove the devlayer pointer step in nix-meta `profiles/devlayer.nix`? It names the devman link module, which goes. | 1. Remove it with the cutover. 2. Leave it; it only warns. | 1, after a grep shows no reader of `current.nix`. |
+| Q6 | Rotate `events.jsonl`? | 1. No rotation now. 2. The upkeep workflow keeps the last 30 days. | 1 now; 2 when the file passes 50 MB. |
+| Q7 | Library from the store or from the live checkout? | 1. The store (pinned), with `DEVMAN_LIBRARY` for development. 2. The live checkout (unpinned). | 1. A library change then ships with the code that renders it. |
+| Q8 | Refuse a top-level `env` in a source (B5)? | 1. Refuse. 2. Merge into the source by rewriting its YAML (loses comments). | 1. Step `env` and `params` cover the need. |
+| Q9 | Home Manager as a NixOS module now, or standalone first? | 1. Import into today's `home-manager.users.andrew`. 2. Wait for vendomat 22 phase 4 (standalone home). | 1. The module is the same in both; phase 4 moves one import line. |
+| Q10 | Coalesce a burst? M6: two quick enqueues of one DAG both run, one after the other. | 1. No coalescing; accept the extra runs. 2. The router skips an enqueue when the same DAG already has a run in state `queued` (not running), and records `"result": "coalesced"`. The queued run sees the newer files anyway. | 1 now. 2 after Stage 6 pins the REST shape, if `events.jsonl` shows bursts. |
