@@ -66,7 +66,7 @@ in
 
   doInstallCheck = true;
   installCheckPhase = ''
-    $out/bin/devman --version | grep -F "devman 0.9.0"
+    $out/bin/devman --version | grep -F "devman 0.9.1"
     ${venv}/bin/python -c 'from importlib.resources import files; assert files("devman").joinpath("base.yaml").is_file()'
 
     # The installed guard passes a checkout with a marker and fails one without.

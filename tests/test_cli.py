@@ -22,7 +22,7 @@ def test_version_prints_the_version() -> None:
     result = run("--version")
     assert result.returncode == 0
     assert result.stdout.strip() == f"devman {__version__}"
-    assert __version__ == "0.9.0"
+    assert __version__ == "0.9.1"
 
 
 def test_unknown_command_exits_2() -> None:
