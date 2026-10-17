@@ -39,7 +39,7 @@ including the repository view in §6.
 | R9 | **Agent work is Dagu-native:** `harness.run`, `git.worktree.*`, `human.task`. No Agentman. | `SPIKES.md` spike 3: a real `claude` call worked in a linked work tree. |
 | R10 | **Safety is minimal:** correctness refusals only. No write tiers, no reload gate. | The owner's ruling. A refusal still beats a silent wrong result (property 4). |
 | R11 | **Home Manager installs devman:** the CLI, the Dagu user service and the watcher user service. No NixOS module. | A devman change needs no system rebuild. This matches the 045 toolbelt. |
-| R13 | **The library is overlay content,** not package content. | It is true for this user (boundary test), and an edit then needs no switch and no release. `devman doctor` checks that every action a library file names exists in `base.yaml`. |
+| R13 | **Workflow content is overlay content. The required Dagu base is package content.** | F2 and F3 (project 048) show that an editable base can remove required events or set an undefined queue. The packaged base owns `handler_on.exit` and `devman.task`. It keeps history for seven days. The overlay holds workflows, examples and their README. |
 | R12 | **No migration.** Old registry roots, generations and compatibility data are deleted. | devman has one user and nothing worth carrying. |
 
 ### 2.1 The boundary test
@@ -65,7 +65,6 @@ are applications of it.
 ~/.config/devman/                  the central overlay (a git repository)
   projects.toml                    the one manifest (§4)
   workflows/<project>/<name>.yaml  workflows for one project only
-  library/base.yaml                shared actions, handlers, defaults (a template)
   library/workflows/<name>.yaml    shared workflows a project can take
 ```
 
@@ -73,13 +72,14 @@ are applications of it.
 devman/                            this repository (the mechanism)
   dagu/config.yaml                 queues and paths (a template; Nix fills it)
   dagu/guard.sh                    the checkout guard (§5.1)
+  src/devman/base.yaml             required Dagu base template
 ```
 
-The library is overlay content (ruling R13). An edit to it is live: the watcher
-recompiles. `library/base.yaml` holds three tokens that only the machine knows
-(`@bash@`, `@devman@`, `@stateDir@`). Compile fills them and writes
-`~/.local/state/devman/base.yaml`, which `config.yaml` names as the base
-config.
+The overlay contains workflow content (ruling R13). An edit to a workflow is
+live: the watcher recompiles it. The packaged base holds the required handler
+and action. Compile fills its three machine tokens (`@bash@`, `@devman@`,
+`@stateDir@`) and writes `~/.local/state/devman/base.yaml`, which `config.yaml`
+names as the base config. Compile validates the candidate before publication.
 
 ### 3.2 What devman writes
 
@@ -149,8 +149,10 @@ library changes. A person can run it by hand.
 
 For each project, compile does this:
 
-0. **Base.** Fill the tokens of `library/base.yaml` and write
-   `<state>/base.yaml`.
+0. **Base.** Fill the tokens of the packaged `src/devman/base.yaml`. Check the
+   required handler and action, seven-day retention, and absence of a base
+   queue. Validate the candidate base and compiled DAGs with a temporary Dagu
+   config. Publish `<state>/base.yaml` only after validation.
 1. **Resolve** each workflow: the project's own file, else the library file.
 2. **Render** the file. Prepend a header: `working_dir`, `log_dir`, `shell`
    (the guard, §5.1), `env:
@@ -176,6 +178,8 @@ For each project, compile does this:
 - a source sets a header-owned key (above), or omits `queue:`, or names a
   non-string, empty or unconfigured queue (Dagu runs an undefined queue at once,
   with no limit; findings F1 and F3 in project 048);
+- the packaged base is invalid or lacks `handler_on.exit` or `devman.task`
+  (finding F2 in project 048); compile keeps the active base and DAG files;
 - a `take` entry or an `on.run` entry names a workflow that does not exist;
 - any of its rendered files fails `dagu validate`;
 - `workflows/<project>/` exists but the project has no manifest entry (this
@@ -251,7 +255,7 @@ So "why did this run?" always has an answer in one file.
 |---|---|
 | `save` | the watcher: one `watchexec` over the paths of projects that have a `save` entry. It ignores `.git .jj .devenv .direnv .venv node_modules __pycache__ .gitman .worktrees .devman`, compiles at start, and recompiles when `projects.toml`, `workflows/` or `library/` change |
 | `commit`, `land` | a jj or git hook that linkman installs; it calls `devman emit` |
-| `done`, `failed` | one `handler_on.exit` in `base.yaml` maps the run status and calls `devman emit` detached, and always exits 0. The subject is the workflow name |
+| `done`, `failed` | the packaged `handler_on.exit` maps the run status and calls `devman emit` detached, and always exits 0. The subject is the workflow name |
 | schedule | Dagu's own `schedule:`. Since 2.17.0 it passes through the queue |
 | external | a Dagu webhook on the workflow, or `devman emit` from any script |
 
@@ -265,8 +269,9 @@ event name, and a manifest entry matches it.
 
 Two mechanisms, each for one job:
 
-- **Actions** in the overlay's `library/base.yaml` hold shared steps. Example: `devman.task`
-  runs `devenv tasks run -v <task>` and names the failing task on stderr.
+- **Actions** in the packaged `src/devman/base.yaml` hold required behavior.
+  The reserved `devman.task` action runs `devenv tasks run -v <task>` and names
+  the failing task on stderr. A workflow cannot replace that action.
 - **Library workflows** in the overlay's `library/workflows/` are short files
   that call actions:
 
@@ -321,7 +326,9 @@ The devman flake exports one Home Manager module. It installs:
 recursive discovery, and defines every queue. Since 2.17.0 a scheduled run
 waits in its queue only when the config defines that queue.
 
-The package ships no library. The library is overlay content (R13).
+The package ships the required base template and guard. The overlay holds
+workflow content, examples and its README (R13). `DEVMAN_LIBRARY` only replaces
+workflow content for tests.
 
 The package is a Python project (`pyproject.toml`, `uv.lock`) built for Nix with uv2nix. The interpreter comes from nixpkgs. The uv2nix inputs live in `flake.nix` only. Decided 2026-10-15 (PLAN Q12).
 
@@ -338,7 +345,7 @@ The CLI uses Typer: one typed function per command (PLAN Q11, decided 2026-10-15
 | `devman run <workflow>` | a manual event |
 | `devman status [project]` | §6 |
 | `devman show <workflow>` | prints the compiled file and its source path |
-| `devman doctor` | checks the services, the Dagu version, that `dags/` matches the last compile, and that every action a library file names exists in `base.yaml` |
+| `devman doctor` | checks the services, the Dagu version, that `dags/` matches the last compile, and that every action a library workflow names exists in the packaged base |
 
 ## 12. What goes
 

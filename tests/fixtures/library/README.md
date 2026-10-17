@@ -1,28 +1,11 @@
-# The devman library
+# Library fixtures
 
-This directory is overlay content (`~/.config/devman/library/`). It is true for
-this user, not for every clone of a repository, so it lives here and not in the
-devman package. An edit is live: the watcher sees it and recompiles.
+This directory holds workflow and example fixtures. It does not hold the base
+template. The package owns that template at `src/devman/base.yaml`.
 
-`tests/fixtures/library/` in the devman repository holds an identical seed copy.
-Tests and `checks.library-validate` use the seed. Keep the two the same.
-
-## `base.yaml`
-
-Shared defaults, one handler and one action. `devman compile` fills three tokens
-(`@bash@`, `@devman@`, `@stateDir@`) and writes the result to
-`~/.local/state/devman/base.yaml`, which Dagu reads as its base config. A running
-Dagu rereads it for the next run.
-
-| Part | What it does |
-|---|---|
-| `queue: light` | A DAG with no `queue:` uses its own name as a queue of limit 1. This default gives every DAG a queue that the Dagu config defines. |
-| `hist_retention_days: 7` | Dagu prunes run history and logs after seven days. |
-| `handler_on.exit` | Maps the run status to the `done` or `failed` event and starts `devman emit` detached. It always exits 0, so a router problem never changes a run. Other statuses (aborted, partially succeeded) send no event. |
-| `actions: devman.task` | Runs `devenv tasks run -v <task>`. A failure names the task on stderr and fails the step. |
-
-The handler uses plain bash, not the guard. A run in a vanished checkout is
-already failed, and the handler must still report `failed`.
+`devman compile` fills its three tokens (`@bash@`, `@devman@`, and `@stateDir@`)
+and writes `<state>/base.yaml`, which Dagu reads as its base config. The template
+defines `handler_on.exit`, `devman.task`, and seven days of run history.
 
 ## The checkout guard
 

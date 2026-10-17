@@ -15,7 +15,7 @@ class Paths:
     overlay: Path
     state: Path
     library: Path
-    base_src: Path  # <library>/base.yaml, the template
+    base_src: Path  # packaged base.yaml template
     base_out: Path  # <state>/base.yaml, the template with its tokens filled
     dags: Path
     runs: Path
@@ -62,7 +62,7 @@ class Paths:
             overlay=overlay,
             state=state,
             library=library,
-            base_src=library / "base.yaml",
+            base_src=Path(__file__).with_name("base.yaml"),
             base_out=state / "base.yaml",
             dags=state / "dags",
             runs=state / "runs",

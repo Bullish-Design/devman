@@ -1,15 +1,9 @@
-# Seed copy of the overlay file `library/base.yaml` (decision Q7). The live copy
-# is `~/.config/devman/library/base.yaml` and is identical. `devman compile`
-# fills the @token@ values: @bash@, @devman@ and @stateDir@.
+# Packaged required Dagu behavior. Compile fills the three machine tokens.
+# Compile fills @bash@, @devman@ and @stateDir@.
 #
 # The checkout guard (PLAN §A.8) is not set here. A `shell:` in base.yaml does not
 # reach a step on Dagu 2.20.1 (measured, Stage 7), so the compiled header sets it.
 
-# M1 (Dagu 2.20.1): a scheduled run on a queue that config.yaml defines waits
-# for a free slot. A run on an undefined queue skips the queue and runs at
-# once. A DAG with no `queue:` uses its own name as a queue of concurrency 1.
-# So every DAG gets a defined queue here.
-queue: light
 hist_retention_days: 7
 
 # The `done` and `failed` event source (M3). The run waits for this handler, and

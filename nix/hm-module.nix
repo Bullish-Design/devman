@@ -1,7 +1,6 @@
 # The Home Manager module (CONCEPT.md §10). It installs the devman CLI, Dagu,
 # the Dagu user service and the watcher user service. It generates
-# `config.yaml` only. `base.yaml` is overlay content (R13): `devman compile`
-# fills its tokens and writes `<stateDir>/base.yaml`.
+# `config.yaml`; `devman compile` fills the packaged base template.
 #
 # Linger is not here. Home Manager cannot set it; the machine layer does.
 { self }:
@@ -109,12 +108,6 @@ in
       description = "Queue names and their max concurrency.";
     };
 
-    defaultQueue = mkOption {
-      type = types.str;
-      default = "light";
-      description = "The queue that library/base.yaml names. Must be a key of `queues`.";
-    };
-
     overlayDir = mkOption {
       type = types.str;
       default = "${home}/.config/devman";
@@ -167,10 +160,6 @@ in
 
   config = mkIf cfg.enable {
     assertions = [
-      {
-        assertion = cfg.queues ? ${cfg.defaultQueue};
-        message = "services.devman.defaultQueue \"${cfg.defaultQueue}\" is not a key of services.devman.queues.";
-      }
       {
         assertion = isLoopback cfg.host;
         message = "services.devman.host \"${cfg.host}\" is not loopback. Dagu runs with auth.mode none, so a non-loopback host exposes an unauthenticated command runner.";

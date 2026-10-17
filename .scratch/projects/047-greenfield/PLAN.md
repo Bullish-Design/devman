@@ -33,36 +33,30 @@ devenv tasks run -v base:test    # nix flake check
   `devman doctor` is not part of verify until Stage 10, because the new doctor
   arrives in Stage 6 and the new plane runs only after the cutover.
 
-## Where the library lives (decision Q7, 2026-10-15)
+## Where content lives (R13, amended 2026-10-17)
 
-The library is **overlay content**, not package content. The package ships the
-mechanism only: compiler, router, watcher, CLI, `dagu/config.yaml` and
-`dagu/guard.sh`. Layout, under the overlay (`~/.config/devman`):
+Workflow content is **overlay content**. The required Dagu base is package
+content. The earlier Q7 decision that placed the base in the overlay is
+superseded by findings F2 and F3 in project 048. Layout, under the overlay
+(`~/.config/devman`):
 
 ```
 library/
-  base.yaml            shared defaults, actions and handlers (a template, see below)
   workflows/<name>.yaml   shared workflows a project can take
   README.md            what each library file does
 ```
 
-- An edit to the library is live. The watcher sees the change and recompiles.
-  No Home Manager switch and no devman release is needed.
-- `base.yaml` holds four tokens that only the machine knows: `@bash@`,
-  `@guard@`, `@devman@` and `@stateDir@`. `devman compile` fills them from the
-  environment (`DEVMAN_BASH`, `DEVMAN_GUARD`, `DEVMAN_BIN`, `DEVMAN_STATE`) and
-  writes `<state>/base.yaml`. `config.yaml` sets `paths.base_config` to that
-  file. The Home Manager wrapper sets the variables. A running Dagu reads a
-  changed `base.yaml` for its next run without a restart (M7, measured in
-  Stage 3). So compile restarts nothing, and `devman doctor` needs no finding
-  for it.
-- `devman doctor` checks that every `action:` a library workflow names exists
-  in `base.yaml`.
-- `DEVMAN_LIBRARY` stays as a test override. When set, it replaces
-  `<overlay>/library`.
-- The repository keeps a seed copy of the library under
-  `tests/fixtures/library/`. Tests and `checks.library-validate` use it. Stage 7
-  writes the live copy into the overlay in one overlay commit.
+- A workflow edit is live. The watcher recompiles it without a Home Manager
+  switch or a devman release.
+- `src/devman/base.yaml` owns `handler_on.exit` and `devman.task`. It fixes run
+  history at seven days and has no queue. Compile fills its three tokens from
+  `DEVMAN_BASH`, `DEVMAN_BIN` and `DEVMAN_STATE`. It validates a candidate with
+  a temporary Dagu config, then writes `<state>/base.yaml` atomically.
+- Dagu reads `<state>/base.yaml` through `config.yaml`. It reads a changed base
+  on the next run without a restart (M7, measured in Stage 3).
+- `DEVMAN_LIBRARY` replaces workflow content for tests only.
+- The repository keeps seed workflow files under `tests/fixtures/library/`.
+  Tests validate the packaged base separately.
 
 ## Stage list
 
@@ -295,7 +289,7 @@ devenv task names `base:check`, `base:unit`, `base:e2e`, `base:test`.
 
 **Goal:** pin Dagu 2.20.1 and ship one Home Manager module that installs the
 CLI, the Dagu user service and the watcher user service with a generated
-`config.yaml` and `base.yaml`.
+`config.yaml`. Compile publishes the packaged base at `<state>/base.yaml`.
 
 **Concept:** R1, R11, §10. **Depends on M1** (see below).
 
@@ -306,10 +300,10 @@ CLI, the Dagu user service and the watcher user service with a generated
   `0d5c1612cd842931fe6d4e598fc2e43fb912a94122e571c62a8f73691ea49837`. Keep the install check `dagu version`. Update the header
   comment: the Go-version reason may no longer hold; record what does.
 - `dagu/config.yaml`: a template. `pkgs.replaceVars` fills `@name@` tokens.
-- `base.yaml` is **not** in this repository. It lives in the overlay at
-  `library/base.yaml` (decision Q7). Stage 1 writes a seed copy with the
-  defaults only, at `tests/fixtures/library/base.yaml`. Stage 7 adds the
-  handlers and the actions.
+- **Superseded by project 048 findings F2 and F3:** the original plan put
+  `base.yaml` in the overlay and seeded it under `tests/fixtures/library/`.
+  The packaged template now lives at `src/devman/base.yaml`. The overlay holds
+  workflow files only.
 - `nix/hm-module.nix`: the module.
 - `flake.nix`: `homeManagerModules.default`, `checks.hm-module`.
 
@@ -336,7 +330,10 @@ queues:
 stray link. `data_dir` and the log paths keep Dagu's defaults under
 `DAGU_HOME`. Since 2.17.2 the DAG index lives under `data_dir`.
 
-### `library/base.yaml` (Stage 1 part; the overlay holds the live copy)
+### Historical base proposal (superseded by project 048 findings F2 and F3)
+
+The `queue: light` entry below was the old base default. Keep it as history.
+Current workflows set a configured queue in their own source files.
 
 ```yaml
 queue: light
@@ -358,7 +355,6 @@ The retention value is plain content now. The module has no
 | `port` | port | `8080` |
 | `coordinatorPort` | port | `50055` |
 | `queues` | attrsOf positive int | `{ light = 4; normal = 2; heavy = 1; gpu = 1; exclusive = 1; llm = 2; }` |
-| `defaultQueue` | str | `"light"` |
 | `overlayDir` | str | `"${config.home.homeDirectory}/.config/devman"` |
 | `stateDir` | str | `"${config.home.homeDirectory}/.local/state/devman"` |
 | `daguHome` | str | `"${config.home.homeDirectory}/.local/share/dagu"` |
@@ -368,7 +364,6 @@ The retention value is plain content now. The module has no
 
 **Assertions** (correctness refusals only):
 
-- `defaultQueue` is a key of `queues`.
 - `host` is loopback (`127.0.0.0/8`, `::1`, `localhost`), because `auth.mode`
   is `none`. A non-loopback host would expose an unauthenticated command runner.
 - `overlayDir` and `stateDir` differ, and neither contains the other. Stage 41
@@ -377,8 +372,8 @@ The retention value is plain content now. The module has no
 **What the module writes:**
 
 - The filled `config.yaml` in the store. Its `paths.base_config` is
-  `<stateDir>/base.yaml`, which `devman compile` writes from the overlay
-  `library/base.yaml` (decision Q7). The module does not generate `base.yaml`.
+  `<stateDir>/base.yaml`, which `devman compile` writes from the packaged
+  `src/devman/base.yaml`. The module does not generate the base file.
 - `home.packages = [ wrappedDevman cfg.dagu.package ]`. `wrappedDevman` is the
   package wrapped with `--set DEVMAN_OVERLAY`, `DEVMAN_STATE`, `DAGU_HOME`,
   `DEVMAN_DAGU_CONFIG` (the store path of the filled `config.yaml`),
@@ -413,8 +408,9 @@ NixOS module owned `dagu.service`, `devman-watch.service` and
   filled `config.yaml` has no `@` token left.
 - The same check runs `dagu validate` on an empty DAG under the filled
   `config.yaml` and the seed `base.yaml`, with a temporary `DAGU_HOME`.
-- Negative evaluations: `host = "0.0.0.0"` and `defaultQueue = "typo"` each fail
-  with their assertion text.
+- Historical module check: `host = "0.0.0.0"` and `defaultQueue = "typo"`
+  failed with assertion text. The `defaultQueue` option and its check were
+  removed by project 048 finding F8.
 - `nix build .#dagu && ./result/bin/dagu version` prints `2.20.1`.
 
 **Verify:** the common verify command.
@@ -445,7 +441,7 @@ against the project it belongs to.
 
 - `src/devman/paths.py`: one frozen dataclass `Paths` built from the
   environment (§A.6): `overlay`, `state`, `library` (default `<overlay>/library`),
-  `base_src` (`<library>/base.yaml`), `base_out` (`<state>/base.yaml`),
+  `base_src` (packaged `src/devman/base.yaml`), `base_out` (`<state>/base.yaml`),
   `dags`, `runs`, `events`, `compile_json`, `lock`, `dagu_config`. No other module reads the
   environment.
 - `src/devman/manifest.py`: `load(path) -> Manifest`.
@@ -539,10 +535,11 @@ a broken project without touching its files, and record the result.
 
 1. **Lock.** Take `fcntl.flock` on `<state>/compile.lock` for the whole run. The
    watcher and a person may compile at the same time.
-   **Base.** Fill the four tokens of `<library>/base.yaml` and write the result
-   to `<state>/base.yaml` when it differs. Refuse the whole run (exit 1) when
-   the file is missing or a token has no value. M7: a running Dagu rereads the
-   file for its next run, so nothing restarts.
+   **Superseded by project 048 findings F2 and F3.** The original Stage 3 filled
+   `<library>/base.yaml` directly. Compile now fills the packaged template,
+   validates the required fields and candidate DAGs, then publishes
+   `<state>/base.yaml` atomically. M7 still holds: Dagu reads the new base on
+   its next run, so compile restarts nothing.
 2. **Parse** the manifest (Stage 2). A project with parse errors is refused.
 3. **Resolve.** The workflow set is the union of every `*.yaml` stem in
    `<overlay>/workflows/<project>/` and every name in `take`. For each name, the
@@ -1045,6 +1042,10 @@ differs, adapt `last_run` and nothing else.
 ---
 
 ## Stage 7 — the library and the `base.yaml` actions
+
+**Historical plan superseded by project 048 finding F2.** Stage 7 placed the
+handler and actions in the overlay. The required handler and `devman.task` now
+live in the packaged base. The overlay contains workflows and examples.
 
 **Goal:** the shared workflows and the shared actions that every project can
 take, and the `done`/`failed` event source. The library is overlay content
@@ -1755,9 +1756,10 @@ directory before the first step. An empty directory has neither marker.
 Each resolves an ambiguity in `CONCEPT.md`. Apply each to `CONCEPT.md` in the
 stage that first depends on it.
 
-**Applied 2026-10-15.** The owner accepted B1 to B22. The author applied them to
-`CONCEPT.md` the same day, with B11 changed by decision Q7 (the library lives in
-the overlay; see R13 there). A later stage that changes one still edits both files.
+**Applied 2026-10-15; amended by project 048 on 2026-10-17.** The owner accepted
+B1 to B22. The author applied them to `CONCEPT.md` the same day. Project 048
+amends B5 and B6 for F1 and F3, and B11 for F2 and F3. A later stage that changes
+one still edits both files.
 
 | # | Section | Amendment | Reason | Stage |
 |---|---|---|---|---|
@@ -1771,7 +1773,7 @@ the overlay; see R13 there). A later stage that changes one still edits both fil
 | B8 | §7 | The router reads `compile.json`, not `projects.toml`. | The `on` entries then always match the files Dagu runs, also for a stale project. | 4 |
 | B9 | §7 | One emit enqueues each matched workflow once, however many subjects match. The run gets `DEVMAN_EVENT` and `DEVMAN_SUBJECT`. `DEVMAN_` is a reserved parameter prefix. | A save of 20 files must give one format run, not 20. | 4 |
 | B10 | §7 | The watcher watches only projects with a `save` entry, compiles at start, and recompiles on a change to `projects.toml`, `workflows/` or `library/`. | Start-up compile picks up edits made while it was down. A smaller watch set lowers the M5 cost. | 5 |
-| B11 | §3.1, §10 | The library and `base.yaml` live in the overlay at `library/` (`library/base.yaml`, `library/workflows/<name>.yaml`). The package ships the mechanism and `dagu/guard.sh`. `compile` fills the `base.yaml` tokens and writes `<state>/base.yaml`. `doctor` checks that every named action exists. `DEVMAN_LIBRARY` is a test override. (Q7, decided 2026-10-15.) | A library edit is live, with no switch and no release. The library is per-user content (boundary test). | 0, 3, 7 |
+| B11 | §3.1, §10 | **Amended 2026-10-17 (F2, F3):** workflows remain overlay content. The package owns `src/devman/base.yaml`, including `handler_on.exit` and reserved `devman.task`. Compile validates and fills it, then writes `<state>/base.yaml`. It keeps `hist_retention_days: 7` and has no queue. `DEVMAN_LIBRARY` is a test override for workflow content. | F2 and F3: an editable base could remove the event handler or set an unsafe queue. The handler emits `done` and `failed` on real Dagu 2.20.1. | 0, 3, 7 |
 | B12 | §7 | `done` is Dagu success and `failed` is Dagu failure. The subject is the workflow name; the project comes from the DAG name. | §7 names the events but not their subject. | 7 |
 | B13 | §8 | `format` keeps no loop receipt; `release` runs the test as its first step. | The `.devman/.runs` receipt and `metadata.jsonl` go (§12). | 7 |
 | B14 | §12 | The cutover deletes `~/.local/share/dagu` too. | Old history and a 2.15 DAG index have no value (R12). | 10 |

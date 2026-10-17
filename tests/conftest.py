@@ -7,7 +7,7 @@ import os
 import shlex
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -107,8 +107,10 @@ def plane(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Plane:
     }
     standin(tmp_path, env)
     paths = Paths.from_env(env)
+    test_base = tmp_path / "packaged-base.yaml"
+    shutil.copyfile(paths.base_src, test_base)
+    paths = replace(paths, base_src=test_base)
     paths.library.mkdir(parents=True)
-    shutil.copy(FIXTURES / "library" / "base.yaml", paths.base_src)
     return Plane(tmp_path, paths, env)
 
 

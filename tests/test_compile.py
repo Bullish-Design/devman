@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -27,6 +28,15 @@ def two_projects(plane: Plane) -> None:
 
 def snapshot(path: Path) -> tuple[bytes, int]:
     return path.read_bytes(), path.stat().st_mtime_ns
+
+
+def editable_base(plane: Plane) -> Path:
+    """Copy the packaged template before a test changes its bytes."""
+    source = plane.paths.base_src
+    target = plane.root / "test-base.yaml"
+    shutil.copyfile(source, target)
+    plane.paths = replace(plane.paths, base_src=target)
+    return target
 
 
 def test_compile_publishes_each_project(plane: Plane) -> None:
@@ -358,24 +368,24 @@ def test_a_changed_base_yaml_is_written_and_every_file_is_validated(
 ) -> None:
     two_projects(plane)
     assert compile(plane.paths) == 0
-    plane.paths.base_src.write_text(
-        plane.paths.base_src.read_text() + "hist_retention_days: 9\n"
-    )
+    source = editable_base(plane)
+    source.write_text(source.read_text() + "# changed template\n")
     calls: list[Path] = []
     monkeypatch.setattr(dagu, "validate", lambda config, file: calls.append(file))
     assert compile(plane.paths) == 0
-    assert "hist_retention_days: 9" in plane.paths.base_out.read_text()
-    assert len(calls) == 2
+    assert "hist_retention_days: 7" in plane.paths.base_out.read_text()
+    assert len(calls) == 3
 
 
 def test_a_missing_base_yaml_refuses_the_run(
     plane: Plane, capsys: pytest.CaptureFixture[str]
 ) -> None:
     two_projects(plane)
+    original_source = editable_base(plane)
     plane.paths.base_src.unlink()
     assert compile(plane.paths) == 1
-    assert "compile refused library: cannot read" in capsys.readouterr().err
-    assert not plane.paths.compile_json.exists()
+    assert "compile refused base: cannot read" in capsys.readouterr().err
+    assert original_source.exists() is False
 
 
 @pytest.mark.parametrize(
@@ -390,6 +400,7 @@ def test_a_bad_base_yaml_refuses_the_run_and_writes_nothing(
     plane: Plane, capsys: pytest.CaptureFixture[str], text: str, reason: str
 ) -> None:
     two_projects(plane)
+    editable_base(plane)
     plane.paths.base_src.write_text(text)
     assert compile(plane.paths) == 1
     assert reason in capsys.readouterr().err
@@ -397,8 +408,26 @@ def test_a_bad_base_yaml_refuses_the_run_and_writes_nothing(
     assert not plane.dag("alpha", "check").exists()
 
 
+def test_a_bad_packaged_base_keeps_the_active_base_and_dags(
+    plane: Plane, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plane.add_project("alpha")
+    plane.own("alpha", "check")
+    assert compile(plane.paths) == 0
+    active = plane.paths.base_out.read_bytes()
+    published = plane.dag("alpha", "check").read_bytes()
+    source = editable_base(plane)
+    source.write_text(source.read_text().replace("handler_on:\n", "removed_handler:\n"))
+
+    assert compile(plane.paths) == 1
+    assert "required handler_on.exit is missing" in capsys.readouterr().err
+    assert plane.paths.base_out.read_bytes() == active
+    assert plane.dag("alpha", "check").read_bytes() == published
+
+
 def test_a_token_with_no_value_refuses_the_run(plane: Plane) -> None:
     two_projects(plane)
+    editable_base(plane)
     plane.paths.base_src.write_text("x: '@devman@'\n")
     assert fill_base(replace(plane.paths, bin=None))[1] == (
         f"{plane.paths.base_src}: @devman@ has no value; set DEVMAN_BIN"
@@ -417,11 +446,13 @@ def test_a_missing_guard_file_refuses_the_whole_compile(
 
 def test_the_state_directory_token_is_filled(plane: Plane) -> None:
     plane.add_project("alpha")
-    plane.paths.base_src.write_text("x: '@stateDir@/y'\n")
+    source = editable_base(plane)
+    source.write_text(
+        source.read_text().replace("@stateDir@/handler.log", "@stateDir@/custom.log")
+    )
     assert compile(plane.paths) == 0
-    assert yaml.safe_load(plane.paths.base_out.read_text()) == {
-        "x": f"{plane.paths.state}/y"
-    }
+    base = yaml.safe_load(plane.paths.base_out.read_text())
+    assert f"{plane.paths.state}/custom.log" in base["handler_on"]["exit"]["command"]
 
 
 def test_compile_needs_the_dagu_config(plane: Plane) -> None:

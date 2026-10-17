@@ -56,7 +56,6 @@ let
 
   negatives = [
     (expect "host 0.0.0.0" { host = "0.0.0.0"; } "is not loopback")
-    (expect "defaultQueue typo" { defaultQueue = "typo"; } "is not a key of services.devman.queues")
     (expect "equal dirs" { stateDir = "/home/tester/.config/devman"; } "must differ")
     (expect "nested dirs" { stateDir = "/home/tester/.config/devman/state"; } "must differ")
   ];
@@ -91,10 +90,10 @@ pkgs.runCommand "devman-hm-module-check"
     grep -q '"name":"light","max_concurrency":4' "$config" \
       || grep -q '"max_concurrency":4,"name":"light"' "$config"
 
-    # The seed base.yaml with its tokens filled, and an empty DAG.
+    # The packaged base template with its tokens filled, and an empty DAG.
     export HOME=$TMPDIR/home DAGU_HOME=$TMPDIR/dagu
     mkdir -p "$HOME" "$DAGU_HOME" $TMPDIR/state/dags/p
-    sed 's|@bash@|${pkgs.bash}/bin/bash|' ${../tests/fixtures/library/base.yaml} \
+    sed 's|@bash@|${pkgs.bash}/bin/bash|' ${../src/devman/base.yaml} \
       > $TMPDIR/base.yaml
     sed -e "s|/home/tester/.local/state/devman/base.yaml|$TMPDIR/base.yaml|" \
         -e "s|/home/tester/.local/state/devman/dags|$TMPDIR/state/dags|" \

@@ -8,7 +8,7 @@ mechanism. This file is the map.
 ```
 projects.toml, workflows/, library/ --compile--> state/dags/<project>/*.yaml --> Dagu
 event --> emit --> router --> dagu enqueue (absolute path of a compiled file)
-run ends --> handler_on.exit in base.yaml --> emit done|failed
+run ends --> handler_on.exit in packaged base.yaml --> emit done|failed
 ```
 
 Compile is the only writer of `dags/`. The router is the only enqueuer.
@@ -32,9 +32,10 @@ Compile is the only writer of `dags/`. The router is the only enqueuer.
 |---|---|
 | `dagu/config.yaml` | the Dagu config template. Nix fills it |
 | `dagu/guard.sh` | the checkout guard shell |
+| `src/devman/base.yaml` | the packaged required Dagu base template |
 | `nix/hm-module.nix` | the Home Manager module and the two services |
 | `nix/package.nix`, `nix/dagu.nix` | the package (uv2nix) and Dagu 2.20.1 |
-| `tests/fixtures/library/` | the seed copy of the overlay library |
+| `tests/fixtures/library/` | seed workflow and example files for tests |
 
 `PLAN.md` section C, in `.scratch/projects/047-greenfield/`, holds the size
 budget. If a module passes its budget by more than 30 percent, look for a Dagu
@@ -49,13 +50,14 @@ section A and `CONCEPT.md` in the same commit.
 
 ## Where content lives
 
-- The library (`~/.config/devman/library/`) is overlay content. Its README says
-  what each file does. Never copy that detail into a mechanism document.
+- Workflow content (`~/.config/devman/library/workflows/`) is overlay content.
+  Its README says what each file does. Never copy that detail into a mechanism
+  document.
 - A per-project workflow lives in `~/.config/devman/workflows/<project>/`.
 - The manifest owns `working_dir`. Every workflow source names a configured
   queue. Compile refuses a source that omits either contract.
-- The `base.yaml` template holds three tokens: `@bash@`, `@devman@`, `@stateDir@`.
-  Compile fills them. `DEVMAN_GUARD` goes in the header, not in `base.yaml`.
+- The packaged `base.yaml` owns `handler_on.exit` and `devman.task`. Compile
+  fills its three tokens. `DEVMAN_GUARD` goes in the header, not in the base.
 - The three devman skills live in the overlay at
   `~/.config/devman/projects/devman/agents/skills/`. `.agents` links to them.
 

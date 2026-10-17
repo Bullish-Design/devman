@@ -1,7 +1,6 @@
 # The devman CLI, built with uv2nix from `pyproject.toml` and `uv.lock`.
-# It installs the mechanism only: the Python package and `dagu/` (config
-# template, checkout guard). The library is overlay content (PLAN.md, decision
-# Q7), so this package ships none.
+# It installs the Python package, its required base template, and `dagu/`
+# (config template and checkout guard).
 #
 # The Python interpreter comes from nixpkgs (python313). The dependencies come
 # from `uv.lock`, as wheels. A stale lock fails `uv lock --check` in `base:check`.
@@ -68,6 +67,7 @@ in
   doInstallCheck = true;
   installCheckPhase = ''
     $out/bin/devman --version | grep -F "devman 0.9.0"
+    ${venv}/bin/python -c 'from importlib.resources import files; assert files("devman").joinpath("base.yaml").is_file()'
 
     # The installed guard passes a checkout with a marker and fails one without.
     guard=$out/share/devman/dagu/guard.sh

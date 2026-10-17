@@ -25,7 +25,9 @@ def test_environment_sets_every_path() -> None:
             "DEVMAN_BIN": "/bin/devman",
         }
     )
-    assert paths.base_src == Path("/lib/base.yaml")
+    assert paths.base_src.name == "base.yaml"
+    assert paths.base_src.parent.name == "devman"
+    assert paths.library == Path("/lib")
     assert paths.base_out == Path("/s/base.yaml")
     assert paths.dags == Path("/s/dags")
     assert paths.runs == Path("/s/runs")

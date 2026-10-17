@@ -46,13 +46,13 @@ The flake exports one Home Manager module, `services.devman`. It installs:
 | `enable` | `false` |
 | `host`, `port` | `127.0.0.1`, `8080`. The host must be loopback, because Dagu runs with no login |
 | `queues` | `light` 4, `normal` 2, `heavy` 1, `gpu` 1, `exclusive` 1, `llm` 2 |
-| `defaultQueue` | `light` |
 | `overlayDir` | `~/.config/devman` |
 | `stateDir` | `~/.local/state/devman` |
 | `watch.enable`, `watch.debounce` | `true`, `300ms` |
 
-A change to devman needs a Home Manager switch. A change to the overlay does not:
-the watcher recompiles it.
+A change to devman needs a Home Manager switch. The packaged base owns the
+required exit handler and `devman.task` action. A workflow change does not need
+a switch; the watcher recompiles it.
 
 ## The overlay
 
@@ -60,7 +60,6 @@ the watcher recompiles it.
 ~/.config/devman/
   projects.toml                    the one manifest
   workflows/<project>/<name>.yaml  workflows for one project
-  library/base.yaml                shared defaults, actions and the exit handler
   library/workflows/<name>.yaml    shared workflows a project can take
   library/examples/                examples to copy, never taken
   library/README.md                what each library file does
@@ -142,7 +141,7 @@ The router refuses an event when the project is unknown or its path is missing.
 ~/.local/state/devman/
   dags/<project>/<project>.<name>.yaml   compiled files; Dagu's dags_dir
   runs/<project>/                        run logs of one project
-  base.yaml                              library/base.yaml with its tokens filled
+  base.yaml                              packaged base template with tokens filled
   compile.json                           the last compile result per project
   events.jsonl                           every event and what the router did
   handler.log                            stderr of the exit handler
@@ -165,7 +164,7 @@ from a checkout.
 | Variable | Meaning |
 |---|---|
 | `DEVMAN_OVERLAY`, `DEVMAN_STATE` | the two roots |
-| `DEVMAN_LIBRARY` | replaces `<overlay>/library`. For tests |
+| `DEVMAN_LIBRARY` | replaces workflow content for tests |
 | `DEVMAN_BASH`, `DEVMAN_GUARD`, `DEVMAN_BIN` | fill the `base.yaml` tokens. Compile refuses without them |
 | `DEVMAN_DAGU_CONFIG`, `DEVMAN_DAGU_VERSION` | the Dagu config and the pinned version |
 

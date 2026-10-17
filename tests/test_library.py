@@ -31,6 +31,22 @@ def test_the_compiled_file_runs_the_guard_and_the_action(plane: Plane):
     base = yaml.safe_load(plane.paths.base_out.read_text())
     assert "setsid -f" in base["handler_on"]["exit"]["command"]
     assert plane.env["DEVMAN_BIN"] in base["handler_on"]["exit"]["command"]
+    assert base["hist_retention_days"] == 7
+    assert "queue" not in base
+
+
+def test_overlay_base_cannot_change_required_behavior(plane: Plane):
+    plane.seed()
+    plane.add_project("alpha", '"check"')
+    editable = plane.paths.library / "base.yaml"
+    editable.parent.mkdir(parents=True, exist_ok=True)
+    editable.write_text("{}\n")
+
+    assert compile(plane.paths) == 0
+    base = yaml.safe_load(plane.paths.base_out.read_text())
+    assert "exit" in base["handler_on"]
+    assert "devman.task" in base["actions"]
+    assert "queue" not in base
 
 
 def test_release_runs_the_test_first(plane: Plane):

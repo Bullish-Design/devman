@@ -14,6 +14,7 @@ import re
 import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,9 +41,9 @@ def _write_atomic(path: Path, text: str) -> None:
 
 
 def fill_base(paths: Paths) -> tuple[bool, str | None]:
-    """Fill the tokens of the library `base.yaml`; write `<state>/base.yaml`.
+    """Stage the packaged base template for validation.
 
-    Return (changed, error). The file is not written when it is unchanged.
+    Return (changed, error). The active base stays unchanged until publication.
     """
     try:
         text = paths.base_src.read_text()
@@ -66,14 +67,55 @@ def fill_base(paths: Paths) -> tuple[bool, str | None]:
         lambda m: values.get(m.group(1), ("",))[0] or m.group(0), text
     )
     try:
-        if not isinstance(yaml.safe_load(filled) or {}, dict):
+        base = yaml.safe_load(filled)
+        if not isinstance(base, dict):
             return False, f"{paths.base_src}: base.yaml is not a mapping"
     except yaml.YAMLError as exc:
         return False, f"{paths.base_src}: invalid YAML: {str(exc).splitlines()[0]}"
-    if paths.base_out.exists() and paths.base_out.read_text() == filled:
-        return False, None
-    _write_atomic(paths.base_out, filled)
-    return True, None
+    handler = base.get("handler_on")
+    actions = base.get("actions")
+    if not isinstance(handler, dict) or not isinstance(handler.get("exit"), dict):
+        return False, f"{paths.base_src}: required handler_on.exit is missing"
+    if not isinstance(actions, dict) or not isinstance(
+        actions.get("devman.task"), dict
+    ):
+        return False, f"{paths.base_src}: required action devman.task is missing"
+    if "queue" in base:
+        return False, f"{paths.base_src}: base.yaml must not set queue"
+    if base.get("hist_retention_days") != 7:
+        return False, f"{paths.base_src}: hist_retention_days must be 7"
+    candidate = paths.tmp / "base.yaml"
+    if candidate.exists() and candidate.read_text() == filled:
+        return not (
+            paths.base_out.exists() and paths.base_out.read_text() == filled
+        ), None
+    _write_atomic(candidate, filled)
+    return not (paths.base_out.exists() and paths.base_out.read_text() == filled), None
+
+
+def _candidate_config(paths: Paths) -> Path:
+    """Make a Dagu config that reads the staged base candidate."""
+    assert paths.dagu_config is not None
+    config = yaml.safe_load(paths.dagu_config.read_text()) or {}
+    config.setdefault("paths", {})["base_config"] = str(paths.tmp / "base.yaml")
+    candidate = paths.tmp / "dagu-candidate.yaml"
+    _write_atomic(candidate, yaml.safe_dump(config, sort_keys=False))
+    return candidate
+
+
+def _publish_base(paths: Paths) -> bool:
+    """Publish the staged base by atomic rename when its bytes changed."""
+    candidate = paths.tmp / "base.yaml"
+    if not candidate.exists():
+        return False
+    if (
+        paths.base_out.exists()
+        and paths.base_out.read_bytes() == candidate.read_bytes()
+    ):
+        return False
+    paths.base_out.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(candidate, paths.base_out)
+    return True
 
 
 def _resolve(
@@ -253,15 +295,28 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
         print(f"devman: unknown project {', '.join(unknown)}", file=sys.stderr)
         return 2
 
-    changed, error = fill_base(paths)
-    if error:
-        print(f"devman: compile refused library: {error}", file=sys.stderr)
-        return 1
     try:
         queues = dagu.configured_queues(paths.dagu_config)
     except (OSError, yaml.YAMLError) as exc:
         print(f"devman: cannot read {paths.dagu_config}: {exc}", file=sys.stderr)
         return 1
+
+    changed, error = fill_base(paths)
+    if error:
+        print(f"devman: compile refused base: {error}", file=sys.stderr)
+        return 1
+    try:
+        candidate_config = _candidate_config(paths)
+    except (OSError, yaml.YAMLError, TypeError, AttributeError) as exc:
+        print(f"devman: cannot prepare Dagu config: {exc}", file=sys.stderr)
+        return 1
+    if changed or not paths.base_out.exists():
+        probe = paths.tmp / "base-probe.yaml"
+        probe.write_text('steps:\n  - name: devman-base-check\n    run: "true"\n')
+        error = dagu.validate(candidate_config, probe)
+        if error:
+            print(f"devman: invalid packaged base: {error}", file=sys.stderr)
+            return 1
 
     old_doc = paths.compile_doc()
     previous = old_doc.get("projects", {})
@@ -274,7 +329,10 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
         project = manifest.projects.get(name)
         if project:
             record, reasons = _compile_project(
-                paths, queues, project, validate_all or changed
+                replace(paths, dagu_config=candidate_config),
+                queues,
+                project,
+                validate_all or changed,
             )
         else:
             record, reasons = None, manifest.errors[name]
@@ -309,6 +367,8 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
                 if PROJECT_RE.match(name):
                     shutil.rmtree(paths.dags / name, ignore_errors=True)
                 records.pop(name, None)
+
+    _publish_base(paths)
 
     # A run with no change writes nothing: keep each unchanged record, and
     # skip the file when nothing but the clock moved.

@@ -15,14 +15,9 @@ from devman.compile import compile
 ACTION_FLOW = (
     "queue: light\nsteps:\n  - action: devman.task\n    with: {task: base:check}\n"
 )
-BASE = (
-    "queue: light\nactions:\n  devman.task:\n    input_schema: {type: object}\n"
-    "    template: {run: x}\n"
-)
 
 
 def setup(plane: Plane) -> None:
-    plane.paths.base_src.write_text(BASE)
     plane.library("check", ACTION_FLOW)
     plane.add_project("alpha", '"check"')
     (plane.project_dir("alpha") / ".git").mkdir()
