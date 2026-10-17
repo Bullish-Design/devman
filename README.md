@@ -107,14 +107,15 @@ run     = "format"                # a workflow the project has
 | `devman compile [--all] [project...]` | Resolve, render, validate and publish workflows |
 | `devman emit EVENT [--project P] [--subject S]... [--source NAME] [KEY=VALUE...]` | Route one event |
 | `devman run WORKFLOW [--project P] [KEY=VALUE...]` | Run one workflow now |
-| `devman status [project] [--json]` | Show workflows, triggers, queue and last run |
+| `devman status [project] [--json]` | Show compile health, workflows, triggers, queue and last run |
 | `devman show WORKFLOW [--project P]` | Print the compiled file and its source path |
 | `devman doctor` | Check the plane |
 | `devman watch [--debounce D]` | Run the watcher. The service runs this |
 
 Without `--project`, a command finds the project whose `path` holds the current
 directory. Exit codes: `0` success, `1` the work ran and something failed, `2` a
-usage error or a refusal before any work.
+usage error or a refusal before any work. A refused compile or unhealthy input
+state exits 1.
 
 ## Refusals
 
@@ -131,7 +132,8 @@ Compile refuses one project and leaves its files unchanged when:
 - `workflows/<project>/` exists and the manifest has no table for it.
 
 The project keeps its earlier files, and `devman status` shows them as stale.
-Compile refuses all projects, with exit 2, when `DEVMAN_GUARD` is not a file.
+Compile records a global refusal and exits 1 when an input fails, including when
+`DEVMAN_GUARD` is not a file.
 
 The router refuses an event when the project is unknown or its path is missing.
 
@@ -142,7 +144,7 @@ The router refuses an event when the project is unknown or its path is missing.
   dags/<project>/<project>.<name>.yaml   compiled files; Dagu's dags_dir
   runs/<project>/                        run logs of one project
   base.yaml                              packaged base template with tokens filled
-  compile.json                           the last compile result per project
+  compile.json                           global input health and project results
   events.jsonl                           every event and what the router did
   handler.log                            stderr of the exit handler
 ```

@@ -1,0 +1,204 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.6, pytest-9.1.1, pluggy-1.7.0
+rootdir: /home/andrew/Documents/Projects/devman/.gitman/workspaces/048-health-tests
+configfile: pyproject.toml
+collected 6 items
+
+tests/test_review_048_health.py FFFF                                     [ 66%]
+tests/e2e/test_review_048_dagu.py FF                                     [100%]
+
+=================================== FAILURES ===================================
+______ test_bad_packaged_base_keeps_last_good_base_and_reports_red_health ______
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_bad_packaged_base_keeps_l0'), paths=Paths(overlay=PosixP..._base_keeps_l0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_bad_packaged_base_keeps_l0/dagu-home'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e9a02c89220>
+
+    def test_bad_packaged_base_keeps_last_good_base_and_reports_red_health(
+        plane: Plane, monkeypatch
+    ):
+        dag = good_compile(plane)
+        old_dag = dag.read_bytes()
+        old_base = plane.paths.base_out.read_bytes()
+        broken = plane.root / "broken-base.yaml"
+        broken.write_text("queue: [\n")
+        custom = replace(plane.paths, base_src=broken)
+        monkeypatch.setattr(
+            Paths,
+            "from_env",
+            classmethod(lambda cls, env=None: custom),
+        )
+
+        result = invoke(plane, "compile")
+
+        assert result.exit_code == 1
+        assert dag.read_bytes() == old_dag
+        assert plane.paths.base_out.read_bytes() == old_base
+>       assert_red_health(plane, "base")
+
+tests/test_review_048_health.py:59:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_bad_packaged_base_keeps_l0'), paths=Paths(overlay=PosixP..._base_keeps_l0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_bad_packaged_base_keeps_l0/dagu-home'})
+reason = 'base'
+
+    def assert_red_health(plane: Plane, reason: str) -> None:
+        status = invoke(plane, "status", "alpha")
+        doctor = invoke(plane, "doctor")
+>       assert status.exit_code == 1, status.output
+E       AssertionError: alpha  /tmp/pytest-of-andrew/pytest-23209/test_bad_packaged_base_keeps_l0/work/alpha  compile: ok
+E           check  library  queue=light  schedule=-  triggers: -  last run: none
+E
+E       assert 0 == 1
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_review_048_health.py:32: AssertionError
+_________ test_bad_manifest_keeps_last_good_dag_and_reports_red_health _________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_bad_manifest_keeps_last_g0'), paths=Paths(overlay=PosixP..._keeps_last_g0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_bad_manifest_keeps_last_g0/dagu-home'})
+
+    def test_bad_manifest_keeps_last_good_dag_and_reports_red_health(plane: Plane):
+        dag = good_compile(plane)
+        old_dag = dag.read_bytes()
+        plane.paths.projects_toml.write_text("[alpha\n")
+
+        result = invoke(plane, "compile")
+
+        assert result.exit_code == 1
+        assert dag.read_bytes() == old_dag
+>       assert_red_health(plane, "projects.toml")
+
+tests/test_review_048_health.py:71:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_bad_manifest_keeps_last_g0'), paths=Paths(overlay=PosixP..._keeps_last_g0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_bad_manifest_keeps_last_g0/dagu-home'})
+reason = 'projects.toml'
+
+    def assert_red_health(plane: Plane, reason: str) -> None:
+        status = invoke(plane, "status", "alpha")
+        doctor = invoke(plane, "doctor")
+>       assert status.exit_code == 1, status.output
+E       AssertionError: alpha  /tmp/pytest-of-andrew/pytest-23209/test_bad_manifest_keeps_last_g0/work/alpha  compile: ok
+E           check  library  queue=light  schedule=-  triggers: -  last run: none
+E
+E       assert 0 == 1
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_review_048_health.py:32: AssertionError
+__________ test_changed_workflow_is_stale_until_full_compile_succeeds __________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_changed_workflow_is_stale0'), paths=Paths(overlay=PosixP...flow_is_stale0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_changed_workflow_is_stale0/dagu-home'})
+
+    def test_changed_workflow_is_stale_until_full_compile_succeeds(plane: Plane):
+        dag = good_compile(plane)
+        source = plane.paths.library / "workflows" / "check.yaml"
+        source.write_text("queue: light\nsteps:\n  - name: s\n    run: echo changed\n")
+
+        status = invoke(plane, "status", "alpha")
+        doctor = invoke(plane, "doctor")
+
+>       assert status.exit_code == 1, status.output
+E       AssertionError: alpha  /tmp/pytest-of-andrew/pytest-23209/test_changed_workflow_is_stale0/work/alpha  compile: ok
+E           check  library  queue=light  schedule=-  triggers: -  last run: none
+E
+E       assert 0 == 1
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_review_048_health.py:82: AssertionError
+____________ test_base_queue_must_be_configured_before_publication _____________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_base_queue_must_be_config0'), paths=Paths(overlay=PosixP...ust_be_config0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_base_queue_must_be_config0/dagu-home'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e9a02b85e10>
+
+    def test_base_queue_must_be_configured_before_publication(plane: Plane, monkeypatch):
+        dag = good_compile(plane)
+        old_dag = dag.read_bytes()
+        old_base = plane.paths.base_out.read_bytes()
+        template = yaml.safe_load(plane.paths.base_src.read_text())
+        template["queue"] = "ghost"
+        broken = plane.root / "bad-queue-base.yaml"
+        broken.write_text(yaml.safe_dump(template))
+        custom = replace(plane.paths, base_src=broken)
+        monkeypatch.setattr(
+            Paths,
+            "from_env",
+            classmethod(lambda cls, env=None: custom),
+        )
+
+        result = invoke(plane, "compile")
+
+>       assert result.exit_code == 1
+E       assert 0 == 1
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_review_048_health.py:111: AssertionError
+___ test_working_dir_override_is_refused_and_last_dag_runs_in_manifest_path ____
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_working_dir_override_is_r0'), paths=Paths(overlay=PosixP...override_is_r0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_working_dir_override_is_r0/dagu-home'})
+
+    def test_working_dir_override_is_refused_and_last_dag_runs_in_manifest_path(
+        plane: Plane,
+    ):
+        project = plane.project_dir("alpha")
+        (project / ".git").mkdir()
+        output = plane.root / "pwd.txt"
+        plane.library(
+            "check",
+            f"queue: light\nsteps:\n  - name: s\n    script: 'pwd > {output}'\n",
+        )
+        plane.add_project("alpha", '"check"')
+        compiled = runner.invoke(app, ["compile"], env=plane.env)
+        assert compiled.exit_code == 0, compiled.output
+        dag = plane.dag("alpha", "check")
+        old_dag = dag.read_bytes()
+
+        wrong = plane.root / "wrong-workdir"
+        plane.library(
+            "check",
+            f"working_dir: {wrong}\nqueue: light\nsteps:\n"
+            f"  - name: s\n    script: 'pwd > {output}'\n",
+        )
+        refused = runner.invoke(app, ["compile"], env=plane.env)
+
+>       assert refused.exit_code == 1
+E       assert 0 == 1
+E        +  where 0 = <Result okay>.exit_code
+
+tests/e2e/test_review_048_dagu.py:69: AssertionError
+______________ test_bad_base_refusal_keeps_real_dagu_exit_handler ______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23209/test_bad_base_refusal_keeps_re0'), paths=Paths(overlay=PosixP...usal_keeps_re0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23209/test_bad_base_refusal_keeps_re0/dagu-home'})
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7e9a02be7b50>
+
+    def test_bad_base_refusal_keeps_real_dagu_exit_handler(plane: Plane, monkeypatch):
+        project = plane.project_dir("alpha")
+        (project / ".git").mkdir()
+        plane.library("check", "queue: light\nsteps:\n  - name: s\n    run: echo ok\n")
+        plane.add_project("alpha", '"check"')
+        assert runner.invoke(app, ["compile"], env=plane.env).exit_code == 0
+        dag = plane.dag("alpha", "check")
+        old_dag = dag.read_bytes()
+        old_base = plane.paths.base_out.read_bytes()
+
+        broken = plane.root / "bad-base.yaml"
+        broken.write_text("{}\n")
+        custom = replace(plane.paths, base_src=broken)
+        monkeypatch.setattr(
+            Paths,
+            "from_env",
+            classmethod(lambda cls, env=None: custom),
+        )
+        refused = runner.invoke(app, ["compile"], env=plane.env)
+
+>       assert refused.exit_code == 1
+E       assert 0 == 1
+E        +  where 0 = <Result okay>.exit_code
+
+tests/e2e/test_review_048_dagu.py:98: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_review_048_health.py::test_bad_packaged_base_keeps_last_good_base_and_reports_red_health
+FAILED tests/test_review_048_health.py::test_bad_manifest_keeps_last_good_dag_and_reports_red_health
+FAILED tests/test_review_048_health.py::test_changed_workflow_is_stale_until_full_compile_succeeds
+FAILED tests/test_review_048_health.py::test_base_queue_must_be_configured_before_publication
+FAILED tests/e2e/test_review_048_dagu.py::test_working_dir_override_is_refused_and_last_dag_runs_in_manifest_path
+FAILED tests/e2e/test_review_048_dagu.py::test_bad_base_refusal_keeps_real_dagu_exit_handler
+============================== 6 failed in 1.25s ===============================

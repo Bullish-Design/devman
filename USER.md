@@ -106,8 +106,9 @@ Land the branch with gitman.
 ## When something looks wrong
 
 1. `devman status`: a refusal or a stale file shows here.
-2. `devman doctor`: it checks Dagu, the watcher, `dags/` and the library.
+2. `devman doctor`: it checks global compile health, Dagu, the watcher, `dags/` and the library.
 3. `events.jsonl`: did the event arrive, and what did the router do?
 4. The Dagu UI or `.devman/runs`: the log of the run.
 
-After a compile refusal, fix the source. The watcher recompiles at once.
+After a compile refusal or stale input, fix the source. Run a full `devman
+compile` to clear global health. The watcher recompiles changed files.

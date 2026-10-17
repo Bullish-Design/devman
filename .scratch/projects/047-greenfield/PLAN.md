@@ -640,6 +640,9 @@ no "restart needed" finding for it.
   `compile.compile(paths, names, validate_all)` returns the exit code.
 - **Exit codes.** `2` for no `DEVMAN_DAGU_CONFIG` and for an unknown project
   argument. `1` for everything refused, including the whole-run refusals.
+- **Superseded by project 048 finding F4:** whole-run refusals no longer leave
+  `compile.json` untouched. They write a global refusal and preserve the last
+  successful digest. The historical behavior was:
 - **Whole-run refusals** (printed as `devman: compile refused library: …`, no
   project touched, no `compile.json` written): a missing or unreadable
   `library/base.yaml`, a token with no value (`@guard@ has no value; set
@@ -935,6 +938,11 @@ watchexec still watches ignored directories. So:
 
 **Goal:** the person-facing commands that start a run and show what runs where,
 and a doctor that checks the whole plane.
+
+**Superseded by project 048 finding F4.** The original health check only read
+project records and could report green after a global compile failure or an
+input change. Version 2 state adds a successful full-compile digest. `status`
+and `doctor` compare current inputs and return 1 when state is refused or stale.
 
 **Concept:** §6, §11.
 
@@ -1566,36 +1574,21 @@ Rules:
 
 ```json
 {
-  "version": 1,
-  "compiled_at": "2026-10-15T21:04:11+00:00",
-  "devman": "0.9.0",
-  "orphans": ["oldproject"],
+  "version": 2,
+  "compiled_at": "2026-10-17T12:04:11+00:00",
+  "global": {
+    "status": "ok",
+    "at": "2026-10-17T12:04:11+00:00",
+    "reasons": [],
+    "successful_input_sha256": "9a0e…"
+  },
   "projects": {
     "devman": {
       "status": "ok",
       "stale": false,
-      "at": "2026-10-15T21:04:11+00:00",
+      "at": "2026-10-17T12:04:11+00:00",
       "path": "/home/andrew/Documents/Projects/devman",
       "reasons": [],
-      "on": [
-        {"event": "save", "match": ["**/*.py"], "exclude": [".scratch/**"], "run": "format"}
-      ],
-      "workflows": {
-        "check": {
-          "dag": "devman.check",
-          "file": "/home/andrew/.local/state/devman/dags/devman/devman.check.yaml",
-          "origin": "library",
-          "source": "/home/andrew/.config/devman/library/workflows/check.yaml",
-          "sha256": "9a0e…"
-        }
-      }
-    },
-    "broken": {
-      "status": "refused",
-      "stale": true,
-      "at": "2026-10-15T21:04:11+00:00",
-      "path": "/home/andrew/Documents/Projects/broken",
-      "reasons": ["take names check2, which is neither in workflows/broken/ nor in the library"],
       "on": [],
       "workflows": {}
     }
@@ -1603,12 +1596,24 @@ Rules:
 }
 ```
 
-- `status`: `"ok"` or `"refused"`.
+- `global.status`: `"ok"` or `"refused"`. `global.at` changes when its result
+  changes. `successful_input_sha256` advances only after a full green compile.
+- `global.reasons` names refused projects and orphan directories. A global
+  input failure records its reason there. Status derives `stale` by comparing
+  current inputs with the successful digest.
+- `compiled_at` changes only when file content changes. A second no-change full
+  compile preserves the file bytes.
+- `projects` keeps the per-project records from version 1. `status` is `"ok"`
+  or `"refused"`.
 - `stale`: `true` when refused and the project still has files from an earlier
   compile. Then `on` and `workflows` keep the values of the last good compile, so
   the router and status describe the files Dagu runs. A project refused on its
   first compile has `stale: false`, empty `on` and empty `workflows`.
 - `sha256` is the hash of the rendered file.
+
+Version 1 or missing global state requires a full compile. A partial compile
+never advances the successful digest. A refusal keeps the previous digest and
+last good DAG files. The router continues to use the last good project records.
 
 ### A.4 `events.jsonl`
 
@@ -1653,9 +1658,9 @@ devman watch [--debounce DURATION]
 - The router adds `DEVMAN_EVENT` and `DEVMAN_SUBJECT` (the first subject that
   matched; empty when there is none).
 
-Exit codes for every command: `0` success; `1` the work ran and something failed
-(a refused project, a failed enqueue, a doctor finding); `2` a usage error or a
-refusal before any work (bad arguments, no project for the current directory).
+Exit codes: `0` success; `1` a compile refusal, stale health, failed enqueue or
+doctor finding; `2` a usage error or refusal before work (bad arguments or no
+project for the current directory).
 
 `watch` is the service entry point. A person does not type it.
 
@@ -1681,26 +1686,25 @@ A run sees `DEVMAN_PROJECT_DIR` (header), `DEVMAN_EVENT` and `DEVMAN_SUBJECT`
 
 ```json
 {
-  "project": "devman",
-  "path": "/home/andrew/Documents/Projects/devman",
-  "compile": {"status": "ok", "stale": false, "at": "…", "reasons": []},
-  "dagu": "reachable",
-  "workflows": [
-    {
-      "name": "check",
-      "dag": "devman.check",
-      "origin": "library",
-      "source": "/home/andrew/.config/devman/library/workflows/check.yaml",
-      "triggers": [{"event": "land", "match": ["main"], "exclude": []}],
-      "schedule": null,
-      "queue": "light",
-      "last_run": {"run_id": "…", "status": "succeeded", "started_at": "…", "finished_at": "…"}
-    }
-  ]
+  "global": {
+    "status": "ok",
+    "at": "…",
+    "reasons": [],
+    "successful_input_sha256": "…",
+    "stale": false
+  },
+  "project": {
+    "project": "devman",
+    "path": "/home/andrew/Documents/Projects/devman",
+    "compile": {"status": "ok", "stale": false, "at": "…", "reasons": []},
+    "dagu": "reachable",
+    "workflows": []
+  }
 }
 ```
 
-With no project, the output is a list of these objects.
+With no project, `project` is replaced by `projects`, an array of these objects.
+Global refusal or stale input exits 1. Unreadable state and usage errors exit 2.
 
 ---
 

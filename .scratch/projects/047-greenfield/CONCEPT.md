@@ -171,7 +171,8 @@ For each project, compile does this:
 
 **Compile refuses a project, and changes none of its files, when:**
 
-- `DEVMAN_GUARD` is not a file (compile then refuses all projects, exit 2);
+- a global compile input is invalid, such as a missing `DEVMAN_GUARD` (compile
+  records the refusal and exits 1);
 - its `path` does not exist or is not a directory. Compile tests it read-only
   and never creates it, because Dagu creates a missing `working_dir` and the
   run then succeeds in an empty directory;
@@ -191,7 +192,13 @@ next full compile. Its `runs/<project>/` stays.
 A refusal is per project, so one broken project does not block the others. A
 refusal is loud: compile exits non-zero, writes the reason to
 `compile.json`, and `devman status` shows it. The project keeps its previous
-files, and status says they are stale.
+files. Any project refusal or orphan makes the global compile state red.
+
+`compile.json` version 2 records that global state and the input digest from the
+last full green compile. `status` and `doctor` compare the live inputs with that
+digest. A changed input stays stale until a full compile succeeds. A global
+failure keeps the last good DAG files and digest. A partial compile never
+advances the digest. See PLAN A.3 and finding F4 in project 048.
 
 ### 5.1 The checkout guard
 
@@ -346,6 +353,9 @@ The CLI uses Typer: one typed function per command (PLAN Q11, decided 2026-10-15
 | `devman status [project]` | §6 |
 | `devman show <workflow>` | prints the compiled file and its source path |
 | `devman doctor` | checks the services, the Dagu version, that `dags/` matches the last compile, and that every action a library workflow names exists in the packaged base |
+
+`status` and `doctor` also report a refused global compile, unreadable input,
+or changed input. A version 1 state needs a full compile before health is green.
 
 ## 12. What goes
 

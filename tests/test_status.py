@@ -17,13 +17,13 @@ def setup(plane: Plane, port: int | None) -> None:
     plane.library("check", "queue: heavy\nschedule: '0 3 * * *'\nsteps:\n  - run: x\n")
     plane.library("test")
     plane.add_project("alpha", '"check", "test"', ON)
-    assert compile(plane.paths) == 0
     if port:
         plane.paths.dagu_config.write_text(
             f"host: 127.0.0.1\nport: {port}\nqueues: "
             "{enabled: true, config: [{name: light, max_concurrency: 1},"
             " {name: heavy, max_concurrency: 1}]}\n"
         )
+    assert compile(plane.paths) == 0
 
 
 def cli(plane: Plane, *args: str, cwd: Path | None = None):
@@ -39,12 +39,14 @@ def test_status_json_has_the_documented_shape(plane: Plane):
     with rest.serve([rest.run("alpha.check", "failed")]) as port:
         setup(plane, port)
         res = cli(plane, "status", "alpha", "--json")
-    assert res.exit_code == 0
+    assert res.exit_code == 0, res.output
     info = json.loads(res.output)
-    assert info["project"] == "alpha"
-    assert info["dagu"] == "reachable"
-    assert info["compile"]["status"] == "ok"
-    check, test = info["workflows"]
+    assert info["global"]["status"] == "ok"
+    project = info["project"]
+    assert project["project"] == "alpha"
+    assert project["dagu"] == "reachable"
+    assert project["compile"]["status"] == "ok"
+    check, test = project["workflows"]
     assert check["origin"] == "library"
     assert check["queue"] == "heavy"
     assert check["schedule"] == "0 3 * * *"
@@ -52,7 +54,7 @@ def test_status_json_has_the_documented_shape(plane: Plane):
     assert check["last_run"]["status"] == "failed"
     assert check["last_run"]["run_id"] == "r1"
     assert test["last_run"] is None
-    assert test["queue"] == "light"  # the base default
+    assert test["queue"] == "light"
 
 
 def test_status_text_from_the_project_directory(plane: Plane):
@@ -72,18 +74,19 @@ def test_status_with_dagu_down_still_exits_0(plane: Plane):
     assert res.exit_code == 0
     assert "Dagu unreachable" in res.output
     info = json.loads(cli(plane, "status", "alpha", "--json").output)
-    assert info["dagu"] == "unreachable"
-    assert info["workflows"][0]["last_run"] is None
+    assert info["project"]["dagu"] == "unreachable"
+    assert info["project"]["workflows"][0]["last_run"] is None
 
 
 def test_status_without_a_project_lists_every_project(plane: Plane):
     setup(plane, None)
     res = cli(plane, "status")
     assert res.exit_code == 0
-    assert res.output.startswith("alpha")
+    assert res.output.startswith("global compile: ok\nalpha")
     assert "workflows: 2" in res.output
     listing = json.loads(cli(plane, "status", "--json").output)
-    assert [p["project"] for p in listing] == ["alpha"]
+    assert listing["global"]["status"] == "ok"
+    assert [p["project"] for p in listing["projects"]] == ["alpha"]
 
 
 def test_status_shows_a_stale_refusal(plane: Plane):

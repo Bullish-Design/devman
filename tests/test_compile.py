@@ -46,7 +46,9 @@ def test_compile_publishes_each_project(plane: Plane) -> None:
         assert yaml.safe_load(plane.dag(project, "check").read_text())["steps"]
         assert (plane.paths.runs / project).is_dir()
     record = plane.record()
-    assert record["version"] == 1
+    assert record["version"] == 2
+    assert record["global"]["status"] == "ok"
+    assert record["global"]["successful_input_sha256"]
     alpha = record["projects"]["alpha"]
     assert alpha["status"] == "ok"
     assert alpha["stale"] is False
@@ -248,9 +250,10 @@ def test_a_partial_compile_removes_nothing(plane: Plane) -> None:
     plane.manifest(
         f'[alpha]\npath = "{plane.project_dir("alpha")}"\ntake = ["check"]\n'
     )
-    assert compile(plane.paths, ["alpha"]) == 0
+    assert compile(plane.paths, ["alpha"]) == 1
     assert plane.dag("beta", "check").exists()
     assert "beta" in plane.record()["projects"]
+    assert plane.record()["global"]["status"] == "refused"
 
 
 def test_a_partial_compile_leaves_the_others_alone(plane: Plane) -> None:
@@ -258,7 +261,7 @@ def test_a_partial_compile_leaves_the_others_alone(plane: Plane) -> None:
     assert compile(plane.paths) == 0
     beta = snapshot(plane.dag("beta", "check"))
     plane.library("check", STEP + "# edit\n")
-    assert compile(plane.paths, ["alpha"]) == 0
+    assert compile(plane.paths, ["alpha"]) == 1
     assert snapshot(plane.dag("beta", "check")) == beta
     assert plane.dag("alpha", "check").read_text().endswith("# edit\n")
 
@@ -274,7 +277,7 @@ def test_a_directory_without_a_table_is_refused_as_an_orphan(
     plane.add_project("alpha")
     plane.own("ghost", "check")
     assert compile(plane.paths) == 1
-    assert plane.record()["orphans"] == ["ghost"]
+    assert plane.record()["global"]["reasons"] == ["ghost"]
     assert "devman: compile refused ghost: " in capsys.readouterr().err
     assert not (plane.paths.dags / "ghost").exists()
 
@@ -384,7 +387,7 @@ def test_a_missing_base_yaml_refuses_the_run(
     original_source = editable_base(plane)
     plane.paths.base_src.unlink()
     assert compile(plane.paths) == 1
-    assert "compile refused base: cannot read" in capsys.readouterr().err
+    assert "compile refused: cannot read" in capsys.readouterr().err
     assert original_source.exists() is False
 
 
@@ -439,8 +442,8 @@ def test_a_missing_guard_file_refuses_the_whole_compile(
 ) -> None:
     two_projects(plane)
     paths = replace(plane.paths, guard=str(plane.root / "nope.sh"))
-    assert compile(paths) == 2
-    assert "nope.sh is not a file" in capsys.readouterr().err
+    assert compile(paths) == 1
+    assert "cannot read" in capsys.readouterr().err
     assert not plane.dag("alpha", "check").exists()
 
 
@@ -457,7 +460,7 @@ def test_the_state_directory_token_is_filled(plane: Plane) -> None:
 
 def test_compile_needs_the_dagu_config(plane: Plane) -> None:
     env = {k: v for k, v in plane.env.items() if k != "DEVMAN_DAGU_CONFIG"}
-    assert compile(Paths.from_env(env)) == 2
+    assert compile(Paths.from_env(env)) == 1
 
 
 def test_the_cli_runs_compile(plane: Plane) -> None:

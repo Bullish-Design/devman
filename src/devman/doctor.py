@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from devman import dagu
+from devman.health import global_health
 from devman.paths import Paths
 
 WATCH_WARN = 0.5  # M5: warn above half of fs.inotify.max_user_watches
@@ -79,9 +80,18 @@ def check_budget(paths: Paths) -> str | None:
 
 
 def check_compile(paths: Paths) -> str | None:
-    doc = paths.compile_doc()
+    try:
+        doc = paths.compile_doc()
+    except (OSError, ValueError, TypeError):
+        doc = {}
     if not doc:
         return f"no readable {paths.compile_json}; run devman compile"
+    if not isinstance(doc.get("projects"), dict):
+        return "compile.json projects is not a mapping"
+    health = global_health(doc, paths)
+    if health["status"] != "ok" or health["stale"]:
+        reasons = "; ".join(health["reasons"])
+        return f"global compile {health['status']} (stale): {reasons}"
     bad = [n for n, r in doc["projects"].items() if r["status"] != "ok"]
     bad += [f"{o} (orphan)" for o in doc.get("orphans", [])]
     return f"refused: {', '.join(bad)}" if bad else None

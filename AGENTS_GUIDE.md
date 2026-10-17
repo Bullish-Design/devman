@@ -82,8 +82,8 @@ nix build .#devman
 
 ## Diagnose
 
-1. `devman status` and `compile.json`: a refusal has a reason.
-2. `devman doctor`: one line per check.
+1. `devman status` and `compile.json`: global health names stale inputs and refusals.
+2. `devman doctor`: one line per check; compile health compares the current input digest.
 3. `events.jsonl`: one line per event, with the matches and the run IDs.
 4. `~/.local/state/devman/handler.log`: the stderr of a failed `emit` in the
    exit handler.

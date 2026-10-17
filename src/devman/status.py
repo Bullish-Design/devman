@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from devman import dagu
+from devman.health import global_health
 from devman.paths import Paths
 from devman.router import find_project
 
@@ -94,26 +95,47 @@ def _text(info: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _global_text(info: dict[str, Any]) -> list[str]:
+    state = info["global"]
+    lines = [
+        "global compile: " + state["status"] + (" (stale)" if state["stale"] else "")
+    ]
+    lines.extend(f"  global reason: {reason}" for reason in state["reasons"])
+    return lines
+
+
 def status(paths: Paths, name: str | None, as_json: bool, cwd: Path) -> tuple[int, str]:
     """Return (exit code, output). Unreachable Dagu is not an error."""
     try:
-        projects = paths.records()
-    except (OSError, ValueError, KeyError) as exc:
+        doc = json.loads(paths.compile_json.read_text())
+        projects = doc["projects"]
+        if not isinstance(projects, dict):
+            raise ValueError("projects is not a mapping")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         return 2, f"devman: cannot read {paths.compile_json}: {exc}"
+    health = global_health(doc, paths)
+    exit_code = 1 if health["status"] != "ok" or health["stale"] else 0
     name = name or find_project(projects, cwd)
     if name is not None and name not in projects:
         return 2, f"devman: unknown project {name}"
     reach = paths.dagu_config is not None
     if name is None and not as_json:
-        return 0, "\n".join(
+        lines = _global_text({"global": health})
+        lines.extend(
             f"{n}  {r['path']}  compile: {r['status']}  workflows: {len(r['workflows'])}"
             for n, r in projects.items()
         )
+        return exit_code, "\n".join(lines)
     names = [name] if name else list(projects)
     infos = [describe(paths, n, projects[n], reach) for n in names]
     if as_json:
-        return 0, json.dumps(infos[0] if name else infos, indent=2)
-    return 0, "\n".join(_text(infos[0]))
+        payload = (
+            {"global": health, "project": infos[0]}
+            if name
+            else {"global": health, "projects": infos}
+        )
+        return exit_code, json.dumps(payload, indent=2)
+    return exit_code, "\n".join([*_global_text({"global": health}), *_text(infos[0])])
 
 
 def show(paths: Paths, flow: str, name: str | None, cwd: Path) -> tuple[int, str]:

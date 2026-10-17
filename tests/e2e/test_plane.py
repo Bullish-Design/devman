@@ -183,7 +183,7 @@ def test_run_then_status_shows_the_result(plane: Plane, server: int):
 
     def succeeded():
         res = runner.invoke(app, ["status", "alpha", "--json"], env=plane.env)
-        run = json.loads(res.output)["workflows"][0]["last_run"]
+        run = json.loads(res.output)["project"]["workflows"][0]["last_run"]
         return run if run and run["status"] in TERMINAL else None
 
     run = wait_for(succeeded)
@@ -192,7 +192,7 @@ def test_run_then_status_shows_the_result(plane: Plane, server: int):
     info = json.loads(
         runner.invoke(app, ["status", "alpha", "--json"], env=plane.env).output
     )
-    assert info["dagu"] == "reachable"
+    assert info["project"]["dagu"] == "reachable"
     assert doctor.check_api(plane.paths) is None
 
 

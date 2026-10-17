@@ -21,7 +21,8 @@ from typing import Any
 
 import yaml
 
-from devman import __version__, dagu
+from devman import dagu
+from devman.health import input_digest
 from devman.manifest import PROJECT_RE, Project, load, workflow_name_error
 from devman.paths import Paths
 from devman.render import check_source, render
@@ -37,6 +38,13 @@ def _write_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+def _write_bytes_atomic(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(content)
     os.replace(tmp, path)
 
 
@@ -274,66 +282,204 @@ def compile(
     paths: Paths, names: list[str] | None = None, validate_all: bool = False
 ) -> int:
     """Compile the named projects, or all. Return the exit code (0, 1 or 2)."""
-    if paths.dagu_config is None:
-        print("devman: DEVMAN_DAGU_CONFIG is not set", file=sys.stderr)
-        return 2
-    paths.state.mkdir(parents=True, exist_ok=True)
-    with open(paths.lock, "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        return _compile_locked(paths, names, validate_all)
+    try:
+        paths.state.mkdir(parents=True, exist_ok=True)
+        with open(paths.lock, "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                return _compile_locked(paths, names, validate_all)
+            except Exception as exc:
+                try:
+                    old_doc = _read_compile_doc(paths)
+                    return _global_refusal(
+                        paths, old_doc, f"unexpected compile error: {exc}"
+                    )
+                except Exception as state_error:
+                    print(
+                        f"devman: cannot record compile failure: {state_error}",
+                        file=sys.stderr,
+                    )
+                    return 1
+    except OSError as exc:
+        print(f"devman: cannot access compile state: {exc}", file=sys.stderr)
+        return 1
+
+
+def _read_compile_doc(paths: Paths) -> dict[str, Any]:
+    if not paths.compile_json.exists():
+        return {}
+    return json.loads(paths.compile_json.read_text())
+
+
+def _write_result(
+    paths: Paths,
+    old_doc: dict[str, Any],
+    records: dict[str, Any],
+    status: str,
+    reasons: list[str],
+    successful_digest: str | None,
+) -> None:
+    old_global = old_doc.get("global", {})
+    if not isinstance(old_global, dict):
+        old_global = {}
+    same_global = (
+        old_global.get("status") == status
+        and old_global.get("reasons", []) == reasons
+        and old_global.get("successful_input_sha256") == successful_digest
+    )
+    global_record = {
+        "status": status,
+        "at": old_global.get("at") if same_global else _now(),
+        "reasons": reasons,
+        "successful_input_sha256": successful_digest,
+    }
+    core = {
+        "version": 2,
+        "global": global_record,
+        "projects": dict(sorted(records.items())),
+    }
+    if old_doc.get("version") == 2 and _without(old_doc, "compiled_at") == core:
+        return
+    doc = {"compiled_at": _now(), **core}
+    _write_atomic(paths.compile_json, json.dumps(doc, indent=2) + "\n")
+
+
+def _snapshot_outputs(paths: Paths) -> dict[Path, bytes]:
+    snapshot = {}
+    if paths.base_out.exists():
+        snapshot[paths.base_out] = paths.base_out.read_bytes()
+    if paths.dags.exists():
+        for file in paths.dags.rglob("*.yaml"):
+            snapshot[file] = file.read_bytes()
+    return snapshot
+
+
+def _restore_outputs(paths: Paths, snapshot: dict[Path, bytes]) -> None:
+    old_dags = {path for path in snapshot if path != paths.base_out}
+    if paths.dags.exists():
+        for file in paths.dags.rglob("*.yaml"):
+            if file not in old_dags:
+                file.unlink()
+    for path, content in snapshot.items():
+        _write_bytes_atomic(path, content)
+
+
+def _restore_project(paths: Paths, name: str, snapshot: dict[Path, bytes]) -> None:
+    root = paths.dags / name
+    old = {path for path in snapshot if path.is_relative_to(root)}
+    if root.exists():
+        for file in root.rglob("*.yaml"):
+            if file not in old:
+                file.unlink()
+    for path in old:
+        _write_bytes_atomic(path, snapshot[path])
+
+
+def _global_refusal(
+    paths: Paths,
+    old_doc: dict[str, Any],
+    reason: str,
+) -> int:
+    previous = old_doc.get("projects", {})
+    old_global = old_doc.get("global", {})
+    successful = (
+        old_global.get("successful_input_sha256")
+        if isinstance(old_global, dict)
+        else None
+    )
+    try:
+        _write_result(paths, old_doc, previous, "refused", [reason], successful)
+    except OSError as exc:
+        print(f"devman: cannot write {paths.compile_json}: {exc}", file=sys.stderr)
+        return 1
+    print(f"devman: compile refused: {reason}", file=sys.stderr)
+    return 1
 
 
 def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -> int:
-    assert paths.dagu_config is not None
-    # A missing guard file would fail every step; refuse before any change.
-    if not (paths.guard and Path(paths.guard).is_file()):
-        print(f"devman: DEVMAN_GUARD {paths.guard} is not a file", file=sys.stderr)
-        return 2
-    manifest = load(paths.projects_toml)
-    unknown = [n for n in names or [] if n not in manifest.projects | manifest.errors]
-    if unknown:
-        print(f"devman: unknown project {', '.join(unknown)}", file=sys.stderr)
-        return 2
-
     try:
-        queues = dagu.configured_queues(paths.dagu_config)
-    except (OSError, yaml.YAMLError) as exc:
-        print(f"devman: cannot read {paths.dagu_config}: {exc}", file=sys.stderr)
+        old_doc = _read_compile_doc(paths)
+    except (OSError, ValueError, TypeError) as exc:
+        print(f"devman: cannot read {paths.compile_json}: {exc}", file=sys.stderr)
         return 1
-
-    changed, error = fill_base(paths)
-    if error:
-        print(f"devman: compile refused base: {error}", file=sys.stderr)
-        return 1
-    try:
-        candidate_config = _candidate_config(paths)
-    except (OSError, yaml.YAMLError, TypeError, AttributeError) as exc:
-        print(f"devman: cannot prepare Dagu config: {exc}", file=sys.stderr)
-        return 1
-    if changed or not paths.base_out.exists():
-        probe = paths.tmp / "base-probe.yaml"
-        probe.write_text('steps:\n  - name: devman-base-check\n    run: "true"\n')
-        error = dagu.validate(candidate_config, probe)
-        if error:
-            print(f"devman: invalid packaged base: {error}", file=sys.stderr)
-            return 1
-
-    old_doc = paths.compile_doc()
     previous = old_doc.get("projects", {})
+    if not isinstance(previous, dict):
+        return _global_refusal(paths, old_doc, "compile.json projects is not a mapping")
+
+    digest, digest_errors = input_digest(paths)
+    if digest_errors:
+        return _global_refusal(paths, old_doc, "; ".join(digest_errors))
+    try:
+        manifest = load(paths.projects_toml)
+        if manifest.errors.get(""):
+            return _global_refusal(
+                paths,
+                old_doc,
+                "projects.toml: " + "; ".join(manifest.errors[""]),
+            )
+        unknown = [
+            name
+            for name in names or []
+            if name not in manifest.projects | manifest.errors
+        ]
+        if unknown:
+            print(f"devman: unknown project {', '.join(unknown)}", file=sys.stderr)
+            return 2
+        assert paths.dagu_config is not None
+        queues = dagu.configured_queues(paths.dagu_config)
+        changed, error = fill_base(paths)
+        if error:
+            return _global_refusal(paths, old_doc, f"base: {error}")
+        candidate_config = _candidate_config(paths)
+        if changed or not paths.base_out.exists():
+            probe = paths.tmp / "base-probe.yaml"
+            probe.write_text('steps:\n  - name: devman-base-check\n    run: "true"\n')
+            error = dagu.validate(candidate_config, probe)
+            if error:
+                return _global_refusal(
+                    paths, old_doc, f"invalid packaged base: {error}"
+                )
+        if not (paths.guard and Path(paths.guard).is_file()):
+            return _global_refusal(
+                paths, old_doc, f"DEVMAN_GUARD {paths.guard} is not a file"
+            )
+    except (OSError, yaml.YAMLError, TypeError, AttributeError, AssertionError) as exc:
+        return _global_refusal(paths, old_doc, f"compile input error: {exc}")
+    except Exception as exc:
+        return _global_refusal(paths, old_doc, f"unexpected compile error: {exc}")
+
     records = dict(previous)
     refused: dict[str, list[str]] = {}
+    full = not names
+    orphans: list[str] = []
+    if full and paths.workflows.is_dir():
+        known = manifest.projects.keys() | manifest.errors.keys()
+        orphans = sorted(
+            directory.name
+            for directory in paths.workflows.iterdir()
+            if directory.is_dir() and directory.name not in known
+        )
 
-    for name in sorted(manifest.projects.keys() | manifest.errors.keys() - {""}):
+    try:
+        output_snapshot = _snapshot_outputs(paths)
+    except OSError as exc:
+        return _global_refusal(paths, old_doc, f"cannot read published files: {exc}")
+
+    for name in sorted(manifest.projects.keys() | manifest.errors.keys()):
         if names and name not in names:
             continue
         project = manifest.projects.get(name)
         if project:
-            record, reasons = _compile_project(
-                replace(paths, dagu_config=candidate_config),
-                queues,
-                project,
-                validate_all or changed,
-            )
+            try:
+                record, reasons = _compile_project(
+                    replace(paths, dagu_config=candidate_config),
+                    queues,
+                    project,
+                    validate_all or changed,
+                )
+            except Exception as exc:
+                _restore_project(paths, name, output_snapshot)
+                record, reasons = None, [f"unexpected project error: {exc}"]
         else:
             record, reasons = None, manifest.errors[name]
         if record is None:
@@ -344,46 +490,71 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
         else:
             records[name] = record
 
-    full = not names
-    orphans: list[str] = []
+    for orphan in orphans:
+        refused[orphan] = [f"workflows/{orphan}/ has no table in projects.toml"]
     if full:
-        for reason in manifest.errors.get("", []):
-            refused["projects.toml"] = [*refused.get("projects.toml", []), reason]
-        if paths.workflows.is_dir():
-            known = manifest.projects.keys() | manifest.errors.keys()
-            orphans = sorted(
-                d.name
-                for d in paths.workflows.iterdir()
-                if d.is_dir() and d.name not in known
-            )
-        for orphan in orphans:
-            refused[orphan] = [f"workflows/{orphan}/ has no table in projects.toml"]
-        # A project that left the manifest loses its files. A broken
-        # `projects.toml` proves nothing about which projects left.
-        if not manifest.errors.get(""):
-            for name in (
-                set(previous) - manifest.projects.keys() - manifest.errors.keys()
-            ):
-                if PROJECT_RE.match(name):
-                    shutil.rmtree(paths.dags / name, ignore_errors=True)
-                records.pop(name, None)
+        for name in set(previous) - manifest.projects.keys() - manifest.errors.keys():
+            if PROJECT_RE.match(name):
+                shutil.rmtree(paths.dags / name, ignore_errors=True)
+            records.pop(name, None)
 
-    _publish_base(paths)
-
-    # A run with no change writes nothing: keep each unchanged record, and
-    # skip the file when nothing but the clock moved.
     for name, record in records.items():
         if _without(previous.get(name), "at") == _without(record, "at"):
             records[name] = previous.get(name, record)
-    core = {
-        "version": 1,
-        "devman": __version__,
-        "orphans": orphans if full else old_doc.get("orphans", []),
-        "projects": dict(sorted(records.items())),
-    }
-    if _without(old_doc, "compiled_at") != core:
-        doc = {"version": 1, "compiled_at": _now(), **core}
-        _write_atomic(paths.compile_json, json.dumps(doc, indent=2) + "\n")
+
+    global_reasons = [*sorted(refused)]
+    if not full and not refused:
+        old_global = old_doc.get("global", {})
+        if not isinstance(old_global, dict):
+            old_global = {}
+        if (
+            old_global.get("status") == "ok"
+            and old_global.get("successful_input_sha256") == digest
+        ):
+            global_status = "ok"
+            successful_digest = old_global["successful_input_sha256"]
+            global_reasons = list(old_global.get("reasons", []))
+        else:
+            global_status = "refused"
+            successful_digest = old_global.get("successful_input_sha256")
+            global_reasons = ["partial compile does not cover current inputs"]
+    elif refused:
+        global_status = "refused"
+        old_global = old_doc.get("global", {})
+        successful_digest = (
+            old_global.get("successful_input_sha256")
+            if isinstance(old_global, dict)
+            else None
+        )
+    else:
+        global_status = "ok"
+        successful_digest = digest
+        global_reasons = []
+
+    try:
+        _publish_base(paths)
+        _write_result(
+            paths,
+            old_doc,
+            records,
+            global_status,
+            global_reasons,
+            successful_digest,
+        )
+    except Exception as exc:
+        try:
+            _restore_outputs(paths, output_snapshot)
+        except OSError as restore_error:
+            print(
+                f"devman: compile failed: {exc}; restore failed: {restore_error}",
+                file=sys.stderr,
+            )
+            return 1
+        if isinstance(exc, OSError) and paths.compile_json.exists():
+            print(f"devman: cannot write {paths.compile_json}: {exc}", file=sys.stderr)
+            return 1
+        return _global_refusal(paths, old_doc, f"unexpected compile error: {exc}")
+
     for name, reasons in refused.items():
         print(f"devman: compile refused {name}: {'; '.join(reasons)}", file=sys.stderr)
-    return 1 if refused else 0
+    return 1 if refused or global_status != "ok" else 0
