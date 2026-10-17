@@ -110,5 +110,10 @@ Land the branch with gitman.
 3. `events.jsonl`: did the event arrive, and what did the router do?
 4. The Dagu UI or `.devman/runs`: the log of the run.
 
+A missing state file asks for a full compile. A malformed state file exits 2
+and names the malformed field. Never edit `compile.json` by hand; repair the
+broken input it names, or remove the file only when you accept losing its
+records, then run a full `devman compile`.
+
 After a compile refusal or stale input, fix the source. Run a full `devman
 compile` to clear global health. The watcher recompiles changed files.

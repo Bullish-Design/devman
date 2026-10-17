@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -36,20 +34,6 @@ class Paths:
     @property
     def workflows(self) -> Path:
         return self.overlay / "workflows"
-
-    def compile_doc(self) -> dict[str, Any]:
-        """`compile.json`, or {} when it is missing or unreadable."""
-        try:
-            return json.loads(self.compile_json.read_text())
-        except (OSError, ValueError):
-            return {}
-
-    def records(self) -> dict[str, dict]:
-        """The project records of the last compile.
-
-        Raise OSError, ValueError or KeyError when `compile.json` cannot give them.
-        """
-        return json.loads(self.compile_json.read_text())["projects"]
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Paths:

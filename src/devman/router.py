@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from devman import dagu
+from devman import dagu, state
 from devman.manifest import EVENT_RE, OnEntry, matches
 from devman.paths import Paths
 
@@ -121,9 +121,14 @@ def emit(paths: Paths, event: Event) -> Outcome:
         "refusal": None,
     }
     try:
-        projects = paths.records()
-    except (OSError, ValueError, KeyError) as exc:
-        return _refuse(paths, record, f"cannot read {paths.compile_json}: {exc}")
+        doc = state.read(paths.compile_json)
+    except state.StateError as exc:
+        return _refuse(paths, record, str(exc))
+    if doc is None:
+        return _refuse(
+            paths, record, f"{paths.compile_json} is missing; run devman compile"
+        )
+    projects = doc["projects"]
 
     name = event.project
     if name is None:

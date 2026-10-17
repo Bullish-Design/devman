@@ -91,7 +91,11 @@ def input_digest(paths: Paths) -> tuple[str | None, list[str]]:
 
 
 def global_health(doc: dict, paths: Paths) -> dict:
-    """Return stored global state with staleness derived from live inputs."""
+    """Return stored global state with staleness derived from live inputs.
+
+    `doc` comes from `state.read`: a valid version 1 or version 2 document.
+    Version 1 has no global record, so it always needs a full compile.
+    """
     digest, input_errors = input_digest(paths)
     stored = doc.get("global") if doc.get("version") == 2 else None
     if not isinstance(stored, dict):
@@ -105,10 +109,9 @@ def global_health(doc: dict, paths: Paths) -> dict:
             "stale": True,
         }
 
-    saved_reasons = stored.get("reasons", [])
-    reasons = list(saved_reasons) if isinstance(saved_reasons, list) else []
-    successful = stored.get("successful_input_sha256")
-    stale = stored.get("status") != "ok"
+    reasons = list(stored["reasons"])
+    successful = stored["successful_input_sha256"]
+    stale = stored["status"] != "ok"
     if input_errors:
         reasons.extend(error for error in input_errors if error not in reasons)
         stale = True

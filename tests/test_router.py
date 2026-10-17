@@ -171,7 +171,7 @@ def test_no_project_is_a_refusal(plane: Plane, fake: Path):
 
 def test_a_missing_compile_json_is_a_refusal(plane: Plane, fake: Path):
     out = emit(plane.paths, Event("save", "alpha", ("a.py",)))
-    assert out.code == 2 and "cannot read" in out.record["refusal"]
+    assert out.code == 2 and "is missing; run devman compile" in out.record["refusal"]
 
 
 def test_a_vanished_checkout_is_refused(plane: Plane, fake: Path):

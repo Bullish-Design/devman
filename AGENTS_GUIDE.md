@@ -19,6 +19,8 @@ Compile is the only writer of `dags/`. The router is the only enqueuer.
 |---|---|
 | `src/devman/cli.py` | the Typer app, one function per command, exit codes |
 | `paths.py` | `Paths`, built from the environment |
+| `state.py` | the one validated reader for `compile.json`; `StateError` with a field path |
+| `health.py` | the input digest and the derived global health |
 | `manifest.py` | read `projects.toml`, the rules, event matching |
 | `render.py` | the header, the source checks |
 | `compile.py` | resolve, validate, publish, record, lock |
@@ -83,6 +85,8 @@ nix build .#devman
 ## Diagnose
 
 1. `devman status` and `compile.json`: global health names stale inputs and refusals.
+   Malformed state exits 2 and names the malformed field's path. A missing
+   state file asks for a full compile.
 2. `devman doctor`: one line per check; compile health compares the current input digest.
 3. `events.jsonl`: one line per event, with the matches and the run IDs.
 4. `~/.local/state/devman/handler.log`: the stderr of a failed `emit` in the

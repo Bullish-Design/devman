@@ -1,0 +1,471 @@
+============================= test session starts ==============================
+collected 16 items
+
+tests/test_state_validation.py FFFFFFFFFFFFF..F                          [100%]
+
+=================================== FAILURES ===================================
+__________________ test_missing_state_is_an_initial_condition __________________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_missing_state_is_an_initi0'), paths=Paths(overlay=PosixP...e_is_an_initi0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_missing_state_is_an_initi0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_missing_state_is_an_initi0/dagu.log')
+
+    def test_missing_state_is_an_initial_condition(plane: Plane, fake: Path):
+        """No compile.json: a full compile starts fresh; readers name it."""
+        good_compile(plane)
+        plane.paths.compile_json.unlink()
+        fresh = invoke(plane, "compile")
+        assert fresh.exit_code == 0, fresh.output
+        assert record(plane)["version"] == 2
+        assert record(plane)["global"]["status"] == "ok"
+    
+        plane.paths.compile_json.unlink()
+    
+        status = invoke(plane, "status")
+        doctor = invoke(plane, "doctor")
+        show = invoke(plane, "show", "check", "--project", "alpha")
+    
+        assert status.exit_code == 2, status.output
+>       assert "is missing; run devman compile" in status.output
+E       assert 'is missing; run devman compile' in "devman: cannot read /tmp/pytest-of-andrew/pytest-23253/test_missing_state_is_an_initi0/state/compile.json: [Errno 2] No such file or directory: '/tmp/pytest-of-andrew/pytest-23253/test_missing_state_is_an_initi0/state/compile.json'\n"
+E        +  where "devman: cannot read /tmp/pytest-of-andrew/pytest-23253/test_missing_state_is_an_initi0/state/compile.json: [Errno 2] No such file or directory: '/tmp/pytest-of-andrew/pytest-23253/test_missing_state_is_an_initi0/state/compile.json'\n" = <Result SystemExit(2)>.output
+
+tests/test_state_validation.py:92: AssertionError
+__________ test_broken_json_refuses_every_command_and_changes_nothing __________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0'), paths=Paths(overlay=PosixP...refuses_every0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0/dagu.log')
+
+    def test_broken_json_refuses_every_command_and_changes_nothing(
+        plane: Plane, fake: Path
+    ):
+        good_compile(plane)
+        before = published_bytes(plane)
+        plane.paths.compile_json.write_text("{ not json\n")
+    
+        compile_result = invoke(plane, "compile")
+        status = invoke(plane, "status")
+        doctor = invoke(plane, "doctor")
+    
+        assert compile_result.exit_code == 1, compile_result.output
+        assert "compile.json" in compile_result.output
+>       assert_state_error(plane, status, 2, "invalid JSON")
+
+tests/test_state_validation.py:112: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0'), paths=Paths(overlay=PosixP...refuses_every0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0/dagu-home'})
+result = <Result SystemExit(2)>, code = 2, field = 'invalid JSON'
+
+    def assert_state_error(plane: Plane, result, code: int, field: str) -> None:
+        assert result.exit_code == code, result.output
+>       assert field in result.output, result.output
+E       AssertionError: devman: cannot read /tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0/state/compile.json: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
+E         
+E       assert 'invalid JSON' in 'devman: cannot read /tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0/state/compile.json: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)\n'
+E        +  where 'devman: cannot read /tmp/pytest-of-andrew/pytest-23253/test_broken_json_refuses_every0/state/compile.json: Expecting property name enclosed in double quotes: line 1 column 3 (char 2)\n' = <Result SystemExit(2)>.output
+
+tests/test_state_validation.py:72: AssertionError
+______________ test_truthy_non_mapping_state_refuses_cleanly[[]] _______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_0'), paths=Paths(overlay=PosixP...apping_state_0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_0/dagu.log')
+text = '[]'
+
+    @pytest.mark.parametrize("text", ["[]", "[1]", "42", '"x"'])
+    def test_truthy_non_mapping_state_refuses_cleanly(plane: Plane, fake: Path, text: str):
+        """`[]` and `[1]` share one wrong type. `[1]` proves the guard."""
+        good_compile(plane)
+        before = published_bytes(plane)
+        plane.paths.compile_json.write_text(text)
+    
+        compile_result = invoke(plane, "compile")
+        status = invoke(plane, "status")
+>       show = invoke(plane, "show", "check", "--project", "alpha")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_state_validation.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_0'), paths=Paths(overlay=PosixP...apping_state_0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_0/dagu-home'})
+args = ('show', 'check', '--project', 'alpha')
+
+    def invoke(plane: Plane, *args: str):
+        """Run one command as the service does. Refuse, never crash."""
+        result = runner.invoke(app, list(args), env=plane.env)
+>       assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"{args} raised {result.exception!r}\n{result.output}"
+        )
+E       AssertionError: ('show', 'check', '--project', 'alpha') raised TypeError('list indices must be integers or slices, not str')
+E         
+E       assert (TypeError('list indices must be integers or slices, not str') is None or False)
+E        +  where TypeError('list indices must be integers or slices, not str') = <Result TypeError('list indices must be integers or slices, not str')>.exception
+E        +  and   False = isinstance(TypeError('list indices must be integers or slices, not str'), SystemExit)
+E        +    where TypeError('list indices must be integers or slices, not str') = <Result TypeError('list indices must be integers or slices, not str')>.exception
+
+tests/test_state_validation.py:32: AssertionError
+______________ test_truthy_non_mapping_state_refuses_cleanly[[1]] ______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_1'), paths=Paths(overlay=PosixP...apping_state_1/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_1/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_1/dagu.log')
+text = '[1]'
+
+    @pytest.mark.parametrize("text", ["[]", "[1]", "42", '"x"'])
+    def test_truthy_non_mapping_state_refuses_cleanly(plane: Plane, fake: Path, text: str):
+        """`[]` and `[1]` share one wrong type. `[1]` proves the guard."""
+        good_compile(plane)
+        before = published_bytes(plane)
+        plane.paths.compile_json.write_text(text)
+    
+        compile_result = invoke(plane, "compile")
+        status = invoke(plane, "status")
+>       show = invoke(plane, "show", "check", "--project", "alpha")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_state_validation.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_1'), paths=Paths(overlay=PosixP...apping_state_1/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_1/dagu-home'})
+args = ('show', 'check', '--project', 'alpha')
+
+    def invoke(plane: Plane, *args: str):
+        """Run one command as the service does. Refuse, never crash."""
+        result = runner.invoke(app, list(args), env=plane.env)
+>       assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"{args} raised {result.exception!r}\n{result.output}"
+        )
+E       AssertionError: ('show', 'check', '--project', 'alpha') raised TypeError('list indices must be integers or slices, not str')
+E         
+E       assert (TypeError('list indices must be integers or slices, not str') is None or False)
+E        +  where TypeError('list indices must be integers or slices, not str') = <Result TypeError('list indices must be integers or slices, not str')>.exception
+E        +  and   False = isinstance(TypeError('list indices must be integers or slices, not str'), SystemExit)
+E        +    where TypeError('list indices must be integers or slices, not str') = <Result TypeError('list indices must be integers or slices, not str')>.exception
+
+tests/test_state_validation.py:32: AssertionError
+______________ test_truthy_non_mapping_state_refuses_cleanly[42] _______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_2'), paths=Paths(overlay=PosixP...apping_state_2/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_2/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_2/dagu.log')
+text = '42'
+
+    @pytest.mark.parametrize("text", ["[]", "[1]", "42", '"x"'])
+    def test_truthy_non_mapping_state_refuses_cleanly(plane: Plane, fake: Path, text: str):
+        """`[]` and `[1]` share one wrong type. `[1]` proves the guard."""
+        good_compile(plane)
+        before = published_bytes(plane)
+        plane.paths.compile_json.write_text(text)
+    
+        compile_result = invoke(plane, "compile")
+        status = invoke(plane, "status")
+>       show = invoke(plane, "show", "check", "--project", "alpha")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_state_validation.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_2'), paths=Paths(overlay=PosixP...apping_state_2/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_2/dagu-home'})
+args = ('show', 'check', '--project', 'alpha')
+
+    def invoke(plane: Plane, *args: str):
+        """Run one command as the service does. Refuse, never crash."""
+        result = runner.invoke(app, list(args), env=plane.env)
+>       assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"{args} raised {result.exception!r}\n{result.output}"
+        )
+E       AssertionError: ('show', 'check', '--project', 'alpha') raised TypeError("'int' object is not subscriptable")
+E         
+E       assert (TypeError("'int' object is not subscriptable") is None or False)
+E        +  where TypeError("'int' object is not subscriptable") = <Result TypeError("'int' object is not subscriptable")>.exception
+E        +  and   False = isinstance(TypeError("'int' object is not subscriptable"), SystemExit)
+E        +    where TypeError("'int' object is not subscriptable") = <Result TypeError("'int' object is not subscriptable")>.exception
+
+tests/test_state_validation.py:32: AssertionError
+______________ test_truthy_non_mapping_state_refuses_cleanly["x"] ______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_3'), paths=Paths(overlay=PosixP...apping_state_3/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_3/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_3/dagu.log')
+text = '"x"'
+
+    @pytest.mark.parametrize("text", ["[]", "[1]", "42", '"x"'])
+    def test_truthy_non_mapping_state_refuses_cleanly(plane: Plane, fake: Path, text: str):
+        """`[]` and `[1]` share one wrong type. `[1]` proves the guard."""
+        good_compile(plane)
+        before = published_bytes(plane)
+        plane.paths.compile_json.write_text(text)
+    
+        compile_result = invoke(plane, "compile")
+        status = invoke(plane, "status")
+>       show = invoke(plane, "show", "check", "--project", "alpha")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_state_validation.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_3'), paths=Paths(overlay=PosixP...apping_state_3/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_truthy_non_mapping_state_3/dagu-home'})
+args = ('show', 'check', '--project', 'alpha')
+
+    def invoke(plane: Plane, *args: str):
+        """Run one command as the service does. Refuse, never crash."""
+        result = runner.invoke(app, list(args), env=plane.env)
+>       assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"{args} raised {result.exception!r}\n{result.output}"
+        )
+E       AssertionError: ('show', 'check', '--project', 'alpha') raised TypeError("string indices must be integers, not 'str'")
+E         
+E       assert (TypeError("string indices must be integers, not 'str'") is None or False)
+E        +  where TypeError("string indices must be integers, not 'str'") = <Result TypeError("string indices must be integers, not 'str'")>.exception
+E        +  and   False = isinstance(TypeError("string indices must be integers, not 'str'"), SystemExit)
+E        +    where TypeError("string indices must be integers, not 'str'") = <Result TypeError("string indices must be integers, not 'str'")>.exception
+
+tests/test_state_validation.py:32: AssertionError
+________________ test_string_global_reasons_cannot_report_green ________________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_string_global_reasons_can0'), paths=Paths(overlay=PosixP...l_reasons_can0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_string_global_reasons_can0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_string_global_reasons_can0/dagu.log')
+
+    def test_string_global_reasons_cannot_report_green(plane: Plane, fake: Path):
+        good_compile(plane)
+        doc = record(plane)
+        doc["global"]["reasons"] = "chmod -R 000 ~/"
+        rewrite(plane, doc)
+    
+        status = invoke(plane, "status")
+        doctor = invoke(plane, "doctor")
+    
+>       assert_state_error(plane, status, 2, "global.reasons must be a list of strings")
+
+tests/test_state_validation.py:155: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_string_global_reasons_can0'), paths=Paths(overlay=PosixP...l_reasons_can0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_string_global_reasons_can0/dagu-home'})
+result = <Result okay>, code = 2
+field = 'global.reasons must be a list of strings'
+
+    def assert_state_error(plane: Plane, result, code: int, field: str) -> None:
+>       assert result.exit_code == code, result.output
+E       AssertionError: global compile: ok
+E         alpha  /tmp/pytest-of-andrew/pytest-23253/test_string_global_reasons_can0/work/alpha  compile: ok  workflows: 1
+E         
+E       assert 0 == 2
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_state_validation.py:71: AssertionError
+____________________ test_malformed_global_fields_are_named ____________________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_malformed_global_fields_a0'), paths=Paths(overlay=PosixP...obal_fields_a0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_malformed_global_fields_a0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_malformed_global_fields_a0/dagu.log')
+
+    def test_malformed_global_fields_are_named(plane: Plane, fake: Path):
+        good_compile(plane)
+        doc = record(plane)
+        del doc["global"]["at"]
+        rewrite(plane, doc)
+>       assert_state_error(plane, invoke(plane, "status"), 2, "global.at is required")
+
+tests/test_state_validation.py:167: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_malformed_global_fields_a0'), paths=Paths(overlay=PosixP...obal_fields_a0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_malformed_global_fields_a0/dagu-home'})
+result = <Result okay>, code = 2, field = 'global.at is required'
+
+    def assert_state_error(plane: Plane, result, code: int, field: str) -> None:
+>       assert result.exit_code == code, result.output
+E       AssertionError: global compile: ok
+E         alpha  /tmp/pytest-of-andrew/pytest-23253/test_malformed_global_fields_a0/work/alpha  compile: ok  workflows: 1
+E         
+E       assert 0 == 2
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_state_validation.py:71: AssertionError
+______________ test_boolean_version_is_not_a_valid_state_version _______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_boolean_version_is_not_a_0'), paths=Paths(overlay=PosixP...ion_is_not_a_0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_boolean_version_is_not_a_0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_boolean_version_is_not_a_0/dagu.log')
+
+    def test_boolean_version_is_not_a_valid_state_version(plane: Plane, fake: Path):
+        good_compile(plane)
+        doc = record(plane)
+        doc["version"] = True
+        rewrite(plane, doc)
+>       assert_state_error(
+            plane, invoke(plane, "status"), 2, "version must be integer 1 or 2"
+        )
+
+tests/test_state_validation.py:191: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_boolean_version_is_not_a_0'), paths=Paths(overlay=PosixP...ion_is_not_a_0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_boolean_version_is_not_a_0/dagu-home'})
+result = <Result SystemExit(1)>, code = 2
+field = 'version must be integer 1 or 2'
+
+    def assert_state_error(plane: Plane, result, code: int, field: str) -> None:
+>       assert result.exit_code == code, result.output
+E       AssertionError: global compile: refused (stale)
+E           global reason: a full compile is required for compile.json version 2
+E         alpha  /tmp/pytest-of-andrew/pytest-23253/test_boolean_version_is_not_a_0/work/alpha  compile: ok  workflows: 1
+E         
+E       assert 1 == 2
+E        +  where 1 = <Result SystemExit(1)>.exit_code
+
+tests/test_state_validation.py:71: AssertionError
+_______________ test_null_project_record_does_not_raise_anywhere _______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_null_project_record_does_0'), paths=Paths(overlay=PosixP..._record_does_0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_null_project_record_does_0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_null_project_record_does_0/dagu.log')
+
+    def test_null_project_record_does_not_raise_anywhere(plane: Plane, fake: Path):
+        good_compile(plane)
+        doc = record(plane)
+        doc["projects"]["alpha"] = None
+        rewrite(plane, doc)
+    
+>       status = invoke(plane, "status")
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_state_validation.py:205: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_null_project_record_does_0'), paths=Paths(overlay=PosixP..._record_does_0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_null_project_record_does_0/dagu-home'})
+args = ('status',)
+
+    def invoke(plane: Plane, *args: str):
+        """Run one command as the service does. Refuse, never crash."""
+        result = runner.invoke(app, list(args), env=plane.env)
+>       assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"{args} raised {result.exception!r}\n{result.output}"
+        )
+E       AssertionError: ('status',) raised AttributeError("'NoneType' object has no attribute 'get'")
+E         
+E       assert (AttributeError("'NoneType' object has no attribute 'get'") is None or False)
+E        +  where AttributeError("'NoneType' object has no attribute 'get'") = <Result AttributeError("'NoneType' object has no attribute 'get'")>.exception
+E        +  and   False = isinstance(AttributeError("'NoneType' object has no attribute 'get'"), SystemExit)
+E        +    where AttributeError("'NoneType' object has no attribute 'get'") = <Result AttributeError("'NoneType' object has no attribute 'get'")>.exception
+
+tests/test_state_validation.py:32: AssertionError
+______________ test_null_workflow_record_does_not_raise_anywhere _______________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_null_workflow_record_does0'), paths=Paths(overlay=PosixP...w_record_does0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_null_workflow_record_does0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_null_workflow_record_does0/dagu.log')
+
+    def test_null_workflow_record_does_not_raise_anywhere(plane: Plane, fake: Path):
+        good_compile(plane)
+        doc = record(plane)
+        doc["projects"]["alpha"]["workflows"]["check"] = None
+        rewrite(plane, doc)
+    
+        status = invoke(plane, "status")
+        show = invoke(plane, "show", "check", "--project", "alpha")
+>       emit = invoke(plane, "emit", "save", "--project", "alpha", "--subject", "a.py")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_state_validation.py:237: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_null_workflow_record_does0'), paths=Paths(overlay=PosixP...w_record_does0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_null_workflow_record_does0/dagu-home'})
+args = ('emit', 'save', '--project', 'alpha', '--subject', 'a.py')
+
+    def invoke(plane: Plane, *args: str):
+        """Run one command as the service does. Refuse, never crash."""
+        result = runner.invoke(app, list(args), env=plane.env)
+>       assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"{args} raised {result.exception!r}\n{result.output}"
+        )
+E       AssertionError: ('emit', 'save', '--project', 'alpha', '--subject', 'a.py') raised AttributeError("'NoneType' object has no attribute 'get'")
+E         
+E       assert (AttributeError("'NoneType' object has no attribute 'get'") is None or False)
+E        +  where AttributeError("'NoneType' object has no attribute 'get'") = <Result AttributeError("'NoneType' object has no attribute 'get'")>.exception
+E        +  and   False = isinstance(AttributeError("'NoneType' object has no attribute 'get'"), SystemExit)
+E        +    where AttributeError("'NoneType' object has no attribute 'get'") = <Result AttributeError("'NoneType' object has no attribute 'get'")>.exception
+
+tests/test_state_validation.py:32: AssertionError
+_______________ test_nested_project_record_fields_are_validated ________________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_nested_project_record_fie0'), paths=Paths(overlay=PosixP...ct_record_fie0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_nested_project_record_fie0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_nested_project_record_fie0/dagu.log')
+
+    def test_nested_project_record_fields_are_validated(plane: Plane, fake: Path):
+        good_compile(plane)
+        doc = record(plane)
+        doc["projects"]["alpha"]["on"][0]["match"] = "main"
+        rewrite(plane, doc)
+>       assert_state_error(plane, invoke(plane, "status"), 2, "projects.alpha.on[0].match")
+
+tests/test_state_validation.py:260: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_nested_project_record_fie0'), paths=Paths(overlay=PosixP...ct_record_fie0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_nested_project_record_fie0/dagu-home'})
+result = <Result okay>, code = 2, field = 'projects.alpha.on[0].match'
+
+    def assert_state_error(plane: Plane, result, code: int, field: str) -> None:
+>       assert result.exit_code == code, result.output
+E       AssertionError: global compile: ok
+E         alpha  /tmp/pytest-of-andrew/pytest-23253/test_nested_project_record_fie0/work/alpha  compile: ok  workflows: 1
+E         
+E       assert 0 == 2
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_state_validation.py:71: AssertionError
+____________________ test_a_green_project_needs_a_real_path ____________________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_a_green_project_needs_a_r0'), paths=Paths(overlay=PosixP...ect_needs_a_r0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_a_green_project_needs_a_r0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_a_green_project_needs_a_r0/dagu.log')
+
+    def test_a_green_project_needs_a_real_path(plane: Plane, fake: Path):
+        good_compile(plane)
+        doc = record(plane)
+        doc["projects"]["alpha"]["path"] = None
+        rewrite(plane, doc)
+>       assert_state_error(
+            plane,
+            invoke(plane, "status"),
+            2,
+            "projects.alpha.path must be a nonempty string when status is ok",
+        )
+
+tests/test_state_validation.py:279: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_a_green_project_needs_a_r0'), paths=Paths(overlay=PosixP...ect_needs_a_r0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_a_green_project_needs_a_r0/dagu-home'})
+result = <Result okay>, code = 2
+field = 'projects.alpha.path must be a nonempty string when status is ok'
+
+    def assert_state_error(plane: Plane, result, code: int, field: str) -> None:
+>       assert result.exit_code == code, result.output
+E       AssertionError: global compile: ok
+E         alpha  None  compile: ok  workflows: 1
+E         
+E       assert 0 == 2
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_state_validation.py:71: AssertionError
+___________ test_emit_refuses_before_enqueue_on_a_missing_state_file ___________
+
+plane = Plane(root=PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_emit_refuses_before_enque0'), paths=Paths(overlay=PosixP..._before_enque0/guard.sh', 'DAGU_HOME': '/tmp/pytest-of-andrew/pytest-23253/test_emit_refuses_before_enque0/dagu-home'})
+fake = PosixPath('/tmp/pytest-of-andrew/pytest-23253/test_emit_refuses_before_enque0/dagu.log')
+
+    def test_emit_refuses_before_enqueue_on_a_missing_state_file(plane: Plane, fake: Path):
+        good_compile(plane)
+        plane.paths.compile_json.unlink()
+    
+        result = invoke(plane, "emit", "save", "--project", "alpha", "--subject", "a.py")
+    
+        assert result.exit_code == 2, result.output
+>       assert "is missing; run devman compile" in last_event(plane)["refusal"]
+E       assert 'is missing; run devman compile' in "cannot read /tmp/pytest-of-andrew/pytest-23253/test_emit_refuses_before_enque0/state/compile.json: [Errno 2] No such file or directory: '/tmp/pytest-of-andrew/pytest-23253/test_emit_refuses_before_enque0/state/compile.json'"
+
+tests/test_state_validation.py:356: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_state_validation.py::test_missing_state_is_an_initial_condition
+FAILED tests/test_state_validation.py::test_broken_json_refuses_every_command_and_changes_nothing
+FAILED tests/test_state_validation.py::test_truthy_non_mapping_state_refuses_cleanly[[]]
+FAILED tests/test_state_validation.py::test_truthy_non_mapping_state_refuses_cleanly[[1]]
+FAILED tests/test_state_validation.py::test_truthy_non_mapping_state_refuses_cleanly[42]
+FAILED tests/test_state_validation.py::test_truthy_non_mapping_state_refuses_cleanly["x"]
+FAILED tests/test_state_validation.py::test_string_global_reasons_cannot_report_green
+FAILED tests/test_state_validation.py::test_malformed_global_fields_are_named
+FAILED tests/test_state_validation.py::test_boolean_version_is_not_a_valid_state_version
+FAILED tests/test_state_validation.py::test_null_project_record_does_not_raise_anywhere
+FAILED tests/test_state_validation.py::test_null_workflow_record_does_not_raise_anywhere
+FAILED tests/test_state_validation.py::test_nested_project_record_fields_are_validated
+FAILED tests/test_state_validation.py::test_a_green_project_needs_a_real_path
+FAILED tests/test_state_validation.py::test_emit_refuses_before_enqueue_on_a_missing_state_file
+========================= 14 failed, 2 passed in 1.37s =========================

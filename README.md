@@ -135,7 +135,14 @@ The project keeps its earlier files, and `devman status` shows them as stale.
 Compile records a global refusal and exits 1 when an input fails, including when
 `DEVMAN_GUARD` is not a file.
 
+Prior state decides how a run starts. A missing `compile.json` is an initial
+condition: the next full compile starts fresh. A malformed state file is an
+error: compile exits 1 before it publishes anything and leaves the state file
+and every published file unchanged. The error names the malformed field's path,
+such as `global.reasons must be a list of strings`.
+
 The router refuses an event when the project is unknown or its path is missing.
+It also refuses before any enqueue while state is missing or malformed.
 
 ## Files that devman writes
 

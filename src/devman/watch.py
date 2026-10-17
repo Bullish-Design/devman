@@ -21,7 +21,7 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
-from devman import router
+from devman import router, state
 from devman.compile import compile as run_compile
 from devman.paths import Paths
 
@@ -71,10 +71,20 @@ def seconds(text: str) -> float:
 
 
 def save_projects(paths: Paths) -> dict[str, dict]:
-    """The `compile.json` records of the projects with a `save` entry."""
+    """The `compile.json` records of the projects with a `save` entry.
+
+    Missing or malformed state selects no project. The watcher keeps watching
+    the overlay, so a repaired input can trigger a compile that repairs state.
+    """
+    try:
+        doc = state.read(paths.compile_json)
+    except state.StateError:
+        return {}
+    if doc is None:
+        return {}
     return {
         name: rec
-        for name, rec in paths.compile_doc().get("projects", {}).items()
+        for name, rec in doc["projects"].items()
         if rec.get("path") and any(e.get("event") == "save" for e in rec.get("on", []))
     }
 

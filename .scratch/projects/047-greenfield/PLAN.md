@@ -1615,6 +1615,36 @@ Version 1 or missing global state requires a full compile. A partial compile
 never advances the successful digest. A refusal keeps the previous digest and
 last good DAG files. The router continues to use the last good project records.
 
+### A.3.1 The state reader (048 state validation)
+
+One module, `src/devman/state.py`, reads and validates `compile.json` for
+every command: `compile`, `status`, `show`, `doctor`, `emit`, `run` and the
+watcher's project selection. It raises `StateError`, a `ValueError` that
+carries a field path, for malformed JSON or a wrong shape. It checks no
+truthiness (`[]` and `[1]` share one wrong type). The message names the file,
+the field path and the expected type, never the bad value:
+`compile.json: global.reasons must be a list of strings`.
+
+| Prior state | Reader result | `compile` | `status`, `show` | `doctor` | `emit`, `run` |
+|---|---|---|---|---|---|
+| Missing file | `None` | starts the first full compile | exit 2, names the missing file | exit 1, `compile clean` finding | refuse before enqueue, refusal on the event line |
+| Valid version 1 | validated legacy document | full compile may upgrade it and preserves records | exit 1, full compile required | exit 1, full compile required | use the last good records |
+| Valid version 2 | validated document | uses prior records | derives health | derives health | normal |
+| Malformed JSON or shape | `StateError` with a field path | exit 1 before publication: state and published files keep their bytes | exit 2 with the field path | exit 1, `compile clean` finding | refuse before enqueue, refusal on the event line |
+
+Validated fields: top level `version` (integer 1 or 2, not a boolean),
+`compiled_at`, `projects`; version 2 also `global` with `status`, `at`,
+`reasons` and a digest-or-null, where green requires a digest and no reasons;
+per project `status`, boolean `stale`, `at`, `reasons`, `on` (string
+`event`/`run`, string lists `match`/`exclude`), `workflows` (string
+`dag`/`file`/`origin`/`source`, sha256 `sha256`) and `path` (nonempty when the
+status is `ok`, null allowed for a first-compile refusal). Extra keys stay for
+future additions and never fill a missing required field. A malformed file is
+never replaced: its last good routes cannot be recovered, so compile refuses
+before it publishes and no command overwrites it to record a refusal. The
+watcher reads the same reader; malformed state selects no project, and the
+overlay stays watched so a repaired input can trigger the compiling fix.
+
 ### A.4 `events.jsonl`
 
 One JSON object per line, one line per `devman emit` or `devman run` call:
@@ -1704,7 +1734,8 @@ A run sees `DEVMAN_PROJECT_DIR` (header), `DEVMAN_EVENT` and `DEVMAN_SUBJECT`
 ```
 
 With no project, `project` is replaced by `projects`, an array of these objects.
-Global refusal or stale input exits 1. Unreadable state and usage errors exit 2.
+Global refusal or stale input exits 1. Missing or malformed state and usage
+errors exit 2; a malformed field names its path (§A.3.1).
 
 ---
 
@@ -1717,7 +1748,7 @@ property 4 exists to prevent.
 
 **Mechanism: a guard shell.** The compiled header sets the DAG shell to
 `dagu/guard.sh` (Stage 7 as built: a `shell:` in `base.yaml` did not reach a
-step on Dagu 2.20.1):
+step on Dagu 2.20.1, so the header owns the guard):
 
 ```bash
 #!@bash@
@@ -1741,7 +1772,8 @@ directory before the first step. An empty directory has neither marker.
 | A first step in the header | Impossible. The header cannot add to the source's `steps:` without rewriting the source. |
 | A check inside `devman.task` only | Covers library workflows only. A project workflow with a plain `run:` step would still succeed in an empty directory. |
 | The router refuses an event for a missing path | Kept (Stage 4), but it does not cover a scheduled run, which never passes the router. |
-| **A guard shell in `base.yaml`** | **Chosen.** Every `run:` step of every workflow passes through the DAG shell, from any trigger, schedule included. It fails the step with a reason on stderr. It is one file of seven lines and needs no change to any source. |
+| **The compiled header's `shell`** | **Chosen.** Every `run:` step of every workflow passes through the DAG shell, from any trigger, schedule included. It fails the step with a reason on stderr. It is one header line in each rendered file and needs no change to any source. |
+| A guard shell in `base.yaml` | Measured out (Stage 7): a base `shell:` does not reach a step on Dagu 2.20.1; the step ran under `$SHELL`. Kept in Stage 1's base proposal as the measurement history that forced the header choice. |
 
 **Limits, stated in `library/README.md`:**
 
@@ -1782,7 +1814,7 @@ one still edits both files.
 | B13 | §8 | `format` keeps no loop receipt; `release` runs the test as its first step. | The `.devman/.runs` receipt and `metadata.jsonl` go (§12). | 7 |
 | B14 | §12 | The cutover deletes `~/.local/share/dagu` too. | Old history and a 2.15 DAG index have no value (R12). | 10 |
 | B15 | §5 | Compile checks `path` with a read-only test and never creates it. State the reason: Dagu creates a missing `working_dir` or `log_dir` and the run succeeds (M2). | M2. | 3 |
-| B16 | §5, new §5.1 | A run-time checkout guard: `base.yaml` sets the DAG shell to a guard that fails a step when `DEVMAN_PROJECT_DIR` has neither `.git` nor `.jj` (§A.8). The router also refuses an event for a missing path. | M2: compile's check holds only at compile time. A precondition would skip, not fail. | 4, 7 |
+| B16 | §5, new §5.1 | A run-time checkout guard: the compiled header sets the DAG shell to a guard that fails a step when `DEVMAN_PROJECT_DIR` has neither `.git` nor `.jj` (§A.8). The router also refuses an event for a missing path. | M2: compile's check holds only at compile time. A precondition would skip, not fail. A base `shell:` does not reach a step (Stage 7, Dagu 2.20.1), so the header owns the guard. | 4, 7 |
 | B17 | §7 | The `done`/`failed` source is one base `handler_on.exit` that maps `DAG_RUN_STATUS`, detaches `devman emit` with `setsid -f`, and always exits 0. | M3: the run waits for its handler, and a failing handler fails the run. | 7 |
 | B18 | §5, §7 | Merge rule: a DAG's own `handler_on.<key>` replaces the base handler of that key only. devman uses `exit` only, so compile refuses a source that sets `handler_on.exit`; other keys are free. | M3. | 3, 7 |
 | B19 | §7 | The router calls `dagu enqueue` with the absolute path of the compiled file, `--run-id <uuid4>` and `--labels devman.event=<event>`, and passes fields as `-- KEY=value`. It never uses `--name` or `--default-working-dir`. | M4: the CLI does not find a subdirectory DAG by name. M6: `--name` splits history; `enqueue` ignores `--default-working-dir`; a duplicate run ID is refused. | 4 |

@@ -21,7 +21,7 @@ from typing import Any
 
 import yaml
 
-from devman import dagu
+from devman import dagu, state
 from devman.health import input_digest
 from devman.manifest import PROJECT_RE, Project, load, workflow_name_error
 from devman.paths import Paths
@@ -306,9 +306,14 @@ def compile(
 
 
 def _read_compile_doc(paths: Paths) -> dict[str, Any]:
-    if not paths.compile_json.exists():
-        return {}
-    return json.loads(paths.compile_json.read_text())
+    """Validated prior compile state, or `{}` when the file is missing.
+
+    Raise StateError when the file exists but is malformed. A malformed file
+    is an error, not a first compile: this run must not replace it, because
+    its last good routes cannot be recovered.
+    """
+    doc = state.read(paths.compile_json)
+    return doc if doc is not None else {}
 
 
 def _write_result(
@@ -320,8 +325,6 @@ def _write_result(
     successful_digest: str | None,
 ) -> None:
     old_global = old_doc.get("global", {})
-    if not isinstance(old_global, dict):
-        old_global = {}
     same_global = (
         old_global.get("status") == status
         and old_global.get("reasons", []) == reasons
@@ -382,11 +385,7 @@ def _global_refusal(
 ) -> int:
     previous = old_doc.get("projects", {})
     old_global = old_doc.get("global", {})
-    successful = (
-        old_global.get("successful_input_sha256")
-        if isinstance(old_global, dict)
-        else None
-    )
+    successful = old_global.get("successful_input_sha256")
     try:
         _write_result(paths, old_doc, previous, "refused", [reason], successful)
     except OSError as exc:
@@ -399,12 +398,13 @@ def _global_refusal(
 def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -> int:
     try:
         old_doc = _read_compile_doc(paths)
-    except (OSError, ValueError, TypeError) as exc:
-        print(f"devman: cannot read {paths.compile_json}: {exc}", file=sys.stderr)
+    except state.StateError as exc:
+        # Refuse before any publication. The malformed file and every
+        # published file keep their bytes.
+        print(f"devman: {exc}", file=sys.stderr)
         return 1
+    # Missing state has no records; malformed state never reaches this line.
     previous = old_doc.get("projects", {})
-    if not isinstance(previous, dict):
-        return _global_refusal(paths, old_doc, "compile.json projects is not a mapping")
 
     digest, digest_errors = input_digest(paths)
     if digest_errors:
@@ -505,8 +505,6 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
     global_reasons = [*sorted(refused)]
     if not full and not refused:
         old_global = old_doc.get("global", {})
-        if not isinstance(old_global, dict):
-            old_global = {}
         if (
             old_global.get("status") == "ok"
             and old_global.get("successful_input_sha256") == digest
@@ -521,11 +519,7 @@ def _compile_locked(paths: Paths, names: list[str] | None, validate_all: bool) -
     elif refused:
         global_status = "refused"
         old_global = old_doc.get("global", {})
-        successful_digest = (
-            old_global.get("successful_input_sha256")
-            if isinstance(old_global, dict)
-            else None
-        )
+        successful_digest = old_global.get("successful_input_sha256")
     else:
         global_status = "ok"
         successful_digest = digest

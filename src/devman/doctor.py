@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from devman import dagu
+from devman import dagu, state
 from devman.health import global_health
 from devman.paths import Paths
 
@@ -81,13 +81,11 @@ def check_budget(paths: Paths) -> str | None:
 
 def check_compile(paths: Paths) -> str | None:
     try:
-        doc = paths.compile_doc()
-    except (OSError, ValueError, TypeError):
-        doc = {}
-    if not doc:
-        return f"no readable {paths.compile_json}; run devman compile"
-    if not isinstance(doc.get("projects"), dict):
-        return "compile.json projects is not a mapping"
+        doc = state.read(paths.compile_json)
+    except state.StateError as exc:
+        return str(exc)
+    if doc is None:
+        return f"{paths.compile_json} is missing; run devman compile"
     health = global_health(doc, paths)
     if health["status"] != "ok" or health["stale"]:
         reasons = "; ".join(health["reasons"])
@@ -97,10 +95,26 @@ def check_compile(paths: Paths) -> str | None:
     return f"refused: {', '.join(bad)}" if bad else None
 
 
+class _StateCheckError(Exception):
+    """Carries the state error text into one doctor finding."""
+
+
+def _state_or_none(paths: Paths) -> dict:
+    """Validated compile state, `{}` when missing; a finding cannot come from here."""
+    try:
+        return state.read(paths.compile_json) or {}
+    except state.StateError as exc:
+        raise _StateCheckError(str(exc)) from exc
+
+
 def check_dags(paths: Paths) -> str | None:
     """Every compiled file exists with its hash, and no other file is in `dags/`."""
     expect: dict[Path, str] = {}
-    for rec in paths.compile_doc().get("projects", {}).values():
+    try:
+        doc = _state_or_none(paths)
+    except _StateCheckError as exc:
+        return str(exc)
+    for rec in doc.get("projects", {}).values():
         for info in rec["workflows"].values():
             expect[Path(info["file"])] = info["sha256"]
     problems = []
@@ -120,9 +134,13 @@ def check_dags(paths: Paths) -> str | None:
 
 def check_checkouts(paths: Paths) -> str | None:
     """Every project path holds `.git` or `.jj`, so the guard passes."""
+    try:
+        doc = _state_or_none(paths)
+    except _StateCheckError as exc:
+        return str(exc)
     gone = [
         n
-        for n, r in paths.compile_doc().get("projects", {}).items()
+        for n, r in doc.get("projects", {}).items()
         if not any(os.path.exists(Path(r["path"]) / m) for m in (".git", ".jj"))
     ]
     return f"no .git or .jj in: {', '.join(gone)}" if gone else None

@@ -200,6 +200,13 @@ digest. A changed input stays stale until a full compile succeeds. A global
 failure keeps the last good DAG files and digest. A partial compile never
 advances the digest. See PLAN A.3 and finding F4 in project 048.
 
+One validated reader serves every command that reads `compile.json`. A
+missing file is an initial condition: the next full compile starts fresh. A
+malformed file is an error, never an initial condition: compile refuses it and
+leaves the file and every published file unchanged, and status, show, doctor
+and the router name the malformed field's path. Malformed data never counts as
+green health.
+
 ### 5.1 The checkout guard
 
 Compile checks `path` only at compile time. A checkout that vanishes later
@@ -356,6 +363,8 @@ The CLI uses Typer: one typed function per command (PLAN Q11, decided 2026-10-15
 
 `status` and `doctor` also report a refused global compile, unreadable input,
 or changed input. A version 1 state needs a full compile before health is green.
+Malformed state never counts as green: `status` and `show` exit 2 with the
+malformed field's path, and `doctor` reports it under `compile clean`.
 
 ## 12. What goes
 

@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from devman import dagu
+from devman import dagu, state
 from devman.health import global_health
 from devman.paths import Paths
 from devman.router import find_project
@@ -105,14 +105,18 @@ def _global_text(info: dict[str, Any]) -> list[str]:
 
 
 def status(paths: Paths, name: str | None, as_json: bool, cwd: Path) -> tuple[int, str]:
-    """Return (exit code, output). Unreachable Dagu is not an error."""
+    """Return (exit code, output). Unreachable Dagu is not an error.
+
+    Missing state is an initial condition and exits 2. Malformed state
+    exits 2 with the field path and never emits a partial result.
+    """
     try:
-        doc = json.loads(paths.compile_json.read_text())
-        projects = doc["projects"]
-        if not isinstance(projects, dict):
-            raise ValueError("projects is not a mapping")
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        return 2, f"devman: cannot read {paths.compile_json}: {exc}"
+        doc = state.read(paths.compile_json)
+    except state.StateError as exc:
+        return 2, f"devman: {exc}"
+    if doc is None:
+        return 2, f"devman: {paths.compile_json} is missing; run devman compile"
+    projects = doc["projects"]
     health = global_health(doc, paths)
     exit_code = 1 if health["status"] != "ok" or health["stale"] else 0
     name = name or find_project(projects, cwd)
@@ -141,9 +145,12 @@ def status(paths: Paths, name: str | None, as_json: bool, cwd: Path) -> tuple[in
 def show(paths: Paths, flow: str, name: str | None, cwd: Path) -> tuple[int, str]:
     """Return (exit code, output): the compiled path, the source path, the file."""
     try:
-        projects = paths.records()
-    except (OSError, ValueError, KeyError) as exc:
-        return 2, f"devman: cannot read {paths.compile_json}: {exc}"
+        doc = state.read(paths.compile_json)
+    except state.StateError as exc:
+        return 2, f"devman: {exc}"
+    if doc is None:
+        return 2, f"devman: {paths.compile_json} is missing; run devman compile"
+    projects = doc["projects"]
     name = name or find_project(projects, cwd)
     if name is None or name not in projects:
         return 2, f"devman: no project {name or os.fspath(cwd)}"

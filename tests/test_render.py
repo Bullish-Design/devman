@@ -40,6 +40,16 @@ def test_header_keys_are_added_when_absent() -> None:
     assert doc["params"] == [{"DEVMAN_EVENT": ""}, {"DEVMAN_SUBJECT": ""}]
     assert doc["queue"] == "light"
     assert "name" not in doc
+    # The guard owner is the compiled header (PLAN §A.8; Stage 7 measured that
+    # a base `shell:` never reaches a step on Dagu 2.20.1). The packaged base
+    # carries no top-level shell of its own.
+    packaged = yaml.safe_load(
+        Path(__file__)
+        .resolve()
+        .parent.parent.joinpath("src/devman/base.yaml")
+        .read_text()
+    )
+    assert "shell" not in packaged
 
 
 def test_the_header_comments_and_the_source_text() -> None:
