@@ -62,17 +62,22 @@ def test_a_source_without_a_final_newline_gets_one() -> None:
 
 @pytest.mark.parametrize(
     ("key", "value"),
-    [
-        ("working_dir", '"/elsewhere"'),
-        ("group", '"mine"'),
-        ("labels", "[a=b]"),
-    ],
+    [("group", '"mine"'), ("labels", "[a=b]")],
 )
-def test_the_source_wins_for_working_dir_group_and_labels(key: str, value: str) -> None:
+def test_the_source_wins_for_group_and_labels(key: str, value: str) -> None:
     out = make(f"{key}: {value}\nsteps: []\n")
     doc = yaml.safe_load(out)  # a duplicate key would raise or override
     assert out.count(f"\n{key}:") + out.startswith(f"{key}:") == 1
     assert doc[key] == yaml.safe_load(value)
+
+
+def test_working_dir_is_refused_and_the_manifest_path_is_always_rendered() -> None:
+    assert refusals('working_dir: "/elsewhere"\nqueue: light\nsteps: []\n') == [
+        "devman/check: top-level working_dir is set by devman; "
+        "the manifest sets the project directory"
+    ]
+    doc = yaml.safe_load(make("queue: light\nsteps: []\n"))
+    assert doc["working_dir"] == "/work/devman"
 
 
 def test_a_path_with_odd_characters_is_quoted() -> None:
@@ -101,17 +106,17 @@ def test_later_documents_stay() -> None:
     ],
 )
 def test_header_owned_keys_are_refused(key: str, advice: str) -> None:
-    assert refusals(f"{key}: x\nsteps: []\n") == [
+    assert refusals(f"queue: light\n{key}: x\nsteps: []\n") == [
         f"devman/check: top-level {key} is set by devman; {advice}"
     ]
 
 
 def test_handler_on_exit_is_refused_but_other_handlers_are_free() -> None:
-    assert refusals("handler_on:\n  exit:\n    run: x\n") == [
+    assert refusals("queue: light\nhandler_on:\n  exit:\n    run: x\n") == [
         "devman/check: handler_on.exit is set by devman; "
         "use handler_on.success or handler_on.failure"
     ]
-    assert refusals("handler_on:\n  success:\n    run: x\n") == []
+    assert refusals("queue: light\nhandler_on:\n  success:\n    run: x\n") == []
 
 
 def test_a_first_document_that_is_not_a_mapping_is_refused() -> None:
@@ -136,18 +141,20 @@ def test_invalid_yaml_is_refused() -> None:
     ],
 )
 def test_params_that_declare_both_names_pass(params: str) -> None:
-    assert refusals(f"params: {params}\nsteps: []\n") == []
+    assert refusals(f"queue: light\nparams: {params}\nsteps: []\n") == []
 
 
 @pytest.mark.parametrize("params", ["[A=1]", "[DEVMAN_EVENT]", "[]", "{}"])
 def test_params_that_miss_a_name_are_refused(params: str) -> None:
-    assert refusals(f"params: {params}\nsteps: []\n") == [
+    assert refusals(f"queue: light\nparams: {params}\nsteps: []\n") == [
         "devman/check: params must declare DEVMAN_EVENT and DEVMAN_SUBJECT"
     ]
 
 
 def test_a_source_with_params_keeps_them_and_the_header_adds_none() -> None:
-    out = make("params:\n  - DEVMAN_EVENT: x\n  - DEVMAN_SUBJECT: y\nsteps: []\n")
+    out = make(
+        "queue: light\nparams:\n  - DEVMAN_EVENT: x\n  - DEVMAN_SUBJECT: y\nsteps: []\n"
+    )
     assert out.count("\nparams:") + out.startswith("params:") == 1
 
 
@@ -156,3 +163,17 @@ def test_an_unconfigured_queue_is_refused() -> None:
         "devman/check: queue undefinedq is not configured; configured: light, heavy"
     ]
     assert refusals("queue: heavy\nsteps: []\n") == []
+
+
+@pytest.mark.parametrize("queue", [None, "", "   ", "~", "[]", "{}", "1"])
+def test_a_missing_or_non_string_queue_is_refused(queue: str | None) -> None:
+    source = "steps: []\n" if queue is None else f"queue: {queue}\nsteps: []\n"
+    assert refusals(source) == [
+        "devman/check: queue must be a nonempty configured string"
+    ]
+
+
+def test_a_source_cannot_replace_the_packaged_devman_task_action() -> None:
+    assert refusals(
+        "queue: light\nactions:\n  devman.task:\n    command: echo replaced\n"
+    ) == ["devman/check: action devman.task is reserved by the packaged base"]

@@ -12,7 +12,9 @@ from devman import dagu, doctor
 from devman.cli import app
 from devman.compile import compile
 
-ACTION_FLOW = "steps:\n  - action: devman.task\n    with: {task: base:check}\n"
+ACTION_FLOW = (
+    "queue: light\nsteps:\n  - action: devman.task\n    with: {task: base:check}\n"
+)
 BASE = (
     "queue: light\nactions:\n  devman.task:\n    input_schema: {type: object}\n"
     "    template: {run: x}\n"
@@ -40,7 +42,7 @@ def test_a_healthy_plane_passes_the_file_checks(plane: Plane):
 
 def test_compile_clean_fails_on_a_refused_project(plane: Plane):
     setup(plane)
-    plane.own("alpha", "check", "env: {A: b}\nsteps: []\n")
+    plane.own("alpha", "check", "queue: light\nenv: {A: b}\nsteps: []\n")
     assert compile(plane.paths) == 1
     assert "alpha" in findings(plane)["compile clean"]
 
@@ -82,7 +84,7 @@ def test_checkouts_fail_when_the_markers_are_gone(plane: Plane):
 
 def test_actions_fail_for_a_name_that_base_does_not_define(plane: Plane):
     setup(plane)
-    plane.library("bad", "steps:\n  - action: devman.nope\n")
+    plane.library("bad", "queue: light\nsteps:\n  - action: devman.nope\n")
     msg = findings(plane)["library actions"]
     assert "bad.yaml names action devman.nope" in msg
     assert "check.yaml" not in msg
@@ -90,7 +92,9 @@ def test_actions_fail_for_a_name_that_base_does_not_define(plane: Plane):
 
 def test_actions_find_a_name_in_a_later_document(plane: Plane):
     setup(plane)
-    plane.library("two", "steps: []\n---\nname: sub\nsteps:\n  - action: x.y\n")
+    plane.library(
+        "two", "queue: light\nsteps: []\n---\nname: sub\nsteps:\n  - action: x.y\n"
+    )
     assert "x.y" in findings(plane)["library actions"]
 
 

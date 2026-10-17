@@ -12,6 +12,7 @@ import yaml
 
 # Top-level keys the header owns, and what to do instead.
 HEADER_OWNED = {
+    "working_dir": "the manifest sets the project directory",
     "env": "use step env or params",
     "log_dir": "devman sets the log directory",
     "shell": "devman sets the checkout guard shell",
@@ -60,10 +61,15 @@ def check_source(text: str, queues: Collection[str], label: str) -> list[str]:
     if "params" in doc and not set(EVENT_PARAMS) <= _param_names(doc["params"]):
         reasons.append(f"{label}: params must declare DEVMAN_EVENT and DEVMAN_SUBJECT")
     queue = doc.get("queue")
-    if queue is not None and queue not in queues:
+    if not isinstance(queue, str) or not queue.strip():
+        reasons.append(f"{label}: queue must be a nonempty configured string")
+    elif queue not in queues:
         reasons.append(
             f"{label}: queue {queue} is not configured; configured: {', '.join(queues)}"
         )
+    actions = doc.get("actions")
+    if isinstance(actions, dict) and "devman.task" in actions:
+        reasons.append(f"{label}: action devman.task is reserved by the packaged base")
     return reasons
 
 
@@ -100,7 +106,7 @@ def render(
         f"# devman: project={project} workflow={workflow} origin={origin}",
         f"# devman: source={source_path}",
         f"# devman: source-sha256={hashlib.sha256(source_text.encode()).hexdigest()}",
-        f"working_dir: {q(str(project_path))}" if "working_dir" not in keys else "",
+        f"working_dir: {q(str(project_path))}",
         f"log_dir: {q(str(log_dir))}",
         f"shell: {q(guard)}",
         f"group: {q(project)}" if "group" not in keys else "",

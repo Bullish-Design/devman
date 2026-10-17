@@ -52,6 +52,8 @@ section A and `CONCEPT.md` in the same commit.
 - The library (`~/.config/devman/library/`) is overlay content. Its README says
   what each file does. Never copy that detail into a mechanism document.
 - A per-project workflow lives in `~/.config/devman/workflows/<project>/`.
+- The manifest owns `working_dir`. Every workflow source names a configured
+  queue. Compile refuses a source that omits either contract.
 - The `base.yaml` template holds three tokens: `@bash@`, `@devman@`, `@stateDir@`.
   Compile fills them. `DEVMAN_GUARD` goes in the header, not in `base.yaml`.
 - The three devman skills live in the overlay at

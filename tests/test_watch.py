@@ -202,7 +202,7 @@ def test_an_overlay_edit_compiles_and_restarts_only_on_a_path_change(
 ):
     plane = service.plane
     # A changed workflow is a compile and no change of the watch set.
-    plane.library("check", "steps:\n  - name: s\n    run: echo changed\n")
+    plane.library("check", "queue: light\nsteps:\n  - name: s\n    run: echo changed\n")
     service.wait_for(lambda: "changed" in plane.dag("alpha", "check").read_text())
     time.sleep(1)
     assert service.count("watchexec starting") == 1

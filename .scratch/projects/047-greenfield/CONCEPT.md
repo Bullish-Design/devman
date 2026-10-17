@@ -156,10 +156,12 @@ For each project, compile does this:
    (the guard, §5.1), `env:
    DEVMAN_PROJECT_DIR`, `group: <project>` and `labels: project=<project>`, and
    `params:` `DEVMAN_EVENT` and `DEVMAN_SUBJECT` with empty defaults. The header
-   never sets `name:`. For `working_dir`, `group` and `labels` the source wins.
-   Top-level `env`, `log_dir` and `shell`, and `handler_on.exit`, belong to the
-   header and the base: a source that sets one is refused (ruling Q8). A source
-   with its own `params:` must declare both event parameters.
+   never sets `name:`. The manifest always sets `working_dir`; a source that
+   sets it is refused. For `group` and `labels`, the source wins. Top-level
+   `env`, `log_dir` and `shell`, and `handler_on.exit`, belong to the header and
+   the base: a source that sets one is refused (ruling Q8). A source with its
+   own `params:` must declare both event parameters. Each source must name a
+   queue that Dagu config defines.
 3. **Validate** each changed file with `dagu validate`.
 4. **Publish** each changed file by atomic rename into
    `dags/<project>/`. Delete the files of workflows the project no longer has.
@@ -171,8 +173,9 @@ For each project, compile does this:
 - its `path` does not exist or is not a directory. Compile tests it read-only
   and never creates it, because Dagu creates a missing `working_dir` and the
   run then succeeds in an empty directory;
-- a source sets a header-owned key (above), or names a `queue:` that
-  `config.yaml` does not define (Dagu runs such a queue at once, with no limit);
+- a source sets a header-owned key (above), or omits `queue:`, or names a
+  non-string, empty or unconfigured queue (Dagu runs an undefined queue at once,
+  with no limit; findings F1 and F3 in project 048);
 - a `take` entry or an `on.run` entry names a workflow that does not exist;
 - any of its rendered files fails `dagu validate`;
 - `workflows/<project>/` exists but the project has no manifest entry (this

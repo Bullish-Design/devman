@@ -60,6 +60,8 @@ commits nothing.
 Put a file at `~/.config/devman/workflows/<project>/<name>.yaml`. Use a library
 name to replace the library file for that project. Name a new workflow in an `on`
 entry to run it on an event. The `devman-workflow` skill has the rules.
+Set a queue in every workflow file. Use a queue from the Dagu configuration.
+The manifest path sets `working_dir`; do not set it in a workflow file.
 
 ## Run a workflow on an event
 

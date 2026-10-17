@@ -90,6 +90,8 @@ run     = "format"                # a workflow the project has
 - `match` tests the subject of the event. `*` does not cross `/`. `**` crosses
   it. There is no brace expansion.
 - Each project has two levels only: its own files, then the library.
+- The manifest path owns `working_dir`. A source that sets `working_dir` is
+  refused. Every source must name a nonempty queue from `services.devman.queues`.
 
 | Event | Subject | Source |
 |---|---|---|
@@ -121,8 +123,9 @@ Compile refuses one project and leaves its files unchanged when:
 
 - its `path` is not a directory;
 - a source sets a key the header owns: top-level `env`, `log_dir` or `shell`, or
-  `handler_on.exit`;
-- a source names a `queue:` that the Dagu config does not define;
+  `handler_on.exit`, or sets `working_dir`;
+- a source omits `queue:`, sets a non-string or empty queue, or names a queue
+  that the Dagu config does not define;
 - a `take` or `run` entry names a workflow that does not exist;
 - a rendered file fails `dagu validate`;
 - `on` entries form a `done`/`failed` loop;

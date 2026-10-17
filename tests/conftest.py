@@ -18,7 +18,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 FAKES = Path(__file__).parent / "fakes"
 ROOT = Path(__file__).resolve().parent.parent
 BASH = shutil.which("bash") or "/bin/bash"
-STEP = "steps:\n  - name: s\n    run: echo hi\n"
+STEP = "queue: light\nsteps:\n  - name: s\n    run: echo hi\n"
 
 
 @dataclass

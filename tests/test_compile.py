@@ -52,7 +52,9 @@ def test_compile_publishes_each_project(plane: Plane) -> None:
 def test_a_project_workflow_replaces_the_library_file(plane: Plane) -> None:
     plane.library("check", STEP)
     plane.add_project("alpha", '"check"')
-    plane.own("alpha", "check", "steps:\n  - name: mine\n    run: echo mine\n")
+    plane.own(
+        "alpha", "check", "queue: light\nsteps:\n  - name: mine\n    run: echo mine\n"
+    )
     plane.own("alpha", "extra")  # a file with no `take` is in the set too
     assert compile(plane.paths) == 0
     workflows = plane.record()["projects"]["alpha"]["workflows"]
@@ -88,7 +90,10 @@ BROKEN_SOURCES = {
         "handler_on:\n  exit:\n    run: x\n" + STEP,
         "handler_on.exit is set by devman",
     ),
-    "queue": ("queue: undefinedq\n" + STEP, "queue undefinedq is not configured"),
+    "queue": (
+        STEP.replace("queue: light\n", "queue: undefinedq\n"),
+        "queue undefinedq is not configured",
+    ),
     "params": ("params: [A=1]\n" + STEP, "params must declare DEVMAN_EVENT"),
     "name": ("name: foo\n" + STEP, "entrypoint document must not define name"),
     "not-a-mapping": ("- a\n", "the first document is not a mapping"),
@@ -122,7 +127,7 @@ def test_a_refused_source_keeps_the_published_files_and_isolates_the_project(
 
 
 def test_a_project_refused_on_its_first_compile_is_not_stale(plane: Plane) -> None:
-    plane.library("check", "queue: undefinedq\n" + STEP)
+    plane.library("check", STEP.replace("queue: light\n", "queue: undefinedq\n"))
     plane.add_project("alpha", '"check"')
     assert compile(plane.paths) == 1
     alpha = plane.record()["projects"]["alpha"]

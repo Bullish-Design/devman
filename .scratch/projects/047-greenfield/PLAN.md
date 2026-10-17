@@ -419,6 +419,9 @@ NixOS module owned `dagu.service`, `devman-watch.service` and
 
 **Verify:** the common verify command.
 
+**Superseded by project 048 finding F3.** The original decision set `queue: light`
+in `base.yaml` as a default. Every workflow now names its queue.
+
 **Depends on M1 (answered: yes).** On 2.20.1 a scheduled run on a queue that
 `config.yaml` defines waits for a free slot. A run on an undefined queue skips
 the queue and runs at once with no limit. A DAG with no `queue:` uses its own
@@ -550,8 +553,8 @@ a broken project without touching its files, and record the result.
 4. **Check** each source (§A.2): a mapping as the first document, no
    header-owned key (`env`, `log_dir`, `shell`, `handler_on.exit`), a `params:`
    (if set) that declares `DEVMAN_EVENT` and `DEVMAN_SUBJECT`, a valid workflow
-   name, a `queue:` (if set) that names a configured queue. The queue list comes from
-   `DEVMAN_DAGU_CONFIG`.
+   name, and an explicit queue string that names a configured queue. The queue
+   list comes from `DEVMAN_DAGU_CONFIG`.
 5. **Render** each file (§A.2).
 6. **Validate** each rendered file whose content differs from the published file.
    Write it to `<state>/tmp/<project>/<project>.<name>.yaml` and run
@@ -581,8 +584,11 @@ Compile never touches a file in `dags/` that it did not write. Dagu creates
 
 ### Tests
 
-- Header keys are added only when absent; `working_dir`, `group` and `labels`
-  set by the source win (§A.2).
+- **Superseded by project 048 findings F1 and F3:** the header always sets
+  `working_dir`, and every source names a configured queue. The original source
+  work-directory and optional queue rules are historical.
+- Header keys are added only when absent; `group` and `labels` set by the source
+  win (§A.2).
 - A source with `env:` or `log_dir:` is refused with the §A.2 text.
 - A source that starts with `---` renders as one document.
 - Every refusal in CONCEPT §5 and §A.2: the project's files keep their bytes and
@@ -962,7 +968,7 @@ the action. The count of doctor checks rises by one.
 Default project: found from the current directory. With no project and no
 match, show every project, one line each. For one project, print per workflow:
 source (`project` or `library`), triggers (`event match`), schedule (read from
-the compiled file), queue (the file's `queue:` or the base default), last run
+the compiled file), queue (the file's `queue:`), last run
 (time and status from Dagu), and the compile state. `--json` prints §A.7. When
 Dagu does not answer, print `last run: Dagu unreachable` and exit 0 — status
 still has local facts to show.
@@ -1539,18 +1545,21 @@ Rules:
   names in it, in list or map form. Else refuse: `"<file>: params must declare
   DEVMAN_EVENT and DEVMAN_SUBJECT"`. Compile cannot merge two `params:` keys
   without rewriting the source.
-- **Source-wins keys:** `working_dir`, `group`, `labels`. The header adds each
-  only when the source does not set it.
+- **Superseded by project 048 finding F1:** `working_dir` is header-owned and
+  always comes from the manifest. A source that sets it is refused. **Source-wins
+  keys:** `group` and `labels`. The header adds each only when the source does
+  not set it.
 - **Labels are lowercased by Dagu** (M4). The header writes the project name as
   given; a filter on the REST API uses the lowercase form,
   `project=<project, lowercased>`.
 - A source whose first non-blank, non-comment line is `---` loses that line, so
   the header and the source stay one document. Later `---` documents (local
   sub-DAGs) stay as written.
-- `queue:`, if the source sets it, must name a queue in the Dagu config. Else
-  refuse: `"<file>: queue <q> is not configured; configured: light, normal, …"`.
-  M1: a run on an undefined queue skips the queue and runs at once with no
-  limit, and Dagu accepts the file silently.
+- **Superseded by project 048 finding F3:** a source queue was optional and
+  could inherit the base queue. Every source now requires a nonempty string
+  queue. It must name a queue in Dagu config. An unknown queue refuses the
+  source: `"<file>: queue <q> is not configured; configured: light, normal, …"`.
+  M1: an undefined queue skips the limit, and Dagu accepts the file silently.
 
 ### A.3 `compile.json`
 
@@ -1756,8 +1765,8 @@ the overlay; see R13 there). A later stage that changes one still edits both fil
 | B2 | §4 | `on.match` takes a glob or a list of globs. `on.exclude` is an optional list of globs. | No brace expansion in the glob engine. The old `format` trigger excluded `.scratch/**`; 16 of 252 fires there did nothing. | 2 |
 | B3 | §7 | The watcher ignores a fixed list in every project: `.git .jj .devenv .direnv .venv node_modules __pycache__ .gitman .worktrees .devman`. | See below. | 5 |
 | B4 | §4 | Unknown keys refuse the project. Two projects with one `path` are both refused. A `done`/`failed` cycle refuses the project. | A typo or a loop would otherwise fail silently or run forever (property 4). | 2 |
-| B5 | §5 | Top-level `env`, `log_dir` and `shell`, and `handler_on.exit`, are header-owned; a source that sets one is refused. `working_dir`, `group` and `labels` follow "the source wins". | Skipping `env` would drop `DEVMAN_PROJECT_DIR`; skipping `log_dir` would hide the logs from `.devman/runs`; `shell` and `handler_on.exit` would remove the guard and the `done`/`failed` event (B17, B18). | 3 |
-| B6 | §5 | A `queue:` must name a queue that `config.yaml` defines; compile refuses any other. | M1: a run on an undefined queue skips the queue and runs at once with no limit, and Dagu accepts the file silently. | 3 |
+| B5 | §5 | Top-level `working_dir`, `env`, `log_dir` and `shell`, and `handler_on.exit`, are mechanism-owned; a source that sets one is refused. The manifest supplies `working_dir`. `group` and `labels` follow "the source wins". | F1: a source work directory can create a wrong successful run. Skipping `env` would drop `DEVMAN_PROJECT_DIR`; skipping `log_dir` would hide the logs; `shell` and `handler_on.exit` would remove the guard and the `done`/`failed` event (B17, B18). | 3 |
+| B6 | §5 | Every workflow source must name a nonempty queue string that `config.yaml` defines; compile refuses a missing or unknown queue. | F3 and M1: an undefined queue skips the limit, and Dagu accepts the file silently. An omitted queue can inherit an unsafe default. | 3 |
 | B7 | §5 | A full compile deletes `dags/<p>/` of a project that left the manifest, using the previous `compile.json`. `runs/<p>/` stays. | §5 covers removed workflows and orphan sources, not removed projects. | 3 |
 | B8 | §7 | The router reads `compile.json`, not `projects.toml`. | The `on` entries then always match the files Dagu runs, also for a stale project. | 4 |
 | B9 | §7 | One emit enqueues each matched workflow once, however many subjects match. The run gets `DEVMAN_EVENT` and `DEVMAN_SUBJECT`. `DEVMAN_` is a reserved parameter prefix. | A save of 20 files must give one format run, not 20. | 4 |
