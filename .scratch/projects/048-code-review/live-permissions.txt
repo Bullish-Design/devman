@@ -1,0 +1,5 @@
+710 /home/andrew
+755 /home/andrew/.local
+700 /home/andrew/.local/state
+755 /home/andrew/.local/state/devman
+644 /home/andrew/.local/state/devman/events.jsonl

@@ -1,0 +1,1 @@
+{"ready": true, "initial_origin": "library", "after_directory_creation": "library", "after_manifest_edit": "project", "watcher_exit_before_stop": null, "watcher_log": ["devman watch: watchexec starting, 3 paths", "devman watch: watchexec ready", "devman watch: the watch set changed", "devman watch: watchexec starting, 4 paths"]}

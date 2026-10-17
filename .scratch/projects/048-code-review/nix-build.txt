@@ -1,0 +1,1 @@
+warning: Git tree '/home/andrew/Documents/Projects/devman/.gitman/workspaces/048-code-review' is dirty

@@ -1,0 +1,35 @@
+• Validating lock
+  evaluating file '«nix-internal»/derivation-internal.nix'
+  evaluating file '«nix-internal»/derivation-internal.nix'
+✓ Validating lock in 22.4ms
+  evaluating file '«nix-internal»/derivation-internal.nix'
+  evaluating file '«nix-internal»/derivation-internal.nix'
+• Reading config.cachix.enable
+✓ Reading config.cachix.enable in 4.42ms (cached)
+• Configuring cachix
+• Reading config.cachix.pull
+✓ Reading config.cachix.pull in 2.21ms (cached)
+• Reading config.cachix.push
+✓ Reading config.cachix.push in 2.19ms (cached)
+  [35;1mwarning:[0m Substituter '[35;1mhttps://devenv.cachix.org[0m' is already present in the substituters list
+✓ Configuring cachix in 7.78ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 17.8ms (cached)
+• Reading devenv.config.dotenv
+✓ Reading devenv.config.dotenv in 1.93ms (cached)
+✓ Configuring shell in 19.9ms
+• Reading devenv.config.dotenv
+✓ Reading devenv.config.dotenv in 1.53ms (cached)
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 1.01ms (cached)
+✓ Loading tasks in 3.67ms
+• Running tasks
+• Running base:check
+  All checks passed!
+  32 files already formatted
+  Resolved 14 packages in 2ms
+✓ Running base:check in 71.7ms
+✓ Running tasks in 72.2ms
+{}

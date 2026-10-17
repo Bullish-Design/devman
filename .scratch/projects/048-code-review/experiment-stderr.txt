@@ -1,0 +1,2 @@
+devman: compile refused projects.toml: /home/andrew/Documents/Projects/devman/.gitman/workspaces/048-code-review/.scratch/projects/048-code-review/probe-l0w3n_hu/overlay/projects.toml is not valid TOML: Expected ']' at the end of a table declaration (at line 1, column 7)
+devman: compile refused library: /home/andrew/Documents/Projects/devman/.gitman/workspaces/048-code-review/.scratch/projects/048-code-review/probe-l0w3n_hu/overlay/library/base.yaml: invalid YAML: while parsing a flow node
